@@ -101,7 +101,6 @@ export class Helicopter {
     this.state = 'down';
     this.destroyed = true;
     this.vy = -2;
-    game.hud.news('Police helicopter shot down');
     game.crime('copKilled', this.x, this.z);
     return true;
   }
