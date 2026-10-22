@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+const _c = new THREE.Vector3();
+const _e = new THREE.Euler(0, 0, 0, 'YXZ');
 import { CFG } from './config.js';
 import { makeCharacter, animateWalk, setDown, crouchPose, lam } from './character.js';
 import { pushCircle } from './collision.js';
@@ -332,6 +334,124 @@ export class Player {
     vehicle.openDoor(-1, 0.9);
     this.char.group.visible = false;
     this.game.crew?.playerEntered(vehicle);
+  }
+
+  // Bail out of a moving car (over 30 mph): dive out the driver's door, hit the ground with
+  // the car's speed, and tumble until friction stops you. The car rolls on without you.
+  bail() {
+    const v = this.vehicle;
+    if (!v) return;
+    const game = this.game;
+    const [fx, fz] = v.forward();
+    const rx = -fz, rz = fx; // the car's right
+    const lat = v.lat || 0;
+    // Your velocity is the car's (forward + any sideways slide), plus a push out the door.
+    const vx = fx * v.speed + rx * lat;
+    const vz = fz * v.speed + rz * lat;
+    const mph = Math.hypot(vx, vz) * 2.237;
+    this.x = v.x - rx * 1.7;
+    this.z = v.z - rz * 1.7;
+    const r = pushCircle(this.x, this.z, 0.4, game.city.colliders);
+    this.x = r.x;
+    this.z = r.z;
+    v.driver = null;
+    v.runaway = true;
+    v.openDoor(-1, 1.6);
+    this.vehicle = null;
+    this.char.group.visible = true;
+    this.cover = null;
+    this.crouched = false;
+    this.lowProfile = false;
+    // Hitting the ground knocks off some speed (and hurts).
+    const keep = 0.72;
+    this.rollVx = vx * keep - rx * 2.5;
+    this.rollVz = vz * keep - rz * 2.5;
+    this.rolling = true;
+    this.rollAngle = 0;
+    this.getUpT = 0;
+    this.speed = 0;
+    game.hurtPlayer(Math.min(70, 6 + Math.max(0, mph - 30) * 0.9));
+    game.crew?.playerBailed?.(v);
+  }
+
+  // Tumbling along the ground after bailing out, then getting back up.
+  updateRolling(dt) {
+    const game = this.game;
+    const c = this.char;
+    if (this.rolling) {
+      let sp = Math.hypot(this.rollVx, this.rollVz);
+      // Tumbling and sliding on asphalt slows a body at roughly 0.95 g.
+      const nsp = Math.max(0, sp - 9.3 * dt);
+      if (sp > 0) {
+        this.rollVx *= nsp / sp;
+        this.rollVz *= nsp / sp;
+      }
+      sp = nsp;
+      this.x += this.rollVx * dt;
+      this.z += this.rollVz * dt;
+      // Walls: thump into them, bounce off a little, and get hurt if it's hard.
+      const r = pushCircle(this.x, this.z, 0.4, game.city.colliders);
+      if (r.hit) {
+        const vn = this.rollVx * r.nx + this.rollVz * r.nz;
+        if (vn < 0) {
+          if (-vn > 3) game.hurtPlayer((-vn - 3) * 4);
+          this.rollVx -= 1.25 * vn * r.nx;
+          this.rollVz -= 1.25 * vn * r.nz;
+        }
+        this.x = r.x;
+        this.z = r.z;
+      }
+      // Log-roll: body sideways across the direction of travel, spinning about its length.
+      // Part rolling, part sliding: about one full roll every 3.5 m.
+      this.rollAngle += (sp / 0.55) * dt;
+      this.rollHeading = Math.atan2(this.rollVx, this.rollVz) || this.rollHeading || this.heading;
+      this.pose(this.rollHeading, Math.PI / 2, this.rollAngle, 0.28);
+      this.vx = this.rollVx;
+      this.vz = this.rollVz;
+      if (sp < 0.5) {
+        this.rolling = false;
+        this.getUpT = 0.9;
+        // Land face down, ready to push up.
+        this.rollAngle = Math.round(this.rollAngle / Math.PI) * Math.PI;
+      }
+      return;
+    }
+    // Getting up: from lying on your side to standing.
+    this.getUpT -= dt;
+    const k = Math.max(0, this.getUpT / 0.9);
+    const ease = k * k * (3 - 2 * k);
+    this.pose(this.rollHeading || this.heading, (Math.PI / 2) * ease, this.rollAngle * ease, 0.28 * ease);
+    if (this.getUpT <= 0) {
+      this.getUpT = 0;
+      this.heading = this.rollHeading || this.heading;
+      c.group.rotation.set(0, this.heading, 0);
+      this.vx = this.vz = 0;
+      this.sync();
+    }
+  }
+
+  // Place the body by its middle (not its feet) for tumbling poses.
+  pose(yaw, side, spin, radius) {
+    const g = this.char.group;
+    _e.set(spin, yaw, side, 'YXZ');
+    g.rotation.copy(_e);
+    animateWalk(this.char, 0, 0);
+    this.char.armL.rotation.x = this.char.armR.rotation.x = -0.4; // arms tucked
+    _c.set(0, 0.95, 0).applyEuler(_e);
+    const center = this.game.city.groundY(this.x, this.z) + Math.max(radius, 0.95 * Math.cos(side));
+    g.position.set(this.x - _c.x, center - _c.y, this.z - _c.z);
+  }
+
+  // Cancel any tumble (e.g. after respawning).
+  stopRolling() {
+    this.rolling = false;
+    this.getUpT = 0;
+    this.exitStop = false;
+    this.char.group.rotation.set(0, this.heading, 0);
+  }
+
+  get busy() {
+    return this.rolling || this.getUpT > 0;
   }
 
   exit() {

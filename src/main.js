@@ -324,6 +324,7 @@ class Game {
 
   respawnAt(place) {
     if (this.player.vehicle) this.player.exit();
+    this.player.stopRolling();
     this.crew.sendHome();
     this.police.clearAll();
     this.vehicles = this.vehicles.filter((v) => !v.removed);
@@ -1044,10 +1045,25 @@ class Game {
     this.progress = null;
     const city = this.city;
 
+    if (p.busy) return; // tumbling / getting up
     if (p.vehicle) {
       const v = p.vehicle;
-      if (a.enter && Math.abs(v.speed) < 8) {
-        p.exit();
+      // Getting out: stopped -> step out; 30 mph or less -> brake hard to a stop first;
+      // faster -> bail out and tumble.
+      if (a.enter && !p.exitStop) {
+        const mph = Math.abs(v.speed) * 2.237;
+        if (mph < 2) {
+          p.exit();
+          return;
+        }
+        if (mph <= 30) p.exitStop = true;
+        else {
+          p.bail();
+          return;
+        }
+      }
+      if (p.exitStop) {
+        this.prompt = 'Stopping…';
         return;
       }
       if (v.wrecked) {
@@ -1329,7 +1345,7 @@ class Game {
     this.updateWeaponWheel(dt, a);
     this.arsenal.update(dt);
     const gun = !this.arsenal.current().melee;
-    this.aimingNow = !p.vehicle && gun && a.aim;
+    this.aimingNow = !p.vehicle && !p.busy && gun && a.aim;
     // Crouch: toggle with C / L3; sprinting stands you up; aiming pops you up out of cover.
     // One button (C / L3): next to a wall, crate or car it puts you in cover (and you stay
     // there until you press it again or push away); out in the open it toggles crouch.
@@ -1349,8 +1365,21 @@ class Game {
 
     if (p.vehicle) {
       const v = p.vehicle;
-      v.update(dt, { throttle: a.throttle, steer: a.steer, handbrake: a.handbrake, burnout: a.gas && a.brakeHeld, gas: a.gas, brake: a.brakeHeld }, this.city.colliders);
-      this.tireFx(v, dt);
+      if (p.exitStop) {
+        // Braking hard to a stop so you can get out.
+        const stopped = Math.abs(v.speed) < 0.8;
+        // About 1 g of braking: hard but believable.
+        v.update(dt, { throttle: stopped ? 0 : -Math.sign(v.speed) * (9.8 / v.type.brake), steer: a.steer * 0.3, handbrake: false }, this.city.colliders);
+        if (stopped || Math.abs(v.speed) < 0.8) {
+          v.speed = 0;
+          v.lat = 0;
+          p.exitStop = false;
+          p.exit();
+        }
+      } else v.update(dt, { throttle: a.throttle, steer: a.steer, handbrake: a.handbrake, burnout: a.gas && a.brakeHeld, gas: a.gas, brake: a.brakeHeld }, this.city.colliders);
+      if (p.vehicle) this.tireFx(v, dt);
+    } else if (p.busy) {
+      p.updateRolling(dt);
     } else {
       const combat = gun && (this.aimingNow || this.time - this.lastShot < 0.8 || a.fire);
       let faceYaw = combat ? this.camYaw : null;
@@ -1364,7 +1393,14 @@ class Game {
     this.crew.update(dt);
     this.turfWars.update(dt);
     for (const v of this.vehicles) {
-      if (v.driver === null && !v.removed) v.update(dt, { throttle: 0, steer: 0, handbrake: true }, this.city.colliders);
+      if (v.driver === null && !v.removed) {
+        // A car you bailed out of keeps rolling until it slows down on its own.
+        v.update(dt, { throttle: 0, steer: 0, handbrake: !v.runaway }, this.city.colliders);
+        if (v.runaway && Math.abs(v.speed) < 0.5) {
+          v.runaway = false;
+          this.crew.carStopped(v);
+        }
+      }
     }
     resolveCarCollisions(this.vehicles.filter((v) => !v.removed));
     for (const v of this.vehicles) v.sync(dt);

@@ -771,6 +771,14 @@ export class CrewManager {
     }
   }
 
+  // You bailed out at speed: the crew ride it out and get out once it stops.
+  playerBailed() {}
+
+  carStopped(v) {
+    let i = 0;
+    for (const m of this.following) if (m.state === 'inCar' && m.vehicle === v) m.leaveCar(i++);
+  }
+
   // Car blew up with the crew inside.
   carDestroyed(v) {
     for (const m of this.following) {
