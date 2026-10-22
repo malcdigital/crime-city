@@ -4,15 +4,15 @@ import { pushCircle } from './collision.js';
 import { clamp, lerp, wrapAngle } from './util.js';
 
 export const VTYPES = {
-  sedan: { w: 2.0, l: 4.4, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 30, accel: 9, brake: 20, rev: 8, value: 900, label: 'Sedan',
+  sedan: { armor: 2.5, w: 2.0, l: 4.4, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 30, accel: 9, brake: 20, rev: 8, value: 900, label: 'Sedan',
     colors: [0x2a4d8f, 0x8f2a2a, 0xd0d0d0, 0x333333, 0x2f6b4f, 0xc9a227, 0x7a7a7a] },
-  sports: { w: 2.0, l: 4.3, h: 0.75, cab: [1.7, 0.55, 1.8, -0.35], max: 44, accel: 14, brake: 24, rev: 8, value: 2500, label: 'Sports car',
+  sports: { armor: 2.0, w: 2.0, l: 4.3, h: 0.75, cab: [1.7, 0.55, 1.8, -0.35], max: 44, accel: 14, brake: 24, rev: 8, value: 2500, label: 'Sports car',
     colors: [0xd61f1f, 0xf2c40f, 0x111111, 0x1f6fd6] },
-  van: { w: 2.2, l: 5.0, h: 1.9, cab: null, max: 24, accel: 7, brake: 16, rev: 7, value: 700, label: 'Van',
+  van: { armor: 3.0, w: 2.2, l: 5.0, h: 1.9, cab: null, max: 24, accel: 7, brake: 16, rev: 7, value: 700, label: 'Van',
     colors: [0xffffff, 0x5d6d7e, 0xa04000] },
-  police: { w: 2.0, l: 4.6, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 40, accel: 13, brake: 24, rev: 9, value: 1500, label: 'Police cruiser',
+  police: { armor: 3.0, w: 2.0, l: 4.6, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 40, accel: 13, brake: 24, rev: 9, value: 1500, label: 'Police cruiser',
     colors: [0x151515] },
-  swat: { w: 2.4, l: 5.4, h: 1.9, cab: null, max: 32, accel: 10, brake: 20, rev: 7, value: 2200, label: 'SWAT van',
+  swat: { armor: 5.0, w: 2.4, l: 5.4, h: 1.9, cab: null, max: 32, accel: 10, brake: 20, rev: 7, value: 2200, label: 'SWAT van',
     colors: [0x1b1f24] },
 };
 
@@ -186,14 +186,15 @@ export class Vehicle {
   }
 
   // ctrl: { throttle: -1..1, steer: -1..1 (positive = right), handbrake: bool }
+  // Health is 0-100; tougher vehicles (armor) take less from each hit.
   damage(amount, byPlayer) {
     if (this.wrecked) return;
-    this.health -= amount;
+    this.health -= amount / (this.type.armor || 1);
     if (byPlayer) this.byPlayer = true;
     if (this.health <= 0) {
       this.health = 0;
       this.wrecked = true;
-      this.burnT = 4;
+      this.burnT = 7; // on fire: time to get out before it blows
     }
   }
 
