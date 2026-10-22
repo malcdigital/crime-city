@@ -158,6 +158,7 @@ export function buildCity(scene) {
     colliders.push({ minX: x - 0.4, maxX: x + 0.4, minZ: z - 0.4, maxZ: z + 0.4 });
   };
 
+  const alleyCover = [];
   const slabGeo = new THREE.BoxGeometry(B, 0.2, B);
   for (let i = 0; i < N; i++) {
     for (let j = 0; j < N; j++) {
@@ -219,6 +220,13 @@ export function buildCity(scene) {
         if (type === 'normal' && rng() < 0.2) {
           lots.push({ qx: -1, qz: -1, x: cx, z: cz, w: rr(40, 52), d: rr(40, 52) });
         } else {
+          // Alley mouths between the four buildings: room for a dumpster or some crates.
+          const mid = 28;
+          const mouths = [
+            [iMinX + mid, iMinZ + 1.1, 'x'], [iMinX + mid, iMaxZ - 1.1, 'x'],
+            [iMinX + 1.1, iMinZ + mid, 'z'], [iMaxX - 1.1, iMinZ + mid, 'z'],
+          ];
+          for (const m of mouths) if (rng() < 0.55) alleyCover.push([...m, rng()]);
           for (let qx = 0; qx < 2; qx++) {
             for (let qz = 0; qz < 2; qz++) {
               lots.push({ qx, qz, x: iMinX + 14 + qx * 28, z: iMinZ + 14 + qz * 28, w: rr(17, 25), d: rr(17, 25) });
@@ -329,6 +337,15 @@ export function buildCity(scene) {
     colliders.push(box);
     crates.push(box);
   };
+
+  for (const [x, z, axis, r] of alleyCover) {
+    const along = axis === 'x';
+    if (r < 0.5) addCover(x, z, along ? 2.2 : 1.3, along ? 1.3 : 2.2, 1.4, 0x2e5e3a); // dumpster
+    else {
+      addCover(x + (along ? -0.6 : 0), z + (along ? 0 : -0.6), 1.1, 1.1, 1.0, 0x7a5a32); // crates
+      addCover(x + (along ? 0.7 : 0), z + (along ? 0 : 0.7), 1.0, 1.0, 0.9, 0x86643a);
+    }
+  }
 
   // Rival gang hangout: the sidewalk corner of block (1,6) in Southgate.
   const turf = blocks.find((b) => b.i === 1 && b.j === 6);

@@ -20,6 +20,7 @@ const LABELS = {
   sprint: ['Shift', '✕'],
   play: ['Click PLAY', 'Press ✕'],
   phone: ['T', 'D-pad ↑'],
+  crouch: ['C', 'L3'],
 };
 
 // Keyboard, mouse and gamepad input, merged into one set of actions per frame.
@@ -160,7 +161,8 @@ export class Input {
     const a = {};
     a.moveX = clamp((k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0) + this.axis(0), -1, 1);
     a.moveY = clamp((k('KeyW') || k('ArrowUp') ? 1 : 0) - (k('KeyS') || k('ArrowDown') ? 1 : 0) - this.axis(1), -1, 1);
-    a.sprint = k('ShiftLeft') || k('ShiftRight') || this.btn(PAD.CROSS) || this.btn(PAD.L3);
+    a.sprint = k('ShiftLeft') || k('ShiftRight') || this.btn(PAD.CROSS);
+    a.crouch = this.hit('KeyC') || this.btnHit(PAD.L3);
     a.lookX = -this.mdx * 0.0025 + (k('ArrowLeft') ? dt * 2.2 : 0) - (k('ArrowRight') ? dt * 2.2 : 0) - this.axis(2) * dt * 3.2;
     a.lookY = this.mdy * 0.0025 + this.axis(3) * dt * 2.0;
     a.aim = this.rmb || this.btnVal(PAD.L2) > 0.3;

@@ -16,7 +16,10 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 ## What's in 0.1
 
 - Procedural 8×8-block city: buildings, parks, stores, a police station and a chop shop
-- Third-person on foot (walk, sprint, punch) and driving (4 car types, handbrake)
+- Third-person on foot (walk, sprint, crouch, punch) and driving (4 car types, handbrake)
+- Cover: crouch behind crates, dumpsters and cars to block bullets and break line of sight; aiming pops you up to shoot
+- Police search: they comb the area where they last saw you (behind cover, around corners), hear gunshots and running footsteps, and keep tracking you if they watched you duck. Escape by leaving the search circle unseen or staying hidden long enough
+- Spike strips across the road at 5-star roadblocks
 - NPC traffic that follows lanes and stops for cars and people
 - NPC pedestrians who walk the sidewalks, cross streets, and flee from violence
 - Crimes: assault, carjacking, hit-and-run, store robbery, assaulting officers, stealing police cars
@@ -46,6 +49,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | Move / steer | WASD | Left stick |
 | Look | Mouse / arrow keys | Right stick |
 | Sprint | Shift | ✕ (hold) |
+| Crouch / take cover | C | L3 |
 | Aim | Right mouse | L2 (sticks to targets near the crosshair) |
 | Shoot | Left mouse | R2 |
 | Punch | J (or click with fists) | ○ |

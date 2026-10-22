@@ -242,7 +242,7 @@ export class Hud {
       ctx.strokeStyle = 'rgba(255,80,80,.8)';
       ctx.fillStyle = 'rgba(255,80,80,.15)';
       ctx.beginPath();
-      ctx.arc(sx, sy, 80 * k, 0, Math.PI * 2);
+      ctx.arc(sx, sy, game.searchRadius * k, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
     }

@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { CFG } from './config.js';
 import { Vehicle } from './vehicle.js';
 import { makeCharacter, animateWalk, setDown, SKIN_TONES } from './character.js';
@@ -151,8 +152,24 @@ export class Officer {
       const d = dist(this.x, this.z, px, pz);
       const pv = game.player.vehicle;
       const giveUpRange = game.lethal ? 32 : 12;
-      if (game.stars === 0 || this.unit.leaving || game.wastedT > 0 || (pv && Math.abs(pv.speed) > 6 && d > giveUpRange) || d > 50) {
+      // Does the force know where you are right now (someone has eyes on you)?
+      const since = game.time - game.lastSeen;
+      const knows = since < 2.5;
+      if (knows) this.searchGoal = null;
+      if (game.stars === 0 || this.unit.leaving || game.wastedT > 0) {
         this.state = 'return';
+      } else if (knows && ((pv && Math.abs(pv.speed) > 6 && d > giveUpRange) || d > 50)) {
+        this.state = 'return';
+      } else if (!knows) {
+        // Lost sight of you: comb the area instead of standing around.
+        if (since > 25 + game.stars * 5 || pv) this.state = 'return';
+        else {
+          const r = this.search(dt);
+          tx = r.tx;
+          tz = r.tz;
+          speed = r.speed;
+          face = r.face;
+        }
       } else if (game.lethal) {
         const r = this.combat(dt, px, pz);
         tx = r.tx;
@@ -181,7 +198,7 @@ export class Officer {
         this.char.group.visible = false;
         return;
       }
-      if (game.stars > 0 && !this.unit.leaving && game.wastedT <= 0 && dist(this.x, this.z, px, pz) < 30 && (!game.player.vehicle || game.lethal)) {
+      if (game.stars > 0 && !this.unit.leaving && game.wastedT <= 0 && game.time - game.lastSeen < 2.5 && dist(this.x, this.z, px, pz) < 30 && (!game.player.vehicle || game.lethal)) {
         this.state = 'chase';
       }
     }
@@ -204,6 +221,43 @@ export class Officer {
       this.char.armL.rotation.x = -1.2;
     }
     this.place();
+  }
+
+  // Searching on foot: check the places you could be hiding (behind crates, parked cars,
+  // around corners), nearest to where you were last seen first. Officers split up the spots.
+  search(dt) {
+    const game = this.game;
+    const pol = game.police;
+    const out = { tx: this.x, tz: this.z, speed: 0, face: null };
+    const [px, pz] = game.player.pos();
+    // Footsteps: running nearby gives you away (crouch-walking doesn't).
+    const p = game.player;
+    if (!p.vehicle && !p.crouched && p.speed > 4 && dist(this.x, this.z, px, pz) < 16) {
+      game.lastKnown = [px, pz];
+      this.searchGoal = { x: px, z: pz, look: 0 };
+      pol.searched = [];
+    }
+    this.searchLook = (this.searchLook || 0) - dt;
+    if (this.searchLook > 0) {
+      // Checking a spot: sweep the eyes around.
+      out.face = this.heading + dt * 2.2;
+      return out;
+    }
+    if (!this.searchGoal) this.searchGoal = pol.pickSearchSpot(this);
+    const g = this.searchGoal;
+    if (!g) return out;
+    out.tx = g.x;
+    out.tz = g.z;
+    out.speed = 3.8;
+    this.searchFail = (this.searchFail || 0) + dt;
+    if (dist(this.x, this.z, g.x, g.z) < 1.2 || this.searchFail > 9 || this.navFails >= 3) {
+      pol.searched.push({ x: g.x, z: g.z, t: game.time });
+      this.searchGoal = null;
+      this.searchFail = 0;
+      this.navFails = 0;
+      this.searchLook = rand(0.8, 1.6);
+    }
+    return out;
   }
 
   // Where to take cover behind our own cruiser, given where the shooter is.
@@ -418,7 +472,7 @@ export class PoliceUnit {
       desired = 12;
     } else {
       c.siren = true;
-      const seesPlayer = d < 45 && !segmentBlocked(c.x, c.z, px, pz, game.city.los);
+      const seesPlayer = d < 45 && game.spots(c, 1.4, 60, false);
       if (seesPlayer) {
         const [vx, vz] = game.player.velocity();
         tx = px + vx * 0.6;
@@ -438,6 +492,20 @@ export class PoliceUnit {
         tz = this.to.z;
         desired = maxS * 0.85;
         if (dist(c.x, c.z, tx, tz) < 22) desired = Math.min(desired, 12);
+        // Close to where you vanished on foot: pull over and search on foot.
+        const since = game.time - game.lastSeen;
+        this.searchCd = (this.searchCd || 0) - dt;
+        if (!game.player.vehicle && since > 1.5 && since < 20 + game.stars * 5 && this.searchCd <= 0 && dist(c.x, c.z, kx, kz) < 32) {
+          this.stopping = true;
+          this.searchCd = 20;
+        }
+        if (this.stopping) {
+          desired = 0;
+          if (Math.abs(c.speed) < 3) {
+            this.officers.forEach((o, k) => o.dismount(k === 0 ? -1 : 1));
+            this.stopping = false;
+          }
+        }
       }
     }
     // Don't plow into cars ahead (especially other cruisers parked at the scene) or officers on foot.
@@ -499,6 +567,119 @@ export class PoliceManager {
     this.game = game;
     this.units = [];
     this.spawnT = 0;
+    this.searched = []; // spots already checked: {x, z, t}
+    this.spikes = [];
+  }
+
+  // Places worth checking for a hidden suspect near (kx, kz).
+  searchSpots(kx, kz, r) {
+    const game = this.game;
+    const out = [{ x: kx, z: kz, r: 0 }];
+    for (const b of game.city.crates) {
+      if (dist(b.x, b.z, kx, kz) < r) out.push({ x: b.x, z: b.z, r: Math.max(b.maxX - b.minX, b.maxZ - b.minZ) / 2 });
+    }
+    for (const v of game.vehicles) {
+      if (v.removed || v.exploded || v.siren || Math.abs(v.speed) > 1) continue;
+      if (dist(v.x, v.z, kx, kz) < r) out.push({ x: v.x, z: v.z, r: 2.4 });
+    }
+    for (const b of game.city.los) {
+      for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const x = (sx < 0 ? b.minX : b.maxX) + sx * 1.6;
+        const z = (sz < 0 ? b.minZ : b.maxZ) + sz * 1.6;
+        if (dist(x, z, kx, kz) < r) out.push({ x, z, r: 0 });
+      }
+    }
+    return out;
+  }
+
+  // The best unchecked spot for this officer: close to him, close to where you were last seen,
+  // and not one a partner is already heading to. Cops also follow their instincts a bit.
+  pickSearchSpot(o) {
+    const game = this.game;
+    const [kx, kz] = game.lastKnown || [o.x, o.z];
+    const [px, pz] = game.player.pos();
+    this.searched = this.searched.filter((s) => game.time - s.t < 40);
+    const taken = this.officers().filter((q) => q !== o && q.searchGoal).map((q) => q.searchGoal);
+    let best = null;
+    let bestScore = Infinity;
+    for (const s of this.searchSpots(kx, kz, game.searchRadius)) {
+      // Stand on the far side of the object, where someone would be hiding from us.
+      let x = s.x;
+      let z = s.z;
+      if (s.r > 0) {
+        const d = dist(o.x, o.z, s.x, s.z) || 1;
+        x += ((s.x - o.x) / d) * (s.r + 1.2);
+        z += ((s.z - o.z) / d) * (s.r + 1.2);
+      }
+      const fix = pushCircle(x, z, 0.45, game.city.colliders);
+      x = fix.x;
+      z = fix.z;
+      if (this.searched.some((q) => dist(q.x, q.z, x, z) < 3.5)) continue;
+      if (taken.some((q) => dist(q.x, q.z, x, z) < 3.5)) continue;
+      const score = dist(o.x, o.z, x, z) * 0.6 + dist(x, z, kx, kz) + dist(x, z, px, pz) * 0.35 + Math.random() * 4;
+      if (score < bestScore) {
+        bestScore = score;
+        best = { x, z };
+      }
+    }
+    if (best) return best;
+    // Checked everything: widen the sweep at random.
+    const a = Math.random() * Math.PI * 2;
+    const rr = game.searchRadius * rand(0.4, 1);
+    return { x: kx + Math.cos(a) * rr, z: kz + Math.sin(a) * rr };
+  }
+
+  // A spike strip across the road (5 stars). Pops any tire that rolls over it.
+  laySpikes(cx, cz, lx, lz) {
+    const len = 12;
+    const g = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, 0.5), new THREE.MeshLambertMaterial({ color: 0x222222 }));
+    base.position.y = 0.04;
+    g.add(base);
+    const spikeGeo = new THREE.ConeGeometry(0.06, 0.18, 4);
+    const spikeMat = new THREE.MeshLambertMaterial({ color: 0xb8b8b8 });
+    const spikes = new THREE.InstancedMesh(spikeGeo, spikeMat, 48);
+    const m = new THREE.Object3D();
+    for (let k = 0; k < 48; k++) {
+      m.position.set(-len / 2 + 0.15 + (k >> 1) * (len - 0.3) / 23, 0.15, k & 1 ? 0.12 : -0.12);
+      m.updateMatrix();
+      spikes.setMatrixAt(k, m.matrix);
+    }
+    g.add(spikes);
+    g.position.set(cx, 0, cz);
+    g.rotation.y = lx ? 0 : Math.PI / 2; // long side across the road
+    this.game.scene.add(g);
+    const hx = lx ? len / 2 : 0.35;
+    const hz = lx ? 0.35 : len / 2;
+    const strip = { x: cx, z: cz, minX: cx - hx, maxX: cx + hx, minZ: cz - hz, maxZ: cz + hz, mesh: g, t: 90 };
+    this.spikes.push(strip);
+    return strip;
+  }
+
+  updateSpikes(dt) {
+    const game = this.game;
+    const blocking = this.units.some((u) => u.roadblock);
+    for (const s of this.spikes) {
+      s.t -= dt;
+      if (s.t <= 0 || (!blocking && s.t < 85)) {
+        game.scene.remove(s.mesh);
+        s.gone = true;
+        continue;
+      }
+      for (const v of game.vehicles) {
+        if (v.removed || v.siren || Math.abs(v.speed) < 1 || dist(v.x, v.z, s.x, s.z) > 10) continue;
+        let popped = 0;
+        v.wheels.forEach((w, i) => {
+          const [wx, , wz] = v.wheelPos(i);
+          if (wx > s.minX - 0.2 && wx < s.maxX + 0.2 && wz > s.minZ - 0.2 && wz < s.maxZ + 0.2 && v.popTire(i)) popped++;
+        });
+        if (popped) {
+          game.effects.smoke(v.x, 0.5, v.z);
+          if (v.driver === 'player') game.hud.toast('Spike strip!', '#ff8080');
+        }
+      }
+    }
+    this.spikes = this.spikes.filter((s) => !s.gone);
   }
 
   officers() {
@@ -567,7 +748,11 @@ export class PoliceManager {
       const side = -cfz * ax + cfx * az > 0 ? 1 : -1;
       for (const o of u.officers) o.dismount(side);
     }
-    game.hud.news(`Police roadblock on ${streetAt(cx, cz)}`);
+    // At 5 stars, a spike strip goes down across the road in front of the block.
+    if (game.stars >= 5) {
+      this.laySpikes(cx - ax * 12, cz - az * 12, lx, lz);
+      game.hud.news(`Police lay spike strips on ${streetAt(cx, cz)}`);
+    } else game.hud.news(`Police roadblock on ${streetAt(cx, cz)}`);
     return true;
   }
 
@@ -579,6 +764,9 @@ export class PoliceManager {
   clearAll() {
     for (const u of this.units) u.dispose();
     this.units = [];
+    for (const s of this.spikes) this.game.scene.remove(s.mesh);
+    this.spikes = [];
+    this.searched = [];
   }
 
   update(dt) {
@@ -608,6 +796,9 @@ export class PoliceManager {
       if (this.spawnUnit()) this.spawnT = 4;
     }
     for (const u of this.units) u.update(dt);
+    this.updateSpikes(dt);
+    // Fresh sighting: the old search grid no longer means anything.
+    if (game.time - game.lastSeen < 0.5) this.searched = [];
 
     const [px, pz] = game.player.pos();
     for (const u of this.units) {

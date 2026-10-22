@@ -74,7 +74,7 @@ function rayBox(ox, oy, oz, dx, dy, dz, x0, y0, z0, x1, y1, z1) {
 }
 
 // Bullet ray test against the ground, buildings, people and cars.
-export function raycast(game, ox, oy, oz, dx, dy, dz, maxT, ignore = null) {
+export function raycast(game, ox, oy, oz, dx, dy, dz, maxT, ignore = null, solidOnly = false) {
   let best = { t: maxT, type: 'none' };
   if (dy < -1e-4) {
     const t = -oy / dy;
@@ -88,7 +88,7 @@ export function raycast(game, ox, oy, oz, dx, dy, dz, maxT, ignore = null) {
     const t = rayBox(ox, oy, oz, dx, dy, dz, b.minX, 0, b.minZ, b.maxX, b.h, b.maxZ);
     if (t !== null && t < best.t) best = { t, type: 'world' };
   }
-  for (const c of game.characters()) {
+  for (const c of solidOnly ? [] : game.characters()) {
     if (c === ignore || !c.alive) continue;
     const y = game.city.groundY(c.x, c.z);
     const top = !c.standing ? y + 0.5 : c.crouched ? y + 1.1 : y + 1.95;

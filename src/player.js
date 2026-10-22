@@ -31,6 +31,8 @@ export class Player {
     this.phase = 0;
     this.punchT = 0;
     this.vehicle = null;
+    this.crouched = false; // crouch toggle
+    this.lowProfile = false; // crouched right now (not popped up to aim)
   }
 
   pos() {
@@ -73,7 +75,7 @@ export class Player {
       mz /= len;
       this.moveX = mx;
       this.moveZ = mz;
-      const base = combat ? CFG.WALK_SPEED * 0.8 : a.sprint ? CFG.SPRINT_SPEED : CFG.WALK_SPEED;
+      const base = this.lowProfile ? 2.3 : combat ? CFG.WALK_SPEED * 0.8 : a.sprint ? CFG.SPRINT_SPEED : CFG.WALK_SPEED;
       target = base * Math.min(1, len);
     }
     if (combat) this.heading = lerpAngle(this.heading, faceYaw, Math.min(1, dt * 20));
@@ -104,6 +106,12 @@ export class Player {
 
     this.phase += dt * this.speed * 2.6;
     animateWalk(this.char, this.phase, Math.min(1, this.speed / 2));
+    if (this.lowProfile) {
+      // Crouched: knees bent, shuffling.
+      const s = Math.sin(this.phase) * Math.min(1, this.speed / 1.5);
+      this.char.legL.rotation.x = -1.2 + s * 0.3;
+      this.char.legR.rotation.x = -0.4 - s * 0.3;
+    }
     if (this.punchT > 0) {
       this.punchT -= dt;
       this.char.armR.rotation.x = -1.6 * Math.sin((this.punchT / 0.3) * Math.PI);
@@ -122,13 +130,15 @@ export class Player {
   sync() {
     const y = this.game.city.groundY(this.x, this.z);
     const down = this.char.group.rotation.x !== 0;
-    this.char.group.position.set(this.x, down ? y + 0.2 : y, this.z);
+    this.char.group.position.set(this.x, down ? y + 0.2 : this.lowProfile ? y - 0.42 : y, this.z);
     this.char.group.rotation.y = this.heading;
   }
 
   enter(vehicle) {
     this.vehicle = vehicle;
     vehicle.driver = 'player';
+    this.crouched = false;
+    this.lowProfile = false;
     vehicle.openDoor(-1, 0.9);
     this.char.group.visible = false;
     this.game.crew?.playerEntered(vehicle);

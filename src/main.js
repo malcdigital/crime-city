@@ -200,6 +200,7 @@ class Game {
     if (dist(px, pz, threat[0], threat[1]) > 70) return;
     this.lastKnown = [px, pz];
     this.lastSeen = Math.max(this.lastSeen, this.time - 2);
+    this.unseenT = 0;
     if (this.time - (this.lastCallNews ?? -99) > 15) {
       this.lastCallNews = this.time;
       this.hud.news(`911 caller reports the suspect near ${streetAt(px, pz)}`);
@@ -238,6 +239,7 @@ class Game {
     this.stars = Math.min(5, Math.max(this.stars, this.starsFor(this.heat)));
     this.lastSeen = this.time;
     this.lastKnown = [x, z];
+    this.unseenT = 0;
     this.cred += c.cred;
     const where = `${streetAt(x, z)}, ${districtAt(x, z)}`;
     // Avoid flooding the news with the same headline.
@@ -323,29 +325,30 @@ class Game {
     let seen = false;
     for (const u of this.police.units) {
       if (u.leaving) continue;
-      if (!u.carLost && !u.allDead && u.mounted) {
-        const d = dist(u.car.x, u.car.z, px, pz);
-        if (d < 60 && !segmentBlocked(u.car.x, u.car.z, px, pz, this.city.los)) seen = true;
-      }
+      if (!u.carLost && !u.allDead && u.mounted && this.spots(u.car, 1.4, 60, false)) seen = true;
       for (const o of u.officers) {
-        if (!o.standing) continue;
-        const d = dist(o.x, o.z, px, pz);
-        if (d < 35 && !segmentBlocked(o.x, o.z, px, pz, this.city.los)) seen = true;
+        if (o.standing && this.spots(o, 1.7, 38, true)) seen = true;
       }
     }
+    this.seenNow = seen;
     if (seen) {
       this.lastSeen = this.time;
       this.lastKnown = [px, pz];
+      this.unseenT = 0;
     } else {
       // The escape clock only runs once police have reached the area they're searching.
       const [kx, kz] = this.lastKnown || [px, pz];
       const near = this.police.units.some((u) =>
         dist(u.car.x, u.car.z, kx, kz) < 150 || u.officers.some((o) => o.standing && dist(o.x, o.z, kx, kz) < 150));
-      if (!near) this.lastSeen += dt;
+      if (near) this.unseenT = (this.unseenT || 0) + dt;
     }
     this.searching = this.time - this.lastSeen > 1.5;
-    const evadeTime = 8 + this.stars * 3;
-    if (this.time - this.lastSeen > evadeTime) {
+    // Escaping: get out of the search area and stay unseen, or stay hidden for a long time
+    // while they search.
+    const since = this.unseenT || 0;
+    const [kx, kz] = this.lastKnown || [px, pz];
+    const outside = dist(px, pz, kx, kz) > this.searchRadius;
+    if ((outside && since > 5 + this.stars * 1.5) || since > 30 + this.stars * 8) {
       const bonus = 10 * this.stars;
       this.cred += bonus;
       this.hud.news(`Suspect escaped police in ${districtAt(px, pz)}`, 'good');
@@ -473,6 +476,7 @@ class Game {
     // Gunfire draws attention.
     const [px, pz] = this.player.pos();
     this.scareNearby(px, pz, 35);
+    this.heardShot(px, pz);
     if (dist(px, pz, this.city.gangHome.x, this.city.gangHome.z) < 30) this.gang.anger();
     else if (this.gang.angry && this.gang.members.some((r) => r.alive && dist(r.x, r.z, px, pz) < 50)) this.gang.anger();
     const witnesses = this.peds.peds.some((p) => p.standing && dist(p.x, p.z, px, pz) < 30)
@@ -534,8 +538,22 @@ class Game {
     let p = clamp(0.62 - d * 0.013, 0.1, 0.62) * acc;
     if (!pv && this.player.speed > 5) p *= 0.6;
     if (!pv && this.aimingNow) p *= 0.85;
+    if (!pv && this.player.lowProfile) p *= 0.7; // smaller target
+    // On foot behind cover: the shot hits whatever is in the way.
+    if (!pv) {
+      const [cx, cy, cz] = this.playerTargetPoint();
+      const block = this.coverBetween(m[0], m[1], m[2], cx + (Math.random() - 0.5) * 0.4, cy + (Math.random() - 0.5) * 0.4, cz + (Math.random() - 0.5) * 0.4);
+      if (block) {
+        this.effects.muzzle(m[0], m[1], m[2]);
+        this.effects.tracer(m[0], m[1], m[2], block.x, block.y, block.z, 0xffd28a);
+        this.effects.impact(block.x, block.y, block.z);
+        if (block.type === 'car' && block.target) block.target.damage(dmg * 0.3, false);
+        this.sfx.shot(kind, clamp(1 - d / 70, 0.05, 0.8));
+        return;
+      }
+    }
     const hit = Math.random() < p;
-    const ty = this.city.groundY(px, pz) + (pv ? 1.0 : 1.3);
+    const ty = this.city.groundY(px, pz) + (pv ? 1.0 : this.player.lowProfile ? 0.85 : 1.3);
     const miss = hit ? 0 : 1.6;
     const tx = px + (Math.random() - 0.5) * miss * 2;
     const tz = pz + (Math.random() - 0.5) * miss * 2;
@@ -545,6 +563,72 @@ class Game {
     this.sfx.shot(kind, clamp(1 - d / 70, 0.05, 0.8));
     if (hit) this.hurtPlayer(dmg);
     else this.effects.impact(tx, tyy, tz);
+  }
+
+  // Where on the player an NPC aims (chest, lower when crouched).
+  playerTargetPoint() {
+    const [px, pz] = this.player.pos();
+    const y = this.city.groundY(px, pz) + (this.player.vehicle ? 1.0 : this.player.lowProfile ? 0.85 : 1.3);
+    return [px, y, pz];
+  }
+
+  // First solid thing (wall, crate, car) on the line from a to b, or null if it's clear.
+  coverBetween(ax, ay, az, bx, by, bz) {
+    const dx = bx - ax, dy = by - ay, dz = bz - az;
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 0.5) return null;
+    const hit = raycast(this, ax, ay, az, dx / len, dy / len, dz / len, len - 0.3, this.player.vehicle, true);
+    return hit.type === 'world' || hit.type === 'car' ? hit : null;
+  }
+
+  // Can this police officer (or a cruiser's crew) see you?
+  // Walls always block. Crouching behind low cover (crates, cars) hides you from a distance,
+  // and a cop on foot only spots you within his field of view.
+  canSeePlayer(viewer, eyeY, range, useFov) {
+    const [px, pz] = this.player.pos();
+    const d = dist(viewer.x, viewer.z, px, pz);
+    if (d > range) return false;
+    if (segmentBlocked(viewer.x, viewer.z, px, pz, this.city.los)) return false;
+    if (useFov && d > 8 && viewer.heading !== undefined) {
+      const ang = Math.abs(wrapAngle(Math.atan2(px - viewer.x, pz - viewer.z) - viewer.heading));
+      if (ang > 1.9) return false; // looking the other way
+    }
+    if (!this.player.vehicle && this.player.lowProfile && d > 5) {
+      const [tx, ty, tz] = this.playerTargetPoint();
+      const ey = this.city.groundY(viewer.x, viewer.z) + eyeY;
+      if (this.coverBetween(viewer.x, ey, viewer.z, tx, ty + 0.25, tz)) return false;
+    }
+    return true;
+  }
+
+  // A cop who watched you duck behind cover knows you're still there. You only shake him by
+  // sneaking a few meters away along the cover, or putting a wall between you.
+  spots(viewer, eyeY, range, useFov) {
+    const [px, pz] = this.player.pos();
+    if (this.canSeePlayer(viewer, eyeY, range, useFov)) {
+      viewer.sawAt = [px, pz];
+      viewer.sawT = this.time;
+      return true;
+    }
+    if (!viewer.sawAt || this.time - viewer.sawT > 45 || this.player.vehicle) return false;
+    if (dist(px, pz, viewer.sawAt[0], viewer.sawAt[1]) > 3.5) return false;
+    if (dist(viewer.x, viewer.z, px, pz) > range * 1.2) return false;
+    return !segmentBlocked(viewer.x, viewer.z, px, pz, this.city.los);
+  }
+
+  // Police nearby hear gunfire and know roughly where it came from.
+  heardShot(x, z) {
+    if (this.stars === 0) return;
+    const near = this.police.units.some((u) => !u.leaving && (dist(u.car.x, u.car.z, x, z) < 80
+      || u.officers.some((o) => o.standing && dist(o.x, o.z, x, z) < 80)));
+    if (!near) return;
+    this.lastKnown = [x, z];
+    this.lastSeen = Math.max(this.lastSeen, this.time - 3);
+    this.unseenT = 0;
+  }
+
+  get searchRadius() {
+    return 35 + this.stars * 8;
   }
 
   // An officer shoots at a car's tires (front tires first).
@@ -980,7 +1064,7 @@ class Game {
     } else {
       tx = this.player.x;
       tz = this.player.z;
-      ty = 1.7;
+      ty = this.player.lowProfile ? 1.15 : 1.7;
       distBack = down ? 7 : 5.5;
       height = 1.2;
       if (this.aimingNow) {
@@ -1064,6 +1148,10 @@ class Game {
     this.arsenal.update(dt);
     const gun = !this.arsenal.current().melee;
     this.aimingNow = !p.vehicle && gun && a.aim;
+    // Crouch: toggle with C / L3; sprinting stands you up; aiming pops you up out of cover.
+    if (a.crouch && !p.vehicle) p.crouched = !p.crouched;
+    if (a.sprint && Math.hypot(a.moveX, a.moveY) > 0.3) p.crouched = false;
+    p.lowProfile = !p.vehicle && p.crouched && !this.aimingNow;
 
     // Controller aim assist: aim freely with the right stick; the reticle sticks
     // to a target when the crosshair passes close to it.
