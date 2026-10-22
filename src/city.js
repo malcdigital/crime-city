@@ -317,20 +317,38 @@ export function buildCity(scene) {
     }
   };
 
+  // Low cover (crates, dumpsters, benches): blocks bullets below its height.
+  const crates = [];
+  const addCover = (x, z, w, d, h, color) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), lam(color));
+    m.position.set(x, 0.2 + h / 2, z);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    scene.add(m);
+    const box = { x, z, minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, h: h + 0.2 };
+    colliders.push(box);
+    crates.push(box);
+  };
+
   // Rival gang hangout: the sidewalk corner of block (1,6) in Southgate.
   const turf = blocks.find((b) => b.i === 1 && b.j === 6);
   const gangHome = { x: turf.maxX - 4, z: turf.minZ + 4, block: turf };
-  for (const [x, z] of [[turf.maxX - 10, turf.minZ + 2.2], [turf.maxX - 2.2, turf.minZ + 10]]) {
-    const crate = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.1, 1.4), lam(0x7a5a32));
-    crate.position.set(x, 0.75, z);
-    crate.castShadow = true;
-    scene.add(crate);
-    colliders.push({ minX: x - 0.7, maxX: x + 0.7, minZ: z - 0.7, maxZ: z + 0.7 });
-  }
+  addCover(turf.maxX - 10, turf.minZ + 2.2, 1.4, 1.4, 1.1, 0x7a5a32);
+  addCover(turf.maxX - 2.2, turf.minZ + 10, 1.4, 1.4, 1.1, 0x7a5a32);
+  addCover(turf.maxX - 16, turf.minZ + 2.4, 2.6, 1.4, 1.4, 0x2e5e3a); // dumpster
+  addCover(turf.maxX - 2.4, turf.minZ + 17, 1.4, 2.6, 1.4, 0x2e5e3a);
+  // Street furniture across the road gives attackers cover too.
+  addCover(turf.maxX + CFG.ROAD + 2.2, turf.minZ + 6, 1.4, 1.4, 1.1, 0x7a5a32);
+  addCover(turf.maxX - 8, turf.minZ - CFG.ROAD - 2.2, 1.4, 1.4, 1.1, 0x7a5a32);
+
+  // Your crew's hangout: the sidewalk outside the downtown park.
+  const homePark = blocks.find((b) => b.i === 3 && b.j === 4);
+  const crewHome = { x: homePark.cx + 18, z: homePark.minZ + 2.4, block: homePark };
+  addCover(homePark.cx + 18, homePark.minZ + 5.6, 3, 0.8, 0.7, 0x6d4c2f); // bench
 
   // New players start on the sidewalk outside the downtown park.
   const park = blocks.find((b) => b.i === 3 && b.j === 4);
   const spawn = { x: park.cx, z: park.minZ + 2, heading: Math.PI, curbZ: roadC(4) + R / 2 - 1.6 };
 
-  return { colliders, los, blocks, stores, chop, station, hospital, gangHome, spawn, nodes, nodeAt, nearestNode, blockAt, groundY, drawMap, size: SIZE, P, N };
+  return { colliders, los, crates, blocks, stores, chop, station, hospital, gangHome, crewHome, spawn, nodes, nodeAt, nearestNode, blockAt, groundY, drawMap, size: SIZE, P, N };
 }

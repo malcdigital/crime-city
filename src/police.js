@@ -94,23 +94,25 @@ export class Officer {
       if (game.stars === 0 || this.unit.leaving || game.wastedT > 0 || (pv && Math.abs(pv.speed) > 6 && d > giveUpRange) || d > 50) {
         this.state = 'return';
       } else if (game.lethal) {
-        // Gunfight: hold a firing distance and shoot when there's a clear line.
-        const los = d < 45 && !segmentBlocked(this.x, this.z, px, pz, game.city.los);
-        if (!los || d > 16) {
-          tx = px;
-          tz = pz;
+        // Gunfight: target you or your crew, hold a firing distance and shoot on a clear line.
+        const tgt = game.pickTarget(this, game.playerFaction(), 50) || { x: px, z: pz, ref: 'player' };
+        const td = dist(this.x, this.z, tgt.x, tgt.z);
+        const los = td < 45 && !segmentBlocked(this.x, this.z, tgt.x, tgt.z, game.city.los);
+        if (!los || td > 16) {
+          tx = tgt.x;
+          tz = tgt.z;
           speed = CFG.OFFICER_SPEED;
-        } else if (d < 7) {
-          tx = this.x * 2 - px;
-          tz = this.z * 2 - pz;
+        } else if (td < 7) {
+          tx = this.x * 2 - tgt.x;
+          tz = this.z * 2 - tgt.z;
           speed = 2.5;
         }
-        face = Math.atan2(px - this.x, pz - this.z);
+        face = Math.atan2(tgt.x - this.x, tgt.z - this.z);
         if (los) {
           this.fireT -= dt;
           if (this.fireT <= 0) {
             this.fireT = rand(0.8, 1.4);
-            game.npcShoot(this, 8, 'pistol');
+            game.npcShootAt(this, tgt.ref, 8, 'pistol');
           }
         }
       } else {

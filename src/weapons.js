@@ -84,15 +84,19 @@ export function raycast(game, ox, oy, oz, dx, dy, dz, maxT, ignore = null) {
     const t = rayBox(ox, oy, oz, dx, dy, dz, b.minX, 0, b.minZ, b.maxX, b.h || 30, b.maxZ);
     if (t !== null && t < best.t) best = { t, type: 'world' };
   }
+  for (const b of game.city.crates) {
+    const t = rayBox(ox, oy, oz, dx, dy, dz, b.minX, 0, b.minZ, b.maxX, b.h, b.maxZ);
+    if (t !== null && t < best.t) best = { t, type: 'world' };
+  }
   for (const c of game.characters()) {
     if (c === ignore || !c.alive) continue;
     const y = game.city.groundY(c.x, c.z);
-    const top = c.standing ? y + 1.95 : y + 0.5;
+    const top = !c.standing ? y + 0.5 : c.crouched ? y + 1.1 : y + 1.95;
     const r = c.standing ? 0.33 : 0.9;
     const t = rayBox(ox, oy, oz, dx, dy, dz, c.x - r, y, c.z - r, c.x + r, top, c.z + r);
     if (t !== null && t < best.t) {
       const hy = oy + dy * t;
-      best = { t, type: 'char', target: c, head: c.standing && hy > y + 1.6 };
+      best = { t, type: 'char', target: c, head: c.standing && hy > y + (c.crouched ? 0.85 : 1.6) };
     }
   }
   for (const v of game.vehicles) {

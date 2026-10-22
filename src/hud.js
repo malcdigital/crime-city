@@ -39,6 +39,12 @@ export class Hud {
     this.set('cred-tier', tier.name);
     this.set('cred-value', game.cred.toLocaleString('en-US'));
     this.set('district', game.district);
+    const crew = game.crew.following;
+    const crewKey = crew.map((m) => `${m.name}${Math.round(m.health / 5)}${m.mode}`).join('|');
+    if (this.last.crew !== crewKey) {
+      this.last.crew = crewKey;
+      $('crew').innerHTML = crew.map((m) => `<div class="crew-row"><span class="nm">${m.name}</span><div class="hb"><div style="width:${Math.max(0, m.health)}%"></div></div><span class="md">${m.heartLabel} · ${m.state === 'inCar' ? 'in car' : m.mode}</span></div>`).join('');
+    }
 
     const starKey = `${game.stars}-${game.searching}`;
     if (this.last.stars !== starKey) {
@@ -83,6 +89,13 @@ export class Hud {
     if (this.hitT <= 0) $('hitmarker').classList.remove('show');
     this.hurtT = Math.max(0, this.hurtT - dt);
     $('vignette').style.opacity = Math.max(this.hurtT * 2.5, game.health < 30 ? 0.35 : 0).toFixed(2);
+    const cm = $('car-marker');
+    if (game.carMarker) {
+      cm.classList.remove('hidden');
+      cm.style.left = `${game.carMarker.x}px`;
+      cm.style.top = `${game.carMarker.y}px`;
+      this.set('car-marker-text', `YOUR CAR · ${game.carMarker.d} m`);
+    } else cm.classList.add('hidden');
     const lock = $('lockon');
     if (game.lockScreen) {
       lock.classList.remove('hidden');
@@ -257,6 +270,30 @@ export class Hud {
     blip(city.station.x, city.station.z, '#2e6fd8', 'P');
     blip(city.hospital.x, city.hospital.z, '#d63031', 'H');
     blip(gh.x, gh.z, '#8e24aa', 'K');
+    blip(city.crewHome.x, city.crewHome.z, '#2e7d32', 'G');
+    const tc = game.testCar;
+    if (tc && !tc.removed && !tc.exploded && game.player.vehicle !== tc) {
+      const pulse = game.carPingT > 0 && Math.floor(performance.now() / 200) % 2 === 0;
+      blip(tc.x, tc.z, pulse ? '#ffffff' : '#1e88e5', 'V');
+    }
+    for (const m of game.crew.following) {
+      if (m.state === 'inCar' || !m.alive) continue;
+      const q = project(m.x, m.z);
+      if (!inside(q)) continue;
+      ctx.fillStyle = '#7ee081';
+      ctx.beginPath();
+      ctx.arc(q[0], q[1], 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (const r of game.gang.members) {
+      if (!r.alive || !game.gang.angry) continue;
+      const q = project(r.x, r.z);
+      if (!inside(q)) continue;
+      ctx.fillStyle = '#d17bff';
+      ctx.beginPath();
+      ctx.arc(q[0], q[1], 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     const flash = Math.floor(performance.now() / 250) % 2 === 0;
     for (const u of game.police.units) {

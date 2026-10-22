@@ -7,7 +7,7 @@ import { Vehicle, resolveCarCollisions } from './vehicle.js';
 import { TrafficManager } from './traffic.js';
 import { PedManager } from './peds.js';
 import { PoliceManager } from './police.js';
-import { GangManager } from './gang.js';
+import { GangManager, CrewManager, MAX_CREW } from './gang.js';
 import { Hud } from './hud.js';
 import { Effects } from './effects.js';
 import { Sfx } from './audio.js';
@@ -100,6 +100,7 @@ class Game {
 
     // Created after the player and city exist.
     this.gang = new GangManager(this);
+    this.crew = new CrewManager(this);
 
     addEventListener('resize', () => this.resize());
     this.resize();
@@ -117,7 +118,10 @@ class Game {
     document.getElementById('intro').classList.add('hidden');
     this.hud.show();
     this.hud.clock = () => this.clockText();
-    if (CFG.START_IN_CAR && !this.player.vehicle) this.player.enter(this.vehicles[0]);
+    if (CFG.START_IN_CAR && !this.player.vehicle) {
+      this.testCar = this.vehicles[0];
+      this.player.enter(this.testCar);
+    }
     this.hud.news('Welcome to Crime City. Stay out of trouble.', 'info');
     this.sfx.unlock();
     if (this.input.mode !== 'pad') this.input.lock();
@@ -162,7 +166,46 @@ class Game {
   }
 
   characters() {
-    return [...this.peds.peds, ...this.police.officers().filter((o) => o.visibleOnStreet), ...this.gang.members];
+    return [...this.peds.peds, ...this.police.officers().filter((o) => o.visibleOnStreet), ...this.gang.members, ...this.crew.visible()];
+  }
+
+  // You and your crew, as targets for enemies.
+  playerFaction() {
+    const [px, pz] = this.player.pos();
+    const list = this.wastedT > 0 ? [] : [{ x: px, z: pz, ref: 'player' }];
+    for (const m of this.crew.following) if (m.standing) list.push({ x: m.x, z: m.z, ref: m });
+    return list;
+  }
+
+  // Who your crew shoots at: the rival gang when they're at war with you, and police in a gunfight.
+  crewEnemies() {
+    const list = [];
+    if (this.gang.angry) for (const r of this.gang.members) if (r.standing) list.push({ x: r.x, z: r.z, ref: r });
+    if (this.lethal) for (const o of this.police.officers()) if (o.standing) list.push({ x: o.x, z: o.z, ref: o });
+    return list;
+  }
+
+  // Are police in a gunfight near this spot?
+  copsNear(x, z) {
+    if (!this.lethal) return false;
+    return this.police.officers().some((o) => o.standing && dist(o.x, o.z, x, z) < 60)
+      || this.police.units.some((u) => !u.leaving && dist(u.car.x, u.car.z, x, z) < 60);
+  }
+
+  // Nearest target in range, preferring ones in line of sight.
+  pickTarget(self, list, range) {
+    let best = null;
+    let bestScore = Infinity;
+    for (const t of list) {
+      const d = dist(self.x, self.z, t.x, t.z);
+      if (d > range) continue;
+      const score = d + (segmentBlocked(self.x, self.z, t.x, t.z, this.city.los) ? 40 : 0);
+      if (score < bestScore) {
+        bestScore = score;
+        best = t;
+      }
+    }
+    return best;
   }
 
   // ---- Wanted level ----
@@ -246,6 +289,7 @@ class Game {
 
   respawnAt(place) {
     if (this.player.vehicle) this.player.exit();
+    this.crew.sendHome();
     this.police.clearAll();
     this.vehicles = this.vehicles.filter((v) => !v.removed);
     this.player.x = place.x;
@@ -310,6 +354,7 @@ class Game {
 
   // Something the player hit or killed.
   onPlayerHit(c, killed) {
+    if (c.isCrew) return; // friendly fire
     if (c.isCop) {
       this.lethalFlag = true;
       this.crime(killed ? 'copKilled' : 'assaultCop', c.x, c.z);
@@ -409,6 +454,7 @@ class Game {
     const [px, pz] = this.player.pos();
     this.scareNearby(px, pz, 35);
     if (dist(px, pz, this.city.gangHome.x, this.city.gangHome.z) < 30) this.gang.anger();
+    else if (this.gang.angry && this.gang.members.some((r) => r.alive && dist(r.x, r.z, px, pz) < 50)) this.gang.anger();
     const witnesses = this.peds.peds.some((p) => p.standing && dist(p.x, p.z, px, pz) < 30)
       || this.police.officers().some((o) => o.standing && dist(o.x, o.z, px, pz) < 45)
       || this.police.units.some((u) => dist(u.car.x, u.car.z, px, pz) < 45);
@@ -419,7 +465,44 @@ class Game {
   }
 
   // An NPC (cop or gang member) shoots at the player.
-  npcShoot(shooter, dmg, kind) {
+  // An NPC shoots at a target: 'player' or another character.
+  npcShootAt(shooter, ref, dmg, kind, acc = 1) {
+    // Any shooting involving the rival gang keeps them at war.
+    if (shooter.isGang || ref?.isGang) this.gang.anger();
+    if (ref === 'player') return this.npcShoot(shooter, dmg, kind, acc);
+    if (!ref || !ref.alive) return;
+    dmg *= 2; // NPCs don't regenerate like you do, so fights between them need to resolve faster
+    const d = dist(shooter.x, shooter.z, ref.x, ref.z);
+    const h = shooter.heading;
+    const y0 = this.city.groundY(shooter.x, shooter.z) + (shooter.crouched ? 1.0 : 1.5);
+    const m = [shooter.x + Math.sin(h) * 0.9 - Math.cos(h) * 0.37, y0, shooter.z + Math.cos(h) * 0.9 + Math.sin(h) * 0.37];
+    let p = clamp(0.62 - d * 0.013, 0.1, 0.62) * acc;
+    if (ref.crouched) p *= 0.3;
+    const hit = Math.random() < p;
+    const miss = hit ? 0 : 1.4;
+    const ty = this.city.groundY(ref.x, ref.z) + (ref.crouched ? 0.8 : 1.3) + (Math.random() - 0.5) * miss;
+    const tx = ref.x + (Math.random() - 0.5) * miss * 2;
+    const tz = ref.z + (Math.random() - 0.5) * miss * 2;
+    this.effects.muzzle(m[0], m[1], m[2]);
+    this.effects.tracer(m[0], m[1], m[2], tx, ty, tz, 0xffd28a);
+    const [px, pz] = this.player.pos();
+    this.sfx.shot(kind, clamp(1 - dist(shooter.x, shooter.z, px, pz) / 70, 0.05, 0.8));
+    this.scareNearby(shooter.x, shooter.z, 25);
+    if (!hit) {
+      this.effects.impact(tx, ty, tz);
+      return;
+    }
+    this.effects.hitPuff(tx, ty, tz);
+    const killed = ref.takeHit(dmg, shooter.x, shooter.z);
+    if (killed && shooter.isCrew) {
+      if (ref.isGang) {
+        this.cred += 10;
+        this.dropAmmo(ref.x, ref.z, 'smg', 30);
+      } else if (ref.isCop) this.crime('copKilled', ref.x, ref.z);
+    }
+  }
+
+  npcShoot(shooter, dmg, kind, acc = 1) {
     if (this.wastedT > 0 || this.bustedT > 0) return;
     const [px, pz] = this.player.pos();
     const d = dist(shooter.x, shooter.z, px, pz);
@@ -428,7 +511,7 @@ class Game {
     // Gun is in the right hand: forward and to the shooter's right.
     const m = [shooter.x + Math.sin(h) * 0.9 - Math.cos(h) * 0.37, y0 + 0.05, shooter.z + Math.cos(h) * 0.9 + Math.sin(h) * 0.37];
     const pv = this.player.vehicle;
-    let p = clamp(0.62 - d * 0.013, 0.1, 0.62);
+    let p = clamp(0.62 - d * 0.013, 0.1, 0.62) * acc;
     if (!pv && this.player.speed > 5) p *= 0.6;
     if (!pv && this.aimingNow) p *= 0.85;
     const hit = Math.random() < p;
@@ -464,6 +547,7 @@ class Game {
     const [px, pz] = this.player.pos();
     this.sfx.explosion(clamp(1 - dist(x, z, px, pz) / 120, 0.1, 1));
     if (v.driver && v.driver !== 'player' && v.driver.active !== undefined) v.driver.active = false;
+    this.crew.carDestroyed(v);
     if (this.player.vehicle === v) {
       this.player.exit();
       this.hurtPlayer(95);
@@ -547,7 +631,7 @@ class Game {
   updateAimAssist(dt, a) {
     const p = this.player;
     const valid = (c) =>
-      c.alive && c.standing && dist(c.x, c.z, p.x, p.z) < 40 && !segmentBlocked(p.x, p.z, c.x, c.z, this.city.los);
+      c.alive && c.standing && !c.isCrew && dist(c.x, c.z, p.x, p.z) < 40 && !segmentBlocked(p.x, p.z, c.x, c.z, this.city.los);
     this.lockIgnoreT = (this.lockIgnoreT || 0) - dt;
 
     // Pushing the stick away far enough breaks the lock.
@@ -646,7 +730,7 @@ class Game {
     const fx = Math.sin(p.heading);
     const fz = Math.cos(p.heading);
     for (const t of this.characters()) {
-      if (!t.standing) continue;
+      if (!t.standing || t.isCrew) continue;
       const dx = t.x - p.x;
       const dz = t.z - p.z;
       const d = Math.hypot(dx, dz);
@@ -682,7 +766,7 @@ class Game {
         v.speed *= 0.85;
         if (v.driver === 'player') {
           if (t.isCop) this.crime(killed ? 'copKilled' : 'runOverCop', t.x, t.z);
-          else if (t.isGang) this.onPlayerHit(t, killed);
+          else if (t.isGang || t.isCrew) this.onPlayerHit(t, killed);
           else this.crime(killed ? 'murder' : 'hitAndRun', t.x, t.z);
           this.scareNearby(t.x, t.z, 16);
         }
@@ -772,6 +856,8 @@ class Game {
         this.robbing = null;
         this.prompt = `Hold ${input.label('interact')} to rob ${store.name}`;
       }
+    } else if (this.crewInteraction(a)) {
+      this.robbing = null;
     } else {
       this.robbing = null;
       const v = this.nearestVehicle(3.8);
@@ -782,6 +868,32 @@ class Game {
           : `Press ${input.label('enter')} to get in`;
       }
     }
+  }
+
+  // Recruit homies at the hangout, or send your crew home there. Returns true if it showed a prompt.
+  crewInteraction(a) {
+    const p = this.player;
+    const press = a.interactHeld && !this.interactWasHeld;
+    const key = this.input.label('interact');
+    const crew = this.crew;
+    const near = crew.members.find((m) => !m.recruited && m.standing && dist(m.x, m.z, p.x, p.z) < 2.6);
+    if (near) {
+      const n = crew.following.length;
+      if (n >= MAX_CREW) this.prompt = `Your crew is full (${n}/${MAX_CREW})`;
+      else {
+        this.prompt = `Press ${key} to recruit ${near.name} · ${near.heartLabel} (crew ${n}/${MAX_CREW})`;
+        if (press) crew.recruit(near);
+      }
+      return true;
+    }
+    const atHome = dist(p.x, p.z, crew.home.x, crew.home.z) < 14;
+    const mine = atHome && crew.following.find((m) => m.standing && dist(m.x, m.z, p.x, p.z) < 2.6);
+    if (mine) {
+      this.prompt = `Press ${key} to send ${mine.name} home`;
+      if (press) crew.dismiss(mine);
+      return true;
+    }
+    return false;
   }
 
   // ---- Camera ----
@@ -911,6 +1023,7 @@ class Game {
     this.traffic.update(dt);
     this.police.update(dt);
     this.gang.update(dt);
+    this.crew.update(dt);
     for (const v of this.vehicles) {
       if (v.driver === null && !v.removed) v.update(dt, { throttle: 0, steer: 0, handbrake: true }, this.city.colliders);
     }
@@ -946,6 +1059,7 @@ class Game {
       tmpV.set(...this.lockAimPoint(t)).project(this.camera);
       if (tmpV.z < 1) this.lockScreen = [((tmpV.x + 1) / 2) * innerWidth, ((1 - tmpV.y) / 2) * innerHeight];
     }
+    this.updateCarMarker(dt);
     this.hud.update(this, dt);
 
     this.saveT += dt;
@@ -955,21 +1069,60 @@ class Game {
     }
   }
 
-  // Testing: drop a fresh sports car beside the player (or swap into one if driving).
+  // Testing: R3 / V gives you one test car. If yours is still around, it points you to it instead.
   spawnTestCar() {
     const p = this.player;
     const [x, z] = p.pos();
+    const old = this.testCar;
+    if (old && !old.removed && !old.exploded && !old.wrecked) {
+      if (p.vehicle === old) {
+        this.hud.toast("You're already in your test car");
+        return;
+      }
+      const d = dist(old.x, old.z, x, z);
+      if (d < 200) {
+        this.carPingT = 6;
+        this.hud.toast(`Your test car is ${Math.round(d)} m away`);
+        return;
+      }
+      if (old.driver === null) old.dispose();
+    }
     const h = p.vehicle ? p.vehicle.heading : p.heading;
     const side = p.vehicle ? 3.5 : 3;
     const car = new Vehicle(this.scene, 'sports', x - Math.cos(h) * side, z + Math.sin(h) * side, h);
     this.vehicles.push(car);
-    if (p.vehicle) {
-      p.exit();
-    }
+    this.testCar = car;
+    if (p.vehicle) p.exit();
     p.x = car.x;
     p.z = car.z;
     p.enter(car);
     this.hud.toast('Test car delivered');
+  }
+
+  // Screen marker pointing at your test car after you ask for it.
+  updateCarMarker(dt) {
+    this.carMarker = null;
+    this.carPingT = Math.max(0, (this.carPingT || 0) - dt);
+    const c = this.testCar;
+    if (!this.carPingT || !c || c.removed || c.exploded || this.player.vehicle === c) return;
+    tmpV.set(c.x, 2.6, c.z).project(this.camera);
+    const behind = tmpV.z > 1;
+    let sx = tmpV.x;
+    let sy = tmpV.y;
+    if (behind) {
+      sx = -sx;
+      sy = -1;
+    }
+    const edge = behind || Math.abs(sx) > 0.92 || Math.abs(sy) > 0.88;
+    sx = clamp(sx, -0.92, 0.92);
+    sy = clamp(sy, -0.88, 0.88);
+    const [px, pz] = this.player.pos();
+    this.carMarker = {
+      x: ((sx + 1) / 2) * innerWidth,
+      y: ((1 - sy) / 2) * innerHeight,
+      edge,
+      d: Math.round(dist(px, pz, c.x, c.z)),
+    };
   }
 
   // Remove abandoned and burnt-out cars far from the player so the city doesn't fill up.

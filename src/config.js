@@ -49,6 +49,7 @@ export const CRIMES = {
 };
 
 export const GANG_NAME = 'Southside Kings';
+export const CREW_NAME = 'Green Street';
 
 // Street cred ladder from the design doc.
 export const CRED_TIERS = [

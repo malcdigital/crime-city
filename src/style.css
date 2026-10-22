@@ -105,3 +105,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #phone-hint:empty { display: none; }
 #minimap { border-radius: 50% !important; border: 3px solid rgba(0,0,0,.7) !important; background: transparent !important; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
 #health { width: 160px !important; left: 36px !important; }
+#crew { margin-top: 10px; display: grid; gap: 4px; }
+.crew-row { display: grid; grid-template-columns: 60px 50px auto; white-space: nowrap; align-items: center; gap: 8px; font-size: 12px; background: rgba(0,0,0,.35); padding: 3px 8px; border-radius: 4px; text-shadow: none; }
+.crew-row .nm { font-weight: 700; color: #7ee081; }
+.crew-row .hb { height: 4px; background: rgba(255,255,255,.2); border-radius: 2px; overflow: hidden; }
+.crew-row .hb div { height: 100%; background: #4cd964; }
+.crew-row .md { opacity: .75; font-size: 11px; }
+.crew-row.dead { opacity: .4; }
+#car-marker { position: absolute; transform: translate(-50%, -100%); text-align: center; color: #5dc8ff; font-weight: 800; font-size: 13px; animation: bob .8s ease-in-out infinite alternate; }
+#car-marker .cm-arrow { font-size: 22px; line-height: 1; }
+@keyframes bob { to { margin-top: -6px; } }

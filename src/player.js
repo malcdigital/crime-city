@@ -130,6 +130,7 @@ export class Player {
     this.vehicle = vehicle;
     vehicle.driver = 'player';
     this.char.group.visible = false;
+    this.game.crew?.playerEntered(vehicle);
   }
 
   exit() {
@@ -148,5 +149,6 @@ export class Player {
     this.x = r.x;
     this.z = r.z;
     this.sync();
+    this.game.crew?.playerExited();
   }
 }
