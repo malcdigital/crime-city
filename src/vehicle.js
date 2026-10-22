@@ -46,7 +46,8 @@ export class Vehicle {
     this.burnT = 0;
     this.byPlayer = false;
     this.lat = 0; // sideways slide speed (drifting)
-    this.grip = 1; // rear grip: 1 = full, low = sliding
+    this.grip = 1;
+    this.drifting = false;
     this.burnout = false;
     this.rearSpin = 0;
     this.color = color ?? t.colors[Math.floor(Math.random() * t.colors.length)];
@@ -282,33 +283,21 @@ export class Vehicle {
       const spd = Math.min(1, Math.abs(s) / 20);
       steer += pull * spd + Math.sin(performance.now() / 90) * 0.035 * flats * spd;
     }
-    // Drifting (player only): the handbrake, or a hard turn under full throttle at speed,
-    // breaks the rear loose. The car turns faster than it travels and slides sideways;
-    // counter-steer and ease off to catch it.
+    // Drifting (player only): hold gas and brake together while turning at speed. That runs
+    // a tire-physics model until the car straightens out; otherwise normal driving.
     const player = this.driver === 'player';
-    const fast = Math.abs(s) > 9;
-    const powerSlide = thr > 0.8 && Math.abs(steer) > 0.75 && s > 17;
-    let gripTo = 1;
-    if (player && fast && (ctrl.handbrake || powerSlide)) gripTo = ctrl.handbrake ? 0.15 : 0.35;
-    this.grip = lerp(this.grip, gripTo, Math.min(1, dt * (gripTo < this.grip ? 6 : 1.6)));
-    const sliding = this.grip < 0.8;
-    const steerLim = sliding ? Math.max(steerMax, 0.5) : steerMax;
-    this.steerVis = lerp(this.steerVis, clamp(steer, -1, 1) * steerLim, Math.min(1, dt * 8));
-    let yaw = (s / 2.7) * Math.tan(this.steerVis);
-    if (sliding) yaw *= 1 + (1 - this.grip) * 0.9; // the tail swings out
-    const oldHeading = this.heading;
-    this.heading = wrapAngle(this.heading - yaw * dt);
-    // Momentum doesn't turn with the car: part of the speed becomes sideways slide.
-    const dh = wrapAngle(this.heading - oldHeading);
-    if (player) {
-      const carry = 1 - this.grip;
-      this.lat += s * Math.sin(dh) * carry;
-      s *= 1 - Math.abs(Math.sin(dh)) * carry * 0.6;
+    const driftInput = player && ctrl.gas && ctrl.brake && Math.abs(steer) > 0.25 && s > 9;
+    if (player && (driftInput || this.drifting)) {
+      this.steerVis = lerp(this.steerVis, clamp(steer, -1, 1) * 0.55, Math.min(1, dt * 8));
+      if (this.driftPhysics(dt, ctrl, s)) {
+        this.collide(boxes);
+        return;
+      }
+      s = this.speed;
     }
-    // Tires bite back: sideways speed bleeds off (slowly while drifting).
-    this.lat *= Math.exp(-dt * (2 + this.grip * 10));
-    s -= Math.abs(this.lat) * 0.05 * dt * Math.sign(s);
-    if (ctrl.handbrake && sliding) s += s * 1.6 * dt; // handbrake mostly slides rather than stops
+    this.steerVis = lerp(this.steerVis, clamp(steer, -1, 1) * steerMax, Math.min(1, dt * 8));
+    this.heading = wrapAngle(this.heading - (s / 2.7) * Math.tan(this.steerVis) * dt);
+    this.lat *= Math.exp(-dt * 12); // any leftover slide settles quickly
     const [fx, fz] = this.forward();
     const rx = -fz, rz = fx;
     this.x += (fx * s + rx * this.lat) * dt;
@@ -316,6 +305,93 @@ export class Vehicle {
     this.speed = s;
     this.drift = Math.abs(this.lat);
     this.collide(boxes);
+  }
+
+  // Tire model for drifts (a planar "bicycle" model). Braking moves weight onto the front
+  // tires; the gas spins the rear tires, and a spinning tire has little sideways grip, so
+  // the back end steps out. Counter-steer and throttle hold the slide. Returns false once
+  // the car has gripped up again, handing back to normal driving.
+  driftPhysics(dt, ctrl, s) {
+    const m = 1400, Iz = 2300, a = 1.25, b = 1.45, L = a + b, h = 0.55, g = 9.81, mu = 1.0;
+    const Cf = 75000, Cr = 85000;
+    if (!this.drifting) {
+      // Enter: carry over current speed and turn rate.
+      this.drifting = true;
+      this.vx = s;
+      this.vy = this.lat;
+      // Turn rate the tires can actually hold at this speed (about 1 g sideways).
+      const rk = (s / 2.7) * Math.tan(this.steerVis);
+      const rMax = (0.95 * g) / Math.max(s, 1);
+      this.r = clamp(rk, -rMax, rMax);
+    }
+    const gas = ctrl.gas ? 1 : 0;
+    const brake = ctrl.brake ? 1 : 0;
+    const n = 4;
+    const ddt = dt / n;
+    let ax = 0;
+    for (let k = 0; k < n; k++) {
+      const vx = Math.max(this.vx, 0.5);
+      const delta = this.steerVis;
+      // Weight transfer from braking / accelerating.
+      const transfer = clamp((m * -ax * h) / L, -2500, 2500);
+      const Fzf = (m * g * b) / L + transfer;
+      const Fzr = (m * g * a) / L - transfer;
+      // Front: brakes take part of the grip, the rest is available for cornering.
+      const Fxf = -brake * 0.2 * mu * Fzf;
+      const fyMax = Math.sqrt(Math.max(0, (mu * Fzf) ** 2 - Fxf * Fxf));
+      const af = Math.atan2(this.vy + a * this.r, vx) - delta;
+      const Fyf = clamp(-Cf * af, -fyMax, fyMax);
+      // Rear: wheelspin from the gas. The sliding tire's force points against the contact
+      // patch's slip, so the faster it spins the more it pushes forward and the less it
+      // holds sideways. With no gas the rear rolls and grips normally.
+      const vyr = this.vy - b * this.r;
+      let Fxr, Fyr;
+      const spin = gas * (1 + Math.abs(vx) * 0.06);
+      if (spin > 0.5) {
+        const sl = Math.hypot(spin, vyr);
+        const muK = 1.0 * mu;
+        Fxr = (muK * Fzr * spin) / sl;
+        Fyr = (-muK * Fzr * vyr) / sl;
+        this.rearSpin = vx + spin;
+      } else {
+        const ar = Math.atan2(vyr, vx);
+        const max = mu * Fzr;
+        Fxr = -brake * 0.3 * max;
+        const fyr = Math.sqrt(Math.max(0, max * max - Fxr * Fxr));
+        Fyr = clamp(-Cr * ar, -fyr, fyr);
+      }
+      const drag = 0.45 * this.vx * Math.abs(this.vx) + 12 * this.vx;
+      const Fx = Fxr + Fxf * Math.cos(delta) - Fyf * Math.sin(delta) - drag;
+      const Fy = Fyr + Fyf * Math.cos(delta) + Fxf * Math.sin(delta);
+      ax = Fx / m;
+      this.vx += (ax + this.vy * this.r) * ddt;
+      this.vy += (Fy / m - this.vx * this.r) * ddt;
+      this.r += ((a * (Fyf * Math.cos(delta) + Fxf * Math.sin(delta)) - b * Fyr) / Iz) * ddt;
+      this.r = clamp(this.r, -3, 3);
+      // Let go of the pedals and the car settles itself (tires relaxing, stability control).
+      if (!(ctrl.gas && ctrl.brake)) {
+        this.r *= Math.exp(-ddt * 2.2);
+        this.vy *= Math.exp(-ddt * 1.6);
+      }
+      // Positive r turns right, which lowers the heading angle.
+      this.heading = wrapAngle(this.heading - this.r * ddt);
+      const [fx, fz] = this.forward();
+      const rx = -fz, rz = fx;
+      this.x += (fx * this.vx + rx * this.vy) * ddt;
+      this.z += (fz * this.vx + rz * this.vy) * ddt;
+    }
+    this.speed = this.vx;
+    this.lat = this.vy;
+    this.drift = Math.abs(this.vy);
+    // Gripped up (or slowed right down): back to normal driving.
+    const slip = Math.abs(Math.atan2(this.vy, Math.max(Math.abs(this.vx), 0.5)));
+    const holding = ctrl.gas && ctrl.brake && Math.abs(ctrl.steer || 0) > 0.1;
+    if ((!holding && slip < 0.06 && Math.abs(this.vy) < 0.8) || this.vx < 4) {
+      this.drifting = false;
+      this.speed = Math.max(0, this.vx);
+      return false;
+    }
+    return true;
   }
 
   collide(boxes) {

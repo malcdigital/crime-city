@@ -1271,7 +1271,7 @@ class Game {
 
     if (p.vehicle) {
       const v = p.vehicle;
-      v.update(dt, { throttle: a.throttle, steer: a.steer, handbrake: a.handbrake, burnout: a.gas && a.brakeHeld }, this.city.colliders);
+      v.update(dt, { throttle: a.throttle, steer: a.steer, handbrake: a.handbrake, burnout: a.gas && a.brakeHeld, gas: a.gas, brake: a.brakeHeld }, this.city.colliders);
       this.tireFx(v, dt);
     } else {
       const combat = gun && (this.aimingNow || this.time - this.lastShot < 0.8 || a.fire);

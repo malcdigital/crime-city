@@ -20,7 +20,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - Cover: press C / L3 next to a wall, crate or car to snap to it, crate or car and stay there; slide along it, lean out at corners or pop up over low cover to aim; push away or press again to leave
 - Crouching bends at the knees; crouch behind low cover to block bullets and break line of sight
 - Weapon wheel: hold L1 / Tab (real time, no slow-mo) with 8 slots — melee, pistol, SMG, rifle, shotgun, heavy, throwable, special; one weapon per slot; tap to swap back to your last weapon. Weapons: fists, pistol, SMG, assault rifle, pump shotgun
-- Drifting: handbrake (or a hard turn at full throttle) breaks the rear loose, with tire smoke and skid marks; burnouts with gas + brake from a stop (steer for donuts)
+- Drifting: hold gas and brake together while turning at speed. A tire-physics model takes over: braking loads the front tires, the gas spins the rears so they lose sideways grip, and you hold the slide with counter-steer and throttle. Tire smoke and skid marks. Burnouts with gas + brake from a stop (steer for donuts)
 - Police search: they comb the area where they last saw you (behind cover, around corners), hear gunshots and running footsteps, and keep tracking you if they watched you duck. Escape by leaving the search circle unseen or staying hidden long enough
 - 4+ stars: more cruisers, SWAT vans with four-man teams in body armor, and a police helicopter that takes off from the precinct roof, tracks you with a searchlight (buildings block its view) and can be shot down; at 5 stars its door gunner opens fire
 - Roadblocks at 4+ stars: police cars drive ahead of you and park across the road (spike strips at 5 stars)
@@ -62,7 +62,6 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | Shoot | Left mouse | R2 |
 | Punch | J (or click with fists) | ○ |
 | Reload | R | □ |
-| Switch weapon | 1 2 3 / mouse wheel | L1 / D-pad ↓ ← |
 | Phone (City News) | T | D-pad ↑ |
 | Enter, exit or carjack | F | △ |
 | Accelerate / brake | W / S | R2 / L2 |
