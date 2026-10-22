@@ -366,11 +366,15 @@ export class Player {
     const keep = 0.72;
     this.rollVx = vx * keep - rx * 2.5;
     this.rollVz = vz * keep - rz * 2.5;
+    // A short dive through the air first: out the door head-first, face down, arms out.
+    this.diving = true;
+    this.diveY = 0.8; // about seat height
+    this.diveVy = 0.4; // a small hop out the door: ~0.35 s in the air
     this.rolling = true;
-    this.rollAngle = 0;
+    this.rollAngle = Math.PI / 2; // face down
     this.getUpT = 0;
     this.speed = 0;
-    game.hurtPlayer(Math.min(70, 6 + Math.max(0, mph - 30) * 0.9));
+    this.bailDmg = Math.min(70, 6 + Math.max(0, mph - 30) * 0.9);
     game.crew?.playerBailed?.(v);
   }
 
@@ -378,6 +382,24 @@ export class Player {
   updateRolling(dt) {
     const game = this.game;
     const c = this.char;
+    if (this.diving) {
+      // In the air: carried by the car's speed, falling to the road.
+      this.x += this.rollVx * dt;
+      this.z += this.rollVz * dt;
+      this.diveVy -= 9.8 * dt;
+      this.diveY += this.diveVy * dt;
+      const r = pushCircle(this.x, this.z, 0.4, game.city.colliders);
+      this.x = r.x;
+      this.z = r.z;
+      this.rollHeading = Math.atan2(this.rollVx, this.rollVz) || this.heading;
+      this.pose(this.rollHeading, -Math.PI / 2, Math.PI / 2, this.diveY, true);
+      if (this.diveY <= 0.28) {
+        // Landing: the impact hurts, then the tumble.
+        this.diving = false;
+        game.hurtPlayer(this.bailDmg || 10);
+      }
+      return;
+    }
     if (this.rolling) {
       let sp = Math.hypot(this.rollVx, this.rollVz);
       // Tumbling and sliding on asphalt slows a body at roughly 0.95 g.
@@ -405,7 +427,7 @@ export class Player {
       // Part rolling, part sliding: about one full roll every 3.5 m.
       this.rollAngle += (sp / 0.55) * dt;
       this.rollHeading = Math.atan2(this.rollVx, this.rollVz) || this.rollHeading || this.heading;
-      this.pose(this.rollHeading, Math.PI / 2, this.rollAngle, 0.28);
+      this.pose(this.rollHeading, -Math.PI / 2, this.rollAngle, 0.28);
       this.vx = this.rollVx;
       this.vz = this.rollVz;
       if (sp < 0.5) {
@@ -420,7 +442,7 @@ export class Player {
     this.getUpT -= dt;
     const k = Math.max(0, this.getUpT / 0.9);
     const ease = k * k * (3 - 2 * k);
-    this.pose(this.rollHeading || this.heading, (Math.PI / 2) * ease, this.rollAngle * ease, 0.28 * ease);
+    this.pose(this.rollHeading || this.heading, (-Math.PI / 2) * ease, this.rollAngle * ease, 0.28 * ease);
     if (this.getUpT <= 0) {
       this.getUpT = 0;
       this.heading = this.rollHeading || this.heading;
@@ -430,13 +452,16 @@ export class Player {
     }
   }
 
-  // Place the body by its middle (not its feet) for tumbling poses.
-  pose(yaw, side, spin, radius) {
+  // Place the body by its middle (not its feet) for tumbling poses. side = -90 degrees lays
+  // the body across the direction of travel with the head to the left (out the driver's
+  // door); spin rolls it about its length.
+  pose(yaw, side, spin, radius, diving = false) {
     const g = this.char.group;
     _e.set(spin, yaw, side, 'YXZ');
     g.rotation.copy(_e);
     animateWalk(this.char, 0, 0);
-    this.char.armL.rotation.x = this.char.armR.rotation.x = -0.4; // arms tucked
+    // Arms stretched out past the head in the dive; tucked in while rolling.
+    this.char.armL.rotation.x = this.char.armR.rotation.x = diving ? -2.9 : -0.4;
     _c.set(0, 0.95, 0).applyEuler(_e);
     const center = this.game.city.groundY(this.x, this.z) + Math.max(radius, 0.95 * Math.cos(side));
     g.position.set(this.x - _c.x, center - _c.y, this.z - _c.z);
@@ -445,6 +470,7 @@ export class Player {
   // Cancel any tumble (e.g. after respawning).
   stopRolling() {
     this.rolling = false;
+    this.diving = false;
     this.getUpT = 0;
     this.exitStop = false;
     this.char.group.rotation.set(0, this.heading, 0);

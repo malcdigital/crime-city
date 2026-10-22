@@ -16,6 +16,18 @@ export const VTYPES = {
     colors: [0x1b1f24] },
 };
 
+// Handling, after GTA V's handling.meta: max = peak tire grip (fTractionCurveMax, in g),
+// slide = sliding grip as a share of the peak (fTractionCurveMin / Max), peak = slip angle of
+// peak grip in radians (from fTractionCurveLateral), bias = front share of grip
+// (fTractionBiasFront; a little under 0.5 keeps the rear planted).
+const HANDLING = {
+  sedan: { max: 1.45, slide: 0.86, peak: 0.16, bias: 0.48 },
+  sports: { max: 1.75, slide: 0.88, peak: 0.15, bias: 0.48 },
+  van: { max: 1.2, slide: 0.84, peak: 0.17, bias: 0.47 },
+  police: { max: 1.6, slide: 0.87, peak: 0.16, bias: 0.48 },
+  swat: { max: 1.25, slide: 0.85, peak: 0.17, bias: 0.47 },
+};
+
 const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 10);
 wheelGeo.rotateZ(Math.PI / 2);
 const lightGeo = new THREE.BoxGeometry(0.4, 0.18, 0.06);
@@ -236,6 +248,7 @@ export class Vehicle {
     if (this.wrecked) ctrl = { throttle: 0, steer: 0, handbrake: true };
     const t = this.type;
     let s = this.speed;
+    const s0 = s;
     const thr = ctrl.throttle || 0;
     // Flat tires: lower top speed and acceleration.
     const flats = this.flatCount;
@@ -283,20 +296,19 @@ export class Vehicle {
       const spd = Math.min(1, Math.abs(s) / 20);
       steer += pull * spd + Math.sin(performance.now() / 90) * 0.035 * flats * spd;
     }
-    // Drifting (player only): hold gas and brake together while turning at speed. That runs
-    // a tire-physics model until the car straightens out; otherwise normal driving.
+    // Your car, once it's moving: GTA-style tire physics (see dynamics()). Parked cars, AI
+    // cars and low speeds use the simple model below.
     const player = this.driver === 'player';
-    const driftInput = player && ctrl.gas && ctrl.brake && Math.abs(steer) > 0.25 && s > 9;
-    if (player && (driftInput || this.drifting)) {
-      this.steerVis = lerp(this.steerVis, clamp(steer, -1, 1) * 0.55, Math.min(1, dt * 8));
-      if (this.driftPhysics(dt, ctrl, s)) {
-        this.collide(boxes);
-        return;
-      }
-      s = this.speed;
+    if (player && s0 > 3.5 && !this.wrecked) {
+      this.dynamics(dt, ctrl, steer, s0, maxS, accel);
+      this.collide(boxes);
+      return;
     }
+    this.driftAmt = 0;
     this.steerVis = lerp(this.steerVis, clamp(steer, -1, 1) * steerMax, Math.min(1, dt * 8));
-    this.heading = wrapAngle(this.heading - (s / 2.7) * Math.tan(this.steerVis) * dt);
+    const yaw = (s / 2.7) * Math.tan(this.steerVis);
+    this.r = yaw; // remembered so the switch to the tire model is seamless
+    this.heading = wrapAngle(this.heading - yaw * dt);
     this.lat *= Math.exp(-dt * 12); // any leftover slide settles quickly
     const [fx, fz] = this.forward();
     const rx = -fz, rz = fx;
@@ -307,53 +319,118 @@ export class Vehicle {
     this.collide(boxes);
   }
 
-  // Drift model. Kick it off with gas + brake while turning; then the gas keeps the rear
-  // loose and the stick sets the drift angle (light push = shallow slide, full lock = about
-  // 40 degrees). The tires still limit how fast the car's path can bend (about 1 g of
-  // sideways grip), and sliding sideways scrubs off speed. Off the gas or stick centered,
-  // the car straightens and grips up. Returns false once it's back to normal driving.
-  driftPhysics(dt, ctrl, s) {
-    const g = 9.81;
+  // Driving model, after GTA V's handling data. Each axle's sideways grip follows a traction
+  // curve: grip builds with slip angle up to a peak (fTractionCurveMax) at around 9 degrees,
+  // then eases down to a slightly lower sliding grip (fTractionCurveMin) — so cars feel planted,
+  // then slide progressively instead of snapping. Braking and accelerating shift weight
+  // between the axles, each tire shares its grip between braking/driving and cornering
+  // (friction circle), steering lock shrinks with speed, and some angular damping keeps it
+  // stable. Drift: hold gas + brake while turning — weight goes forward and the rear tires
+  // spin, so the rear loses grip and steps out. Counter-steer and the stick hold the angle.
+  // Let go and grip returns smoothly over a fraction of a second.
+  dynamics(dt, ctrl, steerIn, s0, maxS, accel) {
     const t = this.type;
-    if (!this.drifting) {
-      this.drifting = true;
-      this.beta = 0; // angle between where the nose points and where the car travels
-      this.travel = this.heading;
-      this.vel = Math.max(s, 0);
+    const H = HANDLING[this.typeName] || HANDLING.sedan;
+    const m = 1400, Iz = 2300, a = 1.25, b = 1.45, L = a + b, hcg = 0.5, g = 9.81;
+    if (this.vx === undefined || Math.abs(this.vx - s0) > 0.5 || !this.dyn) {
+      // Coming in from the simple model (or after a collision changed our speed).
+      this.vx = s0;
+      this.vy = this.lat || 0;
+      // Start from a turn rate the tires can actually hold at this speed.
+      const rMaxNow = (H.max * g) / Math.max(s0, 1);
+      this.r = clamp(this.r || 0, -rMaxNow, rMaxNow);
     }
-    const steer = clamp(ctrl.steer || 0, -1, 1);
-    const stick = Math.abs(steer);
-    // The slide lasts while you hold gas + brake with the stick over; let go of either and
-    // the tires bite straight back.
-    const holding = ctrl.gas && ctrl.brake && stick > 0.1;
-    // Target angle: nose into the turn (a right turn swings the nose right of the path).
-    const target = holding ? -Math.sign(steer) * stick * 0.7 : 0;
-    this.beta += (target - this.beta) * Math.min(1, dt * (holding ? 3 : 10));
-    // The path bends no harder than the tires allow.
-    const v = Math.max(this.vel, 1);
-    const turn = (Math.sign(steer) * Math.pow(stick, 0.8) * 0.95 * g) / v;
-    this.travel = wrapAngle(this.travel - turn * dt);
-    this.heading = wrapAngle(this.travel + this.beta);
-    // Speed: throttle pushes, sliding sideways scrubs, brake slows.
-    const sideways = Math.abs(Math.sin(this.beta));
-    this.vel += ((ctrl.gas ? t.accel * 0.55 : 0) - this.vel * sideways * 0.6 - (ctrl.brake ? 4 : 0) - this.vel * 0.04) * dt;
-    this.vel = Math.max(0, this.vel);
-    // Move along the travel direction.
-    const tx = Math.sin(this.travel), tz = Math.cos(this.travel);
-    this.x += tx * this.vel * dt;
-    this.z += tz * this.vel * dt;
-    // Report in the car's own frame (forward speed + sideways slide).
-    this.speed = this.vel * Math.cos(this.beta);
-    this.lat = this.vel * Math.sin(-this.beta);
-    this.drift = Math.abs(this.lat);
-    this.rearSpin = ctrl.gas ? this.vel + 6 : 0;
-    if ((!holding && Math.abs(this.beta) < 0.12) || this.vel < 4) {
-      this.drifting = false;
-      this.lat = 0;
-      this.speed = this.vel * Math.cos(this.beta);
-      return false;
+    this.dyn = true;
+    const steer = clamp(steerIn, -1, 1);
+    const thr = ctrl.throttle || 0;
+    const driftWanted = ctrl.gas && ctrl.brake && Math.abs(steer) > 0.15 && this.vx > 8;
+    // Smooth in and out of the drift (no snapping).
+    this.driftAmt = lerp(this.driftAmt || 0, driftWanted ? 1 : 0, Math.min(1, dt * (driftWanted ? 5 : 3.5)));
+    const drift = this.driftAmt;
+    // Steering: ~39 degrees parked, less at speed; more lock available while drifting.
+    const lock = lerp(0.68 / (1 + this.vx * 0.055), 0.6, drift);
+    this.steerVis = lerp(this.steerVis, steer * lock, Math.min(1, dt * 9));
+    const delta = this.steerVis;
+    // Pedals.
+    const gasAmt = driftWanted ? 1 : Math.max(0, thr);
+    const brakeAmt = driftWanted ? 0.08 : Math.max(0, -thr);
+    const hb = ctrl.handbrake ? 1 : 0;
+    const frontFlats = this.wheels.filter((w) => w.userData.flat && w.userData.front).length;
+    const rearFlats = this.wheels.filter((w) => w.userData.flat && !w.userData.front).length;
+    const muF = H.max * (H.bias + 0.5) * (1 - 0.25 * frontFlats);
+    const muR = H.max * (1.5 - H.bias) * (1 - 0.25 * rearFlats) * (1 - 0.35 * drift);
+    const curve = (al, mu) => {
+      // Grip (as a friction coefficient) for a slip angle: builds to the peak, then eases to
+      // the sliding level.
+      const x = Math.abs(al);
+      const pk = H.peak;
+      if (x < pk) return mu * Math.sin((x / pk) * Math.PI / 2);
+      const k = Math.min(1, (x - pk) / (pk * 1.6));
+      return mu * (1 - (1 - H.slide) * k);
+    };
+    const n = 4;
+    const ddt = dt / n;
+    let ax = this.ax || 0;
+    for (let i = 0; i < n; i++) {
+      const vx = Math.max(this.vx, 0.5);
+      const transfer = clamp((m * -ax * hcg) / L, -3500, 3500);
+      const Fzf = (m * g * b) / L + transfer;
+      const Fzr = (m * g * a) / L - transfer;
+      // Front: brakes, then whatever grip is left corners.
+      const fMax = muF * Fzf;
+      const Fxf = Math.max(-fMax * 0.95, -brakeAmt * m * t.brake * 0.6);
+      const fyf = Math.sqrt(Math.max(0, fMax * fMax - Fxf * Fxf));
+      const af = Math.atan2(this.vy + a * this.r, vx) - delta;
+      const Fyf = clamp(-Math.sign(af) * curve(af, muF) * Fzf, -fyf, fyf);
+      // Rear: drive (rear-wheel drive), brakes, handbrake.
+      const rMax = muR * Fzr;
+      // Traction control keeps drive force within what the rears can take while cornering;
+      // in a drift you're deliberately spinning them.
+      const tc = rMax * (driftWanted ? 0.7 : 0.55 + 0.35 * (1 - Math.abs(steer)));
+      let Fxr = Math.min(gasAmt * m * accel * Math.max(0, 1 - this.vx / maxS), tc) - brakeAmt * m * t.brake * 0.4 - hb * 0.3 * rMax; // handbrake: slows the rear, no slide
+      Fxr = clamp(Fxr, -rMax, rMax);
+      const fyr = Math.sqrt(Math.max(0, rMax * rMax - Fxr * Fxr));
+      const ar = Math.atan2(this.vy - b * this.r, vx);
+      const Fyr = clamp(-Math.sign(ar) * curve(ar, muR) * Fzr, -fyr, fyr);
+      // Rolling resistance and drag; engine braking when coasting.
+      const coast = gasAmt === 0 && brakeAmt === 0 ? m * 2.0 : 0;
+      const drag = m * 0.08 * this.vx + coast + (this.flatCount ? m * 0.25 * this.flatCount * this.vx * 0.1 : 0);
+      // Throttle holding the slide: drifting on the gas keeps most of your speed.
+      const driftPush = drift * m * 6.5 * Math.max(0, 1 - this.vx / (maxS * 0.75));
+      const Fx = Fxr + Fxf * Math.cos(delta) - Fyf * Math.sin(delta) - drag + driftPush;
+      const Fy = Fyr + Fyf * Math.cos(delta) + Fxf * Math.sin(delta);
+      ax = Fx / m;
+      this.vx += (ax + this.vy * this.r) * ddt;
+      this.vy += (Fy / m - this.vx * this.r) * ddt;
+      this.r += ((a * (Fyf * Math.cos(delta) + Fxf * Math.sin(delta)) - b * Fyr) / Iz) * ddt;
+      // Drift assist (like arcade racers): the stick sets the drift angle. The car's turn rate
+      // is steered toward the rate its path is bending, plus a correction toward that angle,
+      // so the slide holds steady instead of spinning out.
+      if (drift > 0.05) {
+        const target = -Math.sign(steer) * Math.abs(steer) * 0.6;
+        const beta = Math.atan2(this.vy, vx);
+        const V = Math.max(Math.hypot(this.vx, this.vy), 1);
+        const pathRate = Fy / m / V; // how fast the direction of travel is turning
+        const want = pathRate - (target - beta) * 3;
+        this.r += (want - this.r) * (1 - Math.exp(-ddt * 9 * drift));
+      }
+      // Angular damping, and sideways creep dies out at walking pace.
+      this.r *= Math.exp(-ddt * (0.6 + 1.4 * (1 - drift))); // stability (less while drifting)
+      if (this.vx < 6) this.vy *= Math.exp(-ddt * (6 - this.vx) * 1.5);
+      this.heading = wrapAngle(this.heading - this.r * ddt);
+      const [fx, fz] = this.forward();
+      const rx = -fz, rz = fx;
+      this.x += (fx * this.vx + rx * this.vy) * ddt;
+      this.z += (fz * this.vx + rz * this.vy) * ddt;
     }
-    return true;
+    this.ax = ax;
+    this.speed = this.vx;
+    this.lat = this.vy;
+    this.drift = Math.abs(this.vy);
+    this.grip = 1 - 0.42 * drift;
+    this.drifting = drift > 0.3;
+    this.rearSpin = driftWanted ? this.vx + 8 : 0;
+    if (this.vx <= 3.5) this.dyn = false;
   }
 
   collide(boxes) {
