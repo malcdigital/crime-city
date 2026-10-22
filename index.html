@@ -26,10 +26,22 @@
       <div id="vignette"></div>
       <div id="health"><div id="health-bar"></div></div>
       <div id="pad-status" class="hidden">Controller connected</div>
-      <div id="news">
-        <div class="news-title">CITY NEWS</div>
-        <div id="news-list"></div>
+      <div id="phone">
+        <div class="phone-screen">
+          <div class="phone-status"><span id="phone-clock">9:00 PM</span><span>5G</span></div>
+          <div class="phone-app">
+            <div class="app-icon">N</div>
+            <div><div class="app-name">City News</div><div class="app-sub">Crime City, live</div></div>
+          </div>
+          <div id="phone-list"></div>
+          <div id="phone-foot"></div>
+        </div>
       </div>
+      <div id="phone-toast" class="hidden">
+        <div class="pt-head"><span class="app-icon small">N</span> CITY NEWS · <span id="pt-time"></span></div>
+        <div id="pt-text"></div>
+      </div>
+      <div id="phone-hint"></div>
       <canvas id="minimap" width="200" height="200"></canvas>
       <div id="prompt"></div>
       <div id="progress" class="hidden"><div id="progress-bar"></div><span id="progress-label"></span></div>
@@ -57,11 +69,12 @@
             <tr><td>Move / steer</td><td>WASD</td><td>Left stick</td></tr>
             <tr><td>Look</td><td>Mouse / arrows</td><td>Right stick</td></tr>
             <tr><td>Sprint</td><td>Shift</td><td>✕ (hold)</td></tr>
-            <tr><td>Aim</td><td>Right mouse</td><td>L2 (locks on)</td></tr>
+            <tr><td>Aim</td><td>Right mouse</td><td>L2 (sticks to targets near the crosshair)</td></tr>
             <tr><td>Shoot</td><td>Left mouse</td><td>R2</td></tr>
             <tr><td>Punch</td><td>J (or click with fists)</td><td>○</td></tr>
             <tr><td>Reload</td><td>R</td><td>□</td></tr>
-            <tr><td>Switch weapon</td><td>1 2 3 / wheel</td><td>L1 / D-pad ↑↓</td></tr>
+            <tr><td>Switch weapon</td><td>1 2 3 / wheel</td><td>L1 / D-pad ↓ ←</td></tr>
+            <tr><td>Phone (City News)</td><td>T</td><td>D-pad ↑</td></tr>
             <tr><td>Enter / exit car</td><td>F</td><td>△</td></tr>
             <tr><td>Accelerate / brake</td><td>W / S</td><td>R2 / L2</td></tr>
             <tr><td>Handbrake</td><td>Space</td><td>R1</td></tr>
@@ -93,11 +106,11 @@
           <div><b>1 2 3</b> fists, pistol, SMG · <b>R</b> reload</div>
           <div><b>F</b> enter / exit / carjack</div>
           <div><b>E</b> rob store (hold) / sell car</div>
-          <div><b>P</b> pause and full controls</div>
+          <div><b>T</b> phone · <b>P</b> pause and full controls</div>
         </div>
         <div class="controls pad">
-          <div><b>PS5:</b> L2 aim (locks on) · R2 shoot</div>
-          <div>○ punch · □ reload · L1 switch weapon</div>
+          <div><b>PS5:</b> L2 aim · R2 shoot · D-pad ↑ phone</div>
+          <div>○ punch · □ reload · L1 / D-pad ↓ switch weapon</div>
           <div>△ car · R2 / L2 drive · R1 handbrake</div>
           <div>D-pad → rob / sell · Options pause</div>
         </div>

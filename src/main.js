@@ -116,9 +116,17 @@ class Game {
     this.started = true;
     document.getElementById('intro').classList.add('hidden');
     this.hud.show();
+    this.hud.clock = () => this.clockText();
     this.hud.news('Welcome to Crime City. Stay out of trouble.', 'info');
     this.sfx.unlock();
     if (this.input.mode !== 'pad') this.input.lock();
+  }
+
+  // In-game clock: one real second is one game minute, starting at 9:00 PM.
+  clockText() {
+    const m = (21 * 60 + Math.floor(this.time)) % 1440;
+    const h = Math.floor(m / 60);
+    return `${h % 12 || 12}:${String(m % 60).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
   }
 
   setPaused(p) {
@@ -179,7 +187,7 @@ class Game {
       this.newsTimes[type] = this.time;
       this.hud.news(`${c.label}${extra ? ` ${extra}` : ''} on ${where}`);
     }
-    if (this.stars > before && before === 0) this.hud.news(`Police respond to ${districtAt(x, z)}`);
+    if (this.stars > before && before === 0) this.hud.news(`Police dispatched from Central Precinct to ${districtAt(x, z)}`);
   }
 
   arrestPressure(dt) {
@@ -269,6 +277,12 @@ class Game {
     if (seen) {
       this.lastSeen = this.time;
       this.lastKnown = [px, pz];
+    } else {
+      // The escape clock only runs once police have reached the area they're searching.
+      const [kx, kz] = this.lastKnown || [px, pz];
+      const near = this.police.units.some((u) =>
+        dist(u.car.x, u.car.z, kx, kz) < 150 || u.officers.some((o) => o.standing && dist(o.x, o.z, kx, kz) < 150));
+      if (!near) this.lastSeen += dt;
     }
     this.searching = this.time - this.lastSeen > 1.5;
     const evadeTime = 8 + this.stars * 3;
@@ -332,7 +346,7 @@ class Game {
       }
       return;
     }
-    am.mag--;
+    if (!CFG.INFINITE_AMMO) am.mag--;
     this.arsenal.cool = w.rate;
     this.lastShot = this.time;
 
@@ -513,26 +527,50 @@ class Game {
     this.pickups = this.pickups.filter((p) => p.t > 0);
   }
 
-  // Controller lock-on: snap to the nearest target in front when L2 is pressed.
-  findLockTarget() {
+  // Screen offset of a character's chest from the crosshair, as a fraction of screen height.
+  crosshairOffset(c) {
+    tmpV.set(c.x, this.city.groundY(c.x, c.z) + 1.3, c.z).project(this.camera);
+    if (tmpV.z > 1) return Infinity;
+    const sx = (tmpV.x * innerWidth) / 2;
+    const sy = (tmpV.y * innerHeight) / 2;
+    return Math.hypot(sx, sy) / innerHeight;
+  }
+
+  updateAimAssist(dt, a) {
     const p = this.player;
-    let best = null;
-    let bestScore = Infinity;
-    for (const c of this.characters()) {
-      if (!c.alive || !c.standing) continue;
-      const d = dist(c.x, c.z, p.x, p.z);
-      if (d > 45 || d < 0.5) continue;
-      const ang = Math.abs(wrapAngle(Math.atan2(c.x - p.x, c.z - p.z) - this.camYaw));
-      if (ang > 0.75) continue;
-      if (segmentBlocked(p.x, p.z, c.x, c.z, this.city.los)) continue;
-      const hostile = c.isGang || c.isCop;
-      const score = ang * 30 + d * 0.3 - (hostile ? 25 : 0);
-      if (score < bestScore) {
-        bestScore = score;
-        best = c;
-      }
+    const valid = (c) =>
+      c.alive && c.standing && dist(c.x, c.z, p.x, p.z) < 40 && !segmentBlocked(p.x, p.z, c.x, c.z, this.city.los);
+    this.lockIgnoreT = (this.lockIgnoreT || 0) - dt;
+
+    // Pushing the stick away far enough breaks the lock.
+    let t = this.lockTarget;
+    if (t && (!valid(t) || this.crosshairOffset(t) > 0.15)) {
+      this.lockIgnore = t;
+      this.lockIgnoreT = 0.5;
+      t = this.lockTarget = null;
     }
-    return best;
+    if (!t) {
+      let best = null;
+      let bestOff = Infinity;
+      for (const c of this.characters()) {
+        if (!valid(c)) continue;
+        if (c === this.lockIgnore && this.lockIgnoreT > 0) continue;
+        const off = this.crosshairOffset(c);
+        const grab = c.isGang || c.isCop ? 0.07 : 0.04; // bystanders are harder to lock
+        if (off < grab && off < bestOff) {
+          bestOff = off;
+          best = c;
+        }
+      }
+      t = this.lockTarget = best;
+    }
+    if (t) {
+      // Gentle pull toward the target, and slower look speed so it feels sticky.
+      a.lookX *= 0.55;
+      a.lookY *= 0.7;
+      const bearing = Math.atan2(t.x - p.x, t.z - p.z);
+      this.camYaw = lerpAngle(this.camYaw, bearing, Math.min(1, dt * 6));
+    }
   }
 
   // ---- Player actions ----
@@ -746,10 +784,10 @@ class Game {
       distBack = down ? 7 : 5.5;
       height = 1.2;
       if (this.aimingNow) {
-        distBack = 2.6;
-        height = 0.25;
-        shoulder = 0.65;
-        fov = 50;
+        distBack = 3.6;
+        height = 0.45;
+        shoulder = 0.45;
+        fov = 56;
       }
     }
     const cp = Math.cos(this.camPitch);
@@ -797,7 +835,7 @@ class Game {
 
   update(dt, a) {
     this.time += dt;
-    if (a.news) this.hud.toggleNews();
+    if (a.phone) this.hud.togglePhone();
     this.effects.update(dt);
 
     if (this.bustedT > 0 || this.wastedT > 0) {
@@ -826,16 +864,10 @@ class Game {
     const gun = !this.arsenal.current().melee;
     this.aimingNow = !p.vehicle && gun && a.aim;
 
-    // Controller lock-on.
-    if (this.input.mode === 'pad' && this.aimingNow) {
-      if (a.aimPressed || !this.lockTarget) this.lockTarget = this.findLockTarget();
-      const t = this.lockTarget;
-      if (t && (!t.alive || !t.standing || dist(t.x, t.z, p.x, p.z) > 55)) this.lockTarget = null;
-      if (this.lockTarget) {
-        const bearing = Math.atan2(this.lockTarget.x - p.x, this.lockTarget.z - p.z);
-        this.camYaw = lerpAngle(this.camYaw, bearing, Math.min(1, dt * 14));
-      }
-    } else this.lockTarget = null;
+    // Controller aim assist: aim freely with the right stick; the reticle sticks
+    // to a target when the crosshair passes close to it.
+    if (this.input.mode === 'pad' && this.aimingNow) this.updateAimAssist(dt, a);
+    else this.lockTarget = null;
 
     if (p.vehicle) {
       p.vehicle.update(dt, { throttle: a.throttle, steer: a.steer, handbrake: a.handbrake }, this.city.colliders);
@@ -877,7 +909,7 @@ class Game {
     this.district = districtAt(px, pz);
     this.updateCamera(dt, a);
 
-    this.showCrosshair = !p.vehicle && gun && !this.lockTarget && (this.aimingNow || this.input.mode === 'kb');
+    this.showCrosshair = !p.vehicle && gun && (this.aimingNow || this.input.mode === 'kb');
     this.lockScreen = null;
     if (this.lockTarget) {
       const t = this.lockTarget;

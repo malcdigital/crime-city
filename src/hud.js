@@ -1,5 +1,7 @@
 import { CFG, CRED_TIERS } from './config.js';
 
+const esc = (t) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+
 const $ = (id) => document.getElementById(id);
 
 export class Hud {
@@ -12,7 +14,10 @@ export class Hud {
     this.toastT = 0;
     this.hitT = 0;
     this.hurtT = 0;
-    this.newsHidden = false;
+    this.phoneOpen = false;
+    this.unread = 0;
+    this.phoneToastT = 0;
+    this.clock = () => '9:00 PM';
     this.last = {};
   }
 
@@ -62,7 +67,7 @@ export class Hud {
     if (w.melee) this.set('ammo', '');
     else {
       const am = game.arsenal.ammo[w.id];
-      this.set('ammo', game.arsenal.reloadT > 0 ? 'RELOADING' : `${am.mag} / ${am.reserve}`);
+      this.set('ammo', CFG.INFINITE_AMMO ? '∞' : game.arsenal.reloadT > 0 ? 'RELOADING' : `${am.mag} / ${am.reserve}`);
     }
     const hp = Math.max(0, Math.round(game.health));
     if (this.last.hp !== hp) {
@@ -72,6 +77,7 @@ export class Hud {
       bar.style.background = hp > 50 ? '#4cd964' : hp > 25 ? '#ffcc00' : '#ff3b30';
     }
     $('crosshair').classList.toggle('hidden', !game.showCrosshair);
+    $('crosshair').classList.toggle('locked', !!game.lockTarget);
     this.hitT = Math.max(0, this.hitT - dt);
     if (this.hitT <= 0) $('hitmarker').classList.remove('show');
     this.hurtT = Math.max(0, this.hurtT - dt);
@@ -83,6 +89,15 @@ export class Hud {
       lock.style.top = `${game.lockScreen[1]}px`;
     } else lock.classList.add('hidden');
 
+    // Phone: clock, notification banner, and the hint with unread count.
+    this.set('phone-clock', this.clock());
+    if (this.phoneToastT > 0) {
+      this.phoneToastT -= dt;
+      if (this.phoneToastT <= 0) $('phone-toast').classList.add('hidden');
+    }
+    const key = game.input.label('phone');
+    this.set('phone-hint', this.phoneOpen ? '' : this.unread ? `${key}  Phone · ${this.unread} new` : `${key}  Phone`);
+    this.set('phone-foot', `${key} to put the phone away`);
     if (this.toastT > 0) {
       this.toastT -= dt;
       if (this.toastT <= 0) $('toast').classList.remove('show');
@@ -98,18 +113,33 @@ export class Hud {
     this.toastT = 2.2;
   }
 
+  // City News headlines arrive on the player's phone.
   news(text, kind = 'crime') {
-    const list = $('news-list');
+    const time = this.clock();
+    const list = $('phone-list');
     const item = document.createElement('div');
     item.className = `news-item ${kind === 'crime' ? '' : kind}`;
-    item.textContent = text;
+    item.innerHTML = `<div class="news-time">${esc(time)}</div><div>${esc(text)}</div>`;
     list.prepend(item);
-    while (list.children.length > 5) list.lastChild.remove();
+    while (list.children.length > 30) list.lastChild.remove();
+    if (!this.phoneOpen) {
+      this.unread++;
+      $('pt-time').textContent = time;
+      $('pt-text').textContent = text;
+      const toast = $('phone-toast');
+      toast.className = `news-${kind}`;
+      this.phoneToastT = 4;
+    }
   }
 
-  toggleNews() {
-    this.newsHidden = !this.newsHidden;
-    $('news').classList.toggle('hidden', this.newsHidden);
+  togglePhone() {
+    this.phoneOpen = !this.phoneOpen;
+    $('phone').classList.toggle('open', this.phoneOpen);
+    if (this.phoneOpen) {
+      this.unread = 0;
+      this.phoneToastT = 0;
+      $('phone-toast').classList.add('hidden');
+    }
   }
 
   hitmarker(kill) {

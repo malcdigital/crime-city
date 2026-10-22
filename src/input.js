@@ -19,6 +19,7 @@ const LABELS = {
   reload: ['R', '□'],
   sprint: ['Shift', '✕'],
   play: ['Click PLAY', 'Press ✕'],
+  phone: ['T', 'D-pad ↑'],
 };
 
 // Keyboard, mouse and gamepad input, merged into one set of actions per frame.
@@ -170,14 +171,14 @@ export class Input {
     a.enter = this.hit('KeyF') || this.btnHit(PAD.TRIANGLE);
     a.interactHeld = k('KeyE') || this.btn(PAD.RIGHT);
     a.reload = this.hit('KeyR') || this.btnHit(PAD.SQUARE);
-    a.nextWeapon = this.wheel > 0 || this.btnHit(PAD.L1) || this.btnHit(PAD.UP);
-    a.prevWeapon = this.wheel < 0 || this.btnHit(PAD.DOWN);
+    a.nextWeapon = this.wheel > 0 || this.btnHit(PAD.L1) || this.btnHit(PAD.DOWN);
+    a.prevWeapon = this.wheel < 0 || this.btnHit(PAD.LEFT);
     a.slot = this.hit('Digit1') ? 0 : this.hit('Digit2') ? 1 : this.hit('Digit3') ? 2 : -1;
     a.throttle = clamp((k('KeyW') || k('ArrowUp') ? 1 : 0) - (k('KeyS') || k('ArrowDown') ? 1 : 0) + this.btnVal(PAD.R2) - this.btnVal(PAD.L2), -1, 1);
     a.steer = clamp((k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0) + this.axis(0), -1, 1);
     a.handbrake = k('Space') || this.btn(PAD.R1);
     a.pause = this.hit('KeyP') || this.btnHit(PAD.OPTIONS);
-    a.news = this.hit('KeyM') || this.btnHit(PAD.CREATE);
+    a.phone = this.hit('KeyT') || this.hit('KeyM') || this.btnHit(PAD.UP) || this.btnHit(PAD.CREATE);
     a.start = this.btnHit(PAD.CROSS) || this.btnHit(PAD.OPTIONS);
     a.looking = a.lookX !== 0 || a.lookY !== 0;
     return a;

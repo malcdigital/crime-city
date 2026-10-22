@@ -297,23 +297,17 @@ export class PoliceManager {
     return this.units.flatMap((u) => u.officers);
   }
 
+  // New units roll out of the police station yard, so response time depends on how far away you are.
   spawnUnit() {
     const { city } = this.game;
-    const [px, pz] = this.game.lastKnown || this.game.player.pos();
-    const candidates = city.nodes.filter((n) => {
-      const d = dist(n.x, n.z, px, pz);
-      return d > 90 && d < 170;
-    });
-    if (!candidates.length) return;
-    const n = pick(candidates);
-    const toward = n.nb.slice().sort((a, b) => dist(a.x, a.z, px, pz) - dist(b.x, b.z, px, pz))[0];
-    const heading = Math.atan2(toward.x - n.x, toward.z - n.z);
-    if (this.game.vehicles.some((v) => dist(v.x, v.z, n.x, n.z) < 6)) return;
-    const u = new PoliceUnit(this.game, n.x, n.z, heading);
-    u.from = n;
-    u.to = toward;
+    const st = city.station;
+    const spots = [[st.x - 6, st.z], [st.x + 6, st.z], [st.x, st.z + 5]];
+    const spot = spots.find(([x, z]) => !this.game.vehicles.some((v) => !v.removed && dist(v.x, v.z, x, z) < 5));
+    if (!spot) return false;
+    const u = new PoliceUnit(this.game, spot[0], spot[1], st.heading);
     this.units.push(u);
     this.game.vehicles.push(u.car);
+    return true;
   }
 
   // Wanted level cleared: units drive off and despawn.
@@ -330,10 +324,11 @@ export class PoliceManager {
     const game = this.game;
     const want = CFG.UNITS_PER_STAR[game.stars];
     const active = this.units.filter((u) => !u.leaving && !u.carLost && !u.allDead);
+    // Dispatch: a short delay after the first call, then one unit every few seconds.
+    if (want === 0) this.spawnT = 3;
     this.spawnT -= dt;
     if (active.length < want && this.spawnT <= 0 && game.wastedT <= 0) {
-      this.spawnUnit();
-      this.spawnT = 2.5;
+      if (this.spawnUnit()) this.spawnT = 4;
     }
     for (const u of this.units) u.update(dt);
 
@@ -349,7 +344,6 @@ export class PoliceManager {
           u.removed = true;
         }
       } else if (u.leaving && officersHome && (d > 90 || u.leaveT > 30)) u.dispose();
-      else if (!u.leaving && officersHome && d > 230) u.dispose();
     }
     this.units = this.units.filter((u) => !u.removed);
   }

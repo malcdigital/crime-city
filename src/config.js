@@ -4,6 +4,9 @@ const BLOCK = 64;
 const ROAD = 14;
 
 export const CFG = {
+  // Testing switch: guns never run out of ammo. Set to false for normal play.
+  INFINITE_AMMO: true,
+
   BLOCKS,
   BLOCK,
   ROAD,
