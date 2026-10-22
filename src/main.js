@@ -192,6 +192,20 @@ class Game {
       || this.police.units.some((u) => !u.leaving && dist(u.car.x, u.car.z, x, z) < 60);
   }
 
+  // A civilian finished a 911 call about trouble at `threat`.
+  civilianCall(ped, threat) {
+    if (this.stars === 0) return;
+    const [px, pz] = this.player.pos();
+    // They can only report where you are if you're still around the scene.
+    if (dist(px, pz, threat[0], threat[1]) > 70) return;
+    this.lastKnown = [px, pz];
+    this.lastSeen = Math.max(this.lastSeen, this.time - 2);
+    if (this.time - (this.lastCallNews ?? -99) > 15) {
+      this.lastCallNews = this.time;
+      this.hud.news(`911 caller reports the suspect near ${streetAt(px, pz)}`);
+    }
+  }
+
   // Nearest target in range, preferring ones in line of sight.
   pickTarget(self, list, range) {
     let best = null;

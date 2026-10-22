@@ -31,9 +31,11 @@ export function findCover(game, self, threat) {
     if (travel > 24) return;
     const td = dist(spot.x, spot.z, threat.x, threat.z);
     if (td < 7) return;
-    // Spot must be clear ground.
-    const r = pushCircle(spot.x, spot.z, 0.4, city.colliders);
+    // Spot must be clear ground with room to stand.
+    const r = pushCircle(spot.x, spot.z, 0.65, city.colliders);
     if (Math.hypot(r.x - spot.x, r.z - spot.z) > 0.05) return;
+    // Skip spots this fighter recently failed to reach.
+    if (self.badCover && self.badCover.some((b) => b.until > game.time && dist(b.x, b.z, spot.x, spot.z) < 1.5)) return;
     const score = travel + Math.abs(td - 16) * 0.35;
     if (score < bestScore) {
       bestScore = score;
@@ -65,7 +67,9 @@ export function findCover(game, self, threat) {
     const uz = (az - threat.z) / d;
     const x = ax + ux * gap;
     const z = az + uz * gap;
-    consider({ x, z, peekX: x, peekZ: z, low: true, ax, az });
+    // Pop up by leaning out to one side of the crate or car.
+    const side = Math.random() < 0.5 ? 1 : -1;
+    consider({ x, z, peekX: x - uz * side * 1.1, peekZ: z + ux * side * 1.1, low: true, ax, az });
   };
   for (const c of city.crates) low(c.x, c.z, 1.25);
   for (const v of game.vehicles) {
@@ -120,7 +124,9 @@ export class GangFighter {
 
   get mode() {
     if (!this.alive) return 'down';
-    if (this.state === 'fight') return { flee: 'running', cover: this.cover ? 'in cover' : 'finding cover', rush: 'charging' }[this.behavior];
+    if (this.state === 'fight') {
+      return { flee: 'running', cover: this.cover ? 'in cover' : 'finding cover', rush: 'charging', hide: 'hiding', leave: 'leaving' }[this.behavior];
+    }
     return this.state;
   }
 
@@ -165,6 +171,9 @@ export class GangFighter {
 
   onHurt() {}
   onDeath() {}
+  giveUp() {
+    this.behavior = 'leave';
+  }
 
   // Police in the fight make everyone more likely to run.
   startFight(copFight = false) {
@@ -225,11 +234,9 @@ export class GangFighter {
           this.cover = null;
           this.recheckT = 0;
           this.fleeGoal = null;
-        } else if (d > 45) {
-          // Too scared to come back: lie low out of sight.
-          speed = 0;
-          this.crouched = true;
-          face = Math.atan2(tx - this.x, tz - this.z);
+        } else {
+          // Too scared to come back.
+          this.giveUp();
         }
       } else if (los && d < 25 && Math.random() < dt * 0.4) {
         // A wild shot over the shoulder.
@@ -237,11 +244,58 @@ export class GangFighter {
         acc *= 0.4;
         rate = [0, 0];
       }
+    } else if (this.behavior === 'leave') {
+      // Clearing out of the area at a jog.
+      if (!this.leaveGoal || dist(this.x, this.z, this.leaveGoal[0], this.leaveGoal[1]) < 2.5 || this.navFails >= 2) {
+        this.navFails = 0;
+        this.leaveGoal = escapePoint(game, this, tx, tz);
+      }
+      [goX, goZ] = this.leaveGoal;
+      speed = 3.6;
+      face = null;
+    } else if (this.behavior === 'hide') {
+      // Too scared to fight: get behind something solid and stay down.
+      if (d < 18 && los) {
+        this.behavior = 'flee';
+        this.fleeT = rand(4, 6);
+        this.fleeGoal = null;
+      } else {
+        this.heart = Math.min(this.baseHeart + 0.12, this.heart + dt * 0.03);
+        this.recheckT -= dt;
+        if (this.recheckT <= 0) {
+          this.recheckT = 1.5;
+          if (!this.cover || !this.coverHolds(target)) this.cover = findCover(game, this, target);
+        }
+        if (this.cover) {
+          goX = this.cover.x;
+          goZ = this.cover.z;
+          const there = dist(this.x, this.z, goX, goZ) < 0.8;
+          speed = there ? 0 : 5;
+          this.crouched = there;
+          face = there ? Math.atan2(tx - this.x, tz - this.z) : null;
+        } else {
+          // Nothing to hide behind: keep moving away.
+          if (!this.fleeGoal || dist(this.x, this.z, this.fleeGoal[0], this.fleeGoal[1]) < 2.5 || this.navFails >= 2) {
+            this.navFails = 0;
+            this.fleeGoal = escapePoint(game, this, tx, tz);
+          }
+          [goX, goZ] = this.fleeGoal;
+          speed = 3;
+          face = null;
+        }
+        // Nerve back: rejoin the fight.
+        if (this.heart >= 0.35) {
+          this.behavior = 'cover';
+          this.cover = null;
+          this.recheckT = 0;
+        }
+      }
     } else if (this.behavior === 'cover') {
       this.recheckT -= dt;
       if (this.cover && this.recheckT <= 0) {
         this.recheckT = 1;
-        if (!this.coverHolds(target)) this.cover = null;
+        // Move up if the enemy is far away, or find new cover if this spot no longer hides you.
+        if (!this.coverHolds(target) || (d > 32 && !this.peeking)) this.cover = null;
       }
       if (!this.cover && this.recheckT <= 0) {
         this.cover = findCover(game, this, target);
@@ -266,7 +320,7 @@ export class GangFighter {
         acc *= 0.85;
       } else {
         const c = this.cover;
-        const atCover = dist(this.x, this.z, c.x, c.z) < 0.8 || (this.peeking && dist(this.x, this.z, c.peekX, c.peekZ) < 0.8);
+        const atCover = dist(this.x, this.z, c.x, c.z) < 1.2 || (this.peeking && dist(this.x, this.z, c.peekX, c.peekZ) < 1.2);
         if (!atCover && !this.peeking) {
           goX = c.x;
           goZ = c.z;
@@ -274,18 +328,22 @@ export class GangFighter {
           face = null;
           // Can't reach it: give up and look for other cover.
           this.coverTravelT = (this.coverTravelT || 0) + dt;
-          if (this.coverTravelT > 7) {
+          if (this.coverTravelT > 4 || this.navFails >= 2) {
+            this.badCover = (this.badCover || []).filter((b) => b.until > this.game.time);
+            this.badCover.push({ x: c.x, z: c.z, until: this.game.time + 20 });
+            this.navFails = 0;
             this.cover = null;
-            this.recheckT = 0.5;
+            this.recheckT = 0;
           }
         } else {
+          this.coverTravelT = 0;
           this.coverT -= dt;
           if (!this.peeking) {
             // Hidden: crouch and wait.
             this.crouched = true;
             goX = c.x;
             goZ = c.z;
-            speed = dist(this.x, this.z, c.x, c.z) > 0.3 ? 2 : 0;
+            speed = dist(this.x, this.z, c.x, c.z) > 0.5 ? 2 : 0;
             if (this.coverT <= 0) {
               this.peeking = true;
               this.peekShots = 2 + Math.floor(Math.random() * 3);
@@ -295,9 +353,15 @@ export class GangFighter {
             // Pop out and shoot a few rounds.
             goX = c.peekX;
             goZ = c.peekZ;
-            speed = dist(this.x, this.z, goX, goZ) > 0.3 ? 3 : 0;
+            speed = dist(this.x, this.z, goX, goZ) > 0.5 ? 3 : 0;
             canShoot = los && speed === 0;
             rate = [0.3, 0.5];
+            // Popped up but can't see anyone: go find a better spot.
+            if (speed === 0 && !los) {
+              this.peeking = false;
+              this.cover = null;
+              this.recheckT = 0;
+            }
             if (this.peekShots <= 0 || this.coverT <= 0) {
               this.peeking = false;
               this.coverT = rand(1.2, 2.4);
@@ -325,7 +389,8 @@ export class GangFighter {
     }
 
     this.move(dt, goX, goZ, speed, face);
-    this.char.armR.rotation.x = this.behavior === 'flee' && this.fleeT > 0 ? -0.3 : -1.45;
+    const armed = !(this.behavior === 'flee' && this.fleeT > 0) && this.behavior !== 'leave' && !(this.behavior === 'hide' && !this.crouched);
+    this.char.armR.rotation.x = armed ? -1.45 : -0.3;
 
     if (canShoot && d < 50) {
       this.fireT -= dt;
@@ -415,6 +480,11 @@ export class RivalMember extends GangFighter {
     this.game.gang.anger();
   }
 
+  giveUp() {
+    this.behavior = 'leave';
+    this.leaveGoal = null;
+  }
+
   onDeath() {
     this.game.gang.allyDown(this);
   }
@@ -433,9 +503,11 @@ export class RivalMember extends GangFighter {
       }
     }
 
-    if (game.gang.angry && dPlayer < 80 && game.wastedT <= 0) {
+    const leaving = this.state === 'fight' && this.behavior === 'leave';
+    if (leaving || (game.gang.angry && dPlayer < 80 && game.wastedT <= 0)) {
       this.startFight(game.copsNear(this.x, this.z));
-      const target = game.pickTarget(this, foes, 60);
+      // Someone leaving keeps heading away from you, however far they get.
+      const target = leaving ? { x: px, z: pz, ref: 'player' } : game.pickTarget(this, foes, 60);
       if (target) this.fight(dt, target);
       else this.move(dt, px, pz, 4, null);
     } else {
@@ -465,6 +537,12 @@ export class CrewMember extends GangFighter {
     const game = this.game;
     game.crew.memberDown(this);
     for (const r of game.gang.members) if (r.alive && dist(r.x, r.z, this.x, this.z) < 25) r.heart = Math.min(1, r.heart + 0.05);
+  }
+
+  giveUp() {
+    this.behavior = 'hide';
+    this.cover = null;
+    this.recheckT = 0;
   }
 
   hideInCar(v) {
@@ -590,6 +668,10 @@ export class GangManager {
     const [px, pz] = this.game.player.pos();
     const far = dist(this.home.x, this.home.z, px, pz) > 90;
     for (const m of this.members) if (m.state === 'dead' && m.t <= 0 && far) m.dispose();
+    // Rivals who fled the area are gone once you can't see them.
+    for (const m of this.members) {
+      if (m.alive && m.behavior === 'leave' && dist(m.x, m.z, px, pz) > 60 && segmentBlocked(px, pz, m.x, m.z, this.game.city.los)) m.dispose();
+    }
     this.members = this.members.filter((m) => !m.removed);
     if (!this.members.some((m) => m.alive)) {
       this.respawnT += dt;

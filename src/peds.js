@@ -119,18 +119,42 @@ export class Ped {
       }
     } else if (this.state === 'flee') {
       this.t -= dt;
+      const dThreat = dist(this.x, this.z, ...this.threat);
       [tx, tz] = this.fleeGoal;
-      speed = 4.3;
+      // Sprint while close, ease into a jog once well clear.
+      speed = dThreat > 40 ? 3 : 4.3;
       // Reached the corner but still scared: keep going to the next one.
       if (dist(this.x, this.z, tx, tz) < 2 || this.navFails >= 2) {
         this.navFails = 0;
         this.fleeGoal = escapePoint(game, this, ...this.threat);
       }
-      if (this.t <= 0) this.resumeWalking();
+      if (this.t <= 0) {
+        if (dThreat < 35) this.t = 1.5; // still too close: keep going
+        else this.afterFlee();
+      }
+    } else if (this.state === 'call') {
+      // On the phone to 911, watching the scene.
+      this.t -= dt;
+      this.heading = lerpAngle(this.heading, Math.atan2(this.threat[0] - this.x, this.threat[1] - this.z), Math.min(1, dt * 5));
+      if (this.t <= 0) {
+        game.civilianCall(this, this.threat);
+        this.char.armR.rotation.x = 0;
+        this.resumeWalking();
+        this.hurryT = 12;
+      }
+    } else if (this.state === 'leave') {
+      // Ducking into a building to get off the street.
+      [tx, tz] = this.door;
+      speed = 2.4;
+      if (dist(this.x, this.z, tx, tz) < 0.9 || this.navFails >= 3) {
+        this.dispose();
+        return;
+      }
     } else {
       const cs = corners(this.block);
       [tx, tz] = cs[this.corner];
-      speed = this.walkSpeed;
+      this.hurryT = Math.max(0, (this.hurryT || 0) - dt);
+      speed = this.walkSpeed * (this.hurryT > 0 ? 1.6 : 1);
       if (dist(this.x, this.z, tx, tz) < 0.6) this.arrive();
     }
 
@@ -141,9 +165,47 @@ export class Ped {
     this.speed = speed;
     this.phase += dt * speed * 4;
     animateWalk(this.char, this.phase, Math.min(1, speed / 1.5));
+    if (this.state === 'call') this.char.armR.rotation.x = -2.5; // phone to the ear
     const y = game.city.groundY(this.x, this.z);
     this.char.group.position.set(this.x, this.standing ? y : y + 0.2, this.z);
     this.char.group.rotation.y = this.heading;
+  }
+
+  // What a civilian does once they've run far enough.
+  afterFlee() {
+    const r = Math.random();
+    if (r < 0.35) {
+      this.state = 'call';
+      this.t = rand(4, 6);
+      return;
+    }
+    if (r < 0.65) {
+      const door = this.nearestDoor();
+      if (door) {
+        this.door = door;
+        this.state = 'leave';
+        this.navFails = 0;
+        return;
+      }
+    }
+    this.resumeWalking();
+    this.hurryT = 15;
+  }
+
+  // A spot against the nearest building wall to walk into.
+  nearestDoor() {
+    let best = null;
+    let bestD = 30;
+    for (const b of this.game.city.los) {
+      const cx = Math.max(b.minX, Math.min(this.x, b.maxX));
+      const cz = Math.max(b.minZ, Math.min(this.z, b.maxZ));
+      const d = dist(this.x, this.z, cx, cz);
+      if (d < bestD && d > 0.01) {
+        bestD = d;
+        best = [cx + ((this.x - cx) / d) * 0.6, cz + ((this.z - cz) / d) * 0.6];
+      }
+    }
+    return best;
   }
 
   arrive() {
