@@ -1087,6 +1087,11 @@ class Game {
       ty = this.player.lowProfile ? 1.15 : 1.7;
       distBack = down ? 7 : 5.5;
       height = 1.2;
+      // In cover: a wider view so you can see around you.
+      if (this.player.cover) {
+        fov = 82;
+        distBack = 4.8;
+      }
       if (this.aimingNow) {
         distBack = 3.6;
         height = 0.45;
