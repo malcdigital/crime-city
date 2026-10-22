@@ -54,7 +54,7 @@ export class Arsenal {
 }
 
 // Ray vs axis-aligned box. Returns the entry distance or null.
-function rayBox(ox, oy, oz, dx, dy, dz, x0, y0, z0, x1, y1, z1) {
+export function rayBox(ox, oy, oz, dx, dy, dz, x0, y0, z0, x1, y1, z1) {
   let tmin = 0;
   let tmax = Infinity;
   const axes = [[ox, dx, x0, x1], [oy, dy, y0, y1], [oz, dz, z0, z1]];

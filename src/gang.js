@@ -1,5 +1,5 @@
 import { GANG_NAME, CREW_NAME } from './config.js';
-import { makeCharacter, setDown, SKIN_TONES } from './character.js';
+import { makeCharacter, setDown, crouchPose, SKIN_TONES } from './character.js';
 import { pushCircle, segmentBlocked } from './collision.js';
 import { dist, pick, rand, lerpAngle, clamp } from './util.js';
 import { navStep, escapePoint } from './nav.js';
@@ -427,19 +427,20 @@ export class GangFighter {
     this.phase += dt * this.speedNow * 3;
     const s = Math.sin(this.phase) * Math.min(1, this.speedNow / 2);
     if (this.crouched) {
-      // Kneel behind cover.
-      this.char.legL.rotation.x = -1.4;
-      this.char.legR.rotation.x = -0.2;
+      // Squat down behind cover.
+      this.crouchY = crouchPose(this.char, 1);
     } else {
       this.char.legL.rotation.x = s * 0.8;
       this.char.legR.rotation.x = -s * 0.8;
+      this.char.kneeL.rotation.x = Math.max(0, s) * 1.1;
+      this.char.kneeR.rotation.x = Math.max(0, -s) * 1.1;
     }
     this.char.armL.rotation.x = this.state === 'fight' && this.behavior !== 'flee' ? -1.1 : -s * 0.6;
   }
 
   place() {
     const y = this.game.city.groundY(this.x, this.z);
-    this.char.group.position.set(this.x, !this.standing ? y + 0.2 : this.crouched ? y - 0.45 : y, this.z);
+    this.char.group.position.set(this.x, !this.standing ? y + 0.2 : this.crouched ? y + (this.crouchY || -0.45) : y, this.z);
     this.char.group.rotation.y = this.heading;
   }
 

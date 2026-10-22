@@ -1,5 +1,5 @@
 import { CFG } from './config.js';
-import { makeCharacter, animateWalk, setDown, SKIN_TONES } from './character.js';
+import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES } from './character.js';
 import { pushCircle } from './collision.js';
 import { pick, rand, dist, lerpAngle } from './util.js';
 import { navStep, escapePoint } from './nav.js';
@@ -268,11 +268,10 @@ export class Ped {
       yOff = 0.2 * k;
       c.armL.rotation.x = c.armR.rotation.x = -2.9 * k;
       c.legL.rotation.x = c.legR.rotation.x = 0;
+      c.kneeL.rotation.x = c.kneeR.rotation.x = 0;
     } else if (this.state === 'cower' || (this.state === 'hide' && this.hidden)) {
       // Crouched down, hands over the head.
-      yOff = -0.42;
-      c.legL.rotation.x = -1.4;
-      c.legR.rotation.x = -0.25;
+      yOff = crouchPose(c, 1);
       c.armL.rotation.x = -2.7;
       c.armR.rotation.x = -2.7;
     }

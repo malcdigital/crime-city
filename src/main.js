@@ -11,7 +11,7 @@ import { GangManager, CrewManager, MAX_CREW } from './gang.js';
 import { Hud } from './hud.js';
 import { Effects } from './effects.js';
 import { Sfx } from './audio.js';
-import { Arsenal, WEAPONS, raycast } from './weapons.js';
+import { Arsenal, WEAPONS, raycast, rayBox } from './weapons.js';
 import { lam } from './character.js';
 import { segmentBlocked } from './collision.js';
 import { clamp, dist, lerp, lerpAngle, rand, randInt, wrapAngle } from './util.js';
@@ -893,6 +893,25 @@ class Game {
     for (const ped of this.peds.peds) if (dist(ped.x, ped.z, x, z) < r) ped.scare(x, z, gun);
   }
 
+  // Tire smoke and skid marks from burnouts and drifts.
+  tireFx(v, dt) {
+    const burn = v.burnout;
+    const slide = v.drift > 2.5 || (v.grip < 0.6 && Math.abs(v.speed) > 8);
+    if (!burn && !slide) return;
+    this.tireFxT = (this.tireFxT || 0) - dt;
+    const rear = v.wheels.map((w, i) => i).filter((i) => !v.wheels[i].userData.front);
+    for (const i of rear) {
+      const [wx, , wz] = v.wheelPos(i);
+      if (slide || Math.random() < 0.3) this.effects.skid(wx, wz, v.heading);
+    }
+    if (this.tireFxT > 0) return;
+    this.tireFxT = burn ? 0.05 : 0.08;
+    for (const i of rear) {
+      const [wx, , wz] = v.wheelPos(i);
+      this.effects.tireSmoke(wx, wz, burn ? 1 : Math.min(1, v.drift / 8));
+    }
+  }
+
   // Cars hitting people.
   checkRunOver() {
     for (const v of this.vehicles) {
@@ -1077,9 +1096,28 @@ class Game {
     }
     const cp = Math.cos(this.camPitch);
     const rx = -Math.cos(this.camYaw), rz = Math.sin(this.camYaw);
-    const cx = tx - Math.sin(this.camYaw) * distBack * cp + rx * shoulder;
-    const cz = tz - Math.cos(this.camYaw) * distBack * cp + rz * shoulder;
-    const cy = ty + height + Math.sin(this.camPitch) * distBack;
+    let cx = tx - Math.sin(this.camYaw) * distBack * cp + rx * shoulder;
+    let cz = tz - Math.cos(this.camYaw) * distBack * cp + rz * shoulder;
+    let cy = ty + height + Math.sin(this.camPitch) * distBack;
+    // Don't let the camera go inside buildings (e.g. when you're in cover against a wall):
+    // pull it in to just in front of the wall.
+    const ox = tx + rx * shoulder * 0.5, oy = ty + 0.6, oz = tz + rz * shoulder * 0.5;
+    const ddx = cx - ox, ddy = cy - oy, ddz = cz - oz;
+    const len = Math.hypot(ddx, ddy, ddz) || 1;
+    let free = len;
+    for (const b of this.city.los) {
+      if (Math.abs((b.minX + b.maxX) / 2 - ox) > 60 || Math.abs((b.minZ + b.maxZ) / 2 - oz) > 60) continue;
+      const t = rayBox(ox, oy, oz, ddx / len, ddy / len, ddz / len, b.minX - 0.25, 0, b.minZ - 0.25, b.maxX + 0.25, b.h || 30, b.maxZ + 0.25);
+      if (t !== null && t < free) free = t;
+    }
+    const want = Math.max(0.8, free - 0.1);
+    this.camFree = want < (this.camFree ?? len) ? want : lerp(this.camFree ?? len, want, Math.min(1, dt * 4));
+    if (this.camFree < len) {
+      const k = this.camFree / len;
+      cx = ox + ddx * k;
+      cy = oy + ddy * k;
+      cz = oz + ddz * k;
+    }
     const shake = v ? v.crash * 0.01 : 0;
     this.camera.position.set(cx + rand(-shake, shake), Math.max(0.6, cy), cz + rand(-shake, shake));
     this.camera.lookAt(tx + rx * shoulder, ty + 0.6, tz + rz * shoulder);
@@ -1152,7 +1190,12 @@ class Game {
     // Crouch: toggle with C / L3; sprinting stands you up; aiming pops you up out of cover.
     if (a.crouch && !p.vehicle) p.crouched = !p.crouched;
     if (a.sprint && Math.hypot(a.moveX, a.moveY) > 0.3) p.crouched = false;
-    p.lowProfile = !p.vehicle && p.crouched && !this.aimingNow;
+    // Take cover (Q / R1): snap to a wall, crate or car and stay there until you leave.
+    if (a.cover && !p.vehicle) {
+      if (p.cover) p.leaveCover();
+      else if (!p.tryCover(this.camYaw, a)) this.hud.toast('No cover nearby', '#cccccc');
+    }
+    p.lowProfile = !p.vehicle && (p.crouched || !!(p.cover && p.cover.low)) && !this.aimingNow;
 
     // Controller aim assist: aim freely with the right stick; the reticle sticks
     // to a target when the crosshair passes close to it.
@@ -1160,7 +1203,9 @@ class Game {
     else this.lockTarget = null;
 
     if (p.vehicle) {
-      p.vehicle.update(dt, { throttle: a.throttle, steer: a.steer, handbrake: a.handbrake }, this.city.colliders);
+      const v = p.vehicle;
+      v.update(dt, { throttle: a.throttle, steer: a.steer, handbrake: a.handbrake, burnout: a.gas && a.brakeHeld }, this.city.colliders);
+      this.tireFx(v, dt);
     } else {
       const combat = gun && (this.aimingNow || this.time - this.lastShot < 0.8 || a.fire);
       let faceYaw = combat ? this.camYaw : null;

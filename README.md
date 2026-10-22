@@ -17,9 +17,11 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 
 - Procedural 8×8-block city: buildings, parks, stores, a police station and a chop shop
 - Third-person on foot (walk, sprint, crouch, punch) and driving (4 car types, handbrake)
-- Cover: crouch behind crates, dumpsters and cars to block bullets and break line of sight; aiming pops you up to shoot
+- Cover: press Q / R1 to snap to a wall, crate or car and stay there; slide along it, lean out at corners or pop up over low cover to aim; push away or press again to leave
+- Crouching bends at the knees; crouch behind low cover to block bullets and break line of sight
+- Drifting: handbrake (or a hard turn at full throttle) breaks the rear loose, with tire smoke and skid marks; burnouts with gas + brake from a stop (steer for donuts)
 - Police search: they comb the area where they last saw you (behind cover, around corners), hear gunshots and running footsteps, and keep tracking you if they watched you duck. Escape by leaving the search circle unseen or staying hidden long enough
-- Spike strips across the road at 5-star roadblocks
+- Roadblocks at 4+ stars: police cars drive ahead of you and park across the road (spike strips at 5 stars)
 - Civilians react to gunfire: some dive flat, some duck in place, some run to cover and hide, the rest run
 - NPC traffic that follows lanes and stops for cars and people
 - NPC pedestrians who walk the sidewalks, cross streets, and flee from violence
@@ -50,7 +52,9 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | Move / steer | WASD | Left stick |
 | Look | Mouse / arrow keys | Right stick |
 | Sprint | Shift | ✕ (hold) |
-| Crouch / take cover | C | L3 |
+| Crouch | C | L3 |
+| Take cover (on foot) | Q | R1 |
+| Burnout (stopped) | W + S | R2 + L2 |
 | Aim | Right mouse | L2 (sticks to targets near the crosshair) |
 | Shoot | Left mouse | R2 |
 | Punch | J (or click with fists) | ○ |

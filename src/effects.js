@@ -22,6 +22,33 @@ export class Effects {
     this.lines = [];
     this.light = new THREE.PointLight(0xffa040, 0, 40, 1.5);
     scene.add(this.light);
+    // Skid marks: a ring buffer of dark strips on the road.
+    const geo = new THREE.PlaneGeometry(0.28, 0.5);
+    geo.rotateX(-Math.PI / 2);
+    this.skids = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.55, depthWrite: false }), 600);
+    this.skids.count = 0;
+    this.skidN = 0;
+    this.skidObj = new THREE.Object3D();
+    this.skids.frustumCulled = false;
+    scene.add(this.skids);
+  }
+
+  skid(x, z, heading) {
+    const o = this.skidObj;
+    o.position.set(x, 0.03, z);
+    o.rotation.set(0, heading, 0);
+    o.updateMatrix();
+    this.skids.setMatrixAt(this.skidN % 600, o.matrix);
+    this.skidN++;
+    this.skids.count = Math.min(600, this.skidN);
+    this.skids.instanceMatrix.needsUpdate = true;
+  }
+
+  tireSmoke(x, z, amount = 1) {
+    this.sprite(x + (Math.random() - 0.5) * 0.5, 0.35, z + (Math.random() - 0.5) * 0.5, {
+      color: 0xdedede, size: 0.9 + amount * 0.6, life: 1.6 + amount, grow: 2.6, opacity: 0.45, vy: 0.6,
+      vx: (Math.random() - 0.5) * 1.2, vz: (Math.random() - 0.5) * 1.2,
+    });
   }
 
   sprite(x, y, z, { color = 0xffffff, size = 0.5, life = 0.3, vx = 0, vy = 0, vz = 0, grow = 0, additive = false, opacity = 1 }) {

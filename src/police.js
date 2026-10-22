@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CFG } from './config.js';
 import { Vehicle } from './vehicle.js';
-import { makeCharacter, animateWalk, setDown, SKIN_TONES } from './character.js';
+import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES } from './character.js';
 import { pushCircle, segmentBlocked } from './collision.js';
 import { steerToward, throttleFor, StuckHelper } from './driving.js';
 import { dist, pick, rand, lerpAngle } from './util.js';
@@ -212,8 +212,7 @@ export class Officer {
     animateWalk(this.char, this.phase, Math.min(1, speed / 2));
     if (this.crouched) {
       // Kneeling behind the car.
-      this.char.legL.rotation.x = -1.4;
-      this.char.legR.rotation.x = -0.2;
+      this.crouchY = crouchPose(this.char, 1);
     }
     // Gun up in a gunfight, or when shooting at tires.
     if ((game.lethal || this.aimingTires) && this.state === 'chase') {
@@ -399,7 +398,7 @@ export class Officer {
 
   place() {
     const y = this.game.city.groundY(this.x, this.z);
-    this.char.group.position.set(this.x, !this.standing ? y + 0.2 : this.crouched ? y - 0.45 : y, this.z);
+    this.char.group.position.set(this.x, !this.standing ? y + 0.2 : this.crouched ? y + (this.crouchY || -0.45) : y, this.z);
     this.char.group.rotation.y = this.heading;
   }
 
@@ -470,6 +469,27 @@ export class PoliceUnit {
       tx = this.to.x;
       tz = this.to.z;
       desired = 12;
+    } else if (this.blockPlan) {
+      // Heading out to set up a roadblock ahead of you.
+      c.siren = true;
+      const s = this.blockPlan.slots[this.blockSlot];
+      const ds = dist(c.x, c.z, s.x, s.z);
+      if (ds < 5) {
+        this.settle(dt, s);
+        return;
+      }
+      if (ds < 50 && !segmentBlocked(c.x, c.z, s.x, s.z, game.city.los)) {
+        tx = s.x;
+        tz = s.z;
+        desired = Math.min(maxS, 4 + ds * 0.7);
+        this.to = null;
+      } else {
+        this.navigate(s.x, s.z, false, 2);
+        tx = this.to.x;
+        tz = this.to.z;
+        desired = maxS;
+        if (dist(c.x, c.z, tx, tz) < 22) desired = Math.min(desired, 14);
+      }
     } else {
       c.siren = true;
       const seesPlayer = d < 45 && game.spots(c, 1.4, 60, false);
@@ -538,8 +558,48 @@ export class PoliceUnit {
     c.update(dt, ctrl, game.city.colliders);
   }
 
+  // Final few meters of a roadblock: ease the car into its spot, sideways across the road.
+  settle(dt, s) {
+    const c = this.car;
+    const game = this.game;
+    c.speed *= Math.max(0, 1 - dt * 5);
+    // Either way across the road is fine: pick whichever is closer to how the car is pointing.
+    const h1 = s.heading;
+    const h2 = s.heading + Math.PI;
+    const d1 = Math.abs(Math.atan2(Math.sin(h1 - c.heading), Math.cos(h1 - c.heading)));
+    const d2 = Math.abs(Math.atan2(Math.sin(h2 - c.heading), Math.cos(h2 - c.heading)));
+    const h = d1 < d2 ? h1 : h2;
+    const k = Math.min(1, dt * 2.2);
+    c.x += (s.x - c.x) * k;
+    c.z += (s.z - c.z) * k;
+    c.heading += Math.atan2(Math.sin(h - c.heading), Math.cos(h - c.heading)) * k;
+    c.steerVis *= 0.9;
+    c.update(dt, { throttle: 0, steer: 0, handbrake: true }, game.city.colliders);
+    if (dist(c.x, c.z, s.x, s.z) < 0.5 && Math.min(d1, d2) < 0.08) {
+      c.speed = 0;
+      c.heavy = true;
+      this.roadblock = true;
+      const plan = this.blockPlan;
+      plan.ready = (plan.ready || 0) + 1;
+      // Officers get out on the side away from you.
+      const [cfx, cfz] = c.forward();
+      const side = -cfz * plan.ax + cfx * plan.az > 0 ? 1 : -1;
+      for (const o of this.officers) o.dismount(side);
+      if (!plan.announced) {
+        plan.announced = true;
+        game.hud.news(`Police roadblock on ${streetAt(plan.cx, plan.cz)}`);
+      }
+      // At 5 stars, a spike strip goes down across the road in front of the block.
+      if (game.stars >= 5 && !plan.spiked) {
+        plan.spiked = true;
+        game.police.laySpikes(plan.cx - plan.ax * 12, plan.cz - plan.az * 12, plan.lx, plan.lz);
+        game.hud.news(`Police lay spike strips on ${streetAt(plan.cx, plan.cz)}`);
+      }
+    }
+  }
+
   // Follow the road grid toward (or away from) a point.
-  navigate(px, pz, away) {
+  navigate(px, pz, away, jitter = 15) {
     const city = this.game.city;
     const c = this.car;
     if (!this.to) {
@@ -548,7 +608,7 @@ export class PoliceUnit {
     }
     if (dist(c.x, c.z, this.to.x, this.to.z) < 10) {
       const options = this.to.nb.filter((n) => n !== this.from);
-      const score = (n) => dist(n.x, n.z, px, pz) * (away ? -1 : 1) + Math.random() * 15;
+      const score = (n) => dist(n.x, n.z, px, pz) * (away ? -1 : 1) + Math.random() * jitter;
       options.sort((a, b) => score(a) - score(b));
       this.from = this.to;
       this.to = options[0] || this.from;
@@ -569,6 +629,7 @@ export class PoliceManager {
     this.spawnT = 0;
     this.searched = []; // spots already checked: {x, z, t}
     this.spikes = [];
+    this.plans = []; // roadblocks being set up or in place
   }
 
   // Places worth checking for a hidden suspect near (kx, kz).
@@ -699,61 +760,89 @@ export class PoliceManager {
     return true;
   }
 
-  // Park two cruisers across the road ahead of where you're driving.
-  trySpawnRoadblock() {
+  // Roadblocks: find a spot on the road ahead of you that police cars can reach first,
+  // and send them there (cars already in the chase, or fresh ones from the station).
+  planRoadblock() {
     const game = this.game;
     const v = game.player.vehicle;
     if (!v) return false;
     const [fx, fz] = v.forward();
     const sgn = v.speed >= 0 ? 1 : -1;
-    let best = null;
-    let bestScore = Infinity;
+    const pSpeed = Math.max(Math.abs(v.speed), 12);
+    const st = game.city.station;
+    const cands = [];
     for (const n of game.city.nodes) {
       const dx = n.x - v.x;
       const dz = n.z - v.z;
       const d = Math.hypot(dx, dz);
-      if (d < 110 || d > 220) continue;
+      if (d < 100 || d > 420) continue;
       const cos = ((dx * fx + dz * fz) * sgn) / d;
       if (cos < 0.9) continue;
-      const score = Math.abs(d - 150) - cos * 20;
-      if (score < bestScore) {
-        bestScore = score;
-        best = n;
+      cands.push({ n, d });
+    }
+    cands.sort((p, q) => Math.abs(p.d - 200) - Math.abs(q.d - 200));
+    const free = this.units.filter((u) => !u.leaving && !u.carLost && !u.allDead && !u.roadblock && !u.blockPlan && u.mounted);
+    for (const { n: best } of cands) {
+      const dx = best.x - v.x;
+      const dz = best.z - v.z;
+      const alongX = Math.abs(dx) > Math.abs(dz);
+      const ax = alongX ? Math.sign(dx) : 0;
+      const az = alongX ? 0 : Math.sign(dz);
+      if (!best.nb.some((m) => Math.sign(m.x - best.x) === -ax && Math.sign(m.z - best.z) === -az)) continue;
+      const cx = best.x - ax * 14;
+      const cz = best.z - az * 14;
+      const lx = alongX ? 0 : 1;
+      const lz = alongX ? 1 : 0;
+      const heading = alongX ? 0 : Math.PI / 2;
+      const playerEta = dist(v.x, v.z, cx, cz) / pSpeed;
+      // Rough drive time along the grid for a cruiser.
+      const eta = (x, z) => (Math.abs(x - cx) + Math.abs(z - cz)) / 30 + 2;
+      const sources = free.map((u) => ({ u, t: eta(u.car.x, u.car.z) }));
+      if (active(this) < CFG.UNITS_PER_STAR[game.stars] + 2) sources.push({ station: true, t: eta(st.x, st.z) + 2 }, { station: true, t: eta(st.x, st.z) + 4 });
+      // Patrol cars already out on the streets, far from you and out of sight.
+      for (const n of game.city.nodes) {
+        if (sources.length > 12) break;
+        const dp = dist(n.x, n.z, v.x, v.z);
+        if (dp < 160 || dist(n.x, n.z, cx, cz) > 200 || dist(n.x, n.z, cx, cz) < 40) continue;
+        if (!segmentBlocked(n.x, n.z, v.x, v.z, game.city.los)) continue;
+        if (game.vehicles.some((o) => !o.removed && dist(o.x, o.z, n.x, n.z) < 8)) continue;
+        sources.push({ patrol: n, t: eta(n.x, n.z) });
       }
+      const ok = sources.filter((s) => s.t < playerEta * 0.85).sort((p, q) => p.t - q.t);
+      // Two cars, from two different places.
+      const pick = [];
+      for (const s of ok) {
+        if (pick.length === 2) break;
+        if (s.patrol && pick.some((q) => q.patrol && dist(q.patrol.x, q.patrol.z, s.patrol.x, s.patrol.z) < 10)) continue;
+        pick.push(s);
+      }
+      if (pick.length < 2) continue;
+      if (ok.length < 2) continue;
+      const plan = { cx, cz, ax, az, lx, lz, slots: [-2.5, 2.5].map((o) => ({ x: cx + lx * o, z: cz + lz * o, heading })), t: 0 };
+      pick.forEach((s, k) => {
+        let u = s.u;
+        if (s.station) {
+          if (!this.spawnUnit()) return;
+          u = this.units[this.units.length - 1];
+        } else if (s.patrol) {
+          const n = s.patrol;
+          const nb = n.nb.reduce((a, b) => (dist(a.x, a.z, cx, cz) < dist(b.x, b.z, cx, cz) ? a : b));
+          u = new PoliceUnit(game, n.x, n.z, Math.atan2(nb.x - n.x, nb.z - n.z));
+          this.units.push(u);
+          game.vehicles.push(u.car);
+        }
+        u.blockPlan = plan;
+        u.blockSlot = k;
+        u.to = null;
+      });
+      this.plans.push(plan);
+      return true;
     }
-    if (!best) return false;
-    // Block the road you'll arrive on, just before the intersection.
-    const dx = best.x - v.x;
-    const dz = best.z - v.z;
-    const alongX = Math.abs(dx) > Math.abs(dz);
-    const ax = alongX ? Math.sign(dx) : 0;
-    const az = alongX ? 0 : Math.sign(dz);
-    if (!best.nb.some((m) => Math.sign(m.x - best.x) === -ax && Math.sign(m.z - best.z) === -az)) return false;
-    const cx = best.x - ax * 14;
-    const cz = best.z - az * 14;
-    if (game.vehicles.some((o) => !o.removed && dist(o.x, o.z, cx, cz) < 7)) return false;
-    // Cars point across the road, side by side.
-    const lx = alongX ? 0 : 1;
-    const lz = alongX ? 1 : 0;
-    const heading = alongX ? 0 : Math.PI / 2;
-    for (const off of [-2.5, 2.5]) {
-      const u = new PoliceUnit(game, cx + lx * off, cz + lz * off, heading + (off > 0 ? Math.PI : 0));
-      u.roadblock = true;
-      u.car.heavy = true;
-      u.car.speed = 0;
-      this.units.push(u);
-      game.vehicles.push(u.car);
-      // Officers get out on the side away from you.
-      const [cfx, cfz] = u.car.forward();
-      const side = -cfz * ax + cfx * az > 0 ? 1 : -1;
-      for (const o of u.officers) o.dismount(side);
+    return false;
+
+    function active(m) {
+      return m.units.filter((u) => !u.leaving && !u.carLost && !u.allDead).length;
     }
-    // At 5 stars, a spike strip goes down across the road in front of the block.
-    if (game.stars >= 5) {
-      this.laySpikes(cx - ax * 12, cz - az * 12, lx, lz);
-      game.hud.news(`Police lay spike strips on ${streetAt(cx, cz)}`);
-    } else game.hud.news(`Police roadblock on ${streetAt(cx, cz)}`);
-    return true;
   }
 
   // Wanted level cleared: units drive off and despawn.
@@ -767,28 +856,37 @@ export class PoliceManager {
     for (const s of this.spikes) this.game.scene.remove(s.mesh);
     this.spikes = [];
     this.searched = [];
+    this.plans = [];
   }
 
   update(dt) {
     const game = this.game;
     const want = CFG.UNITS_PER_STAR[game.stars];
     const active = this.units.filter((u) => !u.leaving && !u.carLost && !u.allDead && !u.roadblock);
-    // Roadblocks when you're fleeing by car at 2+ stars.
-    this.blockT = (this.blockT ?? 8) - dt;
+    // Roadblocks when you're fleeing by car at 4+ stars.
+    this.blockT = (this.blockT ?? 6) - dt;
     const pv = game.player.vehicle;
-    const blocks = this.units.filter((u) => u.roadblock).length / 2;
-    if (game.stars >= 2 && pv && Math.abs(pv.speed) > 6 && this.blockT <= 0 && blocks < (game.stars >= 4 ? 2 : 1) && game.wastedT <= 0) {
-      this.blockT = this.trySpawnRoadblock() ? 20 : 3;
+    if (game.stars >= 4 && pv && Math.abs(pv.speed) > 6 && this.blockT <= 0 && this.plans.length < 2 && game.wastedT <= 0) {
+      this.blockT = this.planRoadblock() ? 15 : 2;
     }
-    // Once you're well past (or clear of the law), the roadblock packs up and joins the chase.
-    for (const u of this.units) {
-      if (!u.roadblock) continue;
-      const [ppx, ppz] = game.player.pos();
-      if (game.stars === 0 || dist(u.car.x, u.car.z, ppx, ppz) > 170) {
-        u.roadblock = false;
-        u.car.heavy = false;
+    // Called off: you got past or away before it was set up, or it's served its purpose.
+    const [ppx, ppz] = game.player.pos();
+    for (const plan of this.plans) {
+      plan.t += dt;
+      const members = this.units.filter((u) => u.blockPlan === plan);
+      const passed = (ppx - plan.cx) * plan.ax + (ppz - plan.cz) * plan.az > 15;
+      const far = dist(plan.cx, plan.cz, ppx, ppz) > (plan.ready ? 170 : 340);
+      if (game.stars < (plan.ready ? 1 : 4) || far || (passed && !plan.ready) || plan.t > 120 || !members.length) {
+        plan.done = true;
+        for (const u of members) {
+          u.blockPlan = null;
+          u.roadblock = false;
+          u.car.heavy = false;
+          u.to = null;
+        }
       }
     }
+    this.plans = this.plans.filter((p) => !p.done);
     // Dispatch: a short delay after the first call, then one unit every few seconds.
     if (want === 0) this.spawnT = 3;
     this.spawnT -= dt;

@@ -21,6 +21,7 @@ const LABELS = {
   play: ['Click PLAY', 'Press ✕'],
   phone: ['T', 'D-pad ↑'],
   crouch: ['C', 'L3'],
+  cover: ['Q', 'R1'],
 };
 
 // Keyboard, mouse and gamepad input, merged into one set of actions per frame.
@@ -163,6 +164,7 @@ export class Input {
     a.moveY = clamp((k('KeyW') || k('ArrowUp') ? 1 : 0) - (k('KeyS') || k('ArrowDown') ? 1 : 0) - this.axis(1), -1, 1);
     a.sprint = k('ShiftLeft') || k('ShiftRight') || this.btn(PAD.CROSS);
     a.crouch = this.hit('KeyC') || this.btnHit(PAD.L3);
+    a.cover = this.hit('KeyQ') || this.btnHit(PAD.R1);
     a.lookX = -this.mdx * 0.0025 + (k('ArrowLeft') ? dt * 2.2 : 0) - (k('ArrowRight') ? dt * 2.2 : 0) - this.axis(2) * dt * 3.2;
     a.lookY = this.mdy * 0.0025 + this.axis(3) * dt * 2.0;
     a.aim = this.rmb || this.btnVal(PAD.L2) > 0.3;
@@ -179,6 +181,9 @@ export class Input {
     a.throttle = clamp((k('KeyW') || k('ArrowUp') ? 1 : 0) - (k('KeyS') || k('ArrowDown') ? 1 : 0) + this.btnVal(PAD.R2) - this.btnVal(PAD.L2), -1, 1);
     a.steer = clamp((k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0) + this.axis(0), -1, 1);
     a.handbrake = k('Space') || this.btn(PAD.R1);
+    // Gas and brake held at the same time (for burnouts).
+    a.gas = k('KeyW') || k('ArrowUp') || this.btnVal(PAD.R2) > 0.5;
+    a.brakeHeld = k('KeyS') || k('ArrowDown') || this.btnVal(PAD.L2) > 0.5;
     a.pause = this.hit('KeyP') || this.btnHit(PAD.OPTIONS);
     a.phone = this.hit('KeyT') || this.hit('KeyM') || this.btnHit(PAD.UP) || this.btnHit(PAD.CREATE);
     a.start = this.btnHit(PAD.CROSS) || this.btnHit(PAD.OPTIONS);

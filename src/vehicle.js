@@ -43,6 +43,10 @@ export class Vehicle {
     this.exploded = false; // burnt-out shell
     this.burnT = 0;
     this.byPlayer = false;
+    this.lat = 0; // sideways slide speed (drifting)
+    this.grip = 1; // rear grip: 1 = full, low = sliding
+    this.burnout = false;
+    this.rearSpin = 0;
     this.color = color ?? t.colors[Math.floor(Math.random() * t.colors.length)];
     this.group = new THREE.Group();
     this.wheels = [];
@@ -235,6 +239,26 @@ export class Vehicle {
     if (flats) s -= s * 0.25 * flats * dt; // rims drag
     const steerMax = 0.6 / (1 + Math.abs(s) * 0.045);
     let steer = ctrl.steer || 0;
+    // Burnout: gas and brake together from a standstill. The rear tires spin in place and
+    // steering swings the back end around the front wheels.
+    this.burnout = !!ctrl.burnout && Math.abs(s) < 3 && !this.wrecked;
+    if (this.burnout) {
+      s *= Math.max(0, 1 - dt * 6);
+      this.speed = s;
+      this.rearSpin = 40;
+      const [ofx, ofz] = this.forward();
+      const frontX = this.x + ofx * this.halfLen * 0.6;
+      const frontZ = this.z + ofz * this.halfLen * 0.6;
+      this.heading = wrapAngle(this.heading - steer * 1.6 * dt);
+      const [nfx, nfz] = this.forward();
+      this.x = frontX - nfx * this.halfLen * 0.6;
+      this.z = frontZ - nfz * this.halfLen * 0.6;
+      this.lat = 0;
+      this.steerVis = lerp(this.steerVis, clamp(steer, -1, 1) * 0.6, Math.min(1, dt * 8));
+      this.collide(boxes);
+      return;
+    }
+    this.rearSpin = Math.max(0, this.rearSpin - dt * 30);
     if (flats) {
       // Pull toward the flat side, with a wobble at speed.
       let pull = 0;
@@ -242,12 +266,44 @@ export class Vehicle {
       const spd = Math.min(1, Math.abs(s) / 20);
       steer += pull * spd + Math.sin(performance.now() / 90) * 0.035 * flats * spd;
     }
-    this.steerVis = lerp(this.steerVis, clamp(steer, -1, 1) * steerMax, Math.min(1, dt * 8));
-    this.heading = wrapAngle(this.heading - (s / 2.7) * Math.tan(this.steerVis) * dt);
+    // Drifting (player only): the handbrake, or a hard turn under full throttle at speed,
+    // breaks the rear loose. The car turns faster than it travels and slides sideways;
+    // counter-steer and ease off to catch it.
+    const player = this.driver === 'player';
+    const fast = Math.abs(s) > 9;
+    const powerSlide = thr > 0.8 && Math.abs(steer) > 0.75 && s > 17;
+    let gripTo = 1;
+    if (player && fast && (ctrl.handbrake || powerSlide)) gripTo = ctrl.handbrake ? 0.15 : 0.35;
+    this.grip = lerp(this.grip, gripTo, Math.min(1, dt * (gripTo < this.grip ? 6 : 1.6)));
+    const sliding = this.grip < 0.8;
+    const steerLim = sliding ? Math.max(steerMax, 0.5) : steerMax;
+    this.steerVis = lerp(this.steerVis, clamp(steer, -1, 1) * steerLim, Math.min(1, dt * 8));
+    let yaw = (s / 2.7) * Math.tan(this.steerVis);
+    if (sliding) yaw *= 1 + (1 - this.grip) * 0.9; // the tail swings out
+    const oldHeading = this.heading;
+    this.heading = wrapAngle(this.heading - yaw * dt);
+    // Momentum doesn't turn with the car: part of the speed becomes sideways slide.
+    const dh = wrapAngle(this.heading - oldHeading);
+    if (player) {
+      const carry = 1 - this.grip;
+      this.lat += s * Math.sin(dh) * carry;
+      s *= 1 - Math.abs(Math.sin(dh)) * carry * 0.6;
+    }
+    // Tires bite back: sideways speed bleeds off (slowly while drifting).
+    this.lat *= Math.exp(-dt * (2 + this.grip * 10));
+    s -= Math.abs(this.lat) * 0.05 * dt * Math.sign(s);
+    if (ctrl.handbrake && sliding) s += s * 1.6 * dt; // handbrake mostly slides rather than stops
     const [fx, fz] = this.forward();
-    this.x += fx * s * dt;
-    this.z += fz * s * dt;
+    const rx = -fz, rz = fx;
+    this.x += (fx * s + rx * this.lat) * dt;
+    this.z += (fz * s + rz * this.lat) * dt;
     this.speed = s;
+    this.drift = Math.abs(this.lat);
+    this.collide(boxes);
+  }
+
+  collide(boxes) {
+    const [fx, fz] = this.forward();
 
     // Building collisions, using two circles along the car.
     let px = 0, pz = 0, nx = 0, nz = 0, hit = false;
@@ -264,6 +320,7 @@ export class Vehicle {
     if (hit) {
       this.x += px;
       this.z += pz;
+      this.lat *= 0.3;
       const nl = Math.hypot(nx, nz) || 1;
       const vn = ((fx * nx + fz * nz) / nl) * this.speed;
       if (vn < -1) {
@@ -278,7 +335,8 @@ export class Vehicle {
     this.group.position.set(this.x, 0, this.z);
     this.group.rotation.y = this.heading;
     for (const w of this.wheels) {
-      if (!w.userData.flat) w.rotation.x += (this.speed * dt) / 0.38;
+      const spin = !w.userData.front && this.rearSpin > 0 ? this.rearSpin : this.speed;
+      if (!w.userData.flat) w.rotation.x += (spin * dt) / 0.38;
       else w.rotation.x = 0; // a flat tire is squashed at the bottom, not spinning
       if (w.userData.front) w.rotation.y = this.steerVis;
     }
