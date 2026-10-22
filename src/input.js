@@ -46,7 +46,7 @@ export class Input {
       if (!this.keys.has(e.code)) this.pressed.add(e.code);
       this.keys.add(e.code);
       this.mode = 'kb';
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+      if (['Tab', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => {
@@ -173,9 +173,16 @@ export class Input {
     a.enter = this.hit('KeyF') || this.btnHit(PAD.TRIANGLE);
     a.interactHeld = k('KeyE') || this.btn(PAD.RIGHT);
     a.reload = this.hit('KeyR') || this.btnHit(PAD.SQUARE);
-    a.nextWeapon = this.wheel > 0 || this.btnHit(PAD.L1) || this.btnHit(PAD.DOWN);
+    a.nextWeapon = this.wheel > 0 || this.btnHit(PAD.DOWN);
+    // Weapon wheel: hold L1 / Tab (tap to swap back to your last weapon).
+    a.wheelHeld = k('Tab') || this.btn(PAD.L1);
+    a.rsX = this.axis(2);
+    a.rsY = this.axis(3);
+    a.mouseDX = this.mdx;
+    a.mouseDY = this.mdy;
     a.prevWeapon = this.wheel < 0 || this.btnHit(PAD.LEFT);
-    a.slot = this.hit('Digit1') ? 0 : this.hit('Digit2') ? 1 : this.hit('Digit3') ? 2 : -1;
+    a.slot = -1;
+    for (let n = 1; n <= 8; n++) if (this.hit(`Digit${n}`)) a.slot = n - 1;
     a.throttle = clamp((k('KeyW') || k('ArrowUp') ? 1 : 0) - (k('KeyS') || k('ArrowDown') ? 1 : 0) + this.btnVal(PAD.R2) - this.btnVal(PAD.L2), -1, 1);
     a.steer = clamp((k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0) + this.axis(0), -1, 1);
     a.handbrake = k('Space') || this.btn(PAD.R1);

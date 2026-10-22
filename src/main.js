@@ -11,7 +11,7 @@ import { GangManager, CrewManager, MAX_CREW } from './gang.js';
 import { Hud } from './hud.js';
 import { Effects } from './effects.js';
 import { Sfx } from './audio.js';
-import { Arsenal, WEAPONS, raycast, rayBox } from './weapons.js';
+import { Arsenal, WEAPONS, SLOTS, KEY_SLOTS, raycast, rayBox } from './weapons.js';
 import { lam } from './character.js';
 import { segmentBlocked } from './collision.js';
 import { clamp, dist, lerp, lerpAngle, rand, randInt, wrapAngle } from './util.js';
@@ -444,41 +444,49 @@ class Game {
       oz = cp.z + dz * Math.max(0, t0 - 0.2);
     }
     const l = Math.hypot(dx, dy, dz) || 1;
-    dx = dx / l + (Math.random() - 0.5) * spread * 2;
-    dy = dy / l + (Math.random() - 0.5) * spread * 2;
-    dz = dz / l + (Math.random() - 0.5) * spread * 2;
-    const l2 = Math.hypot(dx, dy, dz);
-    dx /= l2;
-    dy /= l2;
-    dz /= l2;
-
-    const hit = raycast(this, ox, oy, oz, dx, dy, dz, w.range, this.player.vehicle);
+    const bx = dx / l, by = dy / l, bz = dz / l;
     this.effects.muzzle(mx, my, mz);
-    this.effects.tracer(mx, my, mz, hit.x, hit.y, hit.z);
     this.sfx.shot(w.sound, 1);
-
-    if (hit.type === 'char') {
-      const c = hit.target;
-      const killed = c.takeHit(w.dmg * (hit.head ? 2 : 1), this.player.x, this.player.z);
-      this.effects.hitPuff(hit.x, hit.y, hit.z);
-      this.hud.hitmarker(killed);
-      this.onPlayerHit(c, killed);
-    } else if (hit.type === 'car') {
-      const car = hit.target;
-      car.damage(w.dmg * 0.5, true);
-      // Hit near a wheel: pop that tire.
-      car.wheels.forEach((wh, i) => {
-        const [wx, wy, wz] = car.wheelPos(i);
-        if (Math.hypot(hit.x - wx, hit.y - wy, hit.z - wz) < 0.55) car.popTire(i);
-      });
-      this.effects.impact(hit.x, hit.y, hit.z);
-    } else if (hit.type === 'heli') {
-      const down = hit.target.takeHit(w.dmg);
-      this.effects.impact(hit.x, hit.y, hit.z);
-      this.hud.hitmarker(down);
-    } else if (hit.type !== 'none') {
-      this.effects.impact(hit.x, hit.y, hit.z);
+    // Shotguns fire a spread of pellets; everything else one bullet.
+    let anyKill = false;
+    let anyHit = false;
+    for (let k = 0; k < (w.pellets || 1); k++) {
+      dx = bx + (Math.random() - 0.5) * spread * 2;
+      dy = by + (Math.random() - 0.5) * spread * 2;
+      dz = bz + (Math.random() - 0.5) * spread * 2;
+      const l2 = Math.hypot(dx, dy, dz);
+      dx /= l2;
+      dy /= l2;
+      dz /= l2;
+      const hit = raycast(this, ox, oy, oz, dx, dy, dz, w.range, this.player.vehicle);
+      if (k < 4) this.effects.tracer(mx, my, mz, hit.x, hit.y, hit.z);
+      if (hit.type === 'char') {
+        const c = hit.target;
+        if (!c.alive) continue;
+        const killed = c.takeHit(w.dmg * (hit.head ? 2 : 1), this.player.x, this.player.z);
+        this.effects.hitPuff(hit.x, hit.y, hit.z);
+        anyHit = true;
+        anyKill = anyKill || killed;
+        this.onPlayerHit(c, killed);
+      } else if (hit.type === 'car') {
+        const car = hit.target;
+        car.damage(w.dmg * 0.5, true);
+        // Hit near a wheel: pop that tire.
+        car.wheels.forEach((wh, i) => {
+          const [wx, wy, wz] = car.wheelPos(i);
+          if (Math.hypot(hit.x - wx, hit.y - wy, hit.z - wz) < 0.55) car.popTire(i);
+        });
+        this.effects.impact(hit.x, hit.y, hit.z);
+      } else if (hit.type === 'heli') {
+        const down = hit.target.takeHit(w.dmg);
+        this.effects.impact(hit.x, hit.y, hit.z);
+        anyHit = true;
+        anyKill = anyKill || down;
+      } else if (hit.type !== 'none') {
+        this.effects.impact(hit.x, hit.y, hit.z);
+      }
     }
+    if (anyHit) this.hud.hitmarker(anyKill);
 
     // Gunfire draws attention.
     const [px, pz] = this.player.pos();
@@ -900,6 +908,45 @@ class Game {
     for (const ped of this.peds.peds) if (dist(ped.x, ped.z, x, z) < r) ped.scare(x, z, gun);
   }
 
+  // Weapon wheel. Hold L1 / Tab to open it (the game keeps running), point with the right
+  // stick or mouse, release to equip. A quick tap swaps back to your last weapon.
+  updateWeaponWheel(dt, a) {
+    const W = this.wheelState || (this.wheelState = { holdT: 0, open: false, sel: -1, vx: 0, vy: 0 });
+    if (a.wheelHeld && this.wastedT <= 0 && this.bustedT <= 0) {
+      W.holdT += dt;
+      if (!W.open && W.holdT > 0.2) {
+        W.open = true;
+        W.vx = W.vy = 0;
+        W.sel = SLOTS.findIndex((s) => s.id === this.arsenal.current().slot);
+      }
+      if (W.open) {
+        // Pointing: right stick, or mouse movement.
+        let x = 0, y = 0;
+        if (Math.hypot(a.rsX, a.rsY) > 0.5) [x, y] = [a.rsX, a.rsY];
+        else {
+          W.vx = clamp(W.vx + a.mouseDX, -80, 80);
+          W.vy = clamp(W.vy + a.mouseDY, -80, 80);
+          if (Math.hypot(W.vx, W.vy) > 25) [x, y] = [W.vx, W.vy];
+        }
+        if (x || y) {
+          const ang = Math.atan2(x, -y); // 0 = up, clockwise
+          W.sel = ((Math.round(ang / (Math.PI / 4)) % 8) + 8) % 8;
+        }
+        // No shooting or looking around while choosing.
+        a.fire = a.firePressed = a.aim = a.aimPressed = a.melee = false;
+        a.lookX = a.lookY = 0;
+        a.looking = false;
+      }
+    } else if (W.holdT > 0) {
+      if (W.open) {
+        if (W.sel >= 0) this.arsenal.selectSlot(SLOTS[W.sel].id);
+      } else this.arsenal.swapLast();
+      W.open = false;
+      W.holdT = 0;
+    }
+    this.hud.weaponWheel(this, W);
+  }
+
   // Tire smoke and skid marks from burnouts and drifts.
   tireFx(v, dt) {
     const burn = v.burnout;
@@ -990,7 +1037,7 @@ class Game {
     }
 
     // Weapons.
-    if (a.slot >= 0) this.arsenal.select(a.slot);
+    if (a.slot >= 0) this.arsenal.selectSlot(KEY_SLOTS[a.slot]);
     if (a.nextWeapon) this.arsenal.cycle(1);
     if (a.prevWeapon) this.arsenal.cycle(-1);
     if (a.reload) this.arsenal.startReload();
@@ -1186,6 +1233,8 @@ class Game {
         if (this.wastedT <= 0) this.afterWasted();
       }
       this.aimingNow = false;
+      if (this.wheelState) this.wheelState.open = false;
+      this.hud.weaponWheel(this, { open: false });
       this.showCrosshair = false;
       this.lockScreen = null;
       this.updateCamera(dt, a);
@@ -1199,6 +1248,7 @@ class Game {
     for (const p of this.peds.peds) if (p.standing) this.walkers.push(p);
 
     const p = this.player;
+    this.updateWeaponWheel(dt, a);
     this.arsenal.update(dt);
     const gun = !this.arsenal.current().melee;
     this.aimingNow = !p.vehicle && gun && a.aim;

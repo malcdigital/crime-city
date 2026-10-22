@@ -13,6 +13,8 @@ export class Player {
     this.guns = {
       pistol: new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.32), lam(0x1a1a1a)),
       smg: new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.18, 0.6), lam(0x2a2a2a)),
+      rifle: new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.2, 0.95), lam(0x2b2f26)),
+      shotgun: new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.15, 0.9), lam(0x4a3420)),
     };
     // A matching set for the left hand (used when peeking out of cover to the left).
     this.gunsL = {};

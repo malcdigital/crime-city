@@ -55,6 +55,8 @@ export class Sfx {
 
   shot(kind, vol = 1) {
     if (kind === 'smg') this.burst(0.5 * vol, 'lowpass', 3200, 0.11, 140);
+    else if (kind === 'rifle') this.burst(0.65 * vol, 'lowpass', 2600, 0.16, 120);
+    else if (kind === 'shotgun') this.burst(0.95 * vol, 'lowpass', 1400, 0.42, 80);
     else this.burst(0.7 * vol, 'lowpass', 2200, 0.24, 110);
   }
 

@@ -19,6 +19,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - Third-person on foot (walk, sprint, crouch, punch) and driving (4 car types, handbrake)
 - Cover: press C / L3 next to a wall, crate or car to snap to it, crate or car and stay there; slide along it, lean out at corners or pop up over low cover to aim; push away or press again to leave
 - Crouching bends at the knees; crouch behind low cover to block bullets and break line of sight
+- Weapon wheel: hold L1 / Tab (real time, no slow-mo) with 8 slots — melee, pistol, SMG, rifle, shotgun, heavy, throwable, special; one weapon per slot; tap to swap back to your last weapon. Weapons: fists, pistol, SMG, assault rifle, pump shotgun
 - Drifting: handbrake (or a hard turn at full throttle) breaks the rear loose, with tire smoke and skid marks; burnouts with gas + brake from a stop (steer for donuts)
 - Police search: they comb the area where they last saw you (behind cover, around corners), hear gunshots and running footsteps, and keep tracking you if they watched you duck. Escape by leaving the search circle unseen or staying hidden long enough
 - 4+ stars: more cruisers, SWAT vans with four-man teams in body armor, and a police helicopter that takes off from the precinct roof, tracks you with a searchlight (buildings block its view) and can be shot down; at 5 stars its door gunner opens fire
@@ -54,6 +55,8 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | Look | Mouse / arrow keys | Right stick |
 | Sprint | Shift | ✕ (hold) |
 | Crouch / take cover | C | L3 |
+| Weapon wheel (tap = last weapon) | hold Tab | hold L1 |
+| Switch weapon | 1–8 / mouse wheel | D-pad ↓ ← |
 | Burnout (stopped) | W + S | R2 + L2 |
 | Aim | Right mouse | L2 (sticks to targets near the crosshair) |
 | Shoot | Left mouse | R2 |

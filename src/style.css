@@ -114,3 +114,22 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #car-marker { position: absolute; transform: translate(-50%, -100%); text-align: center; color: #5dc8ff; font-weight: 800; font-size: 13px; animation: bob .8s ease-in-out infinite alternate; }
 #car-marker .cm-arrow { font-size: 22px; line-height: 1; }
 @keyframes bob { to { margin-top: -6px; } }
+
+/* Weapon wheel */
+#wheel { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
+#wheel::before { content: ''; position: absolute; left: -190px; top: -190px; width: 380px; height: 380px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(0,0,0,.55) 0 30%, rgba(0,0,0,.35) 31% 100%); border: 2px solid rgba(255,255,255,.12); }
+#wheel .wslot { position: absolute; left: 0; top: 0; width: 104px; height: 62px; border-radius: 12px; background: rgba(20,24,28,.85);
+  border: 2px solid rgba(255,255,255,.15); color: #fff; text-align: center; display: flex; flex-direction: column; justify-content: center;
+  transition: background .08s, border-color .08s, scale .08s; }
+#wheel .wl { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; opacity: .6; }
+#wheel .wn { font-size: 13px; font-weight: 800; margin-top: 2px; }
+#wheel .wk { position: absolute; top: 3px; right: 7px; font-size: 10px; opacity: .45; }
+#wheel .wslot.empty { opacity: .38; }
+#wheel .wslot.cur { border-color: rgba(93,200,255,.7); }
+#wheel .wslot.sel { background: rgba(255,255,255,.92); color: #111; border-color: #fff; scale: 1.08; }
+#wheel .wslot.sel.empty { background: rgba(120,120,120,.6); color: #fff; }
+#wheel .wcenter { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); width: 150px; text-align: center; color: #fff; }
+#wheel .wcn { font-size: 15px; font-weight: 800; }
+#wheel .wca { font-size: 13px; color: #ffd36b; margin-top: 4px; }
+@media (max-width: 520px) { #wheel { scale: .78; } }

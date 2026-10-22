@@ -1,4 +1,5 @@
 import { CFG, CRED_TIERS } from './config.js';
+import { SLOTS, KEY_SLOTS } from './weapons.js';
 
 const esc = (t) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
 
@@ -148,6 +149,39 @@ export class Hud {
       this.phoneToastT = 0;
       $('phone-toast').classList.add('hidden');
     }
+  }
+
+  // The weapon wheel overlay: 8 slots around a circle, the highlighted one in the middle.
+  weaponWheel(game, W) {
+    let el = $('wheel');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'wheel';
+      el.className = 'hidden';
+      const R = 132;
+      el.innerHTML = SLOTS.map((s, i) => {
+        const a = (i * Math.PI) / 4;
+        const x = Math.sin(a) * R, y = -Math.cos(a) * R;
+        return `<div class="wslot" data-i="${i}" style="transform:translate(calc(-50% + ${x}px), calc(-50% + ${y}px))">`
+          + `<div class="wl">${s.label}</div><div class="wn"></div><div class="wk">${KEY_SLOTS.indexOf(s.id) + 1}</div></div>`;
+      }).join('') + '<div class="wcenter"><div class="wcn"></div><div class="wca"></div></div>';
+      document.getElementById('hud').appendChild(el);
+      this.wheelEls = [...el.querySelectorAll('.wslot')];
+    }
+    el.classList.toggle('hidden', !W.open);
+    if (!W.open) return;
+    const ars = game.arsenal;
+    const ammoText = (w) => (!w || w.melee ? '' : CFG.INFINITE_AMMO ? '∞' : `${ars.ammo[w.id].mag + ars.ammo[w.id].reserve}`);
+    this.wheelEls.forEach((d, i) => {
+      const w = ars.inSlot(SLOTS[i].id);
+      d.classList.toggle('empty', !w);
+      d.classList.toggle('sel', i === W.sel);
+      d.classList.toggle('cur', !!w && w === ars.current());
+      d.querySelector('.wn').textContent = w ? w.name : '—';
+    });
+    const sw = W.sel >= 0 ? ars.inSlot(SLOTS[W.sel].id) : null;
+    el.querySelector('.wcn').textContent = sw ? sw.name : W.sel >= 0 ? `${SLOTS[W.sel].label}: empty` : '';
+    el.querySelector('.wca').textContent = sw ? ammoText(sw) : '';
   }
 
   hitmarker(kill) {

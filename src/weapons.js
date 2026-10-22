@@ -1,14 +1,36 @@
 export const WEAPONS = [
-  { id: 'fists', name: 'Fists', melee: true },
-  { id: 'pistol', name: 'Pistol', dmg: 34, rate: 0.28, mag: 12, auto: false, spread: 0.02, aimSpread: 0.004, reload: 1.2, range: 110, sound: 'pistol' },
-  { id: 'smg', name: 'SMG', dmg: 20, rate: 0.085, mag: 30, auto: true, spread: 0.045, aimSpread: 0.014, reload: 1.6, range: 90, sound: 'smg' },
+  { id: 'fists', slot: 'melee', name: 'Fists', melee: true },
+  { id: 'pistol', slot: 'pistol', name: 'Pistol', dmg: 34, rate: 0.28, mag: 12, auto: false, spread: 0.02, aimSpread: 0.004, reload: 1.2, range: 110, sound: 'pistol' },
+  { id: 'smg', slot: 'smg', name: 'SMG', dmg: 20, rate: 0.085, mag: 30, auto: true, spread: 0.045, aimSpread: 0.014, reload: 1.6, range: 90, sound: 'smg' },
+  { id: 'rifle', slot: 'rifle', name: 'Assault Rifle', dmg: 30, rate: 0.11, mag: 30, auto: true, spread: 0.03, aimSpread: 0.006, reload: 2.0, range: 150, sound: 'rifle' },
+  { id: 'shotgun', slot: 'shotgun', name: 'Pump Shotgun', dmg: 20, pellets: 8, rate: 0.85, mag: 6, auto: false, spread: 0.08, aimSpread: 0.04, reload: 2.4, range: 45, sound: 'shotgun' },
 ];
 
-// The player's weapons and ammo.
+// Weapon wheel slots, clockwise from the top. One weapon per slot.
+export const SLOTS = [
+  { id: 'melee', label: 'Melee' },
+  { id: 'pistol', label: 'Pistol' },
+  { id: 'smg', label: 'SMG' },
+  { id: 'rifle', label: 'Rifle' },
+  { id: 'special', label: 'Special' },
+  { id: 'shotgun', label: 'Shotgun' },
+  { id: 'heavy', label: 'Heavy' },
+  { id: 'throwable', label: 'Throwable' },
+];
+// Number keys 1-8 pick slots in this order.
+export const KEY_SLOTS = ['melee', 'pistol', 'smg', 'rifle', 'shotgun', 'heavy', 'throwable', 'special'];
+
+// The player's weapons and ammo. You carry at most one weapon per slot.
 export class Arsenal {
   constructor() {
     this.idx = 1;
-    this.ammo = { pistol: { mag: 12, reserve: 96 }, smg: { mag: 30, reserve: 180 } };
+    this.lastIdx = 0;
+    // Test loadout: everything we have so far.
+    this.owned = { melee: 'fists', pistol: 'pistol', smg: 'smg', rifle: 'rifle', shotgun: 'shotgun' };
+    this.ammo = {
+      pistol: { mag: 12, reserve: 96 }, smg: { mag: 30, reserve: 180 },
+      rifle: { mag: 30, reserve: 180 }, shotgun: { mag: 6, reserve: 36 },
+    };
     this.cool = 0;
     this.reloadT = 0;
   }
@@ -17,15 +39,37 @@ export class Arsenal {
     return WEAPONS[this.idx];
   }
 
+  // The weapon carried in a slot (or null).
+  inSlot(slot) {
+    const id = this.owned[slot];
+    return id ? WEAPONS.find((w) => w.id === id) : null;
+  }
+
   select(i) {
     if (i < 0 || i >= WEAPONS.length || i === this.idx) return;
+    this.lastIdx = this.idx;
     this.idx = i;
     this.reloadT = 0;
     this.cool = 0.2;
   }
 
+  selectSlot(slot) {
+    const w = this.inSlot(slot);
+    if (w) this.select(WEAPONS.indexOf(w));
+  }
+
+  // Tap L1 / Tab: back to the weapon you had before.
+  swapLast() {
+    const w = WEAPONS[this.lastIdx];
+    if (w && this.owned[w.slot] === w.id) this.select(this.lastIdx);
+  }
+
+  // Step through the weapons you carry, in wheel order.
   cycle(dir) {
-    this.select((this.idx + dir + WEAPONS.length) % WEAPONS.length);
+    const carried = SLOTS.map((s) => this.inSlot(s.id)).filter(Boolean);
+    const k = carried.indexOf(this.current());
+    const next = carried[(k + dir + carried.length) % carried.length];
+    this.select(WEAPONS.indexOf(next));
   }
 
   startReload() {
