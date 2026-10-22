@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Crime City</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud" class="hidden">
+      <div id="top-left">
+        <div id="role">GANG MEMBER</div>
+        <div id="cred"><span id="cred-tier">Nobody</span> · <span id="cred-value">0</span> street cred</div>
+        <div id="district">Downtown</div>
+      </div>
+      <div id="top-right">
+        <div id="cash">$0</div>
+        <div id="stars"></div>
+      </div>
+      <div id="news">
+        <div class="news-title">CITY NEWS</div>
+        <div id="news-list"></div>
+      </div>
+      <canvas id="minimap" width="200" height="200"></canvas>
+      <div id="prompt"></div>
+      <div id="progress" class="hidden"><div id="progress-bar"></div><span id="progress-label"></span></div>
+      <div id="toast"></div>
+      <div id="speed"></div>
+      <div id="mouse-hint">Click the game to capture the mouse · or drag to look · Esc to release</div>
+    </div>
+
+    <div id="busted" class="hidden">
+      <div class="busted-title">BUSTED</div>
+      <div id="busted-detail"></div>
+    </div>
+
+    <div id="intro">
+      <div class="intro-card">
+        <h1>CRIME CITY</h1>
+        <p class="sub">Prototype 0.1 · single player</p>
+        <div class="roles">
+          <div class="role active">Gang member<span>Playable</span></div>
+          <div class="role">Police<span>Coming soon</span></div>
+          <div class="role">Bounty hunter<span>Coming soon</span></div>
+          <div class="role">Business owner<span>Coming soon</span></div>
+          <div class="role">President<span>Coming soon</span></div>
+          <div class="role">Entertainer<span>Coming soon</span></div>
+        </div>
+        <p class="goal">Build street cred: rob stores, steal cars and sell them at the chop shop. Crimes raise your wanted level. Break line of sight with the police to escape, or get busted.</p>
+        <div class="controls">
+          <div><b>WASD</b> move / drive</div>
+          <div><b>Mouse</b> look (or arrow keys)</div>
+          <div><b>Shift</b> sprint</div>
+          <div><b>Click</b> or <b>J</b> punch</div>
+          <div><b>F</b> enter / exit / carjack</div>
+          <div><b>Space</b> handbrake</div>
+          <div><b>E</b> rob store (hold) / sell car</div>
+          <div><b>M</b> mute news</div>
+        </div>
+        <button id="play">PLAY</button>
+        <p class="note">Desktop browser with keyboard and mouse.</p>
+      </div>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
