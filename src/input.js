@@ -174,6 +174,8 @@ export class Input {
     a.interactHeld = k('KeyE') || this.btn(PAD.RIGHT);
     a.reload = this.hit('KeyR') || this.btnHit(PAD.SQUARE);
     a.nextWeapon = this.wheel > 0 || this.btnHit(PAD.DOWN);
+    a.wheelDelta = this.wheel;
+    a.dpadDown = this.btnHit(PAD.DOWN);
     // Weapon wheel: hold L1 / Tab (tap to swap back to your last weapon).
     a.wheelHeld = k('Tab') || this.btn(PAD.L1);
     a.rsX = this.axis(2);

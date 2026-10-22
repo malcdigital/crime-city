@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CFG } from './config.js';
+import { CFG, GANG_NAME, CREW_NAME } from './config.js';
 import { mulberry32 } from './util.js';
 import { lam } from './character.js';
 
@@ -374,5 +374,20 @@ export function buildCity(scene) {
   const park = blocks.find((b) => b.i === 3 && b.j === 4);
   const spawn = { x: park.cx, z: park.minZ + 2, heading: Math.PI, curbZ: roadC(4) + R / 2 - 1.6 };
 
-  return { colliders, los, crates, blocks, stores, chop, station, hospital, gangHome, crewHome, spawn, nodes, nodeAt, nearestNode, blockAt, groundY, drawMap, size: SIZE, P, N };
+  // Gang territories: six blocks each, tinted on the map in the gang's color.
+  const terr = (gang, name, color, cells) => ({ gang, name, color, blocks: cells.map(([i, j]) => blocks.find((b) => b.i === i && b.j === j)).filter(Boolean) });
+  const territories = [
+    terr('kings', GANG_NAME, '#9c27b0', [[1, 6], [0, 6], [0, 7], [1, 7], [1, 5], [0, 5]]),
+    terr('crew', CREW_NAME, '#3dff6e', [[3, 4], [4, 4], [3, 5], [4, 5], [3, 3], [4, 3]]),
+  ];
+  // Which gang's turf (if any) a point is on, counting the streets around its blocks.
+  const turfAt = (x, z) => {
+    const h = R / 2;
+    for (const t of territories) {
+      if (t.blocks.some((b) => x >= b.minX - h && x <= b.maxX + h && z >= b.minZ - h && z <= b.maxZ + h)) return t;
+    }
+    return null;
+  };
+
+  return { colliders, los, crates, blocks, stores, chop, station, hospital, gangHome, crewHome, spawn, nodes, nodeAt, nearestNode, blockAt, groundY, drawMap, territories, turfAt, size: SIZE, P, N };
 }

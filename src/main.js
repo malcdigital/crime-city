@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CFG, CRIMES } from './config.js';
+import { CFG, CRIMES, GANG_NAME } from './config.js';
 import { buildCity, districtAt, streetAt } from './city.js';
 import { Input } from './input.js';
 import { Player } from './player.js';
@@ -389,7 +389,7 @@ class Game {
     if (killed) {
       const st = streetAt(c.x, c.z);
       if (c.isCop) this.newsIncident(`Officer shot dead on ${st}`, c.x, c.z);
-      else if (c.isGang) this.newsIncident(`${CFG.GANG_NAME} member gunned down on ${st}`, c.x, c.z);
+      else if (c.isGang) this.newsIncident(`${GANG_NAME} member gunned down on ${st}`, c.x, c.z);
       else this.newsIncident(`Bystander killed on ${st}`, c.x, c.z);
     }
     if (c.isCop) {
@@ -551,7 +551,7 @@ class Game {
     }
     this.effects.hitPuff(tx, ty, tz);
     const killed = ref.takeHit(dmg, shooter.x, shooter.z);
-    if (killed && shooter.isCop && ref.isGang) this.newsIncident(`${CFG.GANG_NAME} member killed by police on ${streetAt(ref.x, ref.z)}`, ref.x, ref.z);
+    if (killed && shooter.isCop && ref.isGang) this.newsIncident(`${GANG_NAME} member killed by police on ${streetAt(ref.x, ref.z)}`, ref.x, ref.z);
     if (killed && shooter.isCrew) {
       if (ref.isGang) {
         this.cred += 10;
@@ -1262,7 +1262,14 @@ class Game {
     }
     // Phone open: D-pad ↓ / ← pick a video story, ✕ / Enter plays it. ○ / Esc closes a video.
     if (this.hud.phoneOpen) {
-      if (a.nextWeapon || a.prevWeapon) this.hud.moveClipSelection(a.nextWeapon ? 1 : -1);
+      // Scroll stories: mouse wheel or right stick. D-pad ↓ / ← step through them.
+      if (a.wheelDelta) this.hud.scrollPhone(a.wheelDelta * 60);
+      if (Math.abs(a.rsY) > 0.2) {
+        this.hud.scrollPhone(a.rsY * dt * 600);
+        a.lookX = a.lookY = 0;
+        a.looking = false;
+      }
+      if (a.dpadDown || a.prevWeapon) this.hud.moveClipSelection(a.dpadDown ? 1 : -1);
       a.nextWeapon = a.prevWeapon = false;
       if (a.playClip) {
         const clip = this.hud.selectedClip();
@@ -1362,6 +1369,7 @@ class Game {
     this.updateWanted(dt);
     const [px, pz] = p.pos();
     this.district = districtAt(px, pz);
+    this.turf = this.city.turfAt(px, pz);
     this.updateCamera(dt, a);
 
     this.showCrosshair = !p.vehicle && gun && (this.aimingNow || this.input.mode === 'kb');

@@ -4,7 +4,7 @@ import { rayBox } from './weapons.js';
 import { clamp, dist, lerp, lerpAngle, rand } from './util.js';
 
 const ALT = 34; // cruising height above the street
-const ORBIT = 22; // circles this far from the target
+const ORBIT = 15; // circles this far from the target
 
 // Police helicopter. Takes off from the precinct roof, circles you, and lights you up with a
 // searchlight. Once it loses you, the beam sweeps the area where you were last seen, and it
@@ -106,6 +106,20 @@ export class Helicopter {
     return true;
   }
 
+  // Is there a clear line from the helicopter down to the ground at (x, z)?
+  clearView(x, z) {
+    const game = this.game;
+    const ty = game.city.groundY(x, z) + 1;
+    const dx = x - this.x, dy = ty - (this.y - 2), dz = z - this.z;
+    const len = Math.hypot(dx, dy, dz) || 1;
+    for (const b of game.city.los) {
+      if (Math.abs((b.minX + b.maxX) / 2 - (this.x + x) / 2) > 80 || Math.abs((b.minZ + b.maxZ) / 2 - (this.z + z) / 2) > 80) continue;
+      const t = rayBox(this.x, this.y - 2, this.z, dx / len, dy / len, dz / len, b.minX, 0, b.minZ, b.maxX, b.h || 30, b.maxZ);
+      if (t !== null && t < len - 1) return false;
+    }
+    return true;
+  }
+
   // Can the crew see you? Not through buildings; and unless they already know where you
   // are, only when the searchlight lands on you.
   canSee() {
@@ -177,22 +191,36 @@ export class Helicopter {
         return;
       }
     } else {
-      this.orbitA += dt * 0.3;
+      // Circle the target; if a building blocks the view, keep moving round to a clear angle.
+      this.losT = (this.losT || 0) - dt;
+      if (this.losT <= 0) {
+        this.losT = 0.4;
+        this.blockedView = !this.clearView(kx, kz);
+      }
+      this.orbitA += dt * (this.blockedView ? 1.1 : 0.3);
       gx = kx + Math.cos(this.orbitA) * ORBIT;
       gz = kz + Math.sin(this.orbitA) * ORBIT;
       gy = ALT;
     }
-    // Stay well above the rooftops around it.
+    // Stay well above the rooftops around it and around the target, so it (and its
+    // camera) can see down into the streets instead of into the side of a tower.
     let roofs = 0;
     for (const b of game.city.los) {
       const cx = Math.max(b.minX, Math.min(this.x, b.maxX));
       const cz = Math.max(b.minZ, Math.min(this.z, b.maxZ));
-      if (dist(cx, cz, this.x, this.z) < 25) roofs = Math.max(roofs, b.h || 30);
+      const tx2 = Math.max(b.minX, Math.min(kx, b.maxX));
+      const tz2 = Math.max(b.minZ, Math.min(kz, b.maxZ));
+      if (dist(cx, cz, this.x, this.z) < 45 || dist(tx2, tz2, kx, kz) < 35) roofs = Math.max(roofs, b.h || 30);
     }
-    gy = Math.max(gy, roofs + 12);
+    gy = Math.max(gy, roofs + 14);
     const max = this.state === 'takeoff' ? 6 : 32;
     let dvx = (gx - this.x) * 0.8;
     let dvz = (gz - this.z) * 0.8;
+    // Too low to clear the buildings ahead: climb first, then move across.
+    if (this.y < gy - 6) {
+      dvx *= 0.25;
+      dvz *= 0.25;
+    }
     const sp = Math.hypot(dvx, dvz);
     if (sp > max) {
       dvx *= max / sp;

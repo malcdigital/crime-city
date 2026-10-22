@@ -39,7 +39,7 @@ export class Hud {
     for (const t of CRED_TIERS) if (game.cred >= t.min) tier = t;
     this.set('cred-tier', tier.name);
     this.set('cred-value', game.cred.toLocaleString('en-US'));
-    this.set('district', game.district);
+    this.set('district', game.turf ? `${game.district} · ${game.turf.name} turf` : game.district);
     const crew = game.crew.following;
     const crewKey = crew.map((m) => `${m.name}${Math.round(m.health / 5)}${m.mode}`).join('|');
     if (this.last.crew !== crewKey) {
@@ -152,7 +152,7 @@ export class Hud {
     btn.textContent = '● Recording footage…';
     item.appendChild(btn);
     clip.onReady = () => {
-      btn.textContent = `▶ Watch ${clip.police ? 'police helicopter' : 'news chopper'} footage`;
+      btn.textContent = '▶ Watch helicopter footage';
       item.classList.add('ready');
     };
     item.addEventListener('click', play);
@@ -160,7 +160,12 @@ export class Hud {
   }
 
   clipItems() {
-    return [...$('phone-list').querySelectorAll('.news-item.ready')];
+    return [...$('phone-list').querySelectorAll('.news-item')];
+  }
+
+  // Scroll the story list (mouse wheel / right stick while the phone is open).
+  scrollPhone(px) {
+    $('phone-list').scrollTop += px;
   }
 
   moveClipSelection(dir) {
@@ -175,8 +180,8 @@ export class Hud {
 
   selectedClip() {
     const items = this.clipItems();
-    const el = items.find((e) => e.classList.contains('sel')) || items[0];
-    return el ? el.clip : null;
+    const el = items.find((e) => e.classList.contains('sel')) || items.find((e) => e.clip);
+    return el && el.clip && el.clip.ready ? el.clip : null;
   }
 
   togglePhone() {
@@ -294,13 +299,35 @@ export class Hud {
     ctx.drawImage(this.mapBg, -(px + CFG.ROAD) * sb, -(pz + CFG.ROAD) * sb);
     ctx.restore();
 
-    // Rival gang turf.
-    const gh = city.gangHome;
-    const [gx, gy] = project(gh.x, gh.z);
-    ctx.fillStyle = game.gang.angry ? 'rgba(200,60,255,.5)' : 'rgba(160,60,220,.35)';
-    ctx.beginPath();
-    ctx.arc(gx, gy, 22 * k, 0, Math.PI * 2);
-    ctx.fill();
+    // Gang territories, tinted in each gang's color (the streets around their blocks too).
+    // The rival gang's turf pulses when they're at war with you.
+    ctx.save();
+    ctx.translate(C, C);
+    ctx.rotate(rot);
+    ctx.scale(k, k);
+    const half = CFG.ROAD / 2;
+    for (const t of city.territories) {
+      const war = t.gang === 'kings' && game.gang.angry;
+      ctx.globalAlpha = war ? 0.33 + 0.15 * Math.sin(performance.now() / 180) : 0.26;
+      ctx.fillStyle = t.color;
+      for (const b of t.blocks) ctx.fillRect(b.minX - half - px, b.minZ - half - pz, b.maxX - b.minX + CFG.ROAD, b.maxZ - b.minZ + CFG.ROAD);
+      // Border around the whole area (only the outer edges).
+      ctx.globalAlpha = 0.9;
+      ctx.strokeStyle = t.color;
+      ctx.lineWidth = 2.2 / k;
+      const has = (i, j) => t.blocks.some((o) => o.i === i && o.j === j);
+      ctx.beginPath();
+      for (const b of t.blocks) {
+        const x0 = b.minX - half - px, x1 = b.maxX + half - px, z0 = b.minZ - half - pz, z1 = b.maxZ + half - pz;
+        if (!has(b.i - 1, b.j)) { ctx.moveTo(x0, z0); ctx.lineTo(x0, z1); }
+        if (!has(b.i + 1, b.j)) { ctx.moveTo(x1, z0); ctx.lineTo(x1, z1); }
+        if (!has(b.i, b.j - 1)) { ctx.moveTo(x0, z0); ctx.lineTo(x1, z0); }
+        if (!has(b.i, b.j + 1)) { ctx.moveTo(x0, z1); ctx.lineTo(x1, z1); }
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
 
     // Police search area.
     if (game.stars > 0 && game.searching && game.lastKnown) {
@@ -335,7 +362,7 @@ export class Hud {
     blip(city.chop.x, city.chop.z, '#e67e22', 'C');
     blip(city.station.x, city.station.z, '#2e6fd8', 'P');
     blip(city.hospital.x, city.hospital.z, '#d63031', 'H');
-    blip(gh.x, gh.z, '#8e24aa', 'K');
+    blip(city.gangHome.x, city.gangHome.z, '#8e24aa', 'K');
     blip(city.crewHome.x, city.crewHome.z, '#2e7d32', 'G');
     const tc = game.testCar;
     if (tc && !tc.removed && !tc.exploded && game.player.vehicle !== tc) {
