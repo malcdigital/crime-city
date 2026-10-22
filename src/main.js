@@ -458,7 +458,13 @@ class Game {
       this.hud.hitmarker(killed);
       this.onPlayerHit(c, killed);
     } else if (hit.type === 'car') {
-      hit.target.damage(w.dmg * 0.5, true);
+      const car = hit.target;
+      car.damage(w.dmg * 0.5, true);
+      // Hit near a wheel: pop that tire.
+      car.wheels.forEach((wh, i) => {
+        const [wx, wy, wz] = car.wheelPos(i);
+        if (Math.hypot(hit.x - wx, hit.y - wy, hit.z - wz) < 0.55) car.popTire(i);
+      });
       this.effects.impact(hit.x, hit.y, hit.z);
     } else if (hit.type !== 'none') {
       this.effects.impact(hit.x, hit.y, hit.z);
@@ -541,6 +547,35 @@ class Game {
     else this.effects.impact(tx, tyy, tz);
   }
 
+  // An officer shoots at a car's tires (front tires first).
+  shootTire(shooter, v) {
+    const order = [...v.wheels.keys()].filter((i) => !v.wheels[i].userData.flat)
+      .sort((a, b) => (v.wheels[b].userData.front ? 1 : 0) - (v.wheels[a].userData.front ? 1 : 0));
+    if (!order.length) return;
+    const i = Math.random() < 0.75 ? order[0] : order[Math.floor(Math.random() * order.length)];
+    const [wx, wy, wz] = v.wheelPos(i);
+    const d = dist(shooter.x, shooter.z, wx, wz);
+    const h = shooter.heading;
+    const y0 = this.city.groundY(shooter.x, shooter.z) + 1.45;
+    const m = [shooter.x + Math.sin(h) * 0.9 - Math.cos(h) * 0.37, y0, shooter.z + Math.cos(h) * 0.9 + Math.sin(h) * 0.37];
+    // Harder to hit far away or at speed.
+    const p = clamp(0.55 - d * 0.008, 0.15, 0.5) * (1 - Math.min(0.5, Math.abs(v.speed) / 60));
+    const hit = Math.random() < p;
+    const miss = hit ? 0 : 1.2;
+    const tx = wx + (Math.random() - 0.5) * miss * 2;
+    const tz = wz + (Math.random() - 0.5) * miss * 2;
+    this.effects.muzzle(m[0], m[1], m[2]);
+    this.effects.tracer(m[0], m[1], m[2], tx, wy, tz, 0xffd28a);
+    const [px, pz] = this.player.pos();
+    this.sfx.shot('pistol', clamp(1 - dist(shooter.x, shooter.z, px, pz) / 70, 0.05, 0.8));
+    this.scareNearby(shooter.x, shooter.z, 25);
+    this.effects.impact(tx, wy, tz);
+    if (hit && v.popTire(i)) {
+      this.effects.smoke(wx, 0.5, wz);
+      if (v.driver === 'player') this.hud.toast(v.flatCount >= 2 ? 'Tires shot out!' : 'Tire shot out!', '#ff8080');
+    }
+  }
+
   hurtPlayer(dmg) {
     if (this.wastedT > 0 || this.bustedT > 0) return;
     const v = this.player.vehicle;
@@ -590,6 +625,15 @@ class Game {
     for (const v of this.vehicles) {
       if (v.removed || v.exploded) continue;
       if (v.health < 40 && Math.random() < dt * 8) this.effects.smoke(v.x, 1.4, v.z, v.health < 15);
+      // Driving on a rim throws sparks.
+      if (v.flatCount && Math.abs(v.speed) > 6) {
+        v.wheels.forEach((wh, i) => {
+          if (wh.userData.flat && Math.random() < dt * 12) {
+            const [wx, , wz] = v.wheelPos(i);
+            this.effects.sprite(wx, 0.1, wz, { color: 0xffc070, size: 0.12, life: 0.2, additive: true, vx: (Math.random() - 0.5) * 4, vy: 1.5, vz: (Math.random() - 0.5) * 4 });
+          }
+        });
+      }
       if (v.wrecked) {
         // NPC occupants bail out of a burning car.
         const d = v.driver;

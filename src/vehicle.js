@@ -113,6 +113,8 @@ export class Vehicle {
         w.rotation.order = 'YXZ';
         w.position.set(sx * (t.w / 2 - 0.02), 0.38, sz * (t.l / 2 - 0.85));
         w.userData.front = sz > 0;
+        w.userData.left = sx > 0; // local +x is the car's left side
+        w.userData.flat = false;
         g.add(w);
         this.wheels.push(w);
       }
@@ -185,14 +187,42 @@ export class Vehicle {
     });
   }
 
+  get flatCount() {
+    return this.wheels.filter((w) => w.userData.flat).length;
+  }
+
+  // World position of wheel i (for aiming at tires).
+  wheelPos(i) {
+    const w = this.wheels[i];
+    const c = Math.cos(this.heading);
+    const s = Math.sin(this.heading);
+    const lx = w.position.x;
+    const lz = w.position.z;
+    return [this.x + lx * c + lz * s, 0.38, this.z - lx * s + lz * c];
+  }
+
+  // Shoot out a tire: it sags, and the car gets slower and pulls to that side.
+  popTire(i) {
+    const w = this.wheels[i];
+    if (!w || w.userData.flat) return false;
+    w.userData.flat = true;
+    w.scale.set(1, 0.6, 0.6);
+    w.position.y = 0.24;
+    return true;
+  }
+
   update(dt, ctrl, boxes) {
     if (this.wrecked) ctrl = { throttle: 0, steer: 0, handbrake: true };
     const t = this.type;
     let s = this.speed;
     const thr = ctrl.throttle || 0;
+    // Flat tires: lower top speed and acceleration.
+    const flats = this.flatCount;
+    const maxS = t.max * (1 - 0.18 * flats);
+    const accel = t.accel * (1 - 0.15 * flats);
     if (thr > 0) {
       if (s < -0.5) s += t.brake * dt * thr;
-      else s += t.accel * thr * dt * Math.max(0, 1 - s / t.max);
+      else s += accel * thr * dt * Math.max(0, 1 - s / maxS);
     } else if (thr < 0) {
       if (s > 0.5) s -= t.brake * dt * -thr;
       else s = Math.max(-t.rev, s - t.accel * 0.6 * dt * -thr);
@@ -202,8 +232,17 @@ export class Vehicle {
     s -= s * 0.08 * dt;
     if (ctrl.handbrake) s -= s * 2.2 * dt;
 
+    if (flats) s -= s * 0.25 * flats * dt; // rims drag
     const steerMax = 0.6 / (1 + Math.abs(s) * 0.045);
-    this.steerVis = lerp(this.steerVis, clamp(ctrl.steer || 0, -1, 1) * steerMax, Math.min(1, dt * 8));
+    let steer = ctrl.steer || 0;
+    if (flats) {
+      // Pull toward the flat side, with a wobble at speed.
+      let pull = 0;
+      for (const w of this.wheels) if (w.userData.flat) pull += (w.userData.front ? 0.07 : 0.035) * (w.userData.left ? -1 : 1);
+      const spd = Math.min(1, Math.abs(s) / 20);
+      steer += pull * spd + Math.sin(performance.now() / 90) * 0.035 * flats * spd;
+    }
+    this.steerVis = lerp(this.steerVis, clamp(steer, -1, 1) * steerMax, Math.min(1, dt * 8));
     this.heading = wrapAngle(this.heading - (s / 2.7) * Math.tan(this.steerVis) * dt);
     const [fx, fz] = this.forward();
     this.x += fx * s * dt;
@@ -239,7 +278,8 @@ export class Vehicle {
     this.group.position.set(this.x, 0, this.z);
     this.group.rotation.y = this.heading;
     for (const w of this.wheels) {
-      w.rotation.x += (this.speed * dt) / 0.38;
+      if (!w.userData.flat) w.rotation.x += (this.speed * dt) / 0.38;
+      else w.rotation.x = 0; // a flat tire is squashed at the bottom, not spinning
       if (w.userData.front) w.rotation.y = this.steerVis;
     }
     if (this.doors) {

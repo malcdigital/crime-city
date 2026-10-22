@@ -136,6 +136,16 @@ export class Officer {
           speed = 3.5;
         }
         face = Math.atan2(px - this.x, pz - this.z);
+        // You're driving at the roadblock: stand up and shoot out your tires.
+        this.aimingTires = false;
+        if (pv && d < 55 && Math.abs(pv.speed) > 2 && pv.flatCount < 4 && !segmentBlocked(this.x, this.z, px, pz, game.city.los)) {
+          this.aimingTires = true;
+          this.fireT -= dt;
+          if (this.fireT <= 0) {
+            this.fireT = rand(0.45, 0.9);
+            game.shootTire(this, pv);
+          }
+        }
       }
     } else if (this.state === 'chase') {
       const d = dist(this.x, this.z, px, pz);
@@ -188,8 +198,8 @@ export class Officer {
       this.char.legL.rotation.x = -1.4;
       this.char.legR.rotation.x = -0.2;
     }
-    // Gun up in a gunfight.
-    if (game.lethal && this.state === 'chase') {
+    // Gun up in a gunfight, or when shooting at tires.
+    if ((game.lethal || this.aimingTires) && this.state === 'chase') {
       this.char.armR.rotation.x = -1.45;
       this.char.armL.rotation.x = -1.2;
     }
