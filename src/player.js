@@ -14,12 +14,19 @@ export class Player {
       pistol: new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.32), lam(0x1a1a1a)),
       smg: new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.18, 0.6), lam(0x2a2a2a)),
     };
-    for (const g of Object.values(this.guns)) {
+    // A matching set for the left hand (used when peeking out of cover to the left).
+    this.gunsL = {};
+    for (const [k, g] of Object.entries(this.guns)) {
       g.position.set(0, -0.64, 0);
       g.rotation.x = Math.PI / 2;
       g.visible = false;
       this.char.armR.add(g);
+      const l = g.clone();
+      this.gunsL[k] = l;
+      this.char.armL.add(l);
     }
+    this.gunHand = 'R';
+    this.weaponId = null;
     this.x = x;
     this.z = z;
     this.heading = Math.PI;
@@ -168,6 +175,13 @@ export class Player {
     this.vx = (this.x - ox) / Math.max(dt, 1e-4);
     this.vz = (this.z - oz) / Math.max(dt, 1e-4);
     this.speed = Math.abs(speed);
+    // Gun hand: whichever side you'd peek out on, as seen from the camera. Peeking around a
+    // corner to your left puts the gun in your left hand (and the camera over that shoulder).
+    const peek = cv.atEdge || cv.side;
+    const crx = -Math.cos(camYaw), crz = Math.sin(camYaw);
+    const sideDot = (tx * crx + tz * crz) * peek;
+    if (sideDot > 0.2) this.setHand('R');
+    else if (sideDot < -0.2) this.setHand('L');
     // Facing: along the wall (shoulder to it), or at the target when aiming.
     const alongYaw = Math.atan2(tx * cv.side, tz * cv.side);
     this.heading = lerpAngle(this.heading, combat ? faceYaw : alongYaw, Math.min(1, dt * (combat ? 20 : 10)));
@@ -197,7 +211,7 @@ export class Player {
 
   // World position of the end of the barrel of the gun in the player's hand.
   muzzle(id) {
-    const g = this.guns[id];
+    const g = (this.gunHand === 'L' ? this.gunsL : this.guns)[id];
     if (!g) return null;
     this.char.group.updateMatrixWorld(true);
     const len = g.geometry.parameters.depth;
@@ -205,7 +219,16 @@ export class Player {
   }
 
   showWeapon(id) {
-    for (const [k, g] of Object.entries(this.guns)) g.visible = k === id;
+    this.weaponId = id;
+    const left = this.gunHand === 'L';
+    for (const [k, g] of Object.entries(this.guns)) g.visible = k === id && !left;
+    for (const [k, g] of Object.entries(this.gunsL)) g.visible = k === id && left;
+  }
+
+  setHand(hand) {
+    if (hand === this.gunHand) return;
+    this.gunHand = hand;
+    this.showWeapon(this.weaponId);
   }
 
   // a: actions from Input. faceYaw: set when aiming or shooting, so the player faces the crosshair.
@@ -217,6 +240,7 @@ export class Player {
       this.sync();
       return;
     }
+    this.setHand('R');
     const fx = Math.sin(camYaw), fz = Math.cos(camYaw);
     const rx = -fz, rz = fx;
     let mx = fx * a.moveY + rx * a.moveX;
@@ -276,8 +300,10 @@ export class Player {
       this.punchT -= dt;
       this.char.armR.rotation.x = -1.6 * Math.sin((this.punchT / 0.3) * Math.PI);
     } else if (combat && game.arsenal.current().id !== 'fists') {
-      this.char.armR.rotation.x = -1.5;
-      this.char.armL.rotation.x = -1.2;
+      // Gun arm straight out, the other hand supporting.
+      const left = this.gunHand === 'L';
+      this.char.armR.rotation.x = left ? -1.2 : -1.5;
+      this.char.armL.rotation.x = left ? -1.5 : -1.2;
     }
   }
 

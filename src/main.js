@@ -1105,6 +1105,9 @@ class Game {
         shoulder = 0.45;
         fov = 56;
       }
+      // Camera over the shoulder of the gun hand (left when peeking left out of cover).
+      if (this.player.gunHand === 'L') shoulder = -Math.max(shoulder, 0.35);
+      else if (this.player.cover && !this.aimingNow) shoulder = 0.35;
     }
     const cp = Math.cos(this.camPitch);
     const rx = -Math.cos(this.camYaw), rz = Math.sin(this.camYaw);
