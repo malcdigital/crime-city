@@ -71,7 +71,7 @@ export class Player {
       const lz = ex * f.s + ez * f.c;
       const cx = clamp(lx, -f.hx, f.hx), cz = clamp(lz, -f.hz, f.hz);
       const d = Math.hypot(lx - cx, lz - cz);
-      if (d > 2.2 || d < 1e-4) continue;
+      if (d > 1.8 || d < 1e-4) continue;
       // Which face: the side you're out past the most.
       const ox = Math.abs(lx) - f.hx, oz = Math.abs(lz) - f.hz;
       const axis = ox > oz ? 'x' : 'z';

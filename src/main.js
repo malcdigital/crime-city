@@ -1188,13 +1188,15 @@ class Game {
     const gun = !this.arsenal.current().melee;
     this.aimingNow = !p.vehicle && gun && a.aim;
     // Crouch: toggle with C / L3; sprinting stands you up; aiming pops you up out of cover.
-    if (a.crouch && !p.vehicle) p.crouched = !p.crouched;
-    if (a.sprint && Math.hypot(a.moveX, a.moveY) > 0.3) p.crouched = false;
-    // Take cover (Q / R1): snap to a wall, crate or car and stay there until you leave.
-    if (a.cover && !p.vehicle) {
-      if (p.cover) p.leaveCover();
-      else if (!p.tryCover(this.camYaw, a)) this.hud.toast('No cover nearby', '#cccccc');
+    // One button (C / L3): next to a wall, crate or car it puts you in cover (and you stay
+    // there until you press it again or push away); out in the open it toggles crouch.
+    if (a.crouch && !p.vehicle) {
+      if (p.cover) {
+        p.leaveCover();
+        p.crouched = false;
+      } else if (!p.tryCover(this.camYaw, a)) p.crouched = !p.crouched;
     }
+    if (a.sprint && Math.hypot(a.moveX, a.moveY) > 0.3) p.crouched = false;
     p.lowProfile = !p.vehicle && (p.crouched || !!(p.cover && p.cover.low)) && !this.aimingNow;
 
     // Controller aim assist: aim freely with the right stick; the reticle sticks
