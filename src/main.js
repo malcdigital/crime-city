@@ -117,6 +117,7 @@ class Game {
     document.getElementById('intro').classList.add('hidden');
     this.hud.show();
     this.hud.clock = () => this.clockText();
+    if (CFG.START_IN_CAR && !this.player.vehicle) this.player.enter(this.vehicles[0]);
     this.hud.news('Welcome to Crime City. Stay out of trouble.', 'info');
     this.sfx.unlock();
     if (this.input.mode !== 'pad') this.input.lock();
@@ -327,9 +328,16 @@ class Game {
 
   muzzlePoint() {
     const p = this.player;
+    const m = p.muzzle(this.arsenal.current().id);
+    if (m) return [m.x, m.y, m.z];
     const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
-    const y = this.city.groundY(p.x, p.z) + 1.45;
-    return [p.x + fx * 0.7 - fz * 0.35, y, p.z + fz * 0.7 + fx * 0.35];
+    return [p.x + fx * 0.9 - fz * 0.37, this.city.groundY(p.x, p.z) + 1.5, p.z + fz * 0.9 + fx * 0.37];
+  }
+
+  // Where a locked-on shot goes: torso by default, head after a flick up on the right stick.
+  lockAimPoint(t) {
+    const y = this.city.groundY(t.x, t.z) + (t.standing ? (this.lockHead ? 1.8 : 1.3) : 0.3);
+    return [t.x, y, t.z];
   }
 
   tryFire(a) {
@@ -355,12 +363,11 @@ class Game {
     const spread = (aiming ? w.aimSpread : w.spread) + this.player.speed * 0.004;
     let ox, oy, oz, dx, dy, dz;
     if (this.lockTarget && this.lockTarget.alive) {
-      const t = this.lockTarget;
-      const ty = this.city.groundY(t.x, t.z) + (t.standing ? 1.3 : 0.3);
+      const [tx, ty, tz] = this.lockAimPoint(this.lockTarget);
       [ox, oy, oz] = [mx, my, mz];
-      dx = t.x - mx;
+      dx = tx - mx;
       dy = ty - my;
-      dz = t.z - mz;
+      dz = tz - mz;
     } else {
       this.camera.getWorldDirection(tmpV);
       [dx, dy, dz] = [tmpV.x, tmpV.y, tmpV.z];
@@ -418,7 +425,8 @@ class Game {
     const d = dist(shooter.x, shooter.z, px, pz);
     const h = shooter.heading;
     const y0 = this.city.groundY(shooter.x, shooter.z) + 1.45;
-    const m = [shooter.x + Math.sin(h) * 0.6, y0, shooter.z + Math.cos(h) * 0.6];
+    // Gun is in the right hand: forward and to the shooter's right.
+    const m = [shooter.x + Math.sin(h) * 0.9 - Math.cos(h) * 0.37, y0 + 0.05, shooter.z + Math.cos(h) * 0.9 + Math.sin(h) * 0.37];
     const pv = this.player.vehicle;
     let p = clamp(0.62 - d * 0.013, 0.1, 0.62);
     if (!pv && this.player.speed > 5) p *= 0.6;
@@ -544,7 +552,7 @@ class Game {
 
     // Pushing the stick away far enough breaks the lock.
     let t = this.lockTarget;
-    if (t && (!valid(t) || this.crosshairOffset(t) > 0.15)) {
+    if (t && (!valid(t) || this.crosshairOffset(t) > 0.25)) {
       this.lockIgnore = t;
       this.lockIgnoreT = 0.5;
       t = this.lockTarget = null;
@@ -563,13 +571,34 @@ class Game {
         }
       }
       t = this.lockTarget = best;
+      this.lockHead = false;
     }
     if (t) {
-      // Gentle pull toward the target, and slower look speed so it feels sticky.
-      a.lookX *= 0.55;
-      a.lookY *= 0.7;
-      const bearing = Math.atan2(t.x - p.x, t.z - p.z);
-      this.camYaw = lerpAngle(this.camYaw, bearing, Math.min(1, dt * 6));
+      // Break the lock by holding the right stick hard to one side.
+      const fullX = Math.abs(a.lookX) > dt * 2.3;
+      this.breakT = fullX ? (this.breakT || 0) + dt : 0;
+      if (this.breakT > 0.15) {
+        this.lockIgnore = t;
+        this.lockIgnoreT = 0.6;
+        this.lockTarget = null;
+        this.breakT = 0;
+        return;
+      }
+      // Flick up for the head, down for the torso.
+      if (a.lookY < -dt * 0.6) this.lockHead = true;
+      else if (a.lookY > dt * 0.6) this.lockHead = false;
+      a.lookX *= 0.35;
+      a.lookY = 0;
+      // Turn the camera so the crosshair lands on the aim point (using last frame's view).
+      tmpV.set(...this.lockAimPoint(t)).project(this.camera);
+      if (tmpV.z < 1) {
+        const tanV = Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2);
+        const ex = Math.atan(tmpV.x * tanV * this.camera.aspect);
+        const ey = Math.atan(tmpV.y * tanV);
+        const k = Math.min(1, dt * 14);
+        this.camYaw -= ex * k;
+        this.camPitch = clamp(this.camPitch - ey * k, -0.3, 1.0);
+      }
     }
   }
 
@@ -836,6 +865,7 @@ class Game {
   update(dt, a) {
     this.time += dt;
     if (a.phone) this.hud.togglePhone();
+    if (a.spawnCar && CFG.CAR_SPAWN_KEY) this.spawnTestCar();
     this.effects.update(dt);
 
     if (this.bustedT > 0 || this.wastedT > 0) {
@@ -913,7 +943,7 @@ class Game {
     this.lockScreen = null;
     if (this.lockTarget) {
       const t = this.lockTarget;
-      tmpV.set(t.x, this.city.groundY(t.x, t.z) + 1.3, t.z).project(this.camera);
+      tmpV.set(...this.lockAimPoint(t)).project(this.camera);
       if (tmpV.z < 1) this.lockScreen = [((tmpV.x + 1) / 2) * innerWidth, ((1 - tmpV.y) / 2) * innerHeight];
     }
     this.hud.update(this, dt);
@@ -923,6 +953,23 @@ class Game {
       this.saveT = 0;
       this.save();
     }
+  }
+
+  // Testing: drop a fresh sports car beside the player (or swap into one if driving).
+  spawnTestCar() {
+    const p = this.player;
+    const [x, z] = p.pos();
+    const h = p.vehicle ? p.vehicle.heading : p.heading;
+    const side = p.vehicle ? 3.5 : 3;
+    const car = new Vehicle(this.scene, 'sports', x - Math.cos(h) * side, z + Math.sin(h) * side, h);
+    this.vehicles.push(car);
+    if (p.vehicle) {
+      p.exit();
+    }
+    p.x = car.x;
+    p.z = car.z;
+    p.enter(car);
+    this.hud.toast('Test car delivered');
   }
 
   // Remove abandoned and burnt-out cars far from the player so the city doesn't fill up.

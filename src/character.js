@@ -35,15 +35,16 @@ export function makeCharacter({ shirt = 0x3366aa, pants = 0x222222, skin = 0xc68
     return p;
   };
 
-  const legL = pivot(-0.13, 0.9);
+  // The character faces +z, so its right side is local -x.
+  const legL = pivot(0.13, 0.9);
   add(LEG, pants, 0, -0.43, 0, legL);
-  const legR = pivot(0.13, 0.9);
+  const legR = pivot(-0.13, 0.9);
   add(LEG, pants, 0, -0.43, 0, legR);
   add(BODY, shirt, 0, 1.26, 0);
-  const armL = pivot(-0.37, 1.56);
+  const armL = pivot(0.37, 1.56);
   add(ARM, shirt, 0, -0.3, 0, armL);
   add(HAND, skin, 0, -0.66, 0, armL);
-  const armR = pivot(0.37, 1.56);
+  const armR = pivot(-0.37, 1.56);
   add(ARM, shirt, 0, -0.3, 0, armR);
   add(HAND, skin, 0, -0.66, 0, armR);
   add(HEAD, skin, 0, 1.8, 0);

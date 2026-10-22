@@ -284,10 +284,10 @@ export class Hud {
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(C, C - 8);
-    ctx.lineTo(C + 6, C + 6);
-    ctx.lineTo(C, C + 3);
-    ctx.lineTo(C - 6, C + 6);
+    ctx.moveTo(C, C - 14);
+    ctx.lineTo(C + 10, C + 10);
+    ctx.lineTo(C, C + 5);
+    ctx.lineTo(C - 10, C + 10);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();

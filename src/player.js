@@ -15,7 +15,7 @@ export class Player {
       smg: new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.18, 0.6), lam(0x2a2a2a)),
     };
     for (const g of Object.values(this.guns)) {
-      g.position.set(0, -0.66, 0.16);
+      g.position.set(0, -0.64, 0);
       g.rotation.x = Math.PI / 2;
       g.visible = false;
       this.char.armR.add(g);
@@ -43,6 +43,15 @@ export class Player {
       return [fx * this.vehicle.speed, fz * this.vehicle.speed];
     }
     return [this.vx, this.vz];
+  }
+
+  // World position of the end of the barrel of the gun in the player's hand.
+  muzzle(id) {
+    const g = this.guns[id];
+    if (!g) return null;
+    this.char.group.updateMatrixWorld(true);
+    const len = g.geometry.parameters.depth;
+    return g.localToWorld(new THREE.Vector3(0, 0, len / 2 + 0.02));
   }
 
   showWeapon(id) {

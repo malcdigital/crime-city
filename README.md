@@ -27,7 +27,8 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - Street cred ladder from the design doc (Nobody → Kingpin)
 - HUD: cash, wanted stars, a round radar that rotates with the player, and an in-game phone with City News
 - PS5 / standard gamepad support, with button prompts that switch to the controller
-- Guns: fists, pistol and SMG with ammo, reloading, aim mode and controller aim assist (unlimited ammo while testing: `INFINITE_AMMO` in `src/config.js`)
+- Guns: fists, pistol and SMG with ammo, reloading, aim mode and controller aim assist that locks to the torso (flick up for the head)
+- Testing switches in `src/config.js`: `INFINITE_AMMO`, `START_IN_CAR`, `CAR_SPAWN_KEY`
 - Rival gang (Southside Kings) on a Southgate corner who shoot back
 - Police open fire at 3+ stars or once you shoot at them
 - Health, damage, "wasted" and hospital respawn
@@ -51,6 +52,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | Handbrake | Space | R1 |
 | Rob store (hold) / sell car | E | D-pad → |
 | Pause and controls | P | Options |
+| Spawn a test car | V | R3 (click right stick) |
 
 
 ## Code layout
