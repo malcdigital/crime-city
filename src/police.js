@@ -5,6 +5,7 @@ import { pushCircle, segmentBlocked } from './collision.js';
 import { steerToward, throttleFor, StuckHelper } from './driving.js';
 import { dist, pick, rand, lerpAngle } from './util.js';
 import { navStep } from './nav.js';
+import { findCover } from './gang.js';
 
 // A police officer on foot. Rides hidden inside the unit's car until it dismounts.
 export class Officer {
@@ -23,6 +24,16 @@ export class Officer {
     this.health = 100;
     this.fireT = rand(0.5, 1.2);
     this.isCop = true;
+    // Most cops fight from cover; a few push forward and flank.
+    this.flanker = Math.random() < 0.15;
+    this.crouched = false;
+    this.spot = null;
+    this.peeking = false;
+    this.coverT = 0;
+    this.peekShots = 0;
+    this.recheckT = 0;
+    this.blindT = 0;
+    this.advanceT = 0;
   }
 
   get standing() {
@@ -45,6 +56,8 @@ export class Officer {
     this.z = c.z + fx * side * 1.8;
     this.state = 'chase';
     this.char.group.visible = true;
+    // Swing the door open on the way out.
+    if (this.game.lethal) c.openDoor(side);
   }
 
   knockDown(fromX, fromZ, fling = 0) {
@@ -64,6 +77,7 @@ export class Officer {
     this.health -= dmg;
     if (this.health <= 0) {
       this.state = 'dead';
+      this.crouched = false;
       setDown(this.char, true);
       return true;
     }
@@ -82,6 +96,7 @@ export class Officer {
     let speed = 0;
     let face = null;
 
+    if (this.state !== 'chase') this.crouched = false;
     if (this.state === 'down') {
       this.t -= dt;
       if (this.t <= 0) {
@@ -95,27 +110,11 @@ export class Officer {
       if (game.stars === 0 || this.unit.leaving || game.wastedT > 0 || (pv && Math.abs(pv.speed) > 6 && d > giveUpRange) || d > 50) {
         this.state = 'return';
       } else if (game.lethal) {
-        // Gunfight: target you or your crew, hold a firing distance and shoot on a clear line.
-        const tgt = game.pickTarget(this, game.playerFaction(), 50) || { x: px, z: pz, ref: 'player' };
-        const td = dist(this.x, this.z, tgt.x, tgt.z);
-        const los = td < 45 && !segmentBlocked(this.x, this.z, tgt.x, tgt.z, game.city.los);
-        if (!los || td > 16) {
-          tx = tgt.x;
-          tz = tgt.z;
-          speed = CFG.OFFICER_SPEED;
-        } else if (td < 7) {
-          tx = this.x * 2 - tgt.x;
-          tz = this.z * 2 - tgt.z;
-          speed = 2.5;
-        }
-        face = Math.atan2(tgt.x - this.x, tgt.z - this.z);
-        if (los) {
-          this.fireT -= dt;
-          if (this.fireT <= 0) {
-            this.fireT = rand(0.8, 1.4);
-            game.npcShootAt(this, tgt.ref, 8, 'pistol');
-          }
-        }
+        const r = this.combat(dt, px, pz);
+        tx = r.tx;
+        tz = r.tz;
+        speed = r.speed;
+        face = r.face;
       } else {
         tx = px;
         tz = pz;
@@ -150,14 +149,159 @@ export class Officer {
     if (face !== null) this.heading = lerpAngle(this.heading, face, Math.min(1, dt * 10));
     this.phase += dt * speed * 3.2;
     animateWalk(this.char, this.phase, Math.min(1, speed / 2));
-    // Gun arm raised in a gunfight.
-    if (game.lethal && this.state === 'chase') this.char.armR.rotation.x = -1.45;
+    if (this.crouched) {
+      // Kneeling behind the car.
+      this.char.legL.rotation.x = -1.4;
+      this.char.legR.rotation.x = -0.2;
+    }
+    // Gun up in a gunfight.
+    if (game.lethal && this.state === 'chase') {
+      this.char.armR.rotation.x = -1.45;
+      this.char.armL.rotation.x = -1.2;
+    }
     this.place();
+  }
+
+  // Where to take cover behind our own cruiser, given where the shooter is.
+  carCover(c, tgt) {
+    const [fx, fz] = c.forward();
+    const rx = -fz;
+    const rz = fx;
+    const d = dist(c.x, c.z, tgt.x, tgt.z) || 1;
+    const ux = (tgt.x - c.x) / d;
+    const uz = (tgt.z - c.z) / d;
+    const along = ux * fx + uz * fz;
+    const lat = ux * rx + uz * rz;
+    const k = this.unit.officers.indexOf(this);
+    let spot;
+    if (along > 0.5) {
+      // Shooter ahead: crouch behind your open door, lean out past it to fire.
+      const side = k === 0 ? -1 : 1;
+      c.openDoor(side);
+      const x = c.x + rx * side * 1.75 - fx * 0.7;
+      const z = c.z + rz * side * 1.75 - fz * 0.7;
+      spot = { x, z, peekX: x + rx * side * 0.7, peekZ: z + rz * side * 0.7, kind: 'door' };
+    } else if (along < -0.5) {
+      // Shooter behind: use the engine block at the front.
+      const o = k === 0 ? -0.7 : 0.7;
+      const x = c.x + fx * 3.1 + rx * o;
+      const z = c.z + fz * 3.1 + rz * o;
+      spot = { x, z, peekX: x, peekZ: z, kind: 'hood' };
+    } else {
+      // Shooter off to the side: get down on the far side of the car.
+      const away = lat > 0 ? -1 : 1;
+      const o = k === 0 ? 1.0 : -1.0;
+      const x = c.x + rx * away * 2.2 + fx * o;
+      const z = c.z + rz * away * 2.2 + fz * o;
+      spot = { x, z, peekX: x, peekZ: z, kind: 'body' };
+    }
+    // Don't pick a spot inside a wall.
+    const r = pushCircle(spot.x, spot.z, 0.45, this.game.city.colliders);
+    if (Math.hypot(r.x - spot.x, r.z - spot.z) > 0.2) return null;
+    return spot;
+  }
+
+  // One frame of a gunfight. Returns where to move and which way to face.
+  combat(dt, px, pz) {
+    const game = this.game;
+    const tgt = game.pickTarget(this, game.playerFaction(), 55) || { x: px, z: pz, ref: 'player' };
+    const td = dist(this.x, this.z, tgt.x, tgt.z);
+    const los = td < 45 && !segmentBlocked(this.x, this.z, tgt.x, tgt.z, game.city.los);
+    const face = Math.atan2(tgt.x - this.x, tgt.z - this.z);
+    const out = { tx: this.x, tz: this.z, speed: 0, face };
+    let canShoot = false;
+    let rate = [0.8, 1.4];
+    this.crouched = false;
+
+    // Pick (or refresh) a cover spot about once a second.
+    this.recheckT -= dt;
+    this.advanceT -= dt;
+    if (this.recheckT <= 0) {
+      this.recheckT = 0.8;
+      const c = this.unit.car;
+      const carUsable = !this.unit.carLost && !c.exploded && !c.wrecked && Math.abs(c.speed) < 1.5
+        && dist(this.x, this.z, c.x, c.z) < 18 && dist(c.x, c.z, tgt.x, tgt.z) < 45;
+      let spot = carUsable ? this.carCover(c, tgt) : null;
+      if (!spot) {
+        const cover = findCover(game, this, tgt);
+        spot = cover ? { x: cover.x, z: cover.z, peekX: cover.peekX, peekZ: cover.peekZ, kind: 'other' } : null;
+      }
+      if (!spot || !this.spot || dist(spot.x, spot.z, this.spot.x, this.spot.z) > 0.8) this.peeking = false;
+      this.spot = spot;
+    }
+
+    if (this.flanker || !this.spot || this.advanceT > 0) {
+      // Push in: close to firing range in the open.
+      if (!los || td > 16) {
+        out.tx = tgt.x;
+        out.tz = tgt.z;
+        out.speed = CFG.OFFICER_SPEED;
+        out.face = null;
+      } else if (td < 7) {
+        out.tx = this.x * 2 - tgt.x;
+        out.tz = this.z * 2 - tgt.z;
+        out.speed = 2.5;
+      }
+      canShoot = los;
+    } else {
+      const s = this.spot;
+      const atSpot = dist(this.x, this.z, s.x, s.z) < 1.1 || (this.peeking && dist(this.x, this.z, s.peekX, s.peekZ) < 1.1);
+      if (!atSpot && !this.peeking) {
+        // Run to cover.
+        out.tx = s.x;
+        out.tz = s.z;
+        out.speed = CFG.OFFICER_SPEED;
+        out.face = null;
+      } else if (!this.peeking) {
+        // Down behind cover.
+        this.crouched = true;
+        this.coverT -= dt;
+        if (dist(this.x, this.z, s.x, s.z) > 0.4) {
+          out.tx = s.x;
+          out.tz = s.z;
+          out.speed = 1.5;
+        }
+        if (this.coverT <= 0) {
+          this.peeking = true;
+          this.peekShots = 2 + Math.floor(Math.random() * 2);
+          this.coverT = 2.5;
+        }
+      } else {
+        // Pop up (or lean out past the door) and fire a few rounds.
+        this.coverT -= dt;
+        if (dist(this.x, this.z, s.peekX, s.peekZ) > 0.4) {
+          out.tx = s.peekX;
+          out.tz = s.peekZ;
+          out.speed = 2;
+        } else canShoot = los;
+        rate = [0.45, 0.75];
+        if (this.peekShots <= 0 || this.coverT <= 0) {
+          this.peeking = false;
+          this.coverT = rand(1.0, 2.0);
+        }
+      }
+      // Can't see anyone from here for a while: move up.
+      this.blindT = los ? 0 : this.blindT + dt;
+      if (this.blindT > 4) {
+        this.blindT = 0;
+        this.advanceT = 3;
+      }
+    }
+
+    if (canShoot) {
+      this.fireT -= dt;
+      if (this.fireT <= 0) {
+        this.fireT = rand(rate[0], rate[1]);
+        this.peekShots--;
+        game.npcShootAt(this, tgt.ref, 8, 'pistol');
+      }
+    }
+    return out;
   }
 
   place() {
     const y = this.game.city.groundY(this.x, this.z);
-    this.char.group.position.set(this.x, this.standing ? y : y + 0.2, this.z);
+    this.char.group.position.set(this.x, !this.standing ? y + 0.2 : this.crouched ? y - 0.45 : y, this.z);
     this.char.group.rotation.y = this.heading;
   }
 
@@ -217,6 +361,7 @@ export class PoliceUnit {
       c.update(dt, { throttle: throttleFor(c, 0), steer: 0, handbrake: true }, game.city.colliders);
       return;
     }
+    c.closeDoors();
 
     let tx, tz, desired;
     const maxS = c.type.max * (0.6 + game.stars * 0.08);
@@ -250,6 +395,31 @@ export class PoliceUnit {
         desired = maxS * 0.85;
         if (dist(c.x, c.z, tx, tz) < 22) desired = Math.min(desired, 12);
       }
+    }
+    // Don't plow into cars ahead (especially other cruisers parked at the scene) or officers on foot.
+    const [fx, fz] = c.forward();
+    for (const o of game.vehicles) {
+      if (o === c || o.removed) continue;
+      const ox = o.x - c.x;
+      const oz = o.z - c.z;
+      if (Math.abs(ox) > 18 || Math.abs(oz) > 18) continue;
+      const fwd = ox * fx + oz * fz;
+      const lat = Math.abs(ox * fz - oz * fx);
+      if (fwd > 0 && fwd < 18 && lat < 3) desired = Math.min(desired, Math.max(0, (fwd - 7) * 1.2));
+    }
+    for (const o of game.police.officers()) {
+      if (!o.standing) continue;
+      const ox = o.x - c.x;
+      const oz = o.z - c.z;
+      const fwd = ox * fx + oz * fz;
+      if (fwd > 0 && fwd < 12 && Math.abs(ox * fz - oz * fx) < 2) desired = 0;
+    }
+    // Held up behind another car near a gunfight: bail out and go in on foot.
+    const heldUp = desired < 1 && !this.leaving && game.lethal && d < 55;
+    this.heldT = heldUp ? (this.heldT || 0) + dt : 0;
+    if (this.heldT > 1.5 && Math.abs(c.speed) < 3) {
+      this.officers.forEach((o, k) => o.dismount(k === 0 ? -1 : 1));
+      this.heldT = 0;
     }
     const ctrl = { throttle: throttleFor(c, desired), steer: steerToward(c, tx, tz), handbrake: desired === 0 };
     this.stuck.apply(dt, c, desired, ctrl);

@@ -774,7 +774,8 @@ class Game {
         let hit = false;
         for (const [cx, cz] of v.circles()) if (dist(cx, cz, t.x, t.z) < v.radius + 0.35) hit = true;
         if (!hit) continue;
-        const fast = Math.abs(v.speed) > 14;
+        // Only your driving kills outright; computer-driven cars knock people over.
+        const fast = Math.abs(v.speed) > 14 && v.driver === 'player';
         const killed = fast ? t.takeHit(999, v.x, v.z) : false;
         if (!killed) t.knockDown(v.x, v.z, 2);
         v.speed *= 0.85;
@@ -1150,6 +1151,7 @@ class Game {
 
 const game = new Game();
 window.__game = game;
+game.__raycast = raycast; // handy for debugging shots from the console
 document.getElementById('play').addEventListener('click', () => game.start());
 document.getElementById('resume').addEventListener('click', () => game.setPaused(false));
 document.getElementById('game').addEventListener('click', () => {

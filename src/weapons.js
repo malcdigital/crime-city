@@ -100,6 +100,13 @@ export function raycast(game, ox, oy, oz, dx, dy, dz, maxT, ignore = null) {
     }
   }
   for (const v of game.vehicles) {
+    if (v === ignore || v.removed || !v.doors) continue;
+    for (const b of v.doorBoxes()) {
+      const t = rayBox(ox, oy, oz, dx, dy, dz, b.minX, 0.45, b.minZ, b.maxX, b.h, b.maxZ);
+      if (t !== null && t < best.t) best = { t, type: 'car', target: v };
+    }
+  }
+  for (const v of game.vehicles) {
     if (v === ignore || v.removed) continue;
     const ex = ox - v.x;
     const ez = oz - v.z;

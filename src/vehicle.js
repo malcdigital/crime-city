@@ -81,6 +81,19 @@ export class Vehicle {
       const lb = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.18, 0.35), this.lightB);
       lb.position.set(0.4, top, -0.2);
       g.add(lr, lb);
+      // Front doors on hinges, so officers can swing them open and use them as cover.
+      // The car faces +z, so its right side is local -x. side: -1 = driver (left), +1 = passenger (right).
+      this.doors = {};
+      for (const side of [-1, 1]) {
+        const pivot = new THREE.Group();
+        pivot.position.set(-side * (t.w / 2 + 0.03), 0.35 + t.h / 2 + 0.05, 0.55);
+        const door = new THREE.Mesh(new THREE.BoxGeometry(0.07, t.h * 0.95 + 0.35, 1.15), lam(0xf2f2f2));
+        door.position.set(0, 0.1, -0.575);
+        door.castShadow = true;
+        pivot.add(door);
+        g.add(pivot);
+        this.doors[side] = { pivot, angle: 0, target: 0 };
+      }
     }
     for (const sx of [-1, 1]) {
       const hl = new THREE.Mesh(lightGeo, headMat);
@@ -97,6 +110,34 @@ export class Vehicle {
         this.wheels.push(w);
       }
     }
+  }
+
+  openDoor(side) {
+    if (this.doors && !this.exploded) this.doors[side].target = side * 1.05;
+  }
+
+  closeDoors() {
+    if (this.doors) for (const d of Object.values(this.doors)) d.target = 0;
+  }
+
+  // World-space boxes for open doors, so bullets hit them.
+  doorBoxes() {
+    if (!this.doors) return [];
+    const out = [];
+    const c = Math.cos(this.heading);
+    const s = Math.sin(this.heading);
+    const toWorld = (lx, lz) => [this.x + lx * c + lz * s, this.z - lx * s + lz * c];
+    for (const d of Object.values(this.doors)) {
+      if (Math.abs(d.angle) < 0.4) continue;
+      const hx = d.pivot.position.x;
+      const hz = d.pivot.position.z;
+      const tx = hx - Math.sin(d.angle) * 1.15;
+      const tz = hz - Math.cos(d.angle) * 1.15;
+      const [ax, az] = toWorld(hx, hz);
+      const [bx, bz] = toWorld(tx, tz);
+      out.push({ minX: Math.min(ax, bx) - 0.06, maxX: Math.max(ax, bx) + 0.06, minZ: Math.min(az, bz) - 0.06, maxZ: Math.max(az, bz) + 0.06, h: 1.4 });
+    }
+    return out;
   }
 
   forward() {
@@ -190,6 +231,12 @@ export class Vehicle {
       w.rotation.x += (this.speed * dt) / 0.38;
       if (w.userData.front) w.rotation.y = this.steerVis;
     }
+    if (this.doors) {
+      for (const d of Object.values(this.doors)) {
+        d.angle += (d.target - d.angle) * Math.min(1, dt * 6);
+        d.pivot.rotation.y = d.angle;
+      }
+    }
     if (this.lightR) {
       this.sirenT += dt;
       const on = this.siren && Math.floor(this.sirenT * 6) % 2 === 0;
@@ -230,9 +277,14 @@ export function resolveCarCollisions(cars, onHit) {
           Bc.z += uz * push;
           const rel = Math.abs(A.speed - Bc.speed);
           if (rel > 3 && onHit) onHit(A, Bc, rel);
-          if (rel > 10) {
-            A.damage((rel - 10) * 1.5, Bc.driver === 'player');
-            Bc.damage((rel - 10) * 1.5, A.driver === 'player');
+          // Crash damage. Bumps between computer-driven cars are gentler so they don't
+          // wreck each other on their own.
+          const involvesPlayer = A.driver === 'player' || Bc.driver === 'player';
+          const limit = involvesPlayer ? 10 : 16;
+          if (rel > limit) {
+            const dmg = (rel - limit) * (involvesPlayer ? 1.5 : 0.8);
+            A.damage(dmg, Bc.driver === 'player');
+            Bc.damage(dmg, A.driver === 'player');
           }
           A.speed *= 0.92;
           Bc.speed *= 0.92;

@@ -32,7 +32,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - Rival gang (Southside Kings) on a Southgate corner who shoot back
 - Gang AI with "heart": low-heart fighters run, mid-heart fighters take cover (building corners, crates, parked cars) and pop out to shoot, reckless ones charge in the open; nerve drops when friends go down, and police in the fight make everyone likelier to run
 - Your crew: recruit up to 3 homies at the park hangout (G on the radar); they follow you, ride in your car and fight with the same personality system
-- Police open fire at 3+ stars or once you shoot at them
+- Police open fire at 3+ stars or once you shoot at them, taking cover behind their open car doors, the far side of the cruiser or the hood depending on where you are; a few flank
 - Health, damage, "wasted" and hospital respawn
 - Cars take damage, catch fire and explode; ammo drops from downed enemies
 

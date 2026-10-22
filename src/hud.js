@@ -56,7 +56,7 @@ export class Hud {
 
     this.set('prompt', game.prompt || '');
     const v = game.player.vehicle;
-    this.set('speed', v ? `${Math.round(Math.abs(v.speed) * 3.6)} km/h` : '');
+    this.set('speed', v ? `${Math.round(Math.abs(v.speed) * 2.23694)} mph` : '');
 
     const prog = $('progress');
     if (game.progress) {
