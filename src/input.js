@@ -102,7 +102,13 @@ export class Input {
   // Read the controller. Call once at the start of each frame.
   poll() {
     let pad = null;
-    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    let pads = [];
+    try {
+      pads = navigator.getGamepads ? navigator.getGamepads() || [] : [];
+    } catch {
+      // Some embedded pages block controller access.
+      this.padBlocked = true;
+    }
     for (const g of pads) {
       if (g && g.connected) {
         if (!pad || g.mapping === 'standard') pad = g;

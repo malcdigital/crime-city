@@ -780,7 +780,9 @@ class Game {
     if (!this.started) {
       document.getElementById('pad-note').textContent = this.input.padConnected
         ? 'Controller connected. Press ✕ to play.'
-        : 'Plug in or pair a PS5 controller and press any button, then ✕ to play.';
+        : this.input.padBlocked
+          ? 'This page blocks controllers. Run the game locally (npm run dev) to use a PS5 controller.'
+          : 'Plug in or pair a PS5 controller and press any button, then ✕ to play.';
       if (a.start) this.start();
     } else if (a.pause) {
       this.setPaused(!this.paused);
