@@ -192,6 +192,8 @@ export class Input {
     a.pause = this.hit('KeyP') || this.btnHit(PAD.OPTIONS);
     a.phone = this.hit('KeyT') || this.hit('KeyM') || this.btnHit(PAD.UP) || this.btnHit(PAD.CREATE);
     a.start = this.btnHit(PAD.CROSS) || this.btnHit(PAD.OPTIONS);
+    a.playClip = this.hit('Enter') || this.btnHit(PAD.CROSS);
+    a.closeClip = this.hit('Escape') || this.btnHit(PAD.CIRCLE);
     a.spawnCar = this.hit('KeyV') || this.btnHit(PAD.R3);
     a.looking = a.lookX !== 0 || a.lookY !== 0;
     return a;

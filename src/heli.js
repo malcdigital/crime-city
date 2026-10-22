@@ -150,7 +150,7 @@ export class Helicopter {
       game.effects.fire(this.x, this.y, this.z);
       this.beam.visible = this.spot.visible = false;
       if (this.y <= game.city.groundY(this.x, this.z) + 1) {
-        game.explode({ x: this.x, z: this.z, burnOut() {}, byPlayer: true, driver: null });
+        game.explode({ x: this.x, z: this.z, burnOut() {}, byPlayer: true, driver: null, isHeliWreck: true });
         this.dispose();
         return;
       }

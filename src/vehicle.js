@@ -307,88 +307,48 @@ export class Vehicle {
     this.collide(boxes);
   }
 
-  // Tire model for drifts (a planar "bicycle" model). Braking moves weight onto the front
-  // tires; the gas spins the rear tires, and a spinning tire has little sideways grip, so
-  // the back end steps out. Counter-steer and throttle hold the slide. Returns false once
-  // the car has gripped up again, handing back to normal driving.
+  // Drift model. Kick it off with gas + brake while turning; then the gas keeps the rear
+  // loose and the stick sets the drift angle (light push = shallow slide, full lock = about
+  // 40 degrees). The tires still limit how fast the car's path can bend (about 1 g of
+  // sideways grip), and sliding sideways scrubs off speed. Off the gas or stick centered,
+  // the car straightens and grips up. Returns false once it's back to normal driving.
   driftPhysics(dt, ctrl, s) {
-    const m = 1400, Iz = 2300, a = 1.25, b = 1.45, L = a + b, h = 0.55, g = 9.81, mu = 1.0;
-    const Cf = 75000, Cr = 85000;
+    const g = 9.81;
+    const t = this.type;
     if (!this.drifting) {
-      // Enter: carry over current speed and turn rate.
       this.drifting = true;
-      this.vx = s;
-      this.vy = this.lat;
-      // Turn rate the tires can actually hold at this speed (about 1 g sideways).
-      const rk = (s / 2.7) * Math.tan(this.steerVis);
-      const rMax = (0.95 * g) / Math.max(s, 1);
-      this.r = clamp(rk, -rMax, rMax);
+      this.beta = 0; // angle between where the nose points and where the car travels
+      this.travel = this.heading;
+      this.vel = Math.max(s, 0);
     }
-    const gas = ctrl.gas ? 1 : 0;
-    const brake = ctrl.brake ? 1 : 0;
-    const n = 4;
-    const ddt = dt / n;
-    let ax = 0;
-    for (let k = 0; k < n; k++) {
-      const vx = Math.max(this.vx, 0.5);
-      const delta = this.steerVis;
-      // Weight transfer from braking / accelerating.
-      const transfer = clamp((m * -ax * h) / L, -2500, 2500);
-      const Fzf = (m * g * b) / L + transfer;
-      const Fzr = (m * g * a) / L - transfer;
-      // Front: brakes take part of the grip, the rest is available for cornering.
-      const Fxf = -brake * 0.2 * mu * Fzf;
-      const fyMax = Math.sqrt(Math.max(0, (mu * Fzf) ** 2 - Fxf * Fxf));
-      const af = Math.atan2(this.vy + a * this.r, vx) - delta;
-      const Fyf = clamp(-Cf * af, -fyMax, fyMax);
-      // Rear: wheelspin from the gas. The sliding tire's force points against the contact
-      // patch's slip, so the faster it spins the more it pushes forward and the less it
-      // holds sideways. With no gas the rear rolls and grips normally.
-      const vyr = this.vy - b * this.r;
-      let Fxr, Fyr;
-      const spin = gas * (1 + Math.abs(vx) * 0.06);
-      if (spin > 0.5) {
-        const sl = Math.hypot(spin, vyr);
-        const muK = 1.0 * mu;
-        Fxr = (muK * Fzr * spin) / sl;
-        Fyr = (-muK * Fzr * vyr) / sl;
-        this.rearSpin = vx + spin;
-      } else {
-        const ar = Math.atan2(vyr, vx);
-        const max = mu * Fzr;
-        Fxr = -brake * 0.3 * max;
-        const fyr = Math.sqrt(Math.max(0, max * max - Fxr * Fxr));
-        Fyr = clamp(-Cr * ar, -fyr, fyr);
-      }
-      const drag = 0.45 * this.vx * Math.abs(this.vx) + 12 * this.vx;
-      const Fx = Fxr + Fxf * Math.cos(delta) - Fyf * Math.sin(delta) - drag;
-      const Fy = Fyr + Fyf * Math.cos(delta) + Fxf * Math.sin(delta);
-      ax = Fx / m;
-      this.vx += (ax + this.vy * this.r) * ddt;
-      this.vy += (Fy / m - this.vx * this.r) * ddt;
-      this.r += ((a * (Fyf * Math.cos(delta) + Fxf * Math.sin(delta)) - b * Fyr) / Iz) * ddt;
-      this.r = clamp(this.r, -3, 3);
-      // Let go of the pedals and the car settles itself (tires relaxing, stability control).
-      if (!(ctrl.gas && ctrl.brake)) {
-        this.r *= Math.exp(-ddt * 2.2);
-        this.vy *= Math.exp(-ddt * 1.6);
-      }
-      // Positive r turns right, which lowers the heading angle.
-      this.heading = wrapAngle(this.heading - this.r * ddt);
-      const [fx, fz] = this.forward();
-      const rx = -fz, rz = fx;
-      this.x += (fx * this.vx + rx * this.vy) * ddt;
-      this.z += (fz * this.vx + rz * this.vy) * ddt;
-    }
-    this.speed = this.vx;
-    this.lat = this.vy;
-    this.drift = Math.abs(this.vy);
-    // Gripped up (or slowed right down): back to normal driving.
-    const slip = Math.abs(Math.atan2(this.vy, Math.max(Math.abs(this.vx), 0.5)));
-    const holding = ctrl.gas && ctrl.brake && Math.abs(ctrl.steer || 0) > 0.1;
-    if ((!holding && slip < 0.06 && Math.abs(this.vy) < 0.8) || this.vx < 4) {
+    const steer = clamp(ctrl.steer || 0, -1, 1);
+    const stick = Math.abs(steer);
+    const holding = ctrl.gas && stick > 0.1;
+    // Target angle: nose into the turn (a right turn swings the nose right of the path).
+    const target = holding ? -Math.sign(steer) * stick * 0.7 : 0;
+    this.beta += (target - this.beta) * Math.min(1, dt * (holding ? 3 : 4));
+    // The path bends no harder than the tires allow.
+    const v = Math.max(this.vel, 1);
+    const turn = (Math.sign(steer) * Math.pow(stick, 0.8) * 0.95 * g) / v;
+    this.travel = wrapAngle(this.travel - turn * dt);
+    this.heading = wrapAngle(this.travel + this.beta);
+    // Speed: throttle pushes, sliding sideways scrubs, brake slows.
+    const sideways = Math.abs(Math.sin(this.beta));
+    this.vel += ((ctrl.gas ? t.accel * 0.55 : 0) - this.vel * sideways * 0.6 - (ctrl.brake ? 7 : 0) - this.vel * 0.04) * dt;
+    this.vel = Math.max(0, this.vel);
+    // Move along the travel direction.
+    const tx = Math.sin(this.travel), tz = Math.cos(this.travel);
+    this.x += tx * this.vel * dt;
+    this.z += tz * this.vel * dt;
+    // Report in the car's own frame (forward speed + sideways slide).
+    this.speed = this.vel * Math.cos(this.beta);
+    this.lat = this.vel * Math.sin(-this.beta);
+    this.drift = Math.abs(this.lat);
+    this.rearSpin = ctrl.gas ? this.vel + 6 : 0;
+    if ((!holding && Math.abs(this.beta) < 0.04) || this.vel < 4) {
       this.drifting = false;
-      this.speed = Math.max(0, this.vx);
+      this.lat = 0;
+      this.speed = this.vel * Math.cos(this.beta);
       return false;
     }
     return true;

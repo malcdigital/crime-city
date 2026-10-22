@@ -11,6 +11,7 @@ import { GangManager, CrewManager, MAX_CREW } from './gang.js';
 import { Hud } from './hud.js';
 import { Effects } from './effects.js';
 import { Sfx } from './audio.js';
+import { AirCam, ClipPlayer } from './aircam.js';
 import { Arsenal, WEAPONS, SLOTS, KEY_SLOTS, raycast, rayBox } from './weapons.js';
 import { lam } from './character.js';
 import { segmentBlocked } from './collision.js';
@@ -46,6 +47,8 @@ class Game {
     this.city = buildCity(this.scene);
     this.input = new Input(canvas);
     this.hud = new Hud(this.city);
+    this.aircam = new AirCam(this);
+    this.clipPlayer = new ClipPlayer();
     this.effects = new Effects(this.scene);
     this.sfx = new Sfx();
     this.arsenal = new Arsenal();
@@ -262,6 +265,10 @@ class Game {
   }
 
   bust() {
+    {
+      const [bx, bz] = this.player.pos();
+      this.newsIncident(`Suspect arrested on ${streetAt(bx, bz)}`, bx, bz, 'info');
+    }
     const fine = Math.min(this.cash, 200 * this.stars + Math.floor(this.cash * 0.1));
     const [x, z] = this.player.pos();
     this.cash -= fine;
@@ -281,6 +288,10 @@ class Game {
 
   wasted() {
     if (this.wastedT > 0 || this.bustedT > 0) return;
+    if (this.stars > 0) {
+      const [wx, wz] = this.player.pos();
+      this.newsIncident(`Suspect killed in shootout with police on ${streetAt(wx, wz)}`, wx, wz);
+    }
     this.health = 0;
     const bill = Math.min(this.cash, 500);
     const [x, z] = this.player.pos();
@@ -375,6 +386,12 @@ class Game {
   // Something the player hit or killed.
   onPlayerHit(c, killed) {
     if (c.isCrew) return; // friendly fire
+    if (killed) {
+      const st = streetAt(c.x, c.z);
+      if (c.isCop) this.newsIncident(`Officer shot dead on ${st}`, c.x, c.z);
+      else if (c.isGang) this.newsIncident(`${CFG.GANG_NAME} member gunned down on ${st}`, c.x, c.z);
+      else this.newsIncident(`Bystander killed on ${st}`, c.x, c.z);
+    }
     if (c.isCop) {
       this.lethalFlag = true;
       this.crime(killed ? 'copKilled' : 'assaultCop', c.x, c.z);
@@ -500,6 +517,7 @@ class Game {
     if (witnesses && this.time - this.lastGunfireCrime > 5) {
       this.lastGunfireCrime = this.time;
       this.crime('gunfire', px, pz);
+      this.newsIncident(`Armed shooter on the loose on ${streetAt(px, pz)}`, px, pz);
     }
   }
 
@@ -533,6 +551,7 @@ class Game {
     }
     this.effects.hitPuff(tx, ty, tz);
     const killed = ref.takeHit(dmg, shooter.x, shooter.z);
+    if (killed && shooter.isCop && ref.isGang) this.newsIncident(`${CFG.GANG_NAME} member killed by police on ${streetAt(ref.x, ref.z)}`, ref.x, ref.z);
     if (killed && shooter.isCrew) {
       if (ref.isGang) {
         this.cred += 10;
@@ -718,6 +737,8 @@ class Game {
     }
     this.scareNearby(x, z, 50, true);
     if (v.byPlayer) this.crime('explosion', x, z);
+    if (v.isHeliWreck) this.newsIncident(`Police helicopter shot down over ${streetAt(x, z)}`, x, z);
+    else this.newsIncident(`Vehicle explosion on ${streetAt(x, z)}`, x, z);
   }
 
   updateVehicleDamage(dt) {
@@ -905,7 +926,15 @@ class Game {
 
   // gun: shots or explosions, which make people dive, duck and hide instead of just running.
   scareNearby(x, z, r, gun = false) {
+    if (gun) this.lastLoudT = this.time;
     for (const ped of this.peds.peds) if (dist(ped.x, ped.z, x, z) < r) ped.scare(x, z, gun);
+  }
+
+  // A news story with helicopter footage of what just happened.
+  newsIncident(headline, x, z, kind = 'crime') {
+    const clip = this.aircam.incident(headline, x, z);
+    const item = this.hud.news(headline, kind);
+    if (clip && item) this.hud.attachClip(item, clip, () => this.clipPlayer.play(clip));
   }
 
   // Weapon wheel. Hold L1 / Tab to open it (the game keeps running), point with the right
@@ -1117,7 +1146,7 @@ class Game {
 
   updateCamera(dt, a) {
     this.camYaw += a.lookX;
-    this.camPitch = clamp(this.camPitch + a.lookY, -0.7, 1.0);
+    this.camPitch = clamp(this.camPitch + a.lookY, this.player.vehicle ? -0.5 : -1.3, 1.0);
     if (a.looking) this.camIdle = 0;
     else this.camIdle += dt;
 
@@ -1155,6 +1184,13 @@ class Game {
       // Camera over the shoulder of the gun hand (left when peeking left out of cover).
       if (this.player.gunHand === 'L') shoulder = -Math.max(shoulder, 0.35);
       else if (this.player.cover && !this.aimingNow) shoulder = 0.35;
+    }
+    // Looking up: instead of sinking into the ground, the camera tucks in close behind your
+    // head so you can still aim steeply upward (e.g. at the helicopter).
+    if (this.camPitch < 0) {
+      const room = ty + height - 0.5;
+      distBack = Math.min(distBack, room / Math.max(0.01, -Math.sin(this.camPitch)));
+      distBack = Math.max(distBack, 1.2);
     }
     const cp = Math.cos(this.camPitch);
     const rx = -Math.cos(this.camYaw), rz = Math.sin(this.camYaw);
@@ -1220,9 +1256,25 @@ class Game {
 
   update(dt, a) {
     this.time += dt;
-    if (a.phone) this.hud.togglePhone();
+    if (a.phone) {
+      this.hud.togglePhone();
+      if (this.hud.phoneOpen && this.input.locked) this.input.unlock(); // so you can tap stories
+    }
+    // Phone open: D-pad ↓ / ← pick a video story, ✕ / Enter plays it. ○ / Esc closes a video.
+    if (this.hud.phoneOpen) {
+      if (a.nextWeapon || a.prevWeapon) this.hud.moveClipSelection(a.nextWeapon ? 1 : -1);
+      a.nextWeapon = a.prevWeapon = false;
+      if (a.playClip) {
+        const clip = this.hud.selectedClip();
+        if (clip) this.clipPlayer.play(clip);
+        a.sprint = false;
+      }
+    }
+    if (this.clipPlayer.open && a.closeClip) this.clipPlayer.close();
     if (a.spawnCar && CFG.CAR_SPAWN_KEY) this.spawnTestCar();
     this.effects.update(dt);
+    this.aircam.update(dt);
+    this.clipPlayer.update(dt);
 
     if (this.bustedT > 0 || this.wastedT > 0) {
       if (this.bustedT > 0) {

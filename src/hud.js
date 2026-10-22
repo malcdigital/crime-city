@@ -131,6 +131,7 @@ export class Hud {
     item.innerHTML = `<div class="news-time">${esc(time)}</div><div>${esc(text)}</div>`;
     list.prepend(item);
     while (list.children.length > 30) list.lastChild.remove();
+    item._kind = kind;
     if (!this.phoneOpen) {
       this.unread++;
       $('pt-time').textContent = time;
@@ -139,6 +140,43 @@ export class Hud {
       toast.className = `news-${kind}`;
       this.phoneToastT = 4;
     }
+    return item;
+  }
+
+  // Give a news story a helicopter video. Shows "processing" until the clip is ready.
+  attachClip(item, clip, play) {
+    item.clip = clip;
+    item.classList.add('has-clip');
+    const btn = document.createElement('div');
+    btn.className = 'clip-btn';
+    btn.textContent = '● Recording footage…';
+    item.appendChild(btn);
+    clip.onReady = () => {
+      btn.textContent = `▶ Watch ${clip.police ? 'police helicopter' : 'news chopper'} footage`;
+      item.classList.add('ready');
+    };
+    item.addEventListener('click', play);
+    item.style.pointerEvents = 'auto';
+  }
+
+  clipItems() {
+    return [...$('phone-list').querySelectorAll('.news-item.ready')];
+  }
+
+  moveClipSelection(dir) {
+    const items = this.clipItems();
+    if (!items.length) return;
+    let k = items.findIndex((el) => el.classList.contains('sel'));
+    items.forEach((el) => el.classList.remove('sel'));
+    k = k < 0 ? 0 : (k + dir + items.length) % items.length;
+    items[k].classList.add('sel');
+    items[k].scrollIntoView({ block: 'nearest' });
+  }
+
+  selectedClip() {
+    const items = this.clipItems();
+    const el = items.find((e) => e.classList.contains('sel')) || items[0];
+    return el ? el.clip : null;
   }
 
   togglePhone() {
