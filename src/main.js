@@ -560,7 +560,7 @@ class Game {
     this.effects.muzzle(m[0], m[1], m[2]);
     this.effects.tracer(m[0], m[1], m[2], tx, ty, tz, 0xffd28a);
     const [px, pz] = this.player.pos();
-    this.sfx.shot(kind, clamp(1 - dist(shooter.x, shooter.z, px, pz) / 70, 0.05, 0.8));
+    this.sfx.shotAt(kind, dist(shooter.x, shooter.z, px, pz));
     this.scareNearby(shooter.x, shooter.z, 40, true);
     if (!hit) {
       this.effects.impact(tx, ty, tz);
@@ -599,7 +599,7 @@ class Game {
         this.effects.tracer(m[0], m[1], m[2], block.x, block.y, block.z, 0xffd28a);
         this.effects.impact(block.x, block.y, block.z);
         if (block.type === 'car' && block.target) block.target.damage(dmg * 0.3, false);
-        this.sfx.shot(kind, clamp(1 - d / 70, 0.05, 0.8));
+        this.sfx.shotAt(kind, d);
         return;
       }
     }
@@ -611,7 +611,7 @@ class Game {
     const tyy = ty + (Math.random() - 0.5) * miss;
     this.effects.muzzle(m[0], m[1], m[2]);
     this.effects.tracer(m[0], m[1], m[2], tx, tyy, tz, 0xffd28a);
-    this.sfx.shot(kind, clamp(1 - d / 70, 0.05, 0.8));
+    this.sfx.shotAt(kind, d);
     if (hit) this.hurtPlayer(dmg);
     else this.effects.impact(tx, tyy, tz);
   }
@@ -702,7 +702,7 @@ class Game {
     this.effects.muzzle(m[0], m[1], m[2]);
     this.effects.tracer(m[0], m[1], m[2], tx, wy, tz, 0xffd28a);
     const [px, pz] = this.player.pos();
-    this.sfx.shot('pistol', clamp(1 - dist(shooter.x, shooter.z, px, pz) / 70, 0.05, 0.8));
+    this.sfx.shotAt('pistol', dist(shooter.x, shooter.z, px, pz));
     this.scareNearby(shooter.x, shooter.z, 40, true);
     this.effects.impact(tx, wy, tz);
     if (hit && v.popTire(i)) {
@@ -729,7 +729,7 @@ class Game {
     v.burnOut();
     this.effects.explosion(x, z);
     const [px, pz] = this.player.pos();
-    this.sfx.explosion(clamp(1 - dist(x, z, px, pz) / 120, 0.1, 1));
+    this.sfx.explosionAt(dist(x, z, px, pz));
     if (v.driver && v.driver !== 'player' && v.driver.active !== undefined) v.driver.active = false;
     this.crew.carDestroyed(v);
     if (this.player.vehicle === v) {

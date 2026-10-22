@@ -24,7 +24,7 @@ export class Sfx {
     }
   }
 
-  burst(vol, filterType, freq, decay, thump) {
+  burst(vol, filterType, freq, decay, thump, muffle = 1) {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running' || vol < 0.02) return;
     const t = ctx.currentTime;
@@ -32,7 +32,7 @@ export class Sfx {
     src.buffer = this.noise;
     const f = ctx.createBiquadFilter();
     f.type = filterType;
-    f.frequency.value = freq;
+    f.frequency.value = freq * muffle;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(vol, t + 0.004);
@@ -53,11 +53,26 @@ export class Sfx {
     }
   }
 
-  shot(kind, vol = 1) {
-    if (kind === 'smg') this.burst(0.5 * vol, 'lowpass', 3200, 0.11, 140);
-    else if (kind === 'rifle') this.burst(0.65 * vol, 'lowpass', 2600, 0.16, 120);
-    else if (kind === 'shotgun') this.burst(0.95 * vol, 'lowpass', 1400, 0.42, 80);
-    else this.burst(0.7 * vol, 'lowpass', 2200, 0.24, 110);
+  shot(kind, vol = 1, muffle = 1) {
+    if (kind === 'smg') this.burst(0.5 * vol, 'lowpass', 3200, 0.11, 140, muffle);
+    else if (kind === 'rifle') this.burst(0.65 * vol, 'lowpass', 2600, 0.16, 120, muffle);
+    else if (kind === 'shotgun') this.burst(0.95 * vol, 'lowpass', 1400, 0.42, 80, muffle);
+    else this.burst(0.7 * vol, 'lowpass', 2200, 0.24, 110, muffle);
+  }
+
+  // Someone else's gunshot, d meters away: full and sharp up close, fading and muffled
+  // with distance, and silent past about 160 m.
+  shotAt(kind, d) {
+    const HEAR = 160;
+    if (d > HEAR) return;
+    const k = 1 - d / HEAR;
+    this.shot(kind, 0.85 * Math.pow(k, 1.6), Math.max(0.22, 1 - d / 190));
+  }
+
+  explosionAt(d) {
+    const HEAR = 280;
+    if (d > HEAR) return;
+    this.explosion(Math.pow(1 - d / HEAR, 1.4));
   }
 
   empty() {
