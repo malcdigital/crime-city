@@ -35,7 +35,14 @@ export const CRIMES = {
   stealCopCar: { heat: 3, cred: 20, min: 2, label: 'Police cruiser stolen' },
   robberyAlarm: { heat: 2, cred: 0, label: 'Store alarm' },
   robbery: { heat: 2, cred: 35, label: 'Armed robbery' },
+  gunfire: { heat: 0.8, cred: 0, label: 'Shots fired' },
+  murder: { heat: 2, cred: 10, label: 'Homicide' },
+  copKilled: { heat: 4, cred: 30, min: 3, label: 'Officer killed' },
+  gangKill: { heat: 0.5, cred: 25, label: 'Gang shooting' },
+  explosion: { heat: 1.5, cred: 5, label: 'Explosion' },
 };
+
+export const GANG_NAME = 'Southside Kings';
 
 // Street cred ladder from the design doc.
 export const CRED_TIERS = [

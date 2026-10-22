@@ -26,19 +26,31 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - Chop shop: sell stolen cars for cash once the police lose you
 - Street cred ladder from the design doc (Nobody → Kingpin)
 - HUD: cash, wanted stars, minimap, city news feed
+- PS5 / standard gamepad support, with button prompts that switch to the controller
+- Guns: fists, pistol and SMG with ammo, reloading, aim mode and controller lock-on
+- Rival gang (Southside Kings) on a Southgate corner who shoot back
+- Police open fire at 3+ stars or once you shoot at them
+- Health, damage, "wasted" and hospital respawn
+- Cars take damage, catch fire and explode; ammo drops from downed enemies
 
 ## Controls
 
-| Key | Action |
-| --- | --- |
-| WASD | Move / drive |
-| Mouse (or arrow keys) | Look |
-| Shift | Sprint |
-| Click or J | Punch |
-| F | Enter, exit or carjack |
-| Space | Handbrake |
-| E | Hold to rob a store, press to sell a car at the chop shop |
-| M | Hide the news feed |
+| Action | Keyboard / mouse | PS5 controller |
+| --- | --- | --- |
+| Move / steer | WASD | Left stick |
+| Look | Mouse / arrow keys | Right stick |
+| Sprint | Shift | ✕ (hold) |
+| Aim | Right mouse | L2 (locks on) |
+| Shoot | Left mouse | R2 |
+| Punch | J (or click with fists) | ○ |
+| Reload | R | □ |
+| Switch weapon | 1 2 3 / mouse wheel | L1 / D-pad ↑↓ |
+| Enter, exit or carjack | F | △ |
+| Accelerate / brake | W / S | R2 / L2 |
+| Handbrake | Space | R1 |
+| Rob store (hold) / sell car | E | D-pad → |
+| Pause and controls | P | Options |
+| Hide news feed | M | Create |
 
 ## Code layout
 
@@ -52,6 +64,11 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | `src/police.js` | Police units and officers |
 | `src/player.js` | Player on foot and in cars |
 | `src/hud.js` | HUD, news feed and minimap |
+| `src/input.js` | Keyboard, mouse and gamepad input |
+| `src/weapons.js` | Weapons, ammo and bullet hit tests |
+| `src/gang.js` | Rival gang |
+| `src/effects.js` | Muzzle flashes, tracers, smoke, fire, explosions |
+| `src/audio.js` | Synthesized sound effects |
 | `src/config.js` | Tuning values, crimes and the cred ladder |
 
 ## Next steps

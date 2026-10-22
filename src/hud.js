@@ -10,6 +10,8 @@ export class Hud {
     city.drawMap(this.mapBg.getContext('2d'), 200);
     this.map = $('minimap').getContext('2d');
     this.toastT = 0;
+    this.hitT = 0;
+    this.hurtT = 0;
     this.newsHidden = false;
     this.last = {};
   }
@@ -51,7 +53,35 @@ export class Hud {
       this.set('progress-label', game.progress.label);
     } else prog.classList.add('hidden');
 
-    $('mouse-hint').classList.toggle('hidden', game.input.locked);
+    $('mouse-hint').classList.toggle('hidden', game.input.locked || game.input.mode === 'pad');
+    $('pad-status').classList.toggle('hidden', !game.input.padConnected);
+
+    // Weapon, ammo and health.
+    const w = game.arsenal.current();
+    this.set('weapon-name', w.name);
+    if (w.melee) this.set('ammo', '');
+    else {
+      const am = game.arsenal.ammo[w.id];
+      this.set('ammo', game.arsenal.reloadT > 0 ? 'RELOADING' : `${am.mag} / ${am.reserve}`);
+    }
+    const hp = Math.max(0, Math.round(game.health));
+    if (this.last.hp !== hp) {
+      this.last.hp = hp;
+      const bar = $('health-bar');
+      bar.style.width = `${hp}%`;
+      bar.style.background = hp > 50 ? '#4cd964' : hp > 25 ? '#ffcc00' : '#ff3b30';
+    }
+    $('crosshair').classList.toggle('hidden', !game.showCrosshair);
+    this.hitT = Math.max(0, this.hitT - dt);
+    if (this.hitT <= 0) $('hitmarker').classList.remove('show');
+    this.hurtT = Math.max(0, this.hurtT - dt);
+    $('vignette').style.opacity = Math.max(this.hurtT * 2.5, game.health < 30 ? 0.35 : 0).toFixed(2);
+    const lock = $('lockon');
+    if (game.lockScreen) {
+      lock.classList.remove('hidden');
+      lock.style.left = `${game.lockScreen[0]}px`;
+      lock.style.top = `${game.lockScreen[1]}px`;
+    } else lock.classList.add('hidden');
 
     if (this.toastT > 0) {
       this.toastT -= dt;
@@ -80,6 +110,26 @@ export class Hud {
   toggleNews() {
     this.newsHidden = !this.newsHidden;
     $('news').classList.toggle('hidden', this.newsHidden);
+  }
+
+  hitmarker(kill) {
+    const el = $('hitmarker');
+    el.classList.add('show');
+    el.classList.toggle('kill', kill);
+    this.hitT = kill ? 0.35 : 0.12;
+  }
+
+  hurt() {
+    this.hurtT = 0.3;
+  }
+
+  wasted(show, detail = '') {
+    $('wasted').classList.toggle('hidden', !show);
+    $('wasted-detail').textContent = detail;
+  }
+
+  pause(show) {
+    $('pause').classList.toggle('hidden', !show);
   }
 
   busted(show, detail = '') {
@@ -114,6 +164,15 @@ export class Hud {
     ctx.fillRect(X(city.chop.x) - 3, X(city.chop.z) - 3, 6, 6);
     ctx.fillStyle = '#5dade2';
     ctx.fillRect(X(city.station.x) - 3, X(city.station.z) - 3, 6, 6);
+    ctx.fillStyle = '#ff6b6b';
+    ctx.fillRect(X(city.hospital.x) - 1, X(city.hospital.z) - 4, 2, 8);
+    ctx.fillRect(X(city.hospital.x) - 4, X(city.hospital.z) - 1, 8, 2);
+    // Rival gang turf.
+    const gh = city.gangHome;
+    ctx.fillStyle = game.gang.angry ? 'rgba(200,60,255,.55)' : 'rgba(160,60,220,.35)';
+    ctx.beginPath();
+    ctx.arc(X(gh.x), X(gh.z), 18 * s * 1.6, 0, Math.PI * 2);
+    ctx.fill();
 
     const blink = Math.floor(performance.now() / 250) % 2 === 0;
     for (const u of game.police.units) {

@@ -16,9 +16,11 @@ export class Officer {
     this.x = unit.car.x;
     this.z = unit.car.z;
     this.heading = 0;
-    this.state = 'inCar'; // inCar | chase | return | down
+    this.state = 'inCar'; // inCar | chase | return | down | dead
     this.t = 0;
     this.phase = 0;
+    this.health = 100;
+    this.fireT = rand(0.5, 1.2);
     this.isCop = true;
   }
 
@@ -26,7 +28,16 @@ export class Officer {
     return this.state === 'chase' || this.state === 'return';
   }
 
+  get alive() {
+    return this.state !== 'dead';
+  }
+
+  get visibleOnStreet() {
+    return this.state !== 'inCar';
+  }
+
   dismount(side) {
+    if (this.state !== 'inCar') return;
     const c = this.unit.car;
     const [fx, fz] = c.forward();
     this.x = c.x - fz * side * 1.8;
@@ -36,7 +47,7 @@ export class Officer {
   }
 
   knockDown(fromX, fromZ, fling = 0) {
-    if (this.state === 'inCar' || this.state === 'down') return;
+    if (!this.standing) return;
     this.state = 'down';
     this.t = rand(3.5, 5);
     if (fling) {
@@ -47,13 +58,28 @@ export class Officer {
     setDown(this.char, true);
   }
 
+  takeHit(dmg) {
+    if (this.state === 'dead' || this.state === 'inCar') return false;
+    this.health -= dmg;
+    if (this.health <= 0) {
+      this.state = 'dead';
+      setDown(this.char, true);
+      return true;
+    }
+    return false;
+  }
+
   update(dt) {
-    if (this.state === 'inCar') return;
+    if (this.state === 'inCar' || this.state === 'dead') {
+      if (this.state === 'dead') this.place();
+      return;
+    }
     const game = this.game;
     const [px, pz] = game.player.pos();
     let tx = this.x;
     let tz = this.z;
     let speed = 0;
+    let face = null;
 
     if (this.state === 'down') {
       this.t -= dt;
@@ -64,8 +90,29 @@ export class Officer {
     } else if (this.state === 'chase') {
       const d = dist(this.x, this.z, px, pz);
       const pv = game.player.vehicle;
-      if (game.stars === 0 || this.unit.leaving || (pv && Math.abs(pv.speed) > 6 && d > 12) || d > 45) {
+      const giveUpRange = game.lethal ? 32 : 12;
+      if (game.stars === 0 || this.unit.leaving || game.wastedT > 0 || (pv && Math.abs(pv.speed) > 6 && d > giveUpRange) || d > 50) {
         this.state = 'return';
+      } else if (game.lethal) {
+        // Gunfight: hold a firing distance and shoot when there's a clear line.
+        const los = d < 45 && !segmentBlocked(this.x, this.z, px, pz, game.city.los);
+        if (!los || d > 16) {
+          tx = px;
+          tz = pz;
+          speed = CFG.OFFICER_SPEED;
+        } else if (d < 7) {
+          tx = this.x * 2 - px;
+          tz = this.z * 2 - pz;
+          speed = 2.5;
+        }
+        face = Math.atan2(px - this.x, pz - this.z);
+        if (los) {
+          this.fireT -= dt;
+          if (this.fireT <= 0) {
+            this.fireT = rand(0.8, 1.4);
+            game.npcShoot(this, 8, 'pistol');
+          }
+        }
       } else {
         tx = px;
         tz = pz;
@@ -79,16 +126,18 @@ export class Officer {
       }
     } else if (this.state === 'return') {
       const c = this.unit.car;
-      const stolen = c.driver !== this.unit;
+      const carGone = this.unit.carLost;
       tx = c.x;
       tz = c.z;
-      speed = stolen ? 0 : CFG.OFFICER_SPEED;
-      if (!stolen && dist(this.x, this.z, c.x, c.z) < 2.6) {
+      speed = carGone ? 0 : CFG.OFFICER_SPEED;
+      if (!carGone && dist(this.x, this.z, c.x, c.z) < 2.6) {
         this.state = 'inCar';
         this.char.group.visible = false;
         return;
       }
-      if (game.stars > 0 && !this.unit.leaving && !game.player.vehicle && dist(this.x, this.z, px, pz) < 30) this.state = 'chase';
+      if (game.stars > 0 && !this.unit.leaving && game.wastedT <= 0 && dist(this.x, this.z, px, pz) < 30 && (!game.player.vehicle || game.lethal)) {
+        this.state = 'chase';
+      }
     }
 
     if (speed > 0) {
@@ -96,7 +145,7 @@ export class Officer {
       if (d > 0.1) {
         const ux = (tx - this.x) / d;
         const uz = (tz - this.z) / d;
-        this.heading = lerpAngle(this.heading, Math.atan2(ux, uz), Math.min(1, dt * 10));
+        if (face === null) face = Math.atan2(ux, uz);
         this.x += ux * speed * dt;
         this.z += uz * speed * dt;
       }
@@ -104,10 +153,17 @@ export class Officer {
       this.x = r.x;
       this.z = r.z;
     }
+    if (face !== null) this.heading = lerpAngle(this.heading, face, Math.min(1, dt * 10));
     this.phase += dt * speed * 3.2;
     animateWalk(this.char, this.phase, Math.min(1, speed / 2));
-    const y = game.city.groundY(this.x, this.z);
-    this.char.group.position.set(this.x, this.state === 'down' ? y + 0.2 : y, this.z);
+    // Gun arm raised in a gunfight.
+    if (game.lethal && this.state === 'chase') this.char.armR.rotation.x = -1.45;
+    this.place();
+  }
+
+  place() {
+    const y = this.game.city.groundY(this.x, this.z);
+    this.char.group.position.set(this.x, this.standing ? y : y + 0.2, this.z);
     this.char.group.rotation.y = this.heading;
   }
 
@@ -132,15 +188,27 @@ export class PoliceUnit {
     this.removed = false;
   }
 
+  // The car was stolen or destroyed: officers continue on foot.
+  get carLost() {
+    return this.car.driver !== this || this.car.wrecked || this.car.removed;
+  }
+
   get mounted() {
-    return this.officers.every((o) => o.state === 'inCar');
+    return this.officers.every((o) => o.state === 'inCar' || o.state === 'dead');
+  }
+
+  get allDead() {
+    return this.officers.every((o) => o.state === 'dead');
   }
 
   update(dt) {
     const game = this.game;
     const c = this.car;
-    if (c.driver !== this) {
-      // The player stole this car. Officers on foot keep chasing; the unit is done driving.
+    if (this.carLost || this.allDead) {
+      if (c.driver === this) {
+        c.driver = null;
+        c.siren = false;
+      }
       for (const o of this.officers) {
         if (o.state === 'inCar') o.dismount(1);
         o.update(dt);
@@ -158,7 +226,7 @@ export class PoliceUnit {
 
     let tx, tz, desired;
     const maxS = c.type.max * (0.6 + game.stars * 0.08);
-    if (this.leaving) {
+    if (this.leaving || game.wastedT > 0) {
       this.leaveT += dt;
       c.siren = false;
       this.navigate(px, pz, true);
@@ -173,11 +241,10 @@ export class PoliceUnit {
         tx = px + vx * 0.6;
         tz = pz + vz * 0.6;
         desired = Math.min(maxS, 6 + d * 0.9);
-        if (!game.player.vehicle && d < 14) {
+        const stopRange = game.lethal ? 22 : 14;
+        if ((!game.player.vehicle || game.lethal) && d < stopRange) {
           desired = 0;
-          if (Math.abs(c.speed) < 4) {
-            this.officers.forEach((o, k) => o.dismount(k === 0 ? -1 : 1));
-          }
+          if (Math.abs(c.speed) < 4) this.officers.forEach((o, k) => o.dismount(k === 0 ? -1 : 1));
         }
         this.to = null;
       } else {
@@ -195,7 +262,7 @@ export class PoliceUnit {
     c.update(dt, ctrl, game.city.colliders);
   }
 
-  // Follow the road grid toward (or away from) the player.
+  // Follow the road grid toward (or away from) a point.
   navigate(px, pz, away) {
     const city = this.game.city;
     const c = this.car;
@@ -262,9 +329,9 @@ export class PoliceManager {
   update(dt) {
     const game = this.game;
     const want = CFG.UNITS_PER_STAR[game.stars];
-    const active = this.units.filter((u) => !u.leaving && u.car.driver === u);
+    const active = this.units.filter((u) => !u.leaving && !u.carLost && !u.allDead);
     this.spawnT -= dt;
-    if (active.length < want && this.spawnT <= 0) {
+    if (active.length < want && this.spawnT <= 0 && game.wastedT <= 0) {
       this.spawnUnit();
       this.spawnT = 2.5;
     }
@@ -273,14 +340,16 @@ export class PoliceManager {
     const [px, pz] = game.player.pos();
     for (const u of this.units) {
       const d = dist(u.car.x, u.car.z, px, pz);
-      const stolen = u.car.driver !== u;
       const officersHome = u.officers.every((o) => o.state === 'inCar');
-      if (u.leaving && officersHome && (d > 90 || u.leaveT > 30)) u.dispose();
-      else if (!u.leaving && !stolen && officersHome && d > 230) u.dispose();
-      else if (stolen && game.stars === 0 && u.officers.every((o) => dist(o.x, o.z, px, pz) > 60 || o.state === 'inCar')) {
-        for (const o of u.officers) o.dispose();
-        u.removed = true;
-      }
+      const onFoot = u.carLost || u.allDead;
+      if (onFoot) {
+        const allFar = u.officers.every((o) => dist(o.x, o.z, px, pz) > 70 || o.state === 'dead' || o.state === 'inCar');
+        if ((game.stars === 0 && allFar) || (u.allDead && allFar)) {
+          for (const o of u.officers) o.dispose();
+          u.removed = true;
+        }
+      } else if (u.leaving && officersHome && (d > 90 || u.leaveT > 30)) u.dispose();
+      else if (!u.leaving && officersHome && d > 230) u.dispose();
     }
     this.units = this.units.filter((u) => !u.removed);
   }

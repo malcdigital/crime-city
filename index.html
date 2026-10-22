@@ -18,7 +18,14 @@
       <div id="top-right">
         <div id="cash">$0</div>
         <div id="stars"></div>
+        <div id="weapon"><span id="weapon-name">Pistol</span> <span id="ammo"></span></div>
       </div>
+      <div id="crosshair" class="hidden"></div>
+      <div id="hitmarker"></div>
+      <div id="lockon" class="hidden"></div>
+      <div id="vignette"></div>
+      <div id="health"><div id="health-bar"></div></div>
+      <div id="pad-status" class="hidden">Controller connected</div>
       <div id="news">
         <div class="news-title">CITY NEWS</div>
         <div id="news-list"></div>
@@ -36,10 +43,40 @@
       <div id="busted-detail"></div>
     </div>
 
+    <div id="wasted" class="hidden">
+      <div class="wasted-title">WASTED</div>
+      <div id="wasted-detail"></div>
+    </div>
+
+    <div id="pause" class="hidden">
+      <div class="intro-card">
+        <h2>PAUSED</h2>
+        <div class="control-tables">
+          <table>
+            <tr><th>Action</th><th>Keyboard / mouse</th><th>PS5 controller</th></tr>
+            <tr><td>Move / steer</td><td>WASD</td><td>Left stick</td></tr>
+            <tr><td>Look</td><td>Mouse / arrows</td><td>Right stick</td></tr>
+            <tr><td>Sprint</td><td>Shift</td><td>✕ (hold)</td></tr>
+            <tr><td>Aim</td><td>Right mouse</td><td>L2 (locks on)</td></tr>
+            <tr><td>Shoot</td><td>Left mouse</td><td>R2</td></tr>
+            <tr><td>Punch</td><td>J (or click with fists)</td><td>○</td></tr>
+            <tr><td>Reload</td><td>R</td><td>□</td></tr>
+            <tr><td>Switch weapon</td><td>1 2 3 / wheel</td><td>L1 / D-pad ↑↓</td></tr>
+            <tr><td>Enter / exit car</td><td>F</td><td>△</td></tr>
+            <tr><td>Accelerate / brake</td><td>W / S</td><td>R2 / L2</td></tr>
+            <tr><td>Handbrake</td><td>Space</td><td>R1</td></tr>
+            <tr><td>Rob store / sell car</td><td>E</td><td>D-pad →</td></tr>
+            <tr><td>Pause</td><td>P</td><td>Options</td></tr>
+          </table>
+        </div>
+        <button id="resume">RESUME</button>
+      </div>
+    </div>
+
     <div id="intro">
       <div class="intro-card">
         <h1>CRIME CITY</h1>
-        <p class="sub">Prototype 0.1 · single player</p>
+        <p class="sub">Prototype 0.2 · single player</p>
         <div class="roles">
           <div class="role active">Gang member<span>Playable</span></div>
           <div class="role">Police<span>Coming soon</span></div>
@@ -49,18 +86,23 @@
           <div class="role">Entertainer<span>Coming soon</span></div>
         </div>
         <p class="goal">Build street cred: rob stores, steal cars and sell them at the chop shop. Crimes raise your wanted level. Break line of sight with the police to escape, or get busted.</p>
+        <p class="goal"><b>Gunfight test:</b> the Southside Kings hold the corner marked purple on the minimap (Southgate). Walk up or open fire and they shoot back. Police start shooting at 3 stars or if you shoot at them.</p>
         <div class="controls">
-          <div><b>WASD</b> move / drive</div>
-          <div><b>Mouse</b> look (or arrow keys)</div>
-          <div><b>Shift</b> sprint</div>
-          <div><b>Click</b> or <b>J</b> punch</div>
+          <div><b>WASD</b> move / drive · <b>Mouse</b> look</div>
+          <div><b>Right / left mouse</b> aim / shoot</div>
+          <div><b>1 2 3</b> fists, pistol, SMG · <b>R</b> reload</div>
           <div><b>F</b> enter / exit / carjack</div>
-          <div><b>Space</b> handbrake</div>
           <div><b>E</b> rob store (hold) / sell car</div>
-          <div><b>M</b> mute news</div>
+          <div><b>P</b> pause and full controls</div>
+        </div>
+        <div class="controls pad">
+          <div><b>PS5:</b> L2 aim (locks on) · R2 shoot</div>
+          <div>○ punch · □ reload · L1 switch weapon</div>
+          <div>△ car · R2 / L2 drive · R1 handbrake</div>
+          <div>D-pad → rob / sell · Options pause</div>
         </div>
         <button id="play">PLAY</button>
-        <p class="note">Desktop browser with keyboard and mouse.</p>
+        <p class="note" id="pad-note">Plug in or pair a PS5 controller and press any button, then ✕ to play.</p>
       </div>
     </div>
 

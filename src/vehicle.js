@@ -38,6 +38,11 @@ export class Vehicle {
     this.sirenT = 0;
     this.crash = 0;
     this.removed = false;
+    this.health = 100;
+    this.wrecked = false; // on fire, about to explode
+    this.exploded = false; // burnt-out shell
+    this.burnT = 0;
+    this.byPlayer = false;
     this.color = color ?? t.colors[Math.floor(Math.random() * t.colors.length)];
     this.group = new THREE.Group();
     this.wheels = [];
@@ -108,7 +113,28 @@ export class Vehicle {
   }
 
   // ctrl: { throttle: -1..1, steer: -1..1 (positive = right), handbrake: bool }
+  damage(amount, byPlayer) {
+    if (this.wrecked) return;
+    this.health -= amount;
+    if (byPlayer) this.byPlayer = true;
+    if (this.health <= 0) {
+      this.health = 0;
+      this.wrecked = true;
+      this.burnT = 4;
+    }
+  }
+
+  burnOut() {
+    this.exploded = true;
+    this.siren = false;
+    const burnt = lam(0x1c1c1c);
+    this.group.traverse((m) => {
+      if (m.isMesh) m.material = burnt;
+    });
+  }
+
   update(dt, ctrl, boxes) {
+    if (this.wrecked) ctrl = { throttle: 0, steer: 0, handbrake: true };
     const t = this.type;
     let s = this.speed;
     const thr = ctrl.throttle || 0;
@@ -152,6 +178,7 @@ export class Vehicle {
       if (vn < -1) {
         this.crash = Math.max(this.crash, -vn);
         this.speed *= 0.35;
+        if (-vn > 9) this.damage((-vn - 9) * 2.5, this.driver === 'player');
       }
     }
   }
@@ -203,6 +230,10 @@ export function resolveCarCollisions(cars, onHit) {
           Bc.z += uz * push;
           const rel = Math.abs(A.speed - Bc.speed);
           if (rel > 3 && onHit) onHit(A, Bc, rel);
+          if (rel > 10) {
+            A.damage((rel - 10) * 1.5, Bc.driver === 'player');
+            Bc.damage((rel - 10) * 1.5, A.driver === 'player');
+          }
           A.speed *= 0.92;
           Bc.speed *= 0.92;
         }

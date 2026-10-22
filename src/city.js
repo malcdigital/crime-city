@@ -7,7 +7,7 @@ const { BLOCKS: N, BLOCK: B, ROAD: R, SIDEWALK: SW, PITCH: P, SIZE } = CFG;
 export const roadC = (k) => k * P;
 
 // Fixed special blocks, keyed by "i,j" block coordinates.
-const SPECIAL = { '1,1': 'police', '6,5': 'chop', '3,4': 'park', '5,1': 'park', '2,6': 'park' };
+const SPECIAL = { '1,1': 'police', '6,5': 'chop', '5,6': 'hospital', '3,4': 'park', '5,1': 'park', '2,6': 'park' };
 const STORES = {
   '0,3': 'Corner 24/7',
   '4,2': 'Liquor Barn',
@@ -104,6 +104,7 @@ export function buildCity(scene) {
   const stores = [];
   let chop = null;
   let station = null;
+  let hospital = null;
 
   const winTex = windowTexture(rng);
   const buildingMats = [0xc9c2b8, 0x9fb4c7, 0xb8a48c, 0x8e9aa6, 0xd6cfc4, 0x7d8a99, 0xa89f91, 0xb5aa9c].map(
@@ -128,7 +129,7 @@ export function buildCity(scene) {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
-    const box = { minX: cx - w / 2, maxX: cx + w / 2, minZ: cz - d / 2, maxZ: cz + d / 2 };
+    const box = { minX: cx - w / 2, maxX: cx + w / 2, minZ: cz - d / 2, maxZ: cz + d / 2, h: h + 0.2 };
     colliders.push(box);
     los.push(box);
     return mesh;
@@ -190,6 +191,12 @@ export function buildCity(scene) {
         building(cx, bz, w, d, h, new THREE.MeshLambertMaterial({ color: 0x3b5b8c, map: winTex }));
         sign('POLICE', cx, 10, bz - d / 2 - 0.06, Math.PI, 14, 2.6, '#1c2f5a');
         station = { x: cx, z: iMinZ + 8, heading: Math.PI, name: 'Central Precinct' };
+      } else if (type === 'hospital') {
+        const w = 40, d = 24, h = 16;
+        const bz = iMaxZ - d / 2 - 1;
+        building(cx, bz, w, d, h, new THREE.MeshLambertMaterial({ color: 0xeeeeee, map: winTex }));
+        sign('HARBOR GENERAL HOSPITAL', cx, 11, bz - d / 2 - 0.06, Math.PI, 18, 2.4, '#b71c1c');
+        hospital = { x: cx, z: iMinZ + 8, heading: Math.PI, name: 'Harbor General' };
       } else if (type === 'chop') {
         const w = 38, d = 22, h = 7;
         const bz = iMaxZ - d / 2 - 1;
@@ -303,16 +310,27 @@ export function buildCity(scene) {
     ctx.fillRect(0, 0, px, px);
     ctx.fillStyle = '#7d8086';
     ctx.fillRect((0 - R / 2 + o) * s, (0 - R / 2 + o) * s, (SIZE + R) * s, (SIZE + R) * s);
-    const colors = { normal: '#2f3439', store: '#2f3439', park: '#3f6b35', police: '#244a8a', chop: '#8a4a12' };
+    const colors = { normal: '#2f3439', store: '#2f3439', park: '#3f6b35', police: '#244a8a', chop: '#8a4a12', hospital: '#8a2a2a' };
     for (const b of blocks) {
       ctx.fillStyle = colors[b.type];
       ctx.fillRect((b.minX + o) * s, (b.minZ + o) * s, (b.maxX - b.minX) * s, (b.maxZ - b.minZ) * s);
     }
   };
 
+  // Rival gang hangout: the sidewalk corner of block (1,6) in Southgate.
+  const turf = blocks.find((b) => b.i === 1 && b.j === 6);
+  const gangHome = { x: turf.maxX - 4, z: turf.minZ + 4, block: turf };
+  for (const [x, z] of [[turf.maxX - 10, turf.minZ + 2.2], [turf.maxX - 2.2, turf.minZ + 10]]) {
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.1, 1.4), lam(0x7a5a32));
+    crate.position.set(x, 0.75, z);
+    crate.castShadow = true;
+    scene.add(crate);
+    colliders.push({ minX: x - 0.7, maxX: x + 0.7, minZ: z - 0.7, maxZ: z + 0.7 });
+  }
+
   // New players start on the sidewalk outside the downtown park.
   const park = blocks.find((b) => b.i === 3 && b.j === 4);
   const spawn = { x: park.cx, z: park.minZ + 2, heading: Math.PI, curbZ: roadC(4) + R / 2 - 1.6 };
 
-  return { colliders, los, blocks, stores, chop, station, spawn, nodes, nodeAt, nearestNode, blockAt, groundY, drawMap, size: SIZE, P, N };
+  return { colliders, los, blocks, stores, chop, station, hospital, gangHome, spawn, nodes, nodeAt, nearestNode, blockAt, groundY, drawMap, size: SIZE, P, N };
 }

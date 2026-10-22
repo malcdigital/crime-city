@@ -39,14 +39,33 @@ export class Ped {
     this.t = 0;
     this.threat = null;
     this.removed = false;
+    this.health = 100;
   }
 
   get standing() {
-    return this.state !== 'down';
+    return this.state !== 'down' && this.state !== 'dead';
+  }
+
+  get alive() {
+    return this.state !== 'dead';
+  }
+
+  // Returns true if this hit killed them.
+  takeHit(dmg, fromX, fromZ) {
+    if (this.state === 'dead') return false;
+    this.health -= dmg;
+    if (this.health <= 0) {
+      this.state = 'dead';
+      this.t = 40;
+      setDown(this.char, true);
+      return true;
+    }
+    if (this.state !== 'down') this.scare(fromX, fromZ);
+    return false;
   }
 
   knockDown(fromX, fromZ, fling = 0) {
-    if (this.state === 'down') return;
+    if (this.state === 'down' || this.state === 'dead') return;
     this.state = 'down';
     this.t = rand(5, 7);
     this.threat = [fromX, fromZ];
@@ -59,7 +78,7 @@ export class Ped {
   }
 
   scare(fromX, fromZ) {
-    if (this.state === 'down') return;
+    if (this.state === 'down' || this.state === 'dead') return;
     this.state = 'flee';
     this.t = rand(4, 7);
     this.threat = [fromX, fromZ];
@@ -85,7 +104,10 @@ export class Ped {
     let tz = this.z;
     let speed = 0;
 
-    if (this.state === 'down') {
+    if (this.state === 'dead') {
+      this.t -= dt;
+      if (this.t <= 0) this.dispose();
+    } else if (this.state === 'down') {
       this.t -= dt;
       if (this.t <= 0) {
         setDown(this.char, false);
@@ -123,7 +145,7 @@ export class Ped {
     this.phase += dt * speed * 4;
     animateWalk(this.char, this.phase, Math.min(1, speed / 1.5));
     const y = game.city.groundY(this.x, this.z);
-    this.char.group.position.set(this.x, this.state === 'down' ? y + 0.2 : y, this.z);
+    this.char.group.position.set(this.x, this.standing ? y : y + 0.2, this.z);
     this.char.group.rotation.y = this.heading;
   }
 
@@ -183,7 +205,7 @@ export class PedManager {
     // Keep the population steady: drop extras far from the player, refill when low.
     const [px, pz] = this.game.player.pos();
     if (this.peds.length > CFG.PEDS) {
-      const far = this.peds.find((p) => dist(p.x, p.z, px, pz) > 120 && p.state !== 'down');
+      const far = this.peds.find((p) => dist(p.x, p.z, px, pz) > 120 && p.standing);
       if (far) far.dispose();
     }
     this.peds = this.peds.filter((p) => !p.removed);

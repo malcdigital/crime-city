@@ -1,5 +1,6 @@
+import * as THREE from 'three';
 import { CFG } from './config.js';
-import { makeCharacter, animateWalk } from './character.js';
+import { makeCharacter, animateWalk, setDown, lam } from './character.js';
 import { pushCircle } from './collision.js';
 import { lerp, lerpAngle } from './util.js';
 
@@ -8,6 +9,17 @@ export class Player {
     this.game = game;
     this.char = makeCharacter({ shirt: 0x1e7d32, pants: 0x1b1b1b, skin: 0x8d5524, bandana: 0x1e7d32 });
     game.scene.add(this.char.group);
+    // Guns held in the right hand.
+    this.guns = {
+      pistol: new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.32), lam(0x1a1a1a)),
+      smg: new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.18, 0.6), lam(0x2a2a2a)),
+    };
+    for (const g of Object.values(this.guns)) {
+      g.position.set(0, -0.66, 0.16);
+      g.rotation.x = Math.PI / 2;
+      g.visible = false;
+      this.char.armR.add(g);
+    }
     this.x = x;
     this.z = z;
     this.heading = Math.PI;
@@ -33,29 +45,36 @@ export class Player {
     return [this.vx, this.vz];
   }
 
-  updateOnFoot(dt, input, camYaw) {
+  showWeapon(id) {
+    for (const [k, g] of Object.entries(this.guns)) g.visible = k === id;
+  }
+
+  // a: actions from Input. faceYaw: set when aiming or shooting, so the player faces the crosshair.
+  updateOnFoot(dt, a, camYaw, faceYaw) {
     const game = this.game;
     const fx = Math.sin(camYaw), fz = Math.cos(camYaw);
     const rx = -fz, rz = fx;
-    let mx = 0, mz = 0;
-    if (input.down('KeyW') || input.down('ArrowUp')) { mx += fx; mz += fz; }
-    if (input.down('KeyS') || input.down('ArrowDown')) { mx -= fx; mz -= fz; }
-    if (input.down('KeyD')) { mx += rx; mz += rz; }
-    if (input.down('KeyA')) { mx -= rx; mz -= rz; }
+    let mx = fx * a.moveY + rx * a.moveX;
+    let mz = fz * a.moveY + rz * a.moveX;
     const len = Math.hypot(mx, mz);
-    const sprint = input.down('ShiftLeft') || input.down('ShiftRight');
-    const target = len > 0 ? (sprint ? CFG.SPRINT_SPEED : CFG.WALK_SPEED) : 0;
-    if (len > 0) {
-      this.moveX = mx / len;
-      this.moveZ = mz / len;
-      this.heading = lerpAngle(this.heading, Math.atan2(this.moveX, this.moveZ), Math.min(1, dt * 12));
+    const combat = faceYaw !== null;
+    let target = 0;
+    if (len > 0.05) {
+      mx /= len;
+      mz /= len;
+      this.moveX = mx;
+      this.moveZ = mz;
+      const base = combat ? CFG.WALK_SPEED * 0.8 : a.sprint ? CFG.SPRINT_SPEED : CFG.WALK_SPEED;
+      target = base * Math.min(1, len);
     }
+    if (combat) this.heading = lerpAngle(this.heading, faceYaw, Math.min(1, dt * 20));
+    else if (len > 0.05) this.heading = lerpAngle(this.heading, Math.atan2(mx, mz), Math.min(1, dt * 12));
     this.speed = lerp(this.speed, target, Math.min(1, dt * 10));
     const ox = this.x, oz = this.z;
     this.x += this.moveX * this.speed * dt;
     this.z += this.moveZ * this.speed * dt;
 
-    let r = pushCircle(this.x, this.z, 0.4, game.city.colliders);
+    const r = pushCircle(this.x, this.z, 0.4, game.city.colliders);
     this.x = r.x;
     this.z = r.z;
     // Don't walk through cars.
@@ -79,13 +98,22 @@ export class Player {
     if (this.punchT > 0) {
       this.punchT -= dt;
       this.char.armR.rotation.x = -1.6 * Math.sin((this.punchT / 0.3) * Math.PI);
+    } else if (combat && game.arsenal.current().id !== 'fists') {
+      this.char.armR.rotation.x = -1.5;
+      this.char.armL.rotation.x = -1.2;
     }
+    this.sync();
+  }
+
+  setDown(down) {
+    setDown(this.char, down);
     this.sync();
   }
 
   sync() {
     const y = this.game.city.groundY(this.x, this.z);
-    this.char.group.position.set(this.x, y, this.z);
+    const down = this.char.group.rotation.x !== 0;
+    this.char.group.position.set(this.x, down ? y + 0.2 : y, this.z);
     this.char.group.rotation.y = this.heading;
   }
 
