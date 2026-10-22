@@ -652,6 +652,19 @@ export class GangManager {
     this.angryT = 25;
   }
 
+  // Their home block fell: the hangout crew scatters.
+  wipeOut() {
+    this.angry = false;
+    for (const m of this.members) if (m.alive) m.giveUp();
+  }
+
+  // Do the Kings still hold their hangout block?
+  holdsHome() {
+    const t = this.game.turfWars;
+    const b = this.home.block;
+    return !t || t.owner[`${b.i},${b.j}`] === 'kings';
+  }
+
   // A member went down: nearby friends lose nerve.
   allyDown(m) {
     for (const o of this.members) if (o !== m && o.alive && dist(o.x, o.z, m.x, m.z) < 25) o.shaken(0.18);
@@ -678,7 +691,7 @@ export class GangManager {
     this.members = this.members.filter((m) => !m.removed);
     if (!this.members.some((m) => m.alive)) {
       this.respawnT += dt;
-      if (this.respawnT > 60 && far) {
+      if (this.respawnT > 60 && far && this.holdsHome()) {
         for (const m of this.members) m.dispose();
         this.members = [];
         this.respawnT = 0;

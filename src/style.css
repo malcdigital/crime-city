@@ -155,3 +155,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #clip .clip-head { flex: 1; background: rgba(255,255,255,.94); color: #111; padding: 8px 12px; }
 #clip .clip-close { position: absolute; top: 8px; right: 8px; transform: translateY(26px); width: 32px; height: 32px; border-radius: 50%; border: 0; background: rgba(0,0,0,.6); color: #fff; font-size: 16px; cursor: pointer; }
 #clip .clip-hint { margin-top: 10px; color: #ddd; font: 600 12px system-ui, sans-serif; }
+
+#war { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); max-width: min(720px, 92vw); padding: 7px 14px; border-radius: 10px;
+  background: rgba(120, 16, 16, .82); color: #fff; font-weight: 800; font-size: 13px; letter-spacing: .03em; text-align: center; box-shadow: 0 4px 14px rgba(0,0,0,.4); }

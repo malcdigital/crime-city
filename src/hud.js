@@ -1,5 +1,6 @@
 import { CFG, CRED_TIERS } from './config.js';
 import { SLOTS, KEY_SLOTS } from './weapons.js';
+import { GANGS } from './turf.js';
 
 const esc = (t) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
 
@@ -39,6 +40,9 @@ export class Hud {
     for (const t of CRED_TIERS) if (game.cred >= t.min) tier = t;
     this.set('cred-tier', tier.name);
     this.set('cred-value', game.cred.toLocaleString('en-US'));
+    const war = game.turfWars.banner();
+    $('war').textContent = war;
+    $('war').classList.toggle('hidden', !war);
     this.set('district', game.turf ? `${game.district} · ${game.turf.name} turf` : game.district);
     const crew = game.crew.following;
     const crewKey = crew.map((m) => `${m.name}${Math.round(m.health / 5)}${m.mode}`).join('|');
@@ -306,7 +310,7 @@ export class Hud {
     ctx.rotate(rot);
     ctx.scale(k, k);
     const half = CFG.ROAD / 2;
-    for (const t of city.territories) {
+    for (const t of game.turfWars.view()) {
       const war = t.gang === 'kings' && game.gang.angry;
       ctx.globalAlpha = war ? 0.33 + 0.15 * Math.sin(performance.now() / 180) : 0.26;
       ctx.fillStyle = t.color;
@@ -325,6 +329,14 @@ export class Hud {
         if (!has(b.i, b.j + 1)) { ctx.moveTo(x0, z1); ctx.lineTo(x1, z1); }
       }
       ctx.stroke();
+    }
+    // Blocks being fought over flash between the two gangs' colors.
+    for (const w of game.turfWars.wars) {
+      const b = w.block;
+      const on = Math.floor(performance.now() / 300) % 2 === 0;
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = on ? GANGS[w.attacker].color : w.defender ? GANGS[w.defender].color : '#ffffff';
+      ctx.fillRect(b.minX - px, b.minZ - pz, b.maxX - b.minX, b.maxZ - b.minZ);
     }
     ctx.globalAlpha = 1;
     ctx.restore();

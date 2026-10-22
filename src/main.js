@@ -12,6 +12,7 @@ import { Hud } from './hud.js';
 import { Effects } from './effects.js';
 import { Sfx } from './audio.js';
 import { AirCam, ClipPlayer } from './aircam.js';
+import { TurfManager, GANGS } from './turf.js';
 import { Arsenal, WEAPONS, SLOTS, KEY_SLOTS, raycast, rayBox } from './weapons.js';
 import { lam } from './character.js';
 import { segmentBlocked } from './collision.js';
@@ -104,6 +105,7 @@ class Game {
     // Created after the player and city exist.
     this.gang = new GangManager(this);
     this.crew = new CrewManager(this);
+    this.turfWars = new TurfManager(this);
 
     addEventListener('resize', () => this.resize());
     this.resize();
@@ -169,7 +171,7 @@ class Game {
   }
 
   characters() {
-    return [...this.peds.peds, ...this.police.officers().filter((o) => o.visibleOnStreet), ...this.gang.members, ...this.crew.visible()];
+    return [...this.peds.peds, ...this.police.officers().filter((o) => o.visibleOnStreet), ...this.gang.members, ...this.crew.visible(), ...this.turfWars.soldiers];
   }
 
   // You and your crew, as targets for enemies.
@@ -185,6 +187,12 @@ class Game {
     const list = [];
     if (this.gang.angry) for (const r of this.gang.members) if (r.standing) list.push({ x: r.x, z: r.z, ref: r });
     if (this.lethal) for (const o of this.police.officers()) if (o.standing) list.push({ x: o.x, z: o.z, ref: o });
+    // Other gangs' soldiers fighting Green Street, or coming after you.
+    for (const s of this.turfWars.soldiers) {
+      if (!s.standing || s.gangId === 'crew') continue;
+      const w = s.war && s.war.state === 'active' ? s.war : null;
+      if (s.aggroUntil > this.time || (w && (w.attacker === 'crew' || w.defender === 'crew'))) list.push({ x: s.x, z: s.z, ref: s });
+    }
     return list;
   }
 
@@ -386,15 +394,23 @@ class Game {
   // Something the player hit or killed.
   onPlayerHit(c, killed) {
     if (c.isCrew) return; // friendly fire
+    if (c.isSoldier) c.onPlayerAttack();
     if (killed) {
       const st = streetAt(c.x, c.z);
       if (c.isCop) this.newsIncident(`Officer shot dead on ${st}`, c.x, c.z);
       else if (c.isGang) this.newsIncident(`${GANG_NAME} member gunned down on ${st}`, c.x, c.z);
+      else if (c.isSoldier) this.newsIncident(`${GANGS[c.gangId].name} member gunned down on ${st}`, c.x, c.z);
+      if (c.isGang || c.isSoldier) this.turfWars.onPlayerKill(c);
       else this.newsIncident(`Bystander killed on ${st}`, c.x, c.z);
     }
     if (c.isCop) {
       this.lethalFlag = true;
       this.crime(killed ? 'copKilled' : 'assaultCop', c.x, c.z);
+    } else if (c.isSoldier) {
+      if (killed) {
+        this.crime('gangKill', c.x, c.z);
+        this.dropAmmo(c.x, c.z, 'smg', 30);
+      }
     } else if (c.isGang) {
       this.gang.anger();
       if (killed) {
@@ -1104,6 +1120,8 @@ class Game {
       }
     } else if (this.crewInteraction(a)) {
       this.robbing = null;
+    } else if (this.turfWars.interact(a, dt)) {
+      this.robbing = null;
     } else {
       this.robbing = null;
       const v = this.nearestVehicle(3.8);
@@ -1343,6 +1361,7 @@ class Game {
     this.police.update(dt);
     this.gang.update(dt);
     this.crew.update(dt);
+    this.turfWars.update(dt);
     for (const v of this.vehicles) {
       if (v.driver === null && !v.removed) v.update(dt, { throttle: 0, steer: 0, handbrake: true }, this.city.colliders);
     }
@@ -1369,7 +1388,7 @@ class Game {
     this.updateWanted(dt);
     const [px, pz] = p.pos();
     this.district = districtAt(px, pz);
-    this.turf = this.city.turfAt(px, pz);
+    this.turf = this.turfWars.turfAt(px, pz);
     this.updateCamera(dt, a);
 
     this.showCrosshair = !p.vehicle && gun && (this.aimingNow || this.input.mode === 'kb');
