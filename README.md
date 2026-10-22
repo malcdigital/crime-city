@@ -20,6 +20,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - Cover: crouch behind crates, dumpsters and cars to block bullets and break line of sight; aiming pops you up to shoot
 - Police search: they comb the area where they last saw you (behind cover, around corners), hear gunshots and running footsteps, and keep tracking you if they watched you duck. Escape by leaving the search circle unseen or staying hidden long enough
 - Spike strips across the road at 5-star roadblocks
+- Civilians react to gunfire: some dive flat, some duck in place, some run to cover and hide, the rest run
 - NPC traffic that follows lanes and stops for cars and people
 - NPC pedestrians who walk the sidewalks, cross streets, and flee from violence
 - Crimes: assault, carjacking, hit-and-run, store robbery, assaulting officers, stealing police cars

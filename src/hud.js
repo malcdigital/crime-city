@@ -96,12 +96,6 @@ export class Hud {
       cm.style.top = `${game.carMarker.y}px`;
       this.set('car-marker-text', `YOUR CAR · ${game.carMarker.d} m`);
     } else cm.classList.add('hidden');
-    const lock = $('lockon');
-    if (game.lockScreen) {
-      lock.classList.remove('hidden');
-      lock.style.left = `${game.lockScreen[0]}px`;
-      lock.style.top = `${game.lockScreen[1]}px`;
-    } else lock.classList.add('hidden');
 
     // Phone: clock, notification banner, and the hint with unread count.
     this.set('phone-clock', this.clock());

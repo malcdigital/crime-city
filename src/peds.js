@@ -3,6 +3,7 @@ import { makeCharacter, animateWalk, setDown, SKIN_TONES } from './character.js'
 import { pushCircle } from './collision.js';
 import { pick, rand, dist, lerpAngle } from './util.js';
 import { navStep, escapePoint } from './nav.js';
+import { findCover } from './gang.js';
 
 const SHIRTS = [0xe74c3c, 0x3498db, 0xf1c40f, 0x9b59b6, 0xecf0f1, 0x1abc9c, 0xe67e22, 0x34495e, 0xff7eb6, 0x95a5a6];
 const PANTS = [0x2c3e50, 0x1b1b1b, 0x5d4037, 0x34495e, 0x7f8c8d, 0x1f3a5f];
@@ -47,6 +48,11 @@ export class Ped {
     return this.state !== 'down' && this.state !== 'dead';
   }
 
+  // Low to the ground (smaller target): ducking, hiding or lying flat after a dive.
+  get crouched() {
+    return this.state === 'cower' || (this.state === 'hide' && this.hidden) || (this.state === 'dive' && this.t < this.diveLen - 0.35);
+  }
+
   get alive() {
     return this.state !== 'dead';
   }
@@ -78,14 +84,69 @@ export class Ped {
     setDown(this.char, true);
   }
 
-  scare(fromX, fromZ) {
+  scare(fromX, fromZ, gun = false) {
     if (this.state === 'down' || this.state === 'dead') return;
+    // Already taking cover from gunfire: stay put while the shooting goes on.
+    if (this.state === 'dive' || this.state === 'cower' || this.state === 'hide') {
+      this.calmT = rand(5, 8);
+      this.threat = [fromX, fromZ];
+      return;
+    }
+    if (gun && this.reactToGunfire(fromX, fromZ)) return;
     // Pick a street corner to run to, away from the danger (re-pick if the danger moved a lot).
     const moved = !this.threat || dist(this.threat[0], this.threat[1], fromX, fromZ) > 12;
     if (this.state !== 'flee' || moved || !this.fleeGoal) this.fleeGoal = escapePoint(this.game, this, fromX, fromZ);
     this.state = 'flee';
     this.t = rand(5, 8);
     this.threat = [fromX, fromZ];
+  }
+
+  // Shots fired nearby: everyone reacts. Some hit the deck, some duck where they stand,
+  // some run for cover and hide, the rest just run.
+  reactToGunfire(fromX, fromZ) {
+    if (this.state === 'flee' && Math.random() < 0.6) return false; // already running: keep going
+    const d = dist(this.x, this.z, fromX, fromZ);
+    this.threat = [fromX, fromZ];
+    this.calmT = rand(5, 8);
+    this.char.armR.rotation.x = 0;
+    const r = Math.random();
+    if (d < 20 && r < 0.3) {
+      // Dive away from the shots and lie flat.
+      this.state = 'dive';
+      this.diveLen = rand(2.2, 3.5);
+      this.t = this.diveLen;
+      const a = Math.atan2(this.x - fromX, this.z - fromZ) + rand(-0.9, 0.9);
+      this.heading = a;
+      return true;
+    }
+    if (r < 0.5) {
+      // Duck and cover right where they are.
+      this.state = 'cower';
+      this.heading = Math.atan2(this.x - fromX, this.z - fromZ);
+      return true;
+    }
+    if (r < 0.78) {
+      const spot = findCover(this.game, this, { x: fromX, z: fromZ });
+      if (spot) {
+        this.state = 'hide';
+        this.hideSpot = [spot.x, spot.z];
+        this.hidden = false;
+        this.navFails = 0;
+        this.t = 10; // give up getting there after a while
+        return true;
+      }
+    }
+    return false; // run
+  }
+
+  // Shooting has died down: get up and get out of there.
+  recover() {
+    setDown(this.char, false);
+    this.char.group.rotation.x = 0;
+    this.hidden = false;
+    const [fx, fz] = this.threat;
+    this.state = 'walk';
+    this.scare(fx, fz);
   }
 
   resumeWalking() {
@@ -132,6 +193,36 @@ export class Ped {
         if (dThreat < 35) this.t = 1.5; // still too close: keep going
         else this.afterFlee();
       }
+    } else if (this.state === 'dive') {
+      // Lunge, then lie flat with hands over the head.
+      this.t -= dt;
+      const lunge = this.diveLen - this.t;
+      if (lunge < 0.35) {
+        speed = 0;
+        const r = pushCircle(this.x + Math.sin(this.heading) * 6 * dt, this.z + Math.cos(this.heading) * 6 * dt, 0.35, game.city.colliders);
+        this.x = r.x;
+        this.z = r.z;
+      }
+      this.calmT -= dt;
+      if (this.t <= 0 && this.calmT <= 0) this.recover();
+      else if (this.t <= 0) this.t = 0.01;
+    } else if (this.state === 'cower') {
+      this.calmT -= dt;
+      if (this.calmT <= 0) this.recover();
+    } else if (this.state === 'hide') {
+      [tx, tz] = this.hideSpot;
+      this.t -= dt;
+      if (!this.hidden) {
+        speed = 4.3;
+        if (dist(this.x, this.z, tx, tz) < 0.9) this.hidden = true;
+        else if (this.t <= 0 || this.navFails >= 3) {
+          this.state = 'cower';
+        }
+      } else {
+        this.heading = lerpAngle(this.heading, Math.atan2(this.threat[0] - this.x, this.threat[1] - this.z), Math.min(1, dt * 4));
+        this.calmT -= dt;
+        if (this.calmT <= 0) this.recover();
+      }
     } else if (this.state === 'call') {
       // On the phone to 911, watching the scene.
       this.t -= dt;
@@ -167,7 +258,25 @@ export class Ped {
     animateWalk(this.char, this.phase, Math.min(1, speed / 1.5));
     if (this.state === 'call') this.char.armR.rotation.x = -2.5; // phone to the ear
     const y = game.city.groundY(this.x, this.z);
-    this.char.group.position.set(this.x, this.standing ? y : y + 0.2, this.z);
+    let yOff = this.standing ? 0 : 0.2;
+    const c = this.char;
+    c.group.rotation.x = this.standing ? 0 : c.group.rotation.x;
+    if (this.state === 'dive') {
+      // Tip forward onto the stomach over the lunge, arms over the head.
+      const k = Math.min(1, (this.diveLen - this.t) / 0.35);
+      c.group.rotation.x = k * Math.PI / 2;
+      yOff = 0.2 * k;
+      c.armL.rotation.x = c.armR.rotation.x = -2.9 * k;
+      c.legL.rotation.x = c.legR.rotation.x = 0;
+    } else if (this.state === 'cower' || (this.state === 'hide' && this.hidden)) {
+      // Crouched down, hands over the head.
+      yOff = -0.42;
+      c.legL.rotation.x = -1.4;
+      c.legR.rotation.x = -0.25;
+      c.armL.rotation.x = -2.7;
+      c.armR.rotation.x = -2.7;
+    }
+    c.group.position.set(this.x, y + yOff, this.z);
     this.char.group.rotation.y = this.heading;
   }
 

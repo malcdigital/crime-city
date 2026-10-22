@@ -475,7 +475,7 @@ class Game {
 
     // Gunfire draws attention.
     const [px, pz] = this.player.pos();
-    this.scareNearby(px, pz, 35);
+    this.scareNearby(px, pz, 45, true);
     this.heardShot(px, pz);
     if (dist(px, pz, this.city.gangHome.x, this.city.gangHome.z) < 30) this.gang.anger();
     else if (this.gang.angry && this.gang.members.some((r) => r.alive && dist(r.x, r.z, px, pz) < 50)) this.gang.anger();
@@ -511,7 +511,7 @@ class Game {
     this.effects.tracer(m[0], m[1], m[2], tx, ty, tz, 0xffd28a);
     const [px, pz] = this.player.pos();
     this.sfx.shot(kind, clamp(1 - dist(shooter.x, shooter.z, px, pz) / 70, 0.05, 0.8));
-    this.scareNearby(shooter.x, shooter.z, 25);
+    this.scareNearby(shooter.x, shooter.z, 40, true);
     if (!hit) {
       this.effects.impact(tx, ty, tz);
       return;
@@ -652,7 +652,7 @@ class Game {
     this.effects.tracer(m[0], m[1], m[2], tx, wy, tz, 0xffd28a);
     const [px, pz] = this.player.pos();
     this.sfx.shot('pistol', clamp(1 - dist(shooter.x, shooter.z, px, pz) / 70, 0.05, 0.8));
-    this.scareNearby(shooter.x, shooter.z, 25);
+    this.scareNearby(shooter.x, shooter.z, 40, true);
     this.effects.impact(tx, wy, tz);
     if (hit && v.popTire(i)) {
       this.effects.smoke(wx, 0.5, wz);
@@ -701,7 +701,7 @@ class Game {
       const d = dist(x, z, o.x, o.z);
       if (d < 8) o.damage(70 * (1 - d / 8), v.byPlayer);
     }
-    this.scareNearby(x, z, 45);
+    this.scareNearby(x, z, 50, true);
     if (v.byPlayer) this.crime('explosion', x, z);
   }
 
@@ -888,8 +888,9 @@ class Game {
     }
   }
 
-  scareNearby(x, z, r) {
-    for (const ped of this.peds.peds) if (dist(ped.x, ped.z, x, z) < r) ped.scare(x, z);
+  // gun: shots or explosions, which make people dive, duck and hide instead of just running.
+  scareNearby(x, z, r, gun = false) {
+    for (const ped of this.peds.peds) if (dist(ped.x, ped.z, x, z) < r) ped.scare(x, z, gun);
   }
 
   // Cars hitting people.
