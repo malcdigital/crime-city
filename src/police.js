@@ -4,6 +4,7 @@ import { makeCharacter, animateWalk, setDown, SKIN_TONES } from './character.js'
 import { pushCircle, segmentBlocked } from './collision.js';
 import { steerToward, throttleFor, StuckHelper } from './driving.js';
 import { dist, pick, rand, lerpAngle } from './util.js';
+import { navStep } from './nav.js';
 
 // A police officer on foot. Rides hidden inside the unit's car until it dismounts.
 export class Officer {
@@ -143,17 +144,8 @@ export class Officer {
     }
 
     if (speed > 0) {
-      const d = dist(this.x, this.z, tx, tz);
-      if (d > 0.1) {
-        const ux = (tx - this.x) / d;
-        const uz = (tz - this.z) / d;
-        if (face === null) face = Math.atan2(ux, uz);
-        this.x += ux * speed * dt;
-        this.z += uz * speed * dt;
-      }
-      const r = pushCircle(this.x, this.z, 0.4, game.city.colliders);
-      this.x = r.x;
-      this.z = r.z;
+      const h = navStep(this, tx, tz, speed, dt, game, 0.4);
+      if (face === null && h !== null) face = h;
     }
     if (face !== null) this.heading = lerpAngle(this.heading, face, Math.min(1, dt * 10));
     this.phase += dt * speed * 3.2;

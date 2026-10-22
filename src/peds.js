@@ -2,6 +2,7 @@ import { CFG } from './config.js';
 import { makeCharacter, animateWalk, setDown, SKIN_TONES } from './character.js';
 import { pushCircle } from './collision.js';
 import { pick, rand, dist, lerpAngle } from './util.js';
+import { navStep, escapePoint } from './nav.js';
 
 const SHIRTS = [0xe74c3c, 0x3498db, 0xf1c40f, 0x9b59b6, 0xecf0f1, 0x1abc9c, 0xe67e22, 0x34495e, 0xff7eb6, 0x95a5a6];
 const PANTS = [0x2c3e50, 0x1b1b1b, 0x5d4037, 0x34495e, 0x7f8c8d, 0x1f3a5f];
@@ -79,8 +80,11 @@ export class Ped {
 
   scare(fromX, fromZ) {
     if (this.state === 'down' || this.state === 'dead') return;
+    // Pick a street corner to run to, away from the danger (re-pick if the danger moved a lot).
+    const moved = !this.threat || dist(this.threat[0], this.threat[1], fromX, fromZ) > 12;
+    if (this.state !== 'flee' || moved || !this.fleeGoal) this.fleeGoal = escapePoint(this.game, this, fromX, fromZ);
     this.state = 'flee';
-    this.t = rand(4, 7);
+    this.t = rand(5, 8);
     this.threat = [fromX, fromZ];
   }
 
@@ -115,11 +119,13 @@ export class Ped {
       }
     } else if (this.state === 'flee') {
       this.t -= dt;
-      const [ax, az] = this.threat;
-      const d = dist(this.x, this.z, ax, az) || 1;
-      tx = this.x + ((this.x - ax) / d) * 5;
-      tz = this.z + ((this.z - az) / d) * 5;
+      [tx, tz] = this.fleeGoal;
       speed = 4.3;
+      // Reached the corner but still scared: keep going to the next one.
+      if (dist(this.x, this.z, tx, tz) < 2 || this.navFails >= 2) {
+        this.navFails = 0;
+        this.fleeGoal = escapePoint(game, this, ...this.threat);
+      }
       if (this.t <= 0) this.resumeWalking();
     } else {
       const cs = corners(this.block);
@@ -129,17 +135,8 @@ export class Ped {
     }
 
     if (speed > 0) {
-      const d = dist(this.x, this.z, tx, tz);
-      if (d > 0.05) {
-        const ux = (tx - this.x) / d;
-        const uz = (tz - this.z) / d;
-        this.heading = lerpAngle(this.heading, Math.atan2(ux, uz), Math.min(1, dt * 8));
-        this.x += ux * speed * dt;
-        this.z += uz * speed * dt;
-      }
-      const r = pushCircle(this.x, this.z, 0.35, game.city.colliders);
-      this.x = r.x;
-      this.z = r.z;
+      const h = navStep(this, tx, tz, speed, dt, game, 0.35);
+      if (h !== null) this.heading = lerpAngle(this.heading, h, Math.min(1, dt * 8));
     }
     this.speed = speed;
     this.phase += dt * speed * 4;

@@ -72,6 +72,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | `src/input.js` | Keyboard, mouse and gamepad input |
 | `src/weapons.js` | Weapons, ammo and bullet hit tests |
 | `src/gang.js` | Gang fighter AI (heart, cover, morale), rival gang and your crew |
+| `src/nav.js` | On-foot navigation: steering around buildings, getting unstuck, following streets |
 | `src/effects.js` | Muzzle flashes, tracers, smoke, fire, explosions |
 | `src/audio.js` | Synthesized sound effects |
 | `src/config.js` | Tuning values, crimes and the cred ladder |

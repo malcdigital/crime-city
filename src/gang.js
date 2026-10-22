@@ -2,6 +2,7 @@ import { GANG_NAME, CREW_NAME } from './config.js';
 import { makeCharacter, setDown, SKIN_TONES } from './character.js';
 import { pushCircle, segmentBlocked } from './collision.js';
 import { dist, pick, rand, lerpAngle, clamp } from './util.js';
+import { navStep, escapePoint } from './nav.js';
 
 // "Heart" decides how a gang member fights:
 //   low heart  -> runs when the shooting starts
@@ -157,6 +158,7 @@ export class GangFighter {
     if (this.behavior && this.behavior !== 'flee' && this.heart < 0.25) {
       this.behavior = 'flee';
       this.cover = null;
+      this.fleeGoal = null;
       this.fleeT = rand(7, 11);
     }
   }
@@ -171,6 +173,7 @@ export class GangFighter {
       this.copShaken = copFight;
       this.behavior = behaviorFor(this.heart - (copFight ? 0.3 : 0));
       this.cover = null;
+      this.fleeGoal = null;
       this.fleeT = rand(7, 11);
     } else if (copFight && !this.copShaken) {
       // Cops showed up in the middle of the fight.
@@ -203,16 +206,31 @@ export class GangFighter {
     this.crouched = false;
 
     if (this.behavior === 'flee') {
-      const dd = d || 1;
-      goX = this.x + ((this.x - tx) / dd) * 6;
-      goZ = this.z + ((this.z - tz) / dd) * 6;
+      // Run to street corners away from the danger, not straight into walls.
+      if (!this.fleeGoal || dist(this.x, this.z, this.fleeGoal[0], this.fleeGoal[1]) < 2.5 || this.navFails >= 2) {
+        this.navFails = 0;
+        this.fleeGoal = escapePoint(game, this, tx, tz);
+      }
       this.fleeT -= dt;
-      speed = this.fleeT > 0 ? 6.4 : 0;
+      const safe = d > 45 || !los;
+      // Nerve comes back once out of danger.
+      if (safe) this.heart = Math.min(this.baseHeart + 0.12, this.heart + dt * 0.06);
+      [goX, goZ] = this.fleeGoal;
+      speed = 6.4;
       face = null;
-      if (this.fleeT <= 0) {
-        // Done running: hide and cower.
-        this.crouched = true;
-        face = Math.atan2(tx - this.x, tz - this.z);
+      if (this.fleeT <= 0 && safe) {
+        if (this.heart >= 0.3) {
+          // Got their nerve back: return to the fight, carefully.
+          this.behavior = 'cover';
+          this.cover = null;
+          this.recheckT = 0;
+          this.fleeGoal = null;
+        } else if (d > 45) {
+          // Too scared to come back: lie low out of sight.
+          speed = 0;
+          this.crouched = true;
+          face = Math.atan2(tx - this.x, tz - this.z);
+        }
       } else if (los && d < 25 && Math.random() < dt * 0.4) {
         // A wild shot over the shoulder.
         canShoot = true;
@@ -227,16 +245,22 @@ export class GangFighter {
       }
       if (!this.cover && this.recheckT <= 0) {
         this.cover = findCover(game, this, target);
+        this.coverTravelT = 0;
         this.recheckT = 1;
         this.coverT = rand(0.8, 1.6);
         this.peeking = false;
       }
       if (!this.cover) {
-        // No cover around: hold position at range and trade shots.
+        // No cover around: hold at range, sidestepping, and trade shots.
         if (!los || d > 22) {
           goX = tx;
           goZ = tz;
           speed = 5.2;
+        } else {
+          if (Math.random() < dt * 0.5) this.strafe *= -1;
+          goX = this.x - ((tz - this.z) / (d || 1)) * this.strafe * 3;
+          goZ = this.z + ((tx - this.x) / (d || 1)) * this.strafe * 3;
+          speed = 1.4;
         }
         canShoot = los;
         acc *= 0.85;
@@ -248,6 +272,12 @@ export class GangFighter {
           goZ = c.z;
           speed = 5.8;
           face = null;
+          // Can't reach it: give up and look for other cover.
+          this.coverTravelT = (this.coverTravelT || 0) + dt;
+          if (this.coverTravelT > 7) {
+            this.cover = null;
+            this.recheckT = 0.5;
+          }
         } else {
           this.coverT -= dt;
           if (!this.peeking) {
@@ -321,18 +351,8 @@ export class GangFighter {
 
   move(dt, goX, goZ, speed, face) {
     if (speed > 0) {
-      const d = dist(this.x, this.z, goX, goZ);
-      if (d > 0.1) {
-        const ux = (goX - this.x) / d;
-        const uz = (goZ - this.z) / d;
-        const step = Math.min(d, speed * dt);
-        if (face === null || face === undefined) face = Math.atan2(ux, uz);
-        this.x += ux * step;
-        this.z += uz * step;
-      }
-      const r = pushCircle(this.x, this.z, 0.4, this.game.city.colliders);
-      this.x = r.x;
-      this.z = r.z;
+      const h = navStep(this, goX, goZ, speed, dt, this.game, 0.4);
+      if ((face === null || face === undefined) && h !== null) face = h;
     }
     if (face !== null && face !== undefined) this.heading = lerpAngle(this.heading, face, Math.min(1, dt * 9));
     this.speedNow = speed;
