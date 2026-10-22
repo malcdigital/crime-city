@@ -463,7 +463,10 @@ export class Vehicle {
   }
 
   sync(dt) {
-    this.group.position.set(this.x, 0, this.z);
+    // Ride up onto curbs and sidewalks instead of sinking into them.
+    const gy = this.groundY || 0;
+    this.y = this.y === undefined ? gy : this.y + (gy - this.y) * Math.min(1, dt * 18);
+    this.group.position.set(this.x, this.y, this.z);
     this.group.rotation.y = this.heading;
     for (const w of this.wheels) {
       const spin = !w.userData.front && this.rearSpin > 0 ? this.rearSpin : this.speed;

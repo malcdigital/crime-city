@@ -158,3 +158,14 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 
 #war { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); max-width: min(720px, 92vw); padding: 7px 14px; border-radius: 10px;
   background: rgba(120, 16, 16, .82); color: #fff; font-weight: 800; font-size: 13px; letter-spacing: .03em; text-align: center; box-shadow: 0 4px 14px rgba(0,0,0,.4); }
+
+#president { margin-top: 14px; text-align: left; }
+#president h3 { margin: 0 0 4px; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; }
+#president p { margin: 0 0 8px; font-size: 12px; opacity: .75; line-height: 1.4; }
+#crackdowns { display: flex; flex-wrap: wrap; gap: 8px; }
+#crackdowns .cd { flex: 1 1 160px; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.2);
+  background: rgba(255,255,255,.06); color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; text-align: left; }
+#crackdowns .cd .sw { width: 12px; height: 12px; border-radius: 3px; background: var(--gc); flex: none; }
+#crackdowns .cd b { margin-left: auto; font-size: 11px; letter-spacing: .06em; opacity: .7; }
+#crackdowns .cd.on { border-color: #ff5252; background: rgba(255, 60, 60, .18); }
+#crackdowns .cd.on b { color: #ff8a80; opacity: 1; }

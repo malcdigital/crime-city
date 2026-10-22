@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 const _c = new THREE.Vector3();
 const _e = new THREE.Euler(0, 0, 0, 'YXZ');
+const GETUP = 1.0; // seconds to get back up after a tumble
 import { CFG } from './config.js';
 import { makeCharacter, animateWalk, setDown, crouchPose, lam } from './character.js';
 import { pushCircle } from './collision.js';
@@ -424,29 +425,47 @@ export class Player {
         this.z = r.z;
       }
       // Log-roll: body sideways across the direction of travel, spinning about its length.
-      // Part rolling, part sliding: about one full roll every 3.5 m.
-      this.rollAngle += (sp / 0.55) * dt;
+      // Part rolling, part sliding: about one full roll every 3.5 m. As it slows, the roll
+      // carries on just far enough to finish face down.
+      const TWO_PI = Math.PI * 2;
+      const toFaceDown = (((Math.PI / 2 - this.rollAngle) % TWO_PI) + TWO_PI) % TWO_PI;
+      let spin = (sp / 0.55) * dt;
+      if (sp < 2.5) spin = Math.min(toFaceDown, Math.max(spin, 2.5 * dt));
+      this.rollAngle += spin;
       this.rollHeading = Math.atan2(this.rollVx, this.rollVz) || this.rollHeading || this.heading;
       this.pose(this.rollHeading, -Math.PI / 2, this.rollAngle, 0.28);
       this.vx = this.rollVx;
       this.vz = this.rollVz;
-      if (sp < 0.5) {
+      const settled = (((Math.PI / 2 - this.rollAngle) % TWO_PI) + TWO_PI) % TWO_PI < 0.03;
+      if (sp < 0.5 && (settled || sp < 0.05)) {
         this.rolling = false;
-        this.getUpT = 0.9;
-        // Land face down, ready to push up.
-        this.rollAngle = Math.round(this.rollAngle / Math.PI) * Math.PI;
+        this.getUpT = GETUP;
+        this.rollVx = this.rollVz = 0;
+        // Face down with the head toward where you dove (left of the car's travel). Switch to
+        // standing-frame coordinates: feet behind the body's middle.
+        this.upHeading = (this.rollHeading || this.heading) + Math.PI / 2;
+        const r = pushCircle(this.x - Math.sin(this.upHeading) * 0.95, this.z - Math.cos(this.upHeading) * 0.95, 0.4, game.city.colliders);
+        this.x = r.x;
+        this.z = r.z;
       }
       return;
     }
-    // Getting up: from lying on your side to standing.
+    // Getting up: push up off the ground, pivoting on the feet, knees bending through the
+    // middle of the move, until standing.
     this.getUpT -= dt;
-    const k = Math.max(0, this.getUpT / 0.9);
-    const ease = k * k * (3 - 2 * k);
-    this.pose(this.rollHeading || this.heading, (-Math.PI / 2) * ease, this.rollAngle * ease, 0.28 * ease);
+    const e = Math.max(0, this.getUpT / GETUP); // 1 lying -> 0 standing
+    const lean = (Math.PI / 2) * e * e * (3 - 2 * e);
+    const bend = Math.sin(Math.PI * (1 - e)) * 0.55;
+    const drop = crouchPose(c, bend);
+    c.armL.rotation.x = c.armR.rotation.x = -0.4 - 1.1 * e; // hands planted, then down
+    c.group.rotation.set(lean, this.upHeading, 0, 'YXZ');
+    const gy = game.city.groundY(this.x, this.z);
+    c.group.position.set(this.x, gy + 0.12 * Math.sin(lean) + drop * Math.cos(lean), this.z);
     if (this.getUpT <= 0) {
       this.getUpT = 0;
-      this.heading = this.rollHeading || this.heading;
-      c.group.rotation.set(0, this.heading, 0);
+      this.heading = this.upHeading;
+      c.group.rotation.set(0, this.heading, 0, 'YXZ');
+      animateWalk(c, 0, 0);
       this.vx = this.vz = 0;
       this.sync();
     }

@@ -198,6 +198,20 @@ export class Hud {
     }
   }
 
+  // Toggle crackdowns per gang (the President's orders).
+  renderCrackdowns(game) {
+    const T = game.turfWars;
+    const box = $('crackdowns');
+    box.innerHTML = Object.values(GANGS).map((g) => {
+      const on = !!(T.crackdown || {})[g.id];
+      return `<button class="cd ${on ? 'on' : ''}" data-g="${g.id}" style="--gc:${g.color}"><span class="sw"></span>${g.name}${g.id === 'crew' ? ' (you)' : ''}<b>${on ? 'CRACKDOWN' : 'Left alone'}</b></button>`;
+    }).join('');
+    box.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+      T.setCrackdown(b.dataset.g, !T.crackdown[b.dataset.g]);
+      this.renderCrackdowns(game);
+    }));
+  }
+
   // The weapon wheel overlay: 8 slots around a circle, the highlighted one in the middle.
   weaponWheel(game, W) {
     let el = $('wheel');
@@ -247,8 +261,9 @@ export class Hud {
     $('wasted-detail').textContent = detail;
   }
 
-  pause(show) {
+  pause(show, game) {
     $('pause').classList.toggle('hidden', !show);
+    if (show && game) this.renderCrackdowns(game);
   }
 
   busted(show, detail = '') {

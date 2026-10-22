@@ -120,6 +120,13 @@ export class Officer {
         setDown(this.char, false);
         this.state = 'chase';
       }
+    } else if (this.state === 'chase' && this.unit.task) {
+      // Sent to a gang war: a crackdown (fight the targeted gangs) or investigating after.
+      const r = this.taskUpdate(dt);
+      tx = r.tx;
+      tz = r.tz;
+      speed = r.speed;
+      face = r.face;
     } else if (this.state === 'chase' && this.unit.roadblock && game.stars > 0 && !this.unit.leaving && game.wastedT <= 0) {
       // Manning a roadblock.
       const d = dist(this.x, this.z, px, pz);
@@ -274,6 +281,50 @@ export class Officer {
     return out;
   }
 
+  // Gang-war duty. Crackdown: shoot it out with the targeted gangs' soldiers until the war is
+  // over. Investigation: walk the block looking around, then head back to the car.
+  taskUpdate(dt) {
+    const game = this.game;
+    const task = this.unit.task;
+    const b = task.block;
+    const out = { tx: this.x, tz: this.z, speed: 0, face: null };
+    this.taskT = (this.taskT || 0) + dt;
+    if (task.type === 'crackdown') {
+      const list = [];
+      for (const s of game.turfWars.soldiers) {
+        if (s.standing && task.gangs.includes(s.gangId) && dist(s.x, s.z, b.cx, b.cz) < 110) list.push({ x: s.x, z: s.z, ref: s });
+      }
+      if (list.length) {
+        this.aimingTires = false;
+        return this.combat(dt, b.cx, b.cz, list);
+      }
+      if (!task.war || task.war.state !== 'active') {
+        this.state = 'return';
+        return out;
+      }
+      out.tx = b.cx;
+      out.tz = b.cz;
+      out.speed = CFG.OFFICER_SPEED;
+      return out;
+    }
+    // Investigating: stroll between spots on the block, pausing to look around.
+    this.lookT = (this.lookT || 0) - dt;
+    if (!this.invGoal || dist(this.x, this.z, this.invGoal[0], this.invGoal[1]) < 1.2 || this.lookT < -6) {
+      if (this.lookT <= 0 && this.invGoal) this.lookT = rand(1.5, 3);
+      const side = Math.floor(Math.random() * 4);
+      const u = rand(4, b.maxX - b.minX - 4);
+      this.invGoal = [[b.minX + u, b.minZ - 2], [b.minX + u, b.maxZ + 2], [b.minX - 2, b.minZ + u], [b.maxX + 2, b.minZ + u]][side];
+    }
+    if (this.lookT > 0) out.face = this.heading + dt * 1.5;
+    else {
+      out.tx = this.invGoal[0];
+      out.tz = this.invGoal[1];
+      out.speed = 1.8;
+    }
+    if (this.taskT > 45) this.state = 'return';
+    return out;
+  }
+
   // Where to take cover behind our own cruiser, given where the shooter is.
   carCover(c, tgt) {
     const [fx, fz] = c.forward();
@@ -314,9 +365,9 @@ export class Officer {
   }
 
   // One frame of a gunfight. Returns where to move and which way to face.
-  combat(dt, px, pz) {
+  combat(dt, px, pz, list = null) {
     const game = this.game;
-    const tgt = game.pickTarget(this, game.playerFaction(), 55) || { x: px, z: pz, ref: 'player' };
+    const tgt = game.pickTarget(this, list || game.playerFaction(), 55) || (list && list[0]) || { x: px, z: pz, ref: 'player' };
     const td = dist(this.x, this.z, tgt.x, tgt.z);
     const los = td < 45 && !segmentBlocked(this.x, this.z, tgt.x, tgt.z, game.city.los);
     const face = Math.atan2(tgt.x - this.x, tgt.z - this.z);
@@ -496,6 +547,36 @@ export class PoliceUnit {
       tx = this.to.x;
       tz = this.to.z;
       desired = 12;
+    } else if (this.task) {
+      // Heading to a gang war (crackdown) or its aftermath (investigation).
+      c.siren = this.task.type === 'crackdown';
+      const b = this.task.block;
+      if (this.task.done) {
+        this.leaving = true;
+        this.navigate(px, pz, true);
+        tx = this.to.x;
+        tz = this.to.z;
+        desired = 12;
+      } else {
+        const ds = dist(c.x, c.z, b.cx, b.cz);
+        if (ds < 55 && !segmentBlocked(c.x, c.z, b.cx, b.cz, game.city.los)) {
+          tx = b.cx;
+          tz = b.cz;
+          desired = ds < 30 ? 0 : Math.min(maxS, 4 + ds * 0.4);
+          if (desired === 0 && Math.abs(c.speed) < 3) {
+            if (this.officers.some((o) => o.state === 'inCar' && !o.tasked)) {
+              this.officers.forEach((o) => (o.tasked = true));
+              this.dismountAll();
+            } else if (this.officers.every((o) => o.state === 'inCar' || o.state === 'dead')) this.task.done = true;
+          }
+        } else {
+          this.navigate(b.cx, b.cz, false, 2);
+          tx = this.to.x;
+          tz = this.to.z;
+          desired = this.task.type === 'crackdown' ? maxS : maxS * 0.6;
+          if (dist(c.x, c.z, tx, tz) < 22) desired = Math.min(desired, 12);
+        }
+      }
     } else if (this.blockPlan) {
       // Heading out to set up a roadblock ahead of you.
       c.siren = true;
@@ -872,6 +953,39 @@ export class PoliceManager {
     }
   }
 
+  // Gang wars. Normally the police stay out of it and only show up afterwards to investigate.
+  // If the President has ordered a crackdown on a gang, units roll out during the war and
+  // go after that gang's soldiers.
+  crackdownOn(war) {
+    const cd = this.game.turfWars.crackdown || {};
+    const gangs = [war.attacker, war.defender].filter((g) => g && cd[g]);
+    if (!gangs.length || this.units.some((u) => u.task && u.task.war === war)) return;
+    const task = { type: 'crackdown', war, block: war.block, gangs };
+    for (const kind of ['police', 'swat']) {
+      if (this.spawnUnit(kind)) this.units[this.units.length - 1].task = task;
+    }
+    this.game.hud.news(`Police move in on the ${war.street} gang war — crackdown on ${gangs.map((g) => this.game.turfWars.gangName(g)).join(' and ')}`, 'info');
+  }
+
+  investigateLater(block, street) {
+    (this.pending = this.pending || []).push({ at: this.game.time + 15, block, street });
+  }
+
+  updateGangDuty() {
+    const game = this.game;
+    if (!this.pending) return;
+    for (const p of this.pending) {
+      if (game.time < p.at) continue;
+      p.sent = true;
+      if (this.units.some((u) => u.task && u.task.block === p.block && !u.task.done)) continue;
+      if (this.spawnUnit('police')) {
+        this.units[this.units.length - 1].task = { type: 'investigate', block: p.block };
+        game.hud.news(`Police investigating the aftermath of a shootout on ${p.street}`, 'info');
+      }
+    }
+    this.pending = this.pending.filter((p) => !p.sent);
+  }
+
   // Police helicopter: takes off from the precinct roof at 4+ stars.
   updateHeli(dt) {
     const game = this.game;
@@ -910,7 +1024,7 @@ export class PoliceManager {
     const game = this.game;
     const want = CFG.UNITS_PER_STAR[game.stars];
     const wantSwat = CFG.SWAT_PER_STAR[game.stars];
-    const live = this.units.filter((u) => !u.leaving && !u.carLost && !u.allDead && !u.roadblock);
+    const live = this.units.filter((u) => !u.leaving && !u.carLost && !u.allDead && !u.roadblock && !u.task);
     const active = live.filter((u) => u.kind !== 'swat');
     const swatActive = live.filter((u) => u.kind === 'swat');
     // Roadblocks when you're fleeing by car at 4+ stars.
@@ -956,6 +1070,7 @@ export class PoliceManager {
     }
     if (game.stars < 4) this.swatNews = false;
     this.updateHeli(dt);
+    this.updateGangDuty();
     for (const u of this.units) u.update(dt);
     this.updateSpikes(dt);
     // Fresh sighting: the old search grid no longer means anything.

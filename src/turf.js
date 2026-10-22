@@ -91,6 +91,11 @@ export class Soldier extends GangFighter {
       }
     }
     if (this.gangId !== 'crew' && this.aggroUntil > game.time) list.push(...game.playerFaction());
+    // Police cracking down on this gang: shoot back.
+    for (const o of game.police.officers()) {
+      const task = o.unit.task;
+      if (o.standing && task && task.type === 'crackdown' && task.gangs.includes(this.gangId) && dist(o.x, o.z, this.x, this.z) < 70) list.push({ x: o.x, z: o.z, ref: o });
+    }
     return list;
   }
 
@@ -155,7 +160,8 @@ class War {
       const s = this.home ? Math.ceil(size(defender) * 1.5) : size(defender);
       this.waves.def = Array(n).fill(s);
     }
-    if (!byPlayer) this.waves.att = Array(3).fill(size(attacker));
+    // NPC attackers come lighter than defenders (about 40% fewer).
+    if (!byPlayer) this.waves.att = Array(3).fill(Math.max(2, Math.round(size(attacker) * 0.6)));
     this.waveIdx = { att: 0, def: 0 };
     this.street = streetAt(block.cx, block.cz);
     // Guards already on the block join the defense.
@@ -288,6 +294,8 @@ class War {
       if (this.attacker === 'crew') game.hud.toast(`Turf war lost: ${why}`, '#ff8080');
       if (this.defender === 'crew') game.hud.toast('Your block held!');
     }
+    // Police come by afterwards to look into it (unless they were already here cracking down).
+    if (!game.police.units.some((u) => u.task && u.task.war === this)) game.police.investigateLater(this.block, this.street);
     // Survivors drift off.
     for (const f of this.fighters) {
       if (!f.alive) continue;
@@ -329,6 +337,7 @@ export class TurfManager {
     this.lock = {};
     this.lost = { kings: [], vipers: [], crew: [] };
     this.under = {};
+    this.crackdown = {};
     const now = Date.now();
     this.nextRoll = { kings: now + T.roll * rand(0.3, 1), vipers: now + T.roll * rand(0.3, 1) };
     this.save();
@@ -338,7 +347,7 @@ export class TurfManager {
     try {
       const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
       if (!s || !s.owner) return false;
-      Object.assign(this, { owner: s.owner, home: s.home, lock: s.lock || {}, lost: s.lost || { kings: [], vipers: [], crew: [] }, under: s.under || {}, nextRoll: s.nextRoll || {} });
+      Object.assign(this, { owner: s.owner, home: s.home, lock: s.lock || {}, lost: s.lost || { kings: [], vipers: [], crew: [] }, under: s.under || {}, nextRoll: s.nextRoll || {}, crackdown: s.crackdown || {} });
       return true;
     } catch {
       return false;
@@ -348,10 +357,43 @@ export class TurfManager {
   save() {
     this.version++;
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ owner: this.owner, home: this.home, lock: this.lock, lost: this.lost, under: this.under, nextRoll: this.nextRoll }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ owner: this.owner, home: this.home, lock: this.lock, lost: this.lost, under: this.under, nextRoll: this.nextRoll, crackdown: this.crackdown }));
     } catch {
       // Storage unavailable: turf just won't persist.
     }
+  }
+
+  gangName(g) {
+    return GANGS[g] ? GANGS[g].name : g;
+  }
+
+  // The President's orders: crack down on a gang (police fight its wars) or leave it alone.
+  setCrackdown(g, on) {
+    if (!!this.crackdown[g] === on) return;
+    this.crackdown[g] = on;
+    this.save();
+    this.game.hud.news(on ? `President orders a police crackdown on ${GANGS[g].name}` : `President calls off the crackdown on ${GANGS[g].name}`, 'info');
+    if (on) for (const w of this.wars) if (w.state === 'active' && (w.attacker === g || w.defender === g)) this.game.police.crackdownOn(w);
+  }
+
+  // You're fighting in a turf war (so the shooting there isn't a police matter, unless
+  // the President is cracking down on your gang).
+  playerInWar() {
+    const [px, pz] = this.game.player.pos();
+    return this.wars.some((w) => w.state === 'active' && (w.attacker === 'crew' || w.defender === 'crew') && w.onBlock(px, pz, 40)) && !this.crackdown.crew;
+  }
+
+  // Gang business: shooting it out with a gang on its own turf isn't a police matter unless
+  // the President is cracking down on Green Street or on that gang.
+  gangBusiness(x, z, victimGang = null) {
+    if (this.crackdown.crew) return false;
+    if (this.playerInWar()) return true;
+    const k = this.ownerKeyAt(x, z);
+    const g = k && this.owner[k];
+    if (!g || g === 'crew') return false;
+    if (victimGang) return victimGang === g && !this.crackdown[g];
+    // Shots fired: only if that gang's people are around and you're at odds with them.
+    return !this.crackdown[g] && this.soldiers.some((s) => s.standing && s.gangId === g && dist(s.x, s.z, x, z) < 60);
   }
 
   count(g) {
@@ -417,6 +459,7 @@ export class TurfManager {
     if (this.warOn(k)) return null;
     const w = new War(this, b, attacker, defender, byPlayer);
     this.wars.push(w);
+    this.game.police.crackdownOn(w);
     const A = GANGS[attacker].name;
     const D = defender ? GANGS[defender].name : null;
     const game = this.game;

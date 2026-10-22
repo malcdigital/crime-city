@@ -141,7 +141,7 @@ class Game {
 
   setPaused(p) {
     this.paused = p;
-    this.hud.pause(p);
+    this.hud.pause(p, this);
     if (p) this.input.unlock();
     else if (this.input.mode !== 'pad') this.input.lock();
   }
@@ -409,13 +409,13 @@ class Game {
       this.crime(killed ? 'copKilled' : 'assaultCop', c.x, c.z);
     } else if (c.isSoldier) {
       if (killed) {
-        this.crime('gangKill', c.x, c.z);
+        if (!this.turfWars.gangBusiness(c.x, c.z, c.gangId)) this.crime('gangKill', c.x, c.z);
         this.dropAmmo(c.x, c.z, 'smg', 30);
       }
     } else if (c.isGang) {
       this.gang.anger();
       if (killed) {
-        this.crime('gangKill', c.x, c.z);
+        if (!this.turfWars.gangBusiness(c.x, c.z, 'kings')) this.crime('gangKill', c.x, c.z);
         this.dropAmmo(c.x, c.z, 'smg', 30);
       }
     } else if (killed) {
@@ -531,7 +531,7 @@ class Game {
     const witnesses = this.peds.peds.some((p) => p.standing && dist(p.x, p.z, px, pz) < 30)
       || this.police.officers().some((o) => o.standing && dist(o.x, o.z, px, pz) < 45)
       || this.police.units.some((u) => dist(u.car.x, u.car.z, px, pz) < 45);
-    if (witnesses && this.time - this.lastGunfireCrime > 5) {
+    if (witnesses && this.time - this.lastGunfireCrime > 5 && !this.turfWars.gangBusiness(px, pz)) {
       this.lastGunfireCrime = this.time;
       this.crime('gunfire', px, pz);
       this.newsIncident(`Armed shooter on the loose on ${streetAt(px, pz)}`, px, pz);
@@ -1403,7 +1403,10 @@ class Game {
       }
     }
     resolveCarCollisions(this.vehicles.filter((v) => !v.removed));
-    for (const v of this.vehicles) v.sync(dt);
+    for (const v of this.vehicles) {
+      v.groundY = this.city.groundY(v.x, v.z);
+      v.sync(dt);
+    }
     this.peds.update(dt);
     this.checkRunOver();
     this.handleInteractions(dt, a);
