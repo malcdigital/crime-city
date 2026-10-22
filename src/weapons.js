@@ -121,6 +121,14 @@ export function raycast(game, ox, oy, oz, dx, dy, dz, maxT, ignore = null, solid
     const t = rayBox(lox, oy, loz, ldx, dy, ldz, -v.type.w / 2, 0.2, -v.type.l / 2, v.type.w / 2, 1.9, v.type.l / 2);
     if (t !== null && t < best.t) best = { t, type: 'car', target: v };
   }
+  // The police helicopter.
+  const h = solidOnly ? null : game.police?.heli;
+  if (h && !h.removed && h.state !== 'down') {
+    const t = rayBox(ox, oy, oz, dx, dy, dz, h.x - 1.6, h.y - 1.3, h.z - 1.6, h.x + 1.6, h.y + 1.0, h.z + 1.6);
+    const t2 = rayBox(ox, oy, oz, dx, dy, dz, h.x - 2.4, h.y - 1.3, h.z - 2.4, h.x + 2.4, h.y + 1.0, h.z + 2.4);
+    const tt = t ?? t2;
+    if (tt !== null && tt < best.t) best = { t: tt, type: 'heli', target: h };
+  }
   best.x = ox + dx * best.t;
   best.y = oy + dy * best.t;
   best.z = oz + dz * best.t;

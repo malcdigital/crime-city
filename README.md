@@ -21,6 +21,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - Crouching bends at the knees; crouch behind low cover to block bullets and break line of sight
 - Drifting: handbrake (or a hard turn at full throttle) breaks the rear loose, with tire smoke and skid marks; burnouts with gas + brake from a stop (steer for donuts)
 - Police search: they comb the area where they last saw you (behind cover, around corners), hear gunshots and running footsteps, and keep tracking you if they watched you duck. Escape by leaving the search circle unseen or staying hidden long enough
+- 4+ stars: more cruisers, SWAT vans with four-man teams in body armor, and a police helicopter that takes off from the precinct roof, tracks you with a searchlight (buildings block its view) and can be shot down; at 5 stars its door gunner opens fire
 - Roadblocks at 4+ stars: police cars drive ahead of you and park across the road (spike strips at 5 stars)
 - Civilians react to gunfire: some dive flat, some duck in place, some run to cover and hide, the rest run
 - NPC traffic that follows lanes and stops for cars and people

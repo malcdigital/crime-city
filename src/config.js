@@ -28,7 +28,9 @@ export const CFG = {
   // Heat needed for each wanted star (1 to 5).
   STAR_HEAT: [1, 3, 6, 10, 15],
   // Police units chasing at each star level (index = stars).
-  UNITS_PER_STAR: [0, 1, 2, 3, 4, 6],
+  UNITS_PER_STAR: [0, 1, 2, 3, 5, 6],
+  SWAT_PER_STAR: [0, 0, 0, 0, 2, 3], // SWAT vans
+  HELI_STARS: 4, // police helicopter from this many stars
 };
 
 // Crimes the player can commit. heat raises the wanted level, cred is street cred earned.

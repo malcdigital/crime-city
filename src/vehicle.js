@@ -12,6 +12,8 @@ export const VTYPES = {
     colors: [0xffffff, 0x5d6d7e, 0xa04000] },
   police: { w: 2.0, l: 4.6, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 40, accel: 13, brake: 24, rev: 9, value: 1500, label: 'Police cruiser',
     colors: [0x151515] },
+  swat: { w: 2.4, l: 5.4, h: 1.9, cab: null, max: 32, accel: 10, brake: 20, rev: 7, value: 2200, label: 'SWAT van',
+    colors: [0x1b1f24] },
 };
 
 const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 10);
@@ -72,6 +74,19 @@ export class Vehicle {
       const glass = new THREE.Mesh(new THREE.PlaneGeometry(t.w * 0.85, 0.7), lam(0x1d2630));
       glass.position.set(0, 0.35 + t.h - 0.5, t.l / 2 + 0.01);
       g.add(glass);
+    }
+    if (this.typeName === 'swat') {
+      const band = new THREE.Mesh(new THREE.BoxGeometry(t.w + 0.02, 0.35, t.l * 0.7), lam(0x2d3e58));
+      band.position.set(0, 0.35 + t.h * 0.45, -0.3);
+      g.add(band);
+      this.lightR = new THREE.MeshBasicMaterial({ color: 0x550000 });
+      this.lightB = new THREE.MeshBasicMaterial({ color: 0x000055 });
+      const top = 0.35 + t.h + 0.1;
+      const lr = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.18, 0.35), this.lightR);
+      lr.position.set(-0.45, top, t.l / 2 - 0.6);
+      const lb = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.18, 0.35), this.lightB);
+      lb.position.set(0.45, top, t.l / 2 - 0.6);
+      g.add(lr, lb);
     }
     if (this.typeName === 'police') {
       const stripe = new THREE.Mesh(new THREE.BoxGeometry(t.w + 0.02, 0.45, 2.0), lam(0xf2f2f2));

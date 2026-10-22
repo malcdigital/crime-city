@@ -191,7 +191,14 @@ export function buildCity(scene) {
         const bz = iMaxZ - d / 2 - 1;
         building(cx, bz, w, d, h, new THREE.MeshLambertMaterial({ color: 0x3b5b8c, map: winTex }));
         sign('POLICE', cx, 10, bz - d / 2 - 0.06, Math.PI, 14, 2.6, '#1c2f5a');
-        station = { x: cx, z: iMinZ + 8, heading: Math.PI, name: 'Central Precinct' };
+        station = { x: cx, z: iMinZ + 8, heading: Math.PI, name: 'Central Precinct', roof: { x: cx, z: bz, y: h } };
+        // Helipad on the roof.
+        const pad = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 0.08, 24), lam(0x2c3e50));
+        pad.position.set(cx, h + 0.04, bz);
+        scene.add(pad);
+        const hMark = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.1, 0.5), lam(0xf1c40f));
+        hMark.position.set(cx, h + 0.1, bz);
+        scene.add(hMark);
       } else if (type === 'hospital') {
         const w = 40, d = 24, h = 16;
         const bz = iMaxZ - d / 2 - 1;

@@ -330,6 +330,9 @@ class Game {
         if (o.standing && this.spots(o, 1.7, 38, true)) seen = true;
       }
     }
+    // The helicopter's crew.
+    const heli = this.police.heli;
+    if (heli && heli.sees) seen = true;
     this.seenNow = seen;
     if (seen) {
       this.lastSeen = this.time;
@@ -338,7 +341,7 @@ class Game {
     } else {
       // The escape clock only runs once police have reached the area they're searching.
       const [kx, kz] = this.lastKnown || [px, pz];
-      const near = this.police.units.some((u) =>
+      const near = (heli && heli.state === 'pursuit' && dist(heli.x, heli.z, kx, kz) < 150) || this.police.units.some((u) =>
         dist(u.car.x, u.car.z, kx, kz) < 150 || u.officers.some((o) => o.standing && dist(o.x, o.z, kx, kz) < 150));
       if (near) this.unseenT = (this.unseenT || 0) + dt;
     }
@@ -469,6 +472,10 @@ class Game {
         if (Math.hypot(hit.x - wx, hit.y - wy, hit.z - wz) < 0.55) car.popTire(i);
       });
       this.effects.impact(hit.x, hit.y, hit.z);
+    } else if (hit.type === 'heli') {
+      const down = hit.target.takeHit(w.dmg);
+      this.effects.impact(hit.x, hit.y, hit.z);
+      this.hud.hitmarker(down);
     } else if (hit.type !== 'none') {
       this.effects.impact(hit.x, hit.y, hit.z);
     }
@@ -531,7 +538,7 @@ class Game {
     const [px, pz] = this.player.pos();
     const d = dist(shooter.x, shooter.z, px, pz);
     const h = shooter.heading;
-    const y0 = this.city.groundY(shooter.x, shooter.z) + 1.45;
+    const y0 = shooter.muzzleY ?? this.city.groundY(shooter.x, shooter.z) + 1.45;
     // Gun is in the right hand: forward and to the shooter's right.
     const m = [shooter.x + Math.sin(h) * 0.9 - Math.cos(h) * 0.37, y0 + 0.05, shooter.z + Math.cos(h) * 0.9 + Math.sin(h) * 0.37];
     const pv = this.player.vehicle;
@@ -857,7 +864,7 @@ class Game {
         ped.scare(this.player.x, this.player.z);
         this.crime('carjack', v.x, v.z);
       }
-    } else if (v.typeName === 'police' && !v.exploded) {
+    } else if ((v.typeName === 'police' || v.typeName === 'swat') && !v.exploded) {
       this.crime('stealCopCar', v.x, v.z);
     }
     v.siren = false;
@@ -964,7 +971,7 @@ class Game {
             p.exit();
             v.dispose();
             this.cash += price;
-            const cred = v.typeName === 'police' ? 25 : 6;
+            const cred = v.typeName === 'police' || v.typeName === 'swat' ? 25 : 6;
             this.cred += cred;
             this.hud.toast(`+$${price}  +${cred} cred`);
             this.save();
@@ -1063,7 +1070,7 @@ class Game {
 
   updateCamera(dt, a) {
     this.camYaw += a.lookX;
-    this.camPitch = clamp(this.camPitch + a.lookY, -0.3, 1.0);
+    this.camPitch = clamp(this.camPitch + a.lookY, -0.7, 1.0);
     if (a.looking) this.camIdle = 0;
     else this.camIdle += dt;
 

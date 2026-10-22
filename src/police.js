@@ -8,13 +8,17 @@ import { dist, pick, rand, lerpAngle } from './util.js';
 import { streetAt } from './city.js';
 import { navStep } from './nav.js';
 import { findCover } from './gang.js';
+import { Helicopter } from './heli.js';
 
 // A police officer on foot. Rides hidden inside the unit's car until it dismounts.
 export class Officer {
-  constructor(game, unit) {
+  constructor(game, unit, swat = false) {
     this.game = game;
     this.unit = unit;
-    this.char = makeCharacter({ shirt: 0x1f3a6e, pants: 0x14213d, skin: pick(SKIN_TONES), cap: 0x14213d });
+    this.swat = swat;
+    this.char = swat
+      ? makeCharacter({ shirt: 0x23272d, pants: 0x1a1d22, skin: pick(SKIN_TONES), cap: 0x0e0f11 })
+      : makeCharacter({ shirt: 0x1f3a6e, pants: 0x14213d, skin: pick(SKIN_TONES), cap: 0x14213d });
     this.char.group.visible = false;
     game.scene.add(this.char.group);
     this.x = unit.car.x;
@@ -23,11 +27,21 @@ export class Officer {
     this.state = 'inCar'; // inCar | chase | return | down | dead
     this.t = 0;
     this.phase = 0;
-    this.health = 100;
+    this.health = swat ? 160 : 100; // body armor
     this.fireT = rand(0.5, 1.2);
     this.isCop = true;
-    // Most cops fight from cover; a few push forward and flank.
-    this.flanker = Math.random() < 0.15;
+    // Most cops fight from cover; a few push forward and flank (SWAT push more).
+    this.flanker = Math.random() < (swat ? 0.35 : 0.15);
+    if (swat) {
+      // Rifle in hand, and a vest.
+      const gun = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.16, 0.7), new THREE.MeshLambertMaterial({ color: 0x111111 }));
+      gun.position.set(0, -0.64, 0);
+      gun.rotation.x = Math.PI / 2;
+      this.char.armR.add(gun);
+      const vest = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 0.36), new THREE.MeshLambertMaterial({ color: 0x3a3f46 }));
+      vest.position.set(0, 1.3, 0);
+      this.char.group.add(vest);
+    }
     this.crouched = false;
     this.spot = null;
     this.peeking = false;
@@ -50,12 +64,13 @@ export class Officer {
     return this.state !== 'inCar';
   }
 
-  dismount(side) {
+  dismount(side, back = 0) {
     if (this.state !== 'inCar') return;
     const c = this.unit.car;
     const [fx, fz] = c.forward();
-    this.x = c.x - fz * side * 1.8;
-    this.z = c.z + fx * side * 1.8;
+    const w = c.type.w / 2 + 0.8;
+    this.x = c.x - fz * side * w - fx * back;
+    this.z = c.z + fx * side * w - fz * back;
     this.state = 'chase';
     this.char.group.visible = true;
     // Swing the door open on the way out (it stays open in a gunfight).
@@ -390,7 +405,11 @@ export class Officer {
       if (this.fireT <= 0) {
         this.fireT = rand(rate[0], rate[1]);
         this.peekShots--;
-        game.npcShootAt(this, tgt.ref, 8, 'pistol');
+        if (this.swat) {
+          // Short rifle bursts.
+          this.fireT *= 0.45;
+          game.npcShootAt(this, tgt.ref, 9, 'smg', 0.95);
+        } else game.npcShootAt(this, tgt.ref, 8, 'pistol');
       }
     }
     return out;
@@ -409,12 +428,15 @@ export class Officer {
 
 // A police cruiser with two officers.
 export class PoliceUnit {
-  constructor(game, x, z, heading) {
+  constructor(game, x, z, heading, kind = 'police') {
     this.game = game;
-    this.car = new Vehicle(game.scene, 'police', x, z, heading);
+    this.kind = kind;
+    this.car = new Vehicle(game.scene, kind, x, z, heading);
     this.car.driver = this;
     this.car.siren = true;
-    this.officers = [new Officer(game, this), new Officer(game, this)];
+    // A cruiser carries two officers; a SWAT van carries a team of four.
+    const swat = kind === 'swat';
+    this.officers = Array.from({ length: swat ? 4 : 2 }, () => new Officer(game, this, swat));
     this.to = null;
     this.from = null;
     this.stuck = new StuckHelper();
@@ -426,6 +448,11 @@ export class PoliceUnit {
   // The car was stolen or destroyed: officers continue on foot.
   get carLost() {
     return this.car.driver !== this || this.car.wrecked || this.car.removed;
+  }
+
+  // Everyone out: two per side, the second pair from the back doors.
+  dismountAll() {
+    this.officers.forEach((o, k) => o.dismount(k % 2 === 0 ? -1 : 1, k >= 2 ? 1.8 : 0));
   }
 
   get mounted() {
@@ -501,7 +528,7 @@ export class PoliceUnit {
         const stopRange = game.lethal ? 22 : 14;
         if ((!game.player.vehicle || game.lethal) && d < stopRange) {
           desired = 0;
-          if (Math.abs(c.speed) < 4) this.officers.forEach((o, k) => o.dismount(k === 0 ? -1 : 1));
+          if (Math.abs(c.speed) < 4) this.dismountAll();
         }
         this.to = null;
       } else {
@@ -522,7 +549,7 @@ export class PoliceUnit {
         if (this.stopping) {
           desired = 0;
           if (Math.abs(c.speed) < 3) {
-            this.officers.forEach((o, k) => o.dismount(k === 0 ? -1 : 1));
+            this.dismountAll();
             this.stopping = false;
           }
         }
@@ -550,7 +577,7 @@ export class PoliceUnit {
     const heldUp = desired < 1 && !this.leaving && game.lethal && d < 55;
     this.heldT = heldUp ? (this.heldT || 0) + dt : 0;
     if (this.heldT > 1.5 && Math.abs(c.speed) < 3) {
-      this.officers.forEach((o, k) => o.dismount(k === 0 ? -1 : 1));
+      this.dismountAll();
       this.heldT = 0;
     }
     const ctrl = { throttle: throttleFor(c, desired), steer: steerToward(c, tx, tz), handbrake: desired === 0 };
@@ -584,7 +611,7 @@ export class PoliceUnit {
       // Officers get out on the side away from you.
       const [cfx, cfz] = c.forward();
       const side = -cfz * plan.ax + cfx * plan.az > 0 ? 1 : -1;
-      for (const o of this.officers) o.dismount(side);
+      this.officers.forEach((o, k) => o.dismount(side, k >= 2 ? 1.8 : (k ? -1.2 : 0)));
       if (!plan.announced) {
         plan.announced = true;
         game.hud.news(`Police roadblock on ${streetAt(plan.cx, plan.cz)}`);
@@ -748,13 +775,13 @@ export class PoliceManager {
   }
 
   // New units roll out of the police station yard, so response time depends on how far away you are.
-  spawnUnit() {
+  spawnUnit(kind = 'police') {
     const { city } = this.game;
     const st = city.station;
     const spots = [[st.x - 6, st.z], [st.x + 6, st.z], [st.x, st.z + 5]];
     const spot = spots.find(([x, z]) => !this.game.vehicles.some((v) => !v.removed && dist(v.x, v.z, x, z) < 5));
     if (!spot) return false;
-    const u = new PoliceUnit(this.game, spot[0], spot[1], st.heading);
+    const u = new PoliceUnit(this.game, spot[0], spot[1], st.heading, kind);
     this.units.push(u);
     this.game.vehicles.push(u.car);
     return true;
@@ -845,12 +872,32 @@ export class PoliceManager {
     }
   }
 
+  // Police helicopter: takes off from the precinct roof at 4+ stars.
+  updateHeli(dt) {
+    const game = this.game;
+    this.heliCd = Math.max(0, (this.heliCd || 0) - dt);
+    if (!this.heli && game.stars >= CFG.HELI_STARS && this.heliCd <= 0 && game.wastedT <= 0) {
+      this.heli = new Helicopter(game, game.city.station.roof);
+      game.hud.news('Police helicopter in the air');
+    }
+    const h = this.heli;
+    if (!h) return;
+    if (game.stars < CFG.HELI_STARS - 1 || game.wastedT > 0) h.leave();
+    h.update(dt);
+    if (h.removed) {
+      if (h.destroyed) this.heliCd = 45;
+      this.heli = null;
+    }
+  }
+
   // Wanted level cleared: units drive off and despawn.
   standDown() {
     for (const u of this.units) u.leaving = true;
   }
 
   clearAll() {
+    if (this.heli) this.heli.dispose();
+    this.heli = null;
     for (const u of this.units) u.dispose();
     this.units = [];
     for (const s of this.spikes) this.game.scene.remove(s.mesh);
@@ -862,7 +909,10 @@ export class PoliceManager {
   update(dt) {
     const game = this.game;
     const want = CFG.UNITS_PER_STAR[game.stars];
-    const active = this.units.filter((u) => !u.leaving && !u.carLost && !u.allDead && !u.roadblock);
+    const wantSwat = CFG.SWAT_PER_STAR[game.stars];
+    const live = this.units.filter((u) => !u.leaving && !u.carLost && !u.allDead && !u.roadblock);
+    const active = live.filter((u) => u.kind !== 'swat');
+    const swatActive = live.filter((u) => u.kind === 'swat');
     // Roadblocks when you're fleeing by car at 4+ stars.
     this.blockT = (this.blockT ?? 6) - dt;
     const pv = game.player.vehicle;
@@ -890,9 +940,22 @@ export class PoliceManager {
     // Dispatch: a short delay after the first call, then one unit every few seconds.
     if (want === 0) this.spawnT = 3;
     this.spawnT -= dt;
-    if (active.length < want && this.spawnT <= 0 && game.wastedT <= 0) {
-      if (this.spawnUnit()) this.spawnT = 4;
+    if (this.spawnT <= 0 && game.wastedT <= 0) {
+      // SWAT vans roll out once you hit 4 stars, alternating with cruisers.
+      const needSwat = swatActive.length < wantSwat;
+      const needCar = active.length < want;
+      const kind = needSwat && (!needCar || this.lastKind !== 'swat') ? 'swat' : needCar ? 'police' : null;
+      if (kind && this.spawnUnit(kind)) {
+        this.spawnT = 4;
+        this.lastKind = kind;
+        if (kind === 'swat' && !this.swatNews) {
+          this.swatNews = true;
+          game.hud.news('SWAT team deployed');
+        }
+      }
     }
+    if (game.stars < 4) this.swatNews = false;
+    this.updateHeli(dt);
     for (const u of this.units) u.update(dt);
     this.updateSpikes(dt);
     // Fresh sighting: the old search grid no longer means anything.

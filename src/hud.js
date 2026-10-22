@@ -294,7 +294,20 @@ export class Hud {
       const [ux, uy] = rim(project(u.car.x, u.car.z), 4);
       ctx.fillStyle = flash ? '#ff3b3b' : '#3b7bff';
       ctx.beginPath();
-      ctx.arc(ux, uy, 3.5, 0, Math.PI * 2);
+      ctx.arc(ux, uy, u.kind === 'swat' ? 4.5 : 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Police helicopter: a flashing diamond.
+    const heli = game.police.heli;
+    if (heli && !heli.removed) {
+      const [hx, hy] = rim(project(heli.x, heli.z), 5);
+      ctx.fillStyle = flash ? '#ffffff' : '#3b7bff';
+      ctx.beginPath();
+      ctx.moveTo(hx, hy - 6);
+      ctx.lineTo(hx + 6, hy);
+      ctx.lineTo(hx, hy + 6);
+      ctx.lineTo(hx - 6, hy);
+      ctx.closePath();
       ctx.fill();
     }
     ctx.restore();
