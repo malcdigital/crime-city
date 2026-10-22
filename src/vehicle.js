@@ -4,15 +4,15 @@ import { pushCircle } from './collision.js';
 import { clamp, lerp, wrapAngle } from './util.js';
 
 export const VTYPES = {
-  sedan: { armor: 2.5, w: 2.0, l: 4.4, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 30, accel: 9, brake: 20, rev: 8, value: 900, label: 'Sedan',
+  sedan: { armor: 5, w: 2.0, l: 4.4, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 30, accel: 9, brake: 20, rev: 8, value: 900, label: 'Sedan',
     colors: [0x2a4d8f, 0x8f2a2a, 0xd0d0d0, 0x333333, 0x2f6b4f, 0xc9a227, 0x7a7a7a] },
-  sports: { armor: 2.0, w: 2.0, l: 4.3, h: 0.75, cab: [1.7, 0.55, 1.8, -0.35], max: 44, accel: 14, brake: 24, rev: 8, value: 2500, label: 'Sports car',
+  sports: { armor: 4, w: 2.0, l: 4.3, h: 0.75, cab: [1.7, 0.55, 1.8, -0.35], max: 44, accel: 14, brake: 24, rev: 8, value: 2500, label: 'Sports car',
     colors: [0xd61f1f, 0xf2c40f, 0x111111, 0x1f6fd6] },
-  van: { armor: 3.0, w: 2.2, l: 5.0, h: 1.9, cab: null, max: 24, accel: 7, brake: 16, rev: 7, value: 700, label: 'Van',
+  van: { armor: 6, w: 2.2, l: 5.0, h: 1.9, cab: null, max: 24, accel: 7, brake: 16, rev: 7, value: 700, label: 'Van',
     colors: [0xffffff, 0x5d6d7e, 0xa04000] },
-  police: { armor: 3.0, w: 2.0, l: 4.6, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 40, accel: 13, brake: 24, rev: 9, value: 1500, label: 'Police cruiser',
+  police: { armor: 6, w: 2.0, l: 4.6, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 40, accel: 13, brake: 24, rev: 9, value: 1500, label: 'Police cruiser',
     colors: [0x151515] },
-  swat: { armor: 5.0, w: 2.4, l: 5.4, h: 1.9, cab: null, max: 32, accel: 10, brake: 20, rev: 7, value: 2200, label: 'SWAT van',
+  swat: { armor: 10, w: 2.4, l: 5.4, h: 1.9, cab: null, max: 32, accel: 10, brake: 20, rev: 7, value: 2200, label: 'SWAT van',
     colors: [0x1b1f24] },
 };
 
@@ -323,10 +323,12 @@ export class Vehicle {
     }
     const steer = clamp(ctrl.steer || 0, -1, 1);
     const stick = Math.abs(steer);
-    const holding = ctrl.gas && stick > 0.1;
+    // The slide lasts while you hold gas + brake with the stick over; let go of either and
+    // the tires bite straight back.
+    const holding = ctrl.gas && ctrl.brake && stick > 0.1;
     // Target angle: nose into the turn (a right turn swings the nose right of the path).
     const target = holding ? -Math.sign(steer) * stick * 0.7 : 0;
-    this.beta += (target - this.beta) * Math.min(1, dt * (holding ? 3 : 4));
+    this.beta += (target - this.beta) * Math.min(1, dt * (holding ? 3 : 10));
     // The path bends no harder than the tires allow.
     const v = Math.max(this.vel, 1);
     const turn = (Math.sign(steer) * Math.pow(stick, 0.8) * 0.95 * g) / v;
@@ -334,7 +336,7 @@ export class Vehicle {
     this.heading = wrapAngle(this.travel + this.beta);
     // Speed: throttle pushes, sliding sideways scrubs, brake slows.
     const sideways = Math.abs(Math.sin(this.beta));
-    this.vel += ((ctrl.gas ? t.accel * 0.55 : 0) - this.vel * sideways * 0.6 - (ctrl.brake ? 7 : 0) - this.vel * 0.04) * dt;
+    this.vel += ((ctrl.gas ? t.accel * 0.55 : 0) - this.vel * sideways * 0.6 - (ctrl.brake ? 4 : 0) - this.vel * 0.04) * dt;
     this.vel = Math.max(0, this.vel);
     // Move along the travel direction.
     const tx = Math.sin(this.travel), tz = Math.cos(this.travel);
@@ -345,7 +347,7 @@ export class Vehicle {
     this.lat = this.vel * Math.sin(-this.beta);
     this.drift = Math.abs(this.lat);
     this.rearSpin = ctrl.gas ? this.vel + 6 : 0;
-    if ((!holding && Math.abs(this.beta) < 0.04) || this.vel < 4) {
+    if ((!holding && Math.abs(this.beta) < 0.12) || this.vel < 4) {
       this.drifting = false;
       this.lat = 0;
       this.speed = this.vel * Math.cos(this.beta);
@@ -378,7 +380,7 @@ export class Vehicle {
       if (vn < -1) {
         this.crash = Math.max(this.crash, -vn);
         this.speed *= 0.35;
-        if (-vn > 9) this.damage((-vn - 9) * 2.5, this.driver === 'player');
+        if (-vn > 12) this.damage((-vn - 12) * 2.5, false);
       }
     }
   }
@@ -390,7 +392,7 @@ export class Vehicle {
       const spin = !w.userData.front && this.rearSpin > 0 ? this.rearSpin : this.speed;
       if (!w.userData.flat) w.rotation.x += (spin * dt) / 0.38;
       else w.rotation.x = 0; // a flat tire is squashed at the bottom, not spinning
-      if (w.userData.front) w.rotation.y = this.steerVis;
+      if (w.userData.front) w.rotation.y = -this.steerVis; // positive steer is a right turn
     }
     if (this.doors) {
       for (const d of Object.values(this.doors)) {

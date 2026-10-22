@@ -324,6 +324,7 @@ export class Player {
   enter(vehicle) {
     this.vehicle = vehicle;
     vehicle.driver = 'player';
+    vehicle.playerUsed = true;
     this.crouched = false;
     this.lowProfile = false;
     this.cover = null;

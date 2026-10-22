@@ -714,7 +714,7 @@ class Game {
     if (this.wastedT > 0 || this.bustedT > 0) return;
     const v = this.player.vehicle;
     if (v) {
-      v.damage(dmg * 1.4, false);
+      v.damage(dmg * 0.7, false);
       dmg *= 0.35;
     }
     this.health -= dmg;
@@ -743,7 +743,7 @@ class Game {
       const d = dist(x, z, c.x, c.z);
       if (d < 4.5) {
         const killed = c.takeHit(999, x, z);
-        if (v.byPlayer && killed) this.onPlayerHit(c, true);
+        if (v.byPlayer && !v.playerUsed && killed) this.onPlayerHit(c, true);
       } else if (d < 8) c.knockDown(x, z, 2);
     }
     for (const o of this.vehicles) {
@@ -752,9 +752,10 @@ class Game {
       if (d < 8) o.damage(70 * (1 - d / 8), v.byPlayer);
     }
     this.scareNearby(x, z, 50, true);
-    if (v.byPlayer) this.crime('explosion', x, z);
+    // Only blowing up someone else's car is a crime (and news); your own wreck isn't.
+    const yours = v.playerUsed || v === this.player.vehicle;
+    if (v.byPlayer && !yours) this.crime('explosion', x, z);
     if (v.isHeliWreck) this.newsIncident(`Police helicopter shot down over ${streetAt(x, z)}`, x, z);
-    else this.newsIncident(`Vehicle explosion on ${streetAt(x, z)}`, x, z);
   }
 
   updateVehicleDamage(dt) {
