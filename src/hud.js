@@ -8,8 +8,9 @@ export class Hud {
   constructor(city) {
     this.city = city;
     this.mapBg = document.createElement('canvas');
-    this.mapBg.width = this.mapBg.height = 200;
-    city.drawMap(this.mapBg.getContext('2d'), 200);
+    this.mapBg.width = this.mapBg.height = 1024;
+    city.drawMap(this.mapBg.getContext('2d'), 1024);
+    this.mapZoom = 120;
     this.map = $('minimap').getContext('2d');
     this.toastT = 0;
     this.hitT = 0;
@@ -102,7 +103,7 @@ export class Hud {
       this.toastT -= dt;
       if (this.toastT <= 0) $('toast').classList.remove('show');
     }
-    this.drawMinimap(game);
+    this.drawMinimap(game, dt);
   }
 
   toast(text, color = '#8ff08f') {
@@ -167,66 +168,128 @@ export class Hud {
     $('busted-detail').textContent = detail;
   }
 
-  drawMinimap(game) {
+  // Round radar: the player arrow stays in the center pointing up and the city rotates around it.
+  drawMinimap(game, dt) {
     const ctx = this.map;
-    const px = 200;
-    const s = px / (CFG.SIZE + CFG.ROAD * 2);
-    const o = CFG.ROAD;
-    const X = (x) => (x + o) * s;
-    ctx.drawImage(this.mapBg, 0, 0);
+    const C = 100;
+    const R = 97;
     const city = this.city;
+    const [px, pz] = game.player.pos();
+    const v = game.player.vehicle;
+    const heading = v ? v.heading : game.player.heading;
+    // Zoom out when driving fast.
+    const wantZoom = v ? 160 + Math.min(120, Math.abs(v.speed) * 4) : 120;
+    this.mapZoom += (wantZoom - this.mapZoom) * Math.min(1, (dt || 0.016) * 2);
+    const k = R / this.mapZoom; // pixels per meter
+    const rot = heading - Math.PI; // turns the player's facing direction to screen-up
+    const cos = Math.cos(rot);
+    const sin = Math.sin(rot);
+    const project = (x, z) => {
+      const dx = (x - px) * k;
+      const dz = (z - pz) * k;
+      return [C + dx * cos - dz * sin, C + dx * sin + dz * cos];
+    };
+    // Keep important blips on the rim when they're off the radar.
+    const rim = ([x, y], pad = 6) => {
+      const dx = x - C, dy = y - C;
+      const d = Math.hypot(dx, dy);
+      const max = R - pad;
+      return d > max ? [C + (dx / d) * max, C + (dy / d) * max] : [x, y];
+    };
+    const inside = ([x, y]) => Math.hypot(x - C, y - C) < R - 4;
 
-    // Search area while the police are looking for you.
+    ctx.clearRect(0, 0, 200, 200);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(C, C, R, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = '#26402a';
+    ctx.fillRect(0, 0, 200, 200);
+
+    // City background, rotated around the player.
+    const sb = 1024 / (CFG.SIZE + CFG.ROAD * 2);
+    ctx.save();
+    ctx.translate(C, C);
+    ctx.rotate(rot);
+    ctx.scale(k / sb, k / sb);
+    ctx.drawImage(this.mapBg, -(px + CFG.ROAD) * sb, -(pz + CFG.ROAD) * sb);
+    ctx.restore();
+
+    // Rival gang turf.
+    const gh = city.gangHome;
+    const [gx, gy] = project(gh.x, gh.z);
+    ctx.fillStyle = game.gang.angry ? 'rgba(200,60,255,.5)' : 'rgba(160,60,220,.35)';
+    ctx.beginPath();
+    ctx.arc(gx, gy, 22 * k, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Police search area.
     if (game.stars > 0 && game.searching && game.lastKnown) {
+      const [sx, sy] = project(game.lastKnown[0], game.lastKnown[1]);
       ctx.strokeStyle = 'rgba(255,80,80,.8)';
       ctx.fillStyle = 'rgba(255,80,80,.15)';
       ctx.beginPath();
-      ctx.arc(X(game.lastKnown[0]), X(game.lastKnown[1]), 40 * s * 2, 0, Math.PI * 2);
+      ctx.arc(sx, sy, 80 * k, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
     }
-    for (const st of city.stores) {
-      ctx.fillStyle = st.cooldown > 0 ? '#555' : '#2ecc71';
-      ctx.font = 'bold 11px Arial';
-      ctx.fillText('$', X(st.x) - 3, X(st.z) + 4);
-    }
-    ctx.fillStyle = '#f39c12';
-    ctx.fillRect(X(city.chop.x) - 3, X(city.chop.z) - 3, 6, 6);
-    ctx.fillStyle = '#5dade2';
-    ctx.fillRect(X(city.station.x) - 3, X(city.station.z) - 3, 6, 6);
-    ctx.fillStyle = '#ff6b6b';
-    ctx.fillRect(X(city.hospital.x) - 1, X(city.hospital.z) - 4, 2, 8);
-    ctx.fillRect(X(city.hospital.x) - 4, X(city.hospital.z) - 1, 8, 2);
-    // Rival gang turf.
-    const gh = city.gangHome;
-    ctx.fillStyle = game.gang.angry ? 'rgba(200,60,255,.55)' : 'rgba(160,60,220,.35)';
-    ctx.beginPath();
-    ctx.arc(X(gh.x), X(gh.z), 18 * s * 1.6, 0, Math.PI * 2);
-    ctx.fill();
 
-    const blink = Math.floor(performance.now() / 250) % 2 === 0;
-    for (const u of game.police.units) {
-      ctx.fillStyle = blink ? '#ff3b3b' : '#3b7bff';
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const st of city.stores) {
+      const p = project(st.x, st.z);
+      if (!inside(p)) continue;
+      ctx.fillStyle = st.cooldown > 0 ? '#666' : '#2ecc71';
+      ctx.fillText('$', p[0], p[1]);
+    }
+    const blip = (x, z, color, text) => {
+      const [bx, by] = rim(project(x, z), 8);
+      ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.arc(X(u.car.x), X(u.car.z), 2.6, 0, Math.PI * 2);
+      ctx.arc(bx, by, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 9px Arial';
+      ctx.fillText(text, bx, by + 0.5);
+    };
+    blip(city.chop.x, city.chop.z, '#e67e22', 'C');
+    blip(city.station.x, city.station.z, '#2e6fd8', 'P');
+    blip(city.hospital.x, city.hospital.z, '#d63031', 'H');
+    blip(gh.x, gh.z, '#8e24aa', 'K');
+
+    const flash = Math.floor(performance.now() / 250) % 2 === 0;
+    for (const u of game.police.units) {
+      const [ux, uy] = rim(project(u.car.x, u.car.z), 4);
+      ctx.fillStyle = flash ? '#ff3b3b' : '#3b7bff';
+      ctx.beginPath();
+      ctx.arc(ux, uy, 3.5, 0, Math.PI * 2);
       ctx.fill();
     }
+    ctx.restore();
 
-    // Player arrow.
-    const [x, z] = game.player.pos();
-    const h = game.player.vehicle ? game.player.vehicle.heading : game.player.heading;
-    ctx.save();
-    ctx.translate(X(x), X(z));
-    ctx.rotate(-h);
+    // North marker on the rim.
+    const nx = C + Math.sin(rot) * (R - 9);
+    const ny = C - Math.cos(rot) * (R - 9);
+    ctx.fillStyle = 'rgba(0,0,0,.6)';
+    ctx.beginPath();
+    ctx.arc(nx, ny, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 10px Arial';
+    ctx.fillText('N', nx, ny + 0.5);
+
+    // Player arrow, always centered and pointing up.
     ctx.fillStyle = '#fff';
     ctx.strokeStyle = '#000';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(0, 6);
-    ctx.lineTo(4, -4);
-    ctx.lineTo(-4, -4);
+    ctx.moveTo(C, C - 8);
+    ctx.lineTo(C + 6, C + 6);
+    ctx.lineTo(C, C + 3);
+    ctx.lineTo(C - 6, C + 6);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
-    ctx.restore();
   }
 }

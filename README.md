@@ -25,7 +25,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - Getting busted: fine, lost street cred, respawn at the police station
 - Chop shop: sell stolen cars for cash once the police lose you
 - Street cred ladder from the design doc (Nobody → Kingpin)
-- HUD: cash, wanted stars, minimap, and an in-game phone with City News
+- HUD: cash, wanted stars, a round radar that rotates with the player, and an in-game phone with City News
 - PS5 / standard gamepad support, with button prompts that switch to the controller
 - Guns: fists, pistol and SMG with ammo, reloading, aim mode and controller aim assist (unlimited ammo while testing: `INFINITE_AMMO` in `src/config.js`)
 - Rival gang (Southside Kings) on a Southgate corner who shoot back

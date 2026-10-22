@@ -103,3 +103,5 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #crosshair.locked::before, #crosshair.locked::after { background: #ff4040; }
 #phone-foot { font-size: 11px; text-align: center; opacity: .6; padding: 6px 0 10px; }
 #phone-hint:empty { display: none; }
+#minimap { border-radius: 50% !important; border: 3px solid rgba(0,0,0,.7) !important; background: transparent !important; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
+#health { width: 160px !important; left: 36px !important; }
