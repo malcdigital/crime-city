@@ -21,6 +21,8 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - NPC pedestrians who walk the sidewalks, cross streets, and flee from violence
 - Crimes: assault, carjacking, hit-and-run, store robbery, assaulting officers, stealing police cars
 - Wanted level (1–5 stars) with police cruisers dispatched from the station that chase on the road grid, officers who chase on foot, and arrests
+- Roadblocks at 2+ stars: two cruisers park across the road ahead of where you're driving, officers guard them, and ramming them is a real crash
+- Every car has hinged doors that open when people get in and out
 - Escaping: break line of sight and police search where you were last seen
 - Getting busted: fine, lost street cred, respawn at the police station
 - Chop shop: sell stolen cars for cash once the police lose you

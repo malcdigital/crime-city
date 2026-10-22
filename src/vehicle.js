@@ -81,19 +81,26 @@ export class Vehicle {
       const lb = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.18, 0.35), this.lightB);
       lb.position.set(0.4, top, -0.2);
       g.add(lr, lb);
-      // Front doors on hinges, so officers can swing them open and use them as cover.
-      // The car faces +z, so its right side is local -x. side: -1 = driver (left), +1 = passenger (right).
-      this.doors = {};
-      for (const side of [-1, 1]) {
-        const pivot = new THREE.Group();
-        pivot.position.set(-side * (t.w / 2 + 0.03), 0.35 + t.h / 2 + 0.05, 0.55);
-        const door = new THREE.Mesh(new THREE.BoxGeometry(0.07, t.h * 0.95 + 0.35, 1.15), lam(0xf2f2f2));
-        door.position.set(0, 0.1, -0.575);
-        door.castShadow = true;
-        pivot.add(door);
-        g.add(pivot);
-        this.doors[side] = { pivot, angle: 0, target: 0 };
-      }
+    }
+    // Front doors on hinges (every car). The car faces +z, so its right side is local -x.
+    // side: -1 = driver (left), +1 = passenger (right).
+    this.doors = {};
+    const doorLen = this.typeName === 'sports' ? 1.25 : 1.1;
+    const hingeZ = t.cab ? t.l * 0.12 + 0.05 : t.l / 2 - 0.85;
+    const doorColor = this.typeName === 'police' ? 0xf2f2f2 : this.color;
+    for (const side of [-1, 1]) {
+      const pivot = new THREE.Group();
+      pivot.position.set(-side * (t.w / 2 + 0.03), 0.35 + t.h / 2 + 0.05, hingeZ);
+      const door = new THREE.Mesh(new THREE.BoxGeometry(0.07, Math.min(t.h * 0.95 + 0.35, 1.5), doorLen), lam(doorColor));
+      door.position.set(0, 0.1, -doorLen / 2);
+      door.castShadow = true;
+      pivot.add(door);
+      // Window strip on the door.
+      const win = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.3, doorLen * 0.8), lam(0x1d2630));
+      win.position.set(0, t.h * 0.5 + 0.12, -doorLen / 2 - 0.05);
+      if (t.cab) pivot.add(win);
+      g.add(pivot);
+      this.doors[side] = { pivot, angle: 0, target: 0, len: doorLen, closeT: 0 };
     }
     for (const sx of [-1, 1]) {
       const hl = new THREE.Mesh(lightGeo, headMat);
@@ -112,8 +119,12 @@ export class Vehicle {
     }
   }
 
-  openDoor(side) {
-    if (this.doors && !this.exploded) this.doors[side].target = side * 1.05;
+  // Swing a door open. With autoClose (seconds), it shuts again by itself.
+  openDoor(side, autoClose = 0) {
+    if (!this.doors || this.exploded) return;
+    const d = this.doors[side];
+    d.target = side * 1.05;
+    d.closeT = autoClose;
   }
 
   closeDoors() {
@@ -131,8 +142,8 @@ export class Vehicle {
       if (Math.abs(d.angle) < 0.4) continue;
       const hx = d.pivot.position.x;
       const hz = d.pivot.position.z;
-      const tx = hx - Math.sin(d.angle) * 1.15;
-      const tz = hz - Math.cos(d.angle) * 1.15;
+      const tx = hx - Math.sin(d.angle) * d.len;
+      const tz = hz - Math.cos(d.angle) * d.len;
       const [ax, az] = toWorld(hx, hz);
       const [bx, bz] = toWorld(tx, tz);
       out.push({ minX: Math.min(ax, bx) - 0.06, maxX: Math.max(ax, bx) + 0.06, minZ: Math.min(az, bz) - 0.06, maxZ: Math.max(az, bz) + 0.06, h: 1.4 });
@@ -233,6 +244,10 @@ export class Vehicle {
     }
     if (this.doors) {
       for (const d of Object.values(this.doors)) {
+        if (d.closeT > 0) {
+          d.closeT -= dt;
+          if (d.closeT <= 0) d.target = 0;
+        }
         d.angle += (d.target - d.angle) * Math.min(1, dt * 6);
         d.pivot.rotation.y = d.angle;
       }
@@ -268,21 +283,27 @@ export function resolveCarCollisions(cars, onHit) {
           const d = Math.hypot(ddx, ddz);
           const min = A.radius + Bc.radius;
           if (d >= min || d < 1e-6) continue;
-          const push = (min - d) / 2;
+          // Measure the impact before anything slows down.
+          const rel = Math.abs(A.speed - Bc.speed);
+          // Parked roadblock cars are heavy: whatever hits them does most of the moving.
+          const wa = A.heavy && !Bc.heavy ? 0.1 : Bc.heavy && !A.heavy ? 0.9 : 0.5;
           const ux = ddx / d;
           const uz = ddz / d;
-          A.x -= ux * push;
-          A.z -= uz * push;
-          Bc.x += ux * push;
-          Bc.z += uz * push;
-          const rel = Math.abs(A.speed - Bc.speed);
+          A.x -= ux * (min - d) * wa;
+          A.z -= uz * (min - d) * wa;
+          Bc.x += ux * (min - d) * (1 - wa);
+          Bc.z += uz * (min - d) * (1 - wa);
+          if (A.heavy !== Bc.heavy) {
+            const mover = A.heavy ? Bc : A;
+            mover.speed *= 0.6;
+          }
           if (rel > 3 && onHit) onHit(A, Bc, rel);
           // Crash damage. Bumps between computer-driven cars are gentler so they don't
           // wreck each other on their own.
           const involvesPlayer = A.driver === 'player' || Bc.driver === 'player';
           const limit = involvesPlayer ? 10 : 16;
           if (rel > limit) {
-            const dmg = (rel - limit) * (involvesPlayer ? 1.5 : 0.8);
+            const dmg = (rel - limit) * (A.heavy || Bc.heavy ? 2.5 : involvesPlayer ? 1.5 : 0.8);
             A.damage(dmg, Bc.driver === 'player');
             Bc.damage(dmg, A.driver === 'player');
           }

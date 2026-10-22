@@ -129,6 +129,7 @@ export class Player {
   enter(vehicle) {
     this.vehicle = vehicle;
     vehicle.driver = 'player';
+    vehicle.openDoor(-1, 0.9);
     this.char.group.visible = false;
     this.game.crew?.playerEntered(vehicle);
   }
@@ -142,6 +143,7 @@ export class Player {
     this.z = v.z - fx * 1.9;
     this.heading = v.heading;
     v.driver = null;
+    v.openDoor(-1, 0.9);
     this.vehicle = null;
     this.speed = 0;
     this.char.group.visible = true;

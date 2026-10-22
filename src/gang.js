@@ -546,6 +546,7 @@ export class CrewMember extends GangFighter {
   }
 
   hideInCar(v) {
+    v.openDoor(1, 0.9);
     this.state = 'inCar';
     this.vehicle = v;
     this.char.group.visible = false;
@@ -562,6 +563,7 @@ export class CrewMember extends GangFighter {
     const r = pushCircle(this.x, this.z, 0.4, this.game.city.colliders);
     this.x = r.x;
     this.z = r.z;
+    v.openDoor(1, 0.9);
     this.vehicle = null;
     this.state = 'follow';
     this.char.group.visible = true;

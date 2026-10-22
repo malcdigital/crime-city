@@ -725,7 +725,7 @@ class Game {
       } else {
         d.active = false;
         const [fx, fz] = v.forward();
-        const ped = this.peds.addAt(v.x - fz * 2.2, v.z + fx * 2.2);
+        const ped = this.peds.addAt(v.x + fz * 2.8, v.z - fx * 2.8); // thrown out the driver door
         ped.scare(this.player.x, this.player.z);
         this.crime('carjack', v.x, v.z);
       }

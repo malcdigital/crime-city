@@ -4,6 +4,7 @@ import { makeCharacter, animateWalk, setDown, SKIN_TONES } from './character.js'
 import { pushCircle, segmentBlocked } from './collision.js';
 import { steerToward, throttleFor, StuckHelper } from './driving.js';
 import { dist, pick, rand, lerpAngle } from './util.js';
+import { streetAt } from './city.js';
 import { navStep } from './nav.js';
 import { findCover } from './gang.js';
 
@@ -56,8 +57,8 @@ export class Officer {
     this.z = c.z + fx * side * 1.8;
     this.state = 'chase';
     this.char.group.visible = true;
-    // Swing the door open on the way out.
-    if (this.game.lethal) c.openDoor(side);
+    // Swing the door open on the way out (it stays open in a gunfight).
+    c.openDoor(side, this.game.lethal ? 0 : 1.2);
   }
 
   knockDown(fromX, fromZ, fling = 0) {
@@ -102,6 +103,39 @@ export class Officer {
       if (this.t <= 0) {
         setDown(this.char, false);
         this.state = 'chase';
+      }
+    } else if (this.state === 'chase' && this.unit.roadblock && game.stars > 0 && !this.unit.leaving && game.wastedT <= 0) {
+      // Manning a roadblock.
+      const d = dist(this.x, this.z, px, pz);
+      const pv = game.player.vehicle;
+      if (game.lethal && d < 55) {
+        const r = this.combat(dt, px, pz);
+        tx = r.tx;
+        tz = r.tz;
+        speed = r.speed;
+        face = r.face;
+      } else if (d < (pv ? 6 : 30)) {
+        // You stopped at (or got out by) the roadblock: they come for you.
+        tx = px;
+        tz = pz;
+        speed = CFG.OFFICER_SPEED;
+        if (d < (pv ? 2.8 : 1.4) && (!pv || Math.abs(pv.speed) < 2)) {
+          speed = 0;
+          game.arrestPressure(dt);
+        }
+      } else {
+        // Wait behind the cruiser, watching the road.
+        this.recheckT -= dt;
+        if (this.recheckT <= 0 || !this.spot) {
+          this.recheckT = 1;
+          this.spot = this.carCover(this.unit.car, { x: px, z: pz });
+        }
+        if (this.spot && dist(this.x, this.z, this.spot.x, this.spot.z) > 0.6) {
+          tx = this.spot.x;
+          tz = this.spot.z;
+          speed = 3.5;
+        }
+        face = Math.atan2(px - this.x, pz - this.z);
       }
     } else if (this.state === 'chase') {
       const d = dist(this.x, this.z, px, pz);
@@ -474,6 +508,59 @@ export class PoliceManager {
     return true;
   }
 
+  // Park two cruisers across the road ahead of where you're driving.
+  trySpawnRoadblock() {
+    const game = this.game;
+    const v = game.player.vehicle;
+    if (!v) return false;
+    const [fx, fz] = v.forward();
+    const sgn = v.speed >= 0 ? 1 : -1;
+    let best = null;
+    let bestScore = Infinity;
+    for (const n of game.city.nodes) {
+      const dx = n.x - v.x;
+      const dz = n.z - v.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 110 || d > 220) continue;
+      const cos = ((dx * fx + dz * fz) * sgn) / d;
+      if (cos < 0.9) continue;
+      const score = Math.abs(d - 150) - cos * 20;
+      if (score < bestScore) {
+        bestScore = score;
+        best = n;
+      }
+    }
+    if (!best) return false;
+    // Block the road you'll arrive on, just before the intersection.
+    const dx = best.x - v.x;
+    const dz = best.z - v.z;
+    const alongX = Math.abs(dx) > Math.abs(dz);
+    const ax = alongX ? Math.sign(dx) : 0;
+    const az = alongX ? 0 : Math.sign(dz);
+    if (!best.nb.some((m) => Math.sign(m.x - best.x) === -ax && Math.sign(m.z - best.z) === -az)) return false;
+    const cx = best.x - ax * 14;
+    const cz = best.z - az * 14;
+    if (game.vehicles.some((o) => !o.removed && dist(o.x, o.z, cx, cz) < 7)) return false;
+    // Cars point across the road, side by side.
+    const lx = alongX ? 0 : 1;
+    const lz = alongX ? 1 : 0;
+    const heading = alongX ? 0 : Math.PI / 2;
+    for (const off of [-2.5, 2.5]) {
+      const u = new PoliceUnit(game, cx + lx * off, cz + lz * off, heading + (off > 0 ? Math.PI : 0));
+      u.roadblock = true;
+      u.car.heavy = true;
+      u.car.speed = 0;
+      this.units.push(u);
+      game.vehicles.push(u.car);
+      // Officers get out on the side away from you.
+      const [cfx, cfz] = u.car.forward();
+      const side = -cfz * ax + cfx * az > 0 ? 1 : -1;
+      for (const o of u.officers) o.dismount(side);
+    }
+    game.hud.news(`Police roadblock on ${streetAt(cx, cz)}`);
+    return true;
+  }
+
   // Wanted level cleared: units drive off and despawn.
   standDown() {
     for (const u of this.units) u.leaving = true;
@@ -487,7 +574,23 @@ export class PoliceManager {
   update(dt) {
     const game = this.game;
     const want = CFG.UNITS_PER_STAR[game.stars];
-    const active = this.units.filter((u) => !u.leaving && !u.carLost && !u.allDead);
+    const active = this.units.filter((u) => !u.leaving && !u.carLost && !u.allDead && !u.roadblock);
+    // Roadblocks when you're fleeing by car at 2+ stars.
+    this.blockT = (this.blockT ?? 8) - dt;
+    const pv = game.player.vehicle;
+    const blocks = this.units.filter((u) => u.roadblock).length / 2;
+    if (game.stars >= 2 && pv && Math.abs(pv.speed) > 6 && this.blockT <= 0 && blocks < (game.stars >= 4 ? 2 : 1) && game.wastedT <= 0) {
+      this.blockT = this.trySpawnRoadblock() ? 20 : 3;
+    }
+    // Once you're well past (or clear of the law), the roadblock packs up and joins the chase.
+    for (const u of this.units) {
+      if (!u.roadblock) continue;
+      const [ppx, ppz] = game.player.pos();
+      if (game.stars === 0 || dist(u.car.x, u.car.z, ppx, ppz) > 170) {
+        u.roadblock = false;
+        u.car.heavy = false;
+      }
+    }
     // Dispatch: a short delay after the first call, then one unit every few seconds.
     if (want === 0) this.spawnT = 3;
     this.spawnT -= dt;
