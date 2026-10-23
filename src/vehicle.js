@@ -202,13 +202,29 @@ export class Vehicle {
   // Health is 0-100; tougher vehicles (armor) take less from each hit.
   damage(amount, byPlayer) {
     if (this.wrecked) return;
-    this.health -= amount / (this.type.armor || 1);
+    const armorMod = [1, 0.7, 0.45, 0.25][this.mods ? this.mods.armor : 0]; // mod garage armor
+    this.health -= (amount / (this.type.armor || 1)) * armorMod;
     if (byPlayer) this.byPlayer = true;
     if (this.health <= 0) {
       this.health = 0;
       this.wrecked = true;
       this.burnT = 7; // on fire: time to get out before it blows
     }
+  }
+
+  // Brake strength, with mod garage brake upgrades.
+  brakePow() {
+    return this.type.brake * (1 + 0.15 * (this.mods ? this.mods.brakes : 0));
+  }
+
+  // New paint: swap the body color (body panels and doors share one material per color).
+  repaint(color) {
+    const from = lam(this.color);
+    const to = lam(color);
+    this.group.traverse((m) => {
+      if (m.isMesh && m.material === from) m.material = to;
+    });
+    this.color = color;
   }
 
   burnOut() {
@@ -252,13 +268,14 @@ export class Vehicle {
     const thr = ctrl.throttle || 0;
     // Flat tires: lower top speed and acceleration.
     const flats = this.flatCount;
-    const maxS = t.max * (1 - 0.18 * flats);
-    const accel = t.accel * (1 - 0.15 * flats);
+    const eng = this.mods ? this.mods.engine : 0; // mod garage engine level
+    const maxS = t.max * (1 - 0.18 * flats) * (1 + 0.07 * eng);
+    const accel = t.accel * (1 - 0.15 * flats) * (1 + 0.12 * eng);
     if (thr > 0) {
-      if (s < -0.5) s += t.brake * dt * thr;
+      if (s < -0.5) s += this.brakePow() * dt * thr;
       else s += accel * thr * dt * Math.max(0, 1 - s / maxS);
     } else if (thr < 0) {
-      if (s > 0.5) s -= t.brake * dt * -thr;
+      if (s > 0.5) s -= this.brakePow() * dt * -thr;
       else s = Math.max(-t.rev, s - t.accel * 0.6 * dt * -thr);
     } else {
       s -= Math.sign(s) * Math.min(Math.abs(s), 2.5 * dt);
@@ -378,7 +395,7 @@ export class Vehicle {
       const Fzr = (m * g * a) / L - transfer;
       // Front: brakes, then whatever grip is left corners.
       const fMax = muF * Fzf;
-      const brakeDecel = Math.min(t.brake, 12.5); // ~1.3 g at most, like real brakes on sticky tires
+      const brakeDecel = Math.min(this.brakePow(), 12.5 * (1 + 0.15 * (this.mods ? this.mods.brakes : 0))); // ~1.3 g at most, like real brakes on sticky tires
       const Fxf = Math.max(-fMax * 0.95, -brakeAmt * m * brakeDecel * 0.6);
       const fyf = Math.sqrt(Math.max(0, fMax * fMax - Fxf * Fxf));
       const af = Math.atan2(this.vy + a * this.r, vx) - delta;
@@ -388,7 +405,7 @@ export class Vehicle {
       // Traction control keeps drive force within what the rears can take while cornering;
       // in a drift you're deliberately spinning them.
       const tc = rMax * (driftWanted ? 0.7 : 0.55 + 0.35 * (1 - Math.abs(steer)));
-      let Fxr = Math.min(gasAmt * m * accel * Math.max(0, 1 - this.vx / maxS), tc) - brakeAmt * m * Math.min(t.brake, 12.5) * 0.4 - hb * 0.3 * rMax; // handbrake: slows the rear, no slide
+      let Fxr = Math.min(gasAmt * m * accel * Math.max(0, 1 - this.vx / maxS), tc) - brakeAmt * m * Math.min(this.brakePow(), 12.5 * (1 + 0.15 * (this.mods ? this.mods.brakes : 0))) * 0.4 - hb * 0.3 * rMax; // handbrake: slows the rear, no slide
       Fxr = clamp(Fxr, -rMax, rMax);
       const fyr = Math.sqrt(Math.max(0, rMax * rMax - Fxr * Fxr));
       const ar = Math.atan2(this.vy - b * this.r, vx);

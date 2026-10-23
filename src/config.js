@@ -6,6 +6,8 @@ const ROAD = 14;
 export const CFG = {
   // Testing switch: guns never run out of ammo. Set to false for normal play.
   INFINITE_AMMO: true,
+  // Testing switch: start with every gun. Off: fists and a pistol; buy the rest at the gun shop.
+  START_ALL_GUNS: false,
   // Testing switches: start in a car, and V / R3 spawns a car next to you.
   START_IN_CAR: true,
   CAR_SPAWN_KEY: true,

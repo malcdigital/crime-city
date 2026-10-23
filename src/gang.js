@@ -122,12 +122,7 @@ export class GangFighter {
     this.removed = false;
     this.speedNow = 0;
     // Their gun, in the right hand.
-    this.weapon = pickGun();
-    const [w, h, l] = this.weapon.size;
-    const gun = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), lam(this.weapon.color));
-    gun.position.set(0, -0.64, 0);
-    gun.rotation.x = Math.PI / 2;
-    this.char.armR.add(gun);
+    this.setWeapon(pickGun());
   }
 
   get standing() {
@@ -150,9 +145,21 @@ export class GangFighter {
     return this.state;
   }
 
+  // Swap the gun they carry (and the one in their hand).
+  setWeapon(g) {
+    this.weapon = g;
+    if (this.gunMesh) this.gunMesh.parent?.remove(this.gunMesh);
+    const [w, h, l] = g.size;
+    const gun = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), lam(g.color));
+    gun.position.set(0, -0.64, 0);
+    gun.rotation.x = Math.PI / 2;
+    this.char.armR.add(gun);
+    this.gunMesh = gun;
+  }
+
   takeHit(dmg) {
     if (!this.alive || this.state === 'inCar') return false;
-    this.health -= dmg;
+    this.health -= dmg * (this.dmgK || 1); // crew vests
     this.onHurt();
     if (this.health <= 0) {
       this.health = 0;

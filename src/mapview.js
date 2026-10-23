@@ -261,6 +261,7 @@ export class MapView {
     blip(city.gangHome.x, city.gangHome.z, '#8e24aa', 'K');
     blip(city.crewHome.x, city.crewHome.z, '#2e7d32', 'G');
     for (const [x, z, col, txt] of game.turfWars.claimMarks()) blip(x, z, col, txt, 9);
+    for (const [x, z, col, txt] of game.shops.blips()) blip(x, z, col, txt);
     const tc = game.testCar;
     if (tc && !tc.removed && !tc.exploded && game.player.vehicle !== tc) blip(tc.x, tc.z, '#1e88e5', 'V', 9);
     for (const m of game.crew.following) if (m.alive && m.state !== 'inCar') dot(m.x, m.z, 4, '#7ee081');

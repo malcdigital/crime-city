@@ -197,6 +197,10 @@ export class Input {
     a.pause = this.hit('KeyP') || this.btnHit(PAD.OPTIONS);
     a.phone = this.hit('KeyT') || this.btnHit(PAD.RIGHT) || this.btnHit(PAD.CREATE);
     a.start = this.btnHit(PAD.CROSS) || this.btnHit(PAD.OPTIONS);
+    a.menuUp = this.hit('ArrowUp') || this.hit('KeyW') || this.btnHit(PAD.UP);
+    a.menuDown = this.hit('ArrowDown') || this.hit('KeyS') || this.btnHit(PAD.DOWN);
+    a.menuOk = this.hit('Enter') || this.hit('Space') || this.hit('KeyE') || this.btnHit(PAD.CROSS);
+    a.menuBack = this.hit('Escape') || this.hit('Backspace') || this.btnHit(PAD.CIRCLE) || this.btnHit(PAD.OPTIONS);
     a.map = this.hit('KeyM') || this.btnHit(PAD.TOUCHPAD);
     a.mapWaypoint = this.hit('Enter') || this.hit('Space') || this.btnHit(PAD.CROSS);
     a.playClip = this.hit('Enter') || this.btnHit(PAD.CROSS);

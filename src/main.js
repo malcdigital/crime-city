@@ -17,6 +17,7 @@ import { Arsenal, WEAPONS, SLOTS, KEY_SLOTS, raycast, rayBox } from './weapons.j
 import { lam } from './character.js';
 import { segmentBlocked } from './collision.js';
 import { MapView } from './mapview.js';
+import { Shops } from './shops.js';
 import { gpsRoute, GpsLine } from './gps.js';
 import { clamp, dist, lerp, lerpAngle, rand, randInt, wrapAngle } from './util.js';
 
@@ -110,6 +111,8 @@ class Game {
     this.gang = new GangManager(this);
     this.crew = new CrewManager(this);
     this.turfWars = new TurfManager(this);
+    this.armor = 0;
+    this.shops = new Shops(this);
 
     addEventListener('resize', () => this.resize());
     this.resize();
@@ -130,6 +133,13 @@ class Game {
     if (CFG.START_IN_CAR && !this.player.vehicle) {
       this.testCar = this.vehicles[0];
       this.player.enter(this.testCar);
+    }
+    // Own a safehouse? You wake up there.
+    const home = this.shops.respawnPoint();
+    if (home && !this.player.vehicle) {
+      this.player.x = home.x;
+      this.player.z = home.z + 3;
+      this.player.sync?.();
     }
     this.hud.news('Welcome to Crime City. Stay out of trouble.', 'info');
     this.sfx.unlock();
@@ -169,6 +179,7 @@ class Game {
   save() {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({ cash: this.cash, cred: this.cred }));
+      this.shops?.save();
     } catch {
       // Ignore storage errors.
     }
@@ -288,7 +299,7 @@ class Game {
 
   afterBust() {
     this.hud.busted(false);
-    this.respawnAt(this.city.station);
+    this.respawnAt(this.shops.respawnPoint() || this.city.station);
   }
 
   wasted() {
@@ -297,6 +308,7 @@ class Game {
     if (this.stars > 0) this.endStory(`Suspect killed in shootout with police on ${streetAt(x, z)}`, x, z, 'crime', true);
     else if (!this.endStory(`Suspect shot dead on ${streetAt(x, z)}`, x, z)) this.hud.news(`Shooting victim rushed to Harbor General from ${districtAt(x, z)}`, 'info');
     this.health = 0;
+    this.armor = 0;
     const bill = Math.min(this.cash, 500);
     this.cash -= bill;
     this.hud.wasted(true, `Hospital bill $${bill.toLocaleString('en-US')}`);
@@ -313,7 +325,7 @@ class Game {
     this.player.setDown(false);
     this.health = 100;
     this.gang.calm();
-    this.respawnAt(this.city.hospital);
+    this.respawnAt(this.shops.respawnPoint() || this.city.hospital);
   }
 
   respawnAt(place) {
@@ -711,6 +723,12 @@ class Game {
     if (v) {
       v.damage(dmg * 0.7, false);
       dmg *= 0.35;
+    }
+    // Body armor soaks up 70% of each hit until it's worn through.
+    if (this.armor > 0) {
+      const soak = Math.min(this.armor, dmg * 0.7);
+      this.armor -= soak;
+      dmg -= soak;
     }
     this.health -= dmg;
     this.lastHurt = this.time;
@@ -1200,6 +1218,7 @@ class Game {
         this.prompt = `Your car is on fire! Press ${input.label('enter')} to get out`;
         return;
       }
+      if (this.shops.interact(a, dt)) return;
       const chop = city.chop;
       if (dist(v.x, v.z, chop.x, chop.z) < chop.r) {
         if (this.stars > 0) this.prompt = 'Lose the cops before the chop shop will take this car';
@@ -1265,6 +1284,8 @@ class Game {
         this.robbing = null;
         this.prompt = `Hold ${input.label('interact')} to rob ${store.name}`;
       }
+    } else if (this.shops.interact(a, dt)) {
+      this.robbing = null;
     } else if (this.crewInteraction(a)) {
       this.robbing = null;
     } else if (this.turfWars.interact(a, dt)) {
@@ -1408,6 +1429,9 @@ class Game {
           ? 'This page blocks controllers. Run the game locally (npm run dev) to use a PS5 controller.'
           : 'Plug in or pair a PS5 controller and press any button, then ✕ to play.';
       if (a.start) this.start();
+    } else if (this.shops.menu) {
+      // Shop menu: the game is paused underneath.
+      this.shops.updateMenu(a);
     } else if (this.mapView.open) {
       // Full map: the game is paused underneath.
       if (a.map || a.closeClip || a.pause) this.mapView.hide();
@@ -1547,6 +1571,7 @@ class Game {
     this.gang.update(dt);
     this.crew.update(dt);
     this.turfWars.update(dt);
+    this.shops.update(dt);
     for (const v of this.vehicles) {
       if (v.driver === null && !v.removed) {
         // A car you bailed out of keeps rolling until it slows down on its own.

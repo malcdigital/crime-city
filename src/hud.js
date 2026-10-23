@@ -88,6 +88,11 @@ export class Hud {
       bar.style.width = `${hp}%`;
       bar.style.background = hp > 50 ? '#4cd964' : hp > 25 ? '#ffcc00' : '#ff3b30';
     }
+    const ap = Math.max(0, Math.round(game.armor || 0));
+    if (this.last.ap !== ap) {
+      this.last.ap = ap;
+      $('armor-bar').style.width = `${ap}%`;
+    }
     $('crosshair').classList.toggle('hidden', !game.showCrosshair);
     $('crosshair').classList.toggle('locked', !!game.lockTarget);
     this.hitT = Math.max(0, this.hitT - dt);
@@ -411,6 +416,7 @@ export class Hud {
     blip(city.gangHome.x, city.gangHome.z, '#8e24aa', 'K');
     blip(city.crewHome.x, city.crewHome.z, '#2e7d32', 'G');
     for (const [x, z, col, txt] of game.turfWars.claimMarks()) blip(x, z, col, txt);
+    for (const [x, z, col, txt] of game.shops.blips()) blip(x, z, col, txt);
     const wp = game.mapView.waypoint;
     if (wp) blip(wp[0], wp[1], '#e0b000', 'W');
     const tc = game.testCar;

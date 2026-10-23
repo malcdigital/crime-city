@@ -55,6 +55,11 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - Your crew: recruit up to 3 homies at the park hangout (G on the radar); they follow you, ride in your car and fight with the same personality system
 - Police open fire at 3+ stars or once you shoot at them, taking cover behind their open car doors, the far side of the cruiser or the hood depending on where you are; a few flank
 - Health, damage, "wasted" and hospital respawn
+- Turf income (src/shops.js): every block Green Street holds pays $150 per 10 minutes of play (home block pays double; 2 min with `CFG.TURF_FAST`) into a stash on the bench at the hangout ($ on the radar). Walk up and press E to grab it. Two payouts sitting there brings a warning; the third gets the stash hit by the biggest rival gang (they take half)
+- Gun shop, Iron Mike's Guns (A on the radar): body armor ($500), ammo, SMG / Pump Shotgun / Assault Rifle, and crew gear (SMGs & shotguns, then rifles for every homie; vests so they take 40% less damage). Won't serve you with stars. You start with fists and a pistol (`CFG.START_ALL_GUNS` gives everything for testing); what you buy is saved
+- Body armor: a blue bar next to health that soaks up 70% of each hit until it's worn through
+- Mod garage, Lou's Mod Garage (M on the radar): stop the car in the ring and press E. Repair, engine / brakes / armor in three levels each, and respray (with stars: drops one; at 1 star the cops lose you). Mods stay on that car
+- Safehouse (S on the radar): $5,000. You respawn there after being wasted or busted, start there, and can rest to heal and save
 - Cars take damage, catch fire and explode; ammo drops from downed enemies
 
 ## Controls
@@ -100,6 +105,10 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | `src/nav.js` | On-foot navigation: steering around buildings, getting unstuck, following streets |
 | `src/effects.js` | Muzzle flashes, tracers, smoke, fire, explosions |
 | `src/audio.js` | Synthesized sound effects |
+| `src/shops.js` | Turf income stash, gun shop, mod garage, safehouse, crew gear, shop menus |
+| `src/claim.js` | Earning unclaimed blocks: tags, shakedowns, the rival response |
+| `src/mapview.js` | Full-screen map |
+| `src/gps.js` | GPS routes on the street grid and the 3D route line |
 | `src/config.js` | Tuning values, crimes and the cred ladder |
 
 ## Next steps
