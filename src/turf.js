@@ -102,6 +102,16 @@ export class Soldier extends GangFighter {
   }
 
   update(dt) {
+    if (this.boarding) {
+      // Running to the gang car to jump in.
+      const c = this.boarding.car;
+      if (dist(this.x, this.z, c.x, c.z) < 2.6) this.boarding.board(this);
+      else this.move(dt, c.x, c.z, 6, null);
+      this.char.armR.rotation.x = -0.3;
+      this.animate(dt);
+      this.place();
+      return;
+    }
     if (this.state === 'inCar') {
       // Riding to a fight: just keep up with the car.
       if (this.ride) {
@@ -320,12 +330,15 @@ class War {
 // A gang car taking a crew to a fight: drives the street grid, pulls up near the block, and
 // everyone piles out.
 class GangRide {
-  constructor(mgr, car, riders, block) {
+  constructor(mgr, car, riders, block, mode = 'war') {
     this.mgr = mgr;
     this.game = mgr.game;
     this.car = car;
     this.riders = riders;
     this.block = block;
+    this.mode = mode; // 'war' (to a block), 'chase' (after you), 'home' (heading back)
+    this.boardingT = 0;
+    this.fireT = 1;
     this.stuck = new StuckHelper();
     this.to = null;
     this.from = null;
@@ -333,17 +346,30 @@ class GangRide {
     this.keep = true;
     this.t = 0;
     car.driver = this;
+    // Everyone runs to the car and climbs in.
     for (const r of riders) {
-      r.state = 'inCar';
-      r.ride = this;
-      r.char.group.visible = false;
+      if (r.state === 'fight') r.endFight();
+      r.boarding = this;
     }
+  }
+
+  board(r) {
+    r.boarding = null;
+    r.state = 'inCar';
+    r.ride = this;
+    r.char.group.visible = false;
+    this.car.openDoor(this.riders.indexOf(r) % 2 ? 1 : -1, 0.8);
+  }
+
+  get boarded() {
+    return this.riders.every((r) => r.state === 'inCar' || !r.alive);
   }
 
   dismount() {
     const c = this.car;
     const [fx, fz] = c.forward();
     this.riders.forEach((r, i) => {
+      if (r.boarding === this) r.boarding = null;
       if (!r.alive || r.state !== 'inCar') return;
       const side = i % 2 ? 1 : -1;
       const p = pushCircle(c.x - fz * side * 1.9 - fx * (i > 1 ? 1.6 : 0), c.z + fx * side * 1.9 - fz * (i > 1 ? 1.6 : 0), 0.4, this.game.city.colliders);
@@ -356,6 +382,13 @@ class GangRide {
     });
     if (c.driver === this) c.driver = null;
     this.done = true;
+    const game = this.game;
+    if (this.mode === 'chase') {
+      // Out of the car and still after you.
+      for (const r of this.riders) if (r.alive) r.aggroUntil = game.time + 45;
+    } else if (this.mode === 'home') {
+      for (const r of this.riders) if (r.alive) this.mgr.sendHome(r);
+    }
   }
 
   update(dt) {
@@ -363,7 +396,17 @@ class GangRide {
     const c = this.car;
     const game = this.game;
     this.t += dt;
-    if (c.removed || c.wrecked || c.driver !== this || this.t > 120) return this.dismount();
+    if (c.removed || c.wrecked || c.driver !== this) return this.dismount();
+    if (!this.boarded) {
+      // Waiting for everyone to get in (anyone who takes too long is left behind).
+      this.boardingT += dt;
+      if (this.boardingT > 6) this.riders = this.riders.filter((r) => r.state === 'inCar' || (r.boarding = null));
+      if (!this.riders.length) return this.dismount();
+      c.update(dt, { throttle: 0, steer: 0, handbrake: true }, game.city.colliders);
+      return;
+    }
+    if (this.mode === 'chase') return this.chase(dt);
+    if (this.t > 120) return this.dismount();
     // Wedged in somewhere: everyone out, go on foot.
     this.stillT = Math.abs(c.speed) < 0.5 && this.t > 3 ? (this.stillT || 0) + dt : 0;
     if (this.stillT > 6) return this.dismount();
@@ -407,6 +450,61 @@ class GangRide {
     this.stuck.apply(dt, c, want, ctrl);
     c.update(dt, ctrl, game.city.colliders);
     if (want === 0 && d < 40 && Math.abs(c.speed) < 1) this.dismount();
+  }
+
+  // Chasing you: follow the streets toward you, drive straight at you when close, and shoot
+  // out the windows. If you stop or get out, they pull up and pile out. They give up after a
+  // while or once they've lost you, and drive home.
+  chase(dt) {
+    const c = this.car;
+    const game = this.game;
+    const [px, pz] = game.player.pos();
+    const pv = game.player.vehicle;
+    const d = dist(c.x, c.z, px, pz);
+    const see = d < 70 && !segmentBlocked(c.x, c.z, px, pz, game.city.los);
+    this.lostT = see || d < 120 ? 0 : (this.lostT || 0) + dt;
+    if (this.t > 90 || this.lostT > 12 || game.wastedT > 0) {
+      // Give up: head back to the home base.
+      const home = this.mgr.homeBlock(this.car.stolenFrom || this.riders[0]?.gangId) || this.block;
+      this.mode = 'home';
+      this.block = home;
+      this.t = 0;
+      this.to = null;
+      return;
+    }
+    let tx, tz, want;
+    if (see) {
+      const [vx, vz] = game.player.velocity();
+      tx = px + vx * 0.5;
+      tz = pz + vz * 0.5;
+      want = Math.min(26, 8 + d * 0.8 + Math.hypot(vx, vz));
+      this.to = null;
+    } else {
+      const city = game.city;
+      if (!this.to) this.to = city.nearestNode(c.x, c.z);
+      if (dist(c.x, c.z, this.to.x, this.to.z) < 10) {
+        const opts = this.to.nb.filter((nb) => nb !== this.from).sort((p, q) => dist(p.x, p.z, px, pz) - dist(q.x, q.z, px, pz));
+        this.from = this.to;
+        this.to = opts[0] || this.from;
+      }
+      tx = this.to.x;
+      tz = this.to.z;
+      want = dist(c.x, c.z, tx, tz) < 22 ? 12 : 24;
+    }
+    // You stopped (or you're on foot nearby): pull up and get out.
+    const stopped = (!pv && d < 22) || (pv && Math.abs(pv.speed) < 2 && d < 14);
+    if (stopped) want = 0;
+    const ctrl = { throttle: throttleFor(c, want), steer: steerToward(c, tx, tz), handbrake: want === 0 };
+    this.stuck.apply(dt, c, want, ctrl);
+    c.update(dt, ctrl, game.city.colliders);
+    if (stopped && Math.abs(c.speed) < 1.5) return this.dismount();
+    // Drive-by: the passengers shoot at you out the windows.
+    this.fireT -= dt;
+    if (see && d < 40 && this.fireT <= 0 && this.riders.length > 1) {
+      this.fireT = rand(0.35, 0.7);
+      const h = Math.atan2(px - c.x, pz - c.z);
+      game.npcShoot({ x: c.x, z: c.z, heading: h, muzzleY: game.city.groundY(c.x, c.z) + 1.3, crouched: false }, 6, 'smg', 0.55);
+    }
   }
 }
 
@@ -510,7 +608,7 @@ export class TurfManager {
 
   // Gang members free to be sent to a fight.
   available(g) {
-    return this.soldiers.filter((s) => s.gangId === g && s.alive && s.standing && !s.war && s.behavior !== 'leave' && s.state !== 'fight');
+    return this.soldiers.filter((s) => s.gangId === g && s.alive && s.standing && !s.war && !s.boarding && s.behavior !== 'leave' && s.state !== 'fight');
   }
 
   // Members far from the fight pile into nearby gang cars (up to four a car) and drive over.
@@ -528,6 +626,23 @@ export class TurfManager {
       for (const m of riders) left.splice(left.indexOf(m), 1);
       this.rides.push(new GangRide(this, car, riders, block));
     }
+  }
+
+  // You stole one of their cars: angry members near their other cars jump in and come after
+  // you (up to two carloads).
+  sendChase(g, stolen) {
+    const angry = this.soldiers.filter((s) => s.gangId === g && s.alive && s.standing && !s.war && s.aggroUntil > this.game.time && !s.boarding);
+    let rides = 0;
+    for (const car of this.cars) {
+      if (rides >= 2) break;
+      if (car === stolen || car.removed || car.wrecked || car.driver !== null || car.gangCar !== g) continue;
+      const crew = angry.filter((s) => !s.boarding && dist(s.x, s.z, car.x, car.z) < 30).slice(0, 3);
+      if (!crew.length) continue;
+      const ride = new GangRide(this, car, crew, null, 'chase');
+      this.rides.push(ride);
+      rides++;
+    }
+    if (rides) this.game.hud.news(`${GANGS[g].name} chasing a car thief through ${streetAt(stolen.x, stolen.z)}`, 'crime');
   }
 
   // The winners of a fight stay posted on the block they hold.
@@ -773,6 +888,7 @@ export class TurfManager {
     this.cars = this.cars.filter((c) => c !== v);
     v.stolenFrom = g;
     v.gangCar = null;
+    this.sendChase(g, v);
     const near = this.soldiers.filter((s) => s.gangId === g && s.alive && dist(s.x, s.z, v.x, v.z) < 90).length;
     const an = /^[AEIOU]/i.test(GANGS[g].name) ? 'an' : 'a';
     game.hud.toast(near ? `You stole ${an} ${GANGS[g].name} car — ${near} of them are coming for you` : `You stole ${an} ${GANGS[g].name} car`, '#ff8080');

@@ -423,6 +423,19 @@ export class Hud {
       ctx.arc(ux, uy, u.kind === 'swat' ? 4.5 : 3.5, 0, Math.PI * 2);
       ctx.fill();
     }
+    // Gang cars chasing you, in the gang's color.
+    for (const r of game.turfWars.rides) {
+      if (r.mode !== 'chase' || r.done) continue;
+      const g = r.riders[0] && GANGS[r.riders[0].gangId];
+      const [cx, cy] = rim(project(r.car.x, r.car.z), 4);
+      ctx.fillStyle = g ? g.color : '#fff';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
     // Police helicopter: a flashing diamond.
     const heli = game.police.heli;
     if (heli && !heli.removed) {
