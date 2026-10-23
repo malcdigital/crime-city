@@ -194,7 +194,7 @@ export class Ped {
       const dThreat = dist(this.x, this.z, ...this.threat);
       [tx, tz] = this.fleeGoal;
       // Sprint while close, ease into a jog once well clear.
-      speed = dThreat > 40 ? 3 : 4.3;
+      speed = this.loot ? 6.6 : dThreat > 40 ? 3 : 4.3; // a thief with your stuff sprints
       // Reached the corner but still scared: keep going to the next one.
       if (dist(this.x, this.z, tx, tz) < 2 || this.navFails >= 2) {
         this.navFails = 0;
@@ -306,6 +306,16 @@ export class Ped {
 
   // What a civilian does once they've run far enough.
   afterFlee() {
+    // A thief (or a buyer who's done) gets off the street.
+    if (this.loot || this.served) {
+      const door = this.nearestDoor();
+      if (door) {
+        this.door = door;
+        this.state = 'leave';
+        this.navFails = 0;
+        return;
+      }
+    }
     const r = Math.random();
     if (r < 0.35) {
       this.state = 'call';

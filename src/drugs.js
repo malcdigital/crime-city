@@ -573,7 +573,7 @@ export class Drugs {
         return;
       }
     }
-    const peds = game.peds.peds.filter((p) => p.state === 'walk' && !p.shopkeeper && dist(p.x, p.z, px, pz) > 10 && dist(p.x, p.z, px, pz) < 45);
+    const peds = game.peds.peds.filter((p) => p.state === 'walk' && !p.shopkeeper && !p.served && !(p.askedT && game.time - p.askedT < 300) && dist(p.x, p.z, px, pz) > 10 && dist(p.x, p.z, px, pz) < 45);
     if (!peds.length) {
       this.custT = 8;
       return;
@@ -631,6 +631,7 @@ export class Drugs {
         c.ped.loot = { kind: c.kind, units: c.units };
         c.ped.state = 'walk';
         c.ped.scare(game.player.x, game.player.z);
+        c.ped.t = 14; // keeps running
         this.robbers = [...(this.robbers || []), { ped: c.ped, t: 30 }];
       }
       this.dropCustomer(true);
@@ -669,9 +670,21 @@ export class Drugs {
     const c = this.customer;
     this.customer = null;
     if (!c) return;
+    if (c.ped) c.ped.askedT = this.game.time; // they don't come straight back
     if (c.ped && c.ped.state === 'buyer') {
-      c.ped.resumeWalking();
-      c.ped.hurryT = 6;
+      const ped = c.ped;
+      ped.served = true;
+      // Got what they came for (or got turned down): walk off and get off the street.
+      const [px, pz] = this.game.player.pos();
+      const door = ped.nearestDoor();
+      if (door && dist(door[0], door[1], px, pz) > 4) {
+        ped.door = door;
+        ped.state = 'leave';
+        ped.navFails = 0;
+      } else {
+        ped.resumeWalking();
+        ped.hurryT = 10;
+      }
     }
     if (c.car && c.car.driver && c.car.driver.stopAt === c.stop) {
       c.car.driver.release(this.game);

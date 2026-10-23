@@ -79,18 +79,22 @@ export class TrafficDriver {
     }
     if (b && Math.abs(c.speed) < 1.5 && Math.abs(b.speed) < 1) this.jamT = (this.jamT || 0) + dt;
     else this.jamT = 0;
-    if (this.jamT > 1.2 && dn > 30) {
+    // Spot the stopped car early (while there's still room to pull out), or once stuck.
+    const s = this.stoppedAhead;
+    const early = s && s.fwd > 9;
+    if ((early || this.jamT > 1.2) && dn > 30) {
+      const blocker = early ? s.v : b;
       // Other lane clear for the next 30 m? (oncoming traffic, or anything parked there)
       const L = CFG.LANE;
       const clear = !game.vehicles.some((o) => {
-        if (o === c || o === b || o.removed) return false;
+        if (o === c || o === blocker || o.removed) return false;
         const fwd = (o.x - c.x) * ux + (o.z - c.z) * uz;
         const side = (o.x - c.x) * -uz + (o.z - c.z) * ux; // + is our lane's side
         return fwd > -4 && fwd < 32 && side < -L * 0.4 && side > -L * 3.2;
       });
       if (clear) {
         this.passing = true;
-        this.passCar = b;
+        this.passCar = blocker;
         this.passT = 6;
         this.jamT = 0;
         return;
@@ -109,14 +113,23 @@ export class TrafficDriver {
     const c = this.car;
     const [fx, fz] = c.forward();
     this.blockedBy = null;
+    this.stoppedAhead = null;
     let worst = desired;
     for (const o of game.vehicles) {
-      if (o === c || (this.passing && o === this.passCar)) continue;
+      if (o === c) continue;
       const ox = o.x - c.x;
       const oz = o.z - c.z;
-      if (Math.abs(ox) > 15 || Math.abs(oz) > 15) continue;
+      if (Math.abs(ox) > 26 || Math.abs(oz) > 26) continue;
       const fwd = ox * fx + oz * fz;
       const lat = Math.abs(ox * fz - oz * fx);
+      // A stopped car in our lane up ahead (so we can pull out early).
+      if (fwd > 0 && fwd < 25 && lat < 2.6 && Math.abs(o.speed) < 1 && (!this.stoppedAhead || fwd < this.stoppedAhead.fwd)) this.stoppedAhead = { v: o, fwd };
+      if (this.passing && o === this.passCar) {
+        // Going around it: keep clear of its back end until we're out beside it.
+        if (fwd > -5 && fwd < 15 && lat < 2.1) worst = Math.min(worst, fwd > 7.5 ? 5 : fwd > 5.6 ? 1.2 : 0);
+        continue;
+      }
+      if (Math.abs(ox) > 15 || Math.abs(oz) > 15) continue;
       if (fwd > 0 && fwd < 15 && lat < 2.6) {
         const v = Math.max(0, (fwd - 6.5) * 1.3);
         if (v < worst) {
@@ -156,7 +169,7 @@ export class TrafficDriver {
     const lx0 = this.from.x - uz * off;
     const lz0 = this.from.z + ux * off;
     const along = (c.x - lx0) * ux + (c.z - lz0) * uz;
-    const ahead = Math.min(L, along + 10);
+    const ahead = Math.min(L, along + (this.passing ? 7 : 10)); // pull out sharper when passing
     let tx = lx0 + ux * ahead;
     let tz = lz0 + uz * ahead;
     const dn = dist(c.x, c.z, this.to.x, this.to.z);
