@@ -355,7 +355,7 @@ export class Drugs {
           game.market.raided(r.product);
           // They were waiting for this: cars come in from every side right away.
           game.police.raid(p.x, p.z, r.product === 'coke' || r.kind === 'gang' ? 4 : 3);
-          game.startCinematic(p.x, p.b.minZ + 1.2, 'RAID', 3);
+          game.startCinematic(p.x, p.b.minZ + 1.2, 'RAID', 4.5);
           game.hud.toast('RAID! Grab the stuff and get out!', '#ff8080');
           game.storyEvent(null, p.x, p.z, `Police raid a drug spot on ${p.street}`);
         }
@@ -712,7 +712,7 @@ export class Drugs {
     game.crime('drugDeal', cop.x, cop.z);
     const [px, pz] = game.player.pos();
     game.police.raid(px, pz, 3);
-    game.startCinematic(px, pz, 'POLICE', 3);
+    game.startCinematic(px, pz, 'POLICE', 4.5);
     game.hud.toast('"Police! Hands where I can see em!"', '#ff8080');
     game.save();
   }
