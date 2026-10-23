@@ -270,6 +270,7 @@ export class Drugs {
       incident = r < raidW ? 'raid' : 'chase';
       if (kind === 'gang' && Math.random() < 0.35) incident = 'both';
     }
+    if (CFG.TEST_INCIDENT) incident = CFG.TEST_INCIDENT === 'clean' ? null : CFG.TEST_INCIDENT; // testing
     this.run = { plug: p.id, kind, product: p.product, amount, owe: Math.round(amount * this.unitCost(p.product)), stage: 'toPlug', incident, loadT: 0, chased: false };
     game.mapView.waypoint = [p.x, p.z];
     game.shops.close();
