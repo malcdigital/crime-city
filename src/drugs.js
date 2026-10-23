@@ -40,16 +40,63 @@ const PLUGS = [
 const CUSTOMER_GAP = [90, 70, 55, 45, 35, 25];
 const ROB_CHANCE = [0.18, 0.13, 0.09, 0.06, 0.04, 0.02];
 const TELLS = ['seems nervous', 'shoes are too clean', 'keeps looking over his shoulder', 'asks a lot of questions', 'fresh haircut, no tattoos'];
-// The plug's texts while you owe, colder the closer the deadline: [seconds left, message].
-// {owe} and {name} are filled in.
-const REMINDERS = [
-  [20 * 60, "Hope it's moving good. {owe} when you're ready. Don't make me wait."],
-  [10 * 60, '10 minutes. {owe}. I fronted you on trust.'],
-  [5 * 60, "5 minutes. I'm not asking twice. {owe}."],
-  [2 * 60, "2 minutes. You know what happens to people who play with my money."],
-  [60, "60 seconds. My people already know what you drive."],
-  [20, "Clock's out. Pray."],
-];
+// How each plug texts. Voices follow the research notes (reports/AAVE for game dialogue.md):
+// the grammar carries it (zero copula, ain't, done/been, negative concord), slang stays light,
+// product talk is coded, and threats are short and calm (a trailing period reads cold).
+// Smokey: laid back, lowercase. Doc: clipped and cold. Marco: older, plainer, full sentences.
+// Reminders go out as the deadline gets closer: keys are seconds left. {owe} {street} {old}.
+const VOICES = {
+  smokey: {
+    call: 'pull up on {street}. come by yourself',
+    1200: 'hope that gas moving. {owe} when u got it. dont have me chasing u',
+    600: '10 min. {owe}. i fronted u on trust',
+    300: 'its 5 now. i aint finna keep asking',
+    120: '2 min. u know how this go',
+    60: 'my people already know what u drive',
+    20: 'clock out.',
+    hit: 'u had ur chance. its {owe} now and the money aint even the problem no more',
+    squad: 'sent sum folks to come holla at u. {owe} make it stop',
+    paid: 'we good. pleasure',
+    paidHit: 'money good. i called em off. dont let it happen again',
+    takeover: '{old} gone. his book mine now. u owe me {owe}, same terms',
+  },
+  doc: {
+    call: '{street}. dont text me again til u outside',
+    1200: '{owe}. 30 min. dont be late.',
+    600: '10.',
+    300: '5 min. i dont do excuses.',
+    120: '?',
+    60: 'u really bout to play w me.',
+    20: 'ok.',
+    hit: 'its {owe} now. u already know the rest.',
+    squad: 'check ur mirrors.',
+    paid: 'received.',
+    paidHit: 'received. we done. for now.',
+    takeover: '{old} out the picture. i got his book. {owe}. same clock.',
+  },
+  marco: {
+    call: "Come see me on {street}. Don't bring nobody.",
+    1200: 'Hope everything moving smooth. {owe}. You got thirty.',
+    600: 'Ten minutes. I been patient with you.',
+    300: 'Five. I done told you how I run my business.',
+    120: 'Two minutes. Think real careful about your next move.',
+    60: "Last minute. After this it ain't about money.",
+    20: "It's done.",
+    hit: "Price went up. {owe}. And it ain't me you gotta worry about now.",
+    squad: 'Some people coming to see you. {owe} and they go home.',
+    paid: 'Good doing business with you.',
+    paidHit: "We square. Don't ever make me do that again.",
+    takeover: "{old} ain't with us no more. His book is mine. You owe {owe}, same terms.",
+  },
+};
+const REMINDER_MARKS = [1200, 600, 300, 120, 60, 20];
+// What buyers say. {n} = how many, {code} = what they call it. Experienced buyers talk in
+// code; an undercover cop sometimes gives himself away by naming it like a cop would.
+const CODE = { weed: ['gas', 'za', 'trees'], pills: ['beans', 'pills', 'pressies'], coke: ['white', 'snow', 'work'] };
+const ASKS = ['u still got sum? need {n}', 'lemme get {n} of that {code}', 'u holdin? tryna get {n}', 'need {n}. u good?', 'yo, {n} of the {code}. i got cash', 'aye lemme get {n} rn'];
+const DRIVER_ASKS = ['get in real quick. {n} of the {code}', 'u good? {n}, i got cash', 'u straight? need {n} of that {code}'];
+const COP_ASKS = ['Hey. Could I buy {n} {units} of {name}?', 'How much for {n} {units} of {name}, exactly?', 'Hi there. You selling {name}? I need {n} {units}.'];
+const DECLINE = ['aight then', 'damn ok', 'u trippin. ight', 'say less, im gone'];
 const money = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
 const fmt = (s) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, '0')}`;
 const amountText = (kind, n) => `${n} ${n === 1 ? PRODUCTS[kind].unit : PRODUCTS[kind].units} of ${PRODUCTS[kind].name.toLowerCase()}`;
@@ -89,6 +136,12 @@ export class Drugs {
     plug.ped = ped;
   }
 
+  // A plug's line, in their voice (a new plug in the same spot keeps the spot's voice).
+  say(p, key, vars = {}) {
+    const t = (VOICES[p.id] || VOICES.smokey)[key] || '';
+    return t.replace('{owe}', money(vars.owe || 0)).replace('{street}', p.street).replace('{old}', vars.old || '');
+  }
+
   // What a plug charges per unit right now (more when supply is short).
   unitCost(product) {
     return PRODUCTS[product].cost * (this.game.market ? this.game.market.costMult(product) : 1);
@@ -118,7 +171,7 @@ export class Drugs {
           this.spawnPlug(p);
           const d = this.debts.find((x) => x.plug === p.id);
           game.hud.news(`New ${p.product} connect setting up on ${p.street}`, 'info');
-          if (d) game.hud.text(p.name, `${old} gone. His book mine now. You owe me ${money(d.owe)}, same deal.`);
+          if (d) game.hud.text(p.name, this.say(p, 'takeover', { old, owe: d.owe }));
         }
       }
     }
@@ -208,7 +261,8 @@ export class Drugs {
     this.run = { plug: p.id, kind, product: p.product, amount, owe: Math.round(amount * this.unitCost(p.product)), stage: 'toPlug', incident, loadT: 0, chased: false };
     game.mapView.waypoint = [p.x, p.z];
     game.shops.close();
-    game.hud.toast(`${p.name}: "Pull up on ${p.street}."`, '#e0b000');
+    game.hud.text(p.name, this.say(p, 'call'));
+    game.hud.toast(`Pickup set: ${p.name} on ${p.street}`, '#e0b000');
   }
 
   cancelRun() {
@@ -223,7 +277,7 @@ export class Drugs {
     this.debts = this.debts.filter((x) => x !== d);
     for (const sq of this.squads) sq.called = true;
     game.hud.toast(`Paid ${p.name} ${money(d.owe)}. You're square.`);
-    game.hud.text(p.name, d.hit ? "Money's good. I called them off. Next time it won't be this easy." : 'We good. Pleasure doing business.');
+    game.hud.text(p.name, this.say(p, d.hit ? 'paidHit' : 'paid'));
   }
 
   // ---- Updates ----
@@ -356,17 +410,17 @@ export class Drugs {
       if (!d.hit) {
         d.left -= dt;
         // Texts from the plug, getting colder as time runs out.
-        for (const [mark, msg] of REMINDERS) {
+        for (const mark of REMINDER_MARKS) {
           if (d.left <= mark && (d.warned || 1e9) > mark) {
             d.warned = mark;
-            game.hud.text(p.name, msg.replace('{owe}', money(d.owe)));
+            game.hud.text(p.name, this.say(p, mark, { owe: d.owe }));
           }
         }
         if (d.left <= 0) {
           d.hit = true;
           d.owe = Math.round(d.owe * 1.5);
           d.nextHit = 5;
-          game.hud.text(p.name, `You had your chance. There's a price on your head now. ${money(d.owe)} and maybe I call them off.`);
+          game.hud.text(p.name, this.say(p, 'hit', { owe: d.owe }));
           game.hud.toast(`${p.name} put a hit out on you!`, '#ff8080');
           this.save();
         }
@@ -398,7 +452,7 @@ export class Drugs {
     T.rides.push(ride);
     this.squads.push({ plug: p.id, car, riders, called: false });
     game.hud.toast(`${p.name}'s shooters are coming for you`, '#ff8080');
-    game.hud.text(p.name, `Sent some friends to see you. Still ${money(this.debts.find((x) => x.plug === p.id)?.owe || 0)} to make it stop.`);
+    game.hud.text(p.name, this.say(p, 'squad', { owe: this.debts.find((x) => x.plug === p.id)?.owe || 0 }));
   }
 
   updateSquads() {
@@ -465,10 +519,10 @@ export class Drugs {
     c.wait += dt;
     const k = game.input.mode === 'pad';
     const tell = c.tell ? ` · ${c.tell}` : '';
-    this.prompt = `${c.ped ? 'Wants' : 'Driver wants'} ${amountText(c.kind, c.units)} · ${money(c.price)}${tell} — ${k ? '✕' : 'E'} sell · ${k ? '○' : 'Q'} no`;
+    this.prompt = `"${c.line}" — ${amountText(c.kind, c.units)} · ${money(c.price)}${tell} — ${k ? '✕' : 'E'} sell · ${k ? '○' : 'Q'} no`;
     if (a.dealYes) this.sell(c);
     else if (a.dealNo || c.wait > 10 || this.busy()) {
-      if (c.wait > 10) game.hud.toast('"Forget it then."');
+      game.hud.toast(`"${pick(DECLINE)}"`);
       this.dropCustomer(false);
     }
     // The buttons are for the deal right now.
@@ -534,6 +588,12 @@ export class Drugs {
     c.rob = !c.undercover && Math.random() < ROB_CHANCE[tier];
     // Sometimes you can read them.
     c.tell = (c.undercover ? Math.random() < 0.65 : Math.random() < 0.12) ? pick(TELLS) : '';
+    // What they say. An undercover cop sometimes talks like one (names it outright).
+    const fill = (t) => t.replace('{n}', c.units).replace('{code}', pick(CODE[c.kind])).replace('{units}', c.units === 1 ? P.unit : P.units).replace('{name}', P.name.toLowerCase());
+    if (c.undercover && Math.random() < 0.5) {
+      c.line = fill(pick(COP_ASKS));
+      c.tell = '';
+    } else c.line = fill(pick(c.ped ? ASKS : DRIVER_ASKS));
     c.offer = true;
   }
 

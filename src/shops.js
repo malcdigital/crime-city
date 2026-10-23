@@ -4,7 +4,7 @@ import { tierOf } from './claim.js';
 import { WEAPONS } from './weapons.js';
 import { GANG_GUNS } from './gang.js';
 import { GANGS } from './turf.js';
-import { dist } from './util.js';
+import { dist, pick } from './util.js';
 import { streetAt } from './city.js';
 
 // Money in and money out.
@@ -202,18 +202,17 @@ export class Shops {
       if (sold) {
         this.stash += sold;
         this.bag.visible = true;
-        game.hud.text(this.homie(), `Moved the product. Put ${money(sold)} in the stash.`);
+        game.hud.text(this.homie(), pick([`moved the work 💯 put ${money(sold)} in the stash`, `that pack gone. ${money(sold)} in the stash`, `we ran thru it. ${money(sold)} sittin in the stash`]));
       }
       const pay = this.payout();
       if (pay) {
         this.stash += pay;
         this.unpaid++;
         this.bag.visible = true;
-        const tier = CRED_TIERS[tierOf(game.cred)].name;
-        game.hud.text(this.homie(), `Blocks paid up: ${money(pay)} (${money(this.perBlock())} a block, ${tier}). ${money(this.stash)} in the stash at the hangout.`);
+        game.hud.text(this.homie(), pick([`blocks came thru 💯 ${money(pay)} this round (${money(this.perBlock())} a block). stash at ${money(this.stash)}`, `${money(pay)} came in off the blocks. stash sittin at ${money(this.stash)}, come grab it`, `yo the blocks paid. ${money(pay)}. stash at ${money(this.stash)} now`]));
         if (this.unpaid === RAID_AFTER - 1) {
           const r = this.raider();
-          if (r) game.hud.text(this.homie(), `Heads up, ${GANGS[r].name} been eyeing the stash. Come get the money.`);
+          if (r) game.hud.text(this.homie(), `aye ${GANGS[r].name} been circlin the spot all day. come get the bread before they try sum`);
         } else if (this.unpaid >= RAID_AFTER) this.raid();
       }
       this.save();

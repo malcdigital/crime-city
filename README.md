@@ -65,6 +65,8 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - Safehouse (S on the radar): $5,000. You respawn there after being wasted or busted, start there, and can rest to heal and save
 - Cars take damage, catch fire and explode; ammo drops from downed enemies
 
+- Dialogue voice: homies, plugs and street buyers talk in African American Vernacular English, written from research (kept outside the repo) — grammar over respelling, light slang, coded product talk, short calm threats; each plug has their own voice (Smokey laid back, Doc clipped and cold, Marco an older OG), homies text warm, buyers sound anxious, and undercover cops sometimes give themselves away by naming the drug like a cop would. Lines live in `VOICES` / `ASKS` in src/drugs.js and the homie texts in src/shops.js. No slurs and no real-gang vocabulary
+
 ## Controls
 
 | Action | Keyboard / mouse | PS5 controller |
