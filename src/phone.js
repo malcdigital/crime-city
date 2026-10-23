@@ -9,6 +9,7 @@ import { dist } from './util.js';
 // Apps: Contacts (plugs: set up pickups, pay back what you owe), City News (headlines and
 // helicopter footage), Missions (what you're doing now, and jobs you can go do).
 const APPS = [
+  { id: 'messages', name: 'Messages', icon: '✉', color: '#34c759' },
   { id: 'contacts', name: 'Contacts', icon: '☎', color: '#2ecc71' },
   { id: 'news', name: 'City News', icon: 'N', color: '#e63946' },
   { id: 'missions', name: 'Missions', icon: '★', color: '#f39c12' },
@@ -104,6 +105,11 @@ export class Phone {
       }));
     }
     if (this.app === 'missions') return this.missions();
+    if (this.app === 'messages') {
+      const t = game.hud.texts || [];
+      if (!t.length) return [{ label: 'No messages yet', right: '', detail: '' }];
+      return t.map((m) => ({ label: `${m.from}: ${m.msg}`, right: m.time, detail: m.msg }));
+    }
     return [];
   }
 
@@ -217,7 +223,8 @@ export class Phone {
     apps.forEach((el, i) => el.classList.toggle('sel', i === this.homeSel));
     // Badges: unread news, money owed, active jobs.
     const D = game.drugs;
-    const badge = [D.debts.length ? '!' : '', game.hud.unreadNews || '', D.run || game.turfWars.claim ? '1' : ''];
+    const badges = { messages: game.hud.unreadTexts || '', contacts: D.debts.length ? '!' : '', news: game.hud.unreadNews || '', missions: D.run || game.turfWars.claim ? '1' : '' };
+    const badge = APPS.map((x) => badges[x.id]);
     apps.forEach((el, i) => {
       const b = el.querySelector('.ph-badge');
       b.textContent = badge[i];
@@ -229,6 +236,7 @@ export class Phone {
       game.hud.unreadNews = 0;
       return;
     }
+    if (this.app === 'messages') game.hud.unreadTexts = 0;
     const rows = this.rows();
     this.rowSel = Math.min(this.rowSel, Math.max(0, rows.length - 1));
     body.innerHTML = rows.map((r, i) => `<div class="ph-row${i === this.rowSel ? ' sel' : ''}${r.off ? ' off' : ''}" data-i="${i}"><span>${esc(r.label)}</span><b>${esc(r.right || '')}</b></div>`).join('');

@@ -202,7 +202,7 @@ export class Shops {
       if (sold) {
         this.stash += sold;
         this.bag.visible = true;
-        game.hud.news(`Your homies moved product: ${money(sold)} into the stash`, 'good');
+        game.hud.text(this.homie(), `Moved the product. Put ${money(sold)} in the stash.`);
       }
       const pay = this.payout();
       if (pay) {
@@ -210,16 +210,22 @@ export class Shops {
         this.unpaid++;
         this.bag.visible = true;
         const tier = CRED_TIERS[tierOf(game.cred)].name;
-        game.hud.news(`Your turf paid out ${money(pay)} (${money(this.perBlock())} a block at ${tier}). Stash at the hangout: ${money(this.stash)}`, 'good');
+        game.hud.text(this.homie(), `Blocks paid up: ${money(pay)} (${money(this.perBlock())} a block, ${tier}). ${money(this.stash)} in the stash at the hangout.`);
         if (this.unpaid === RAID_AFTER - 1) {
           const r = this.raider();
-          if (r) game.hud.news(`Word on the street: ${GANGS[r].name} are eyeing your stash. Go collect it.`, 'crime');
+          if (r) game.hud.text(this.homie(), `Heads up, ${GANGS[r].name} been eyeing the stash. Come get the money.`);
         } else if (this.unpaid >= RAID_AFTER) this.raid();
       }
       this.save();
     }
     // Keep crew gear on everyone (new homies show up over time).
     for (const m of game.crew.members) this.equip(m);
+  }
+
+  // Who texts you about the money: one of your homies.
+  homie() {
+    const m = this.game.crew.members.find((x) => x.alive);
+    return m ? m.name : 'Green Street';
   }
 
   raider() {

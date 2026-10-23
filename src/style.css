@@ -264,3 +264,5 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #strip .st.tab { min-width: 92px; border-style: dashed; }
 #strip .st.tab.open { border-style: solid; border-color: #7fd3ff; background: rgba(20,40,60,.9); }
 #strip .st-open { margin-bottom: 6px; padding: 6px; border-radius: 10px; background: rgba(127,211,255,.12); border: 1px solid rgba(127,211,255,.35); width: max-content; margin-left: auto; margin-right: auto; }
+
+#phone-toast.news-text { box-shadow: inset 3px 0 0 #34c759, 0 6px 18px rgba(0,0,0,.45); }

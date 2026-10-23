@@ -144,6 +144,9 @@ export class Hud {
     this.unreadNews = (this.unreadNews || 0) + 1;
     if (!this.phoneOpen) {
       this.unread++;
+      $('pt-icon').textContent = 'N';
+      $('pt-icon').style.background = '';
+      $('pt-app').textContent = 'CITY NEWS';
       $('pt-time').textContent = time;
       $('pt-text').textContent = text;
       const toast = $('phone-toast');
@@ -151,6 +154,25 @@ export class Hud {
       this.phoneToastT = 4;
     }
     return item;
+  }
+
+  // A text message from someone you know (your homies, the plugs). Goes to the Messages app.
+  text(from, msg) {
+    const time = this.clock();
+    this.texts = this.texts || [];
+    this.texts.unshift({ from, msg, time });
+    if (this.texts.length > 40) this.texts.pop();
+    this.unreadTexts = (this.unreadTexts || 0) + 1;
+    if (!this.phoneOpen) {
+      this.unread++;
+      $('pt-icon').textContent = '✉';
+      $('pt-icon').style.background = '#34c759';
+      $('pt-app').textContent = from.toUpperCase();
+      $('pt-time').textContent = time;
+      $('pt-text').textContent = msg;
+      $('phone-toast').className = 'news-text';
+      this.phoneToastT = 4;
+    }
   }
 
   // Give a news story a helicopter video. Shows "processing" until the clip is ready.
