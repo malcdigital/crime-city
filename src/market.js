@@ -26,7 +26,16 @@ const PRODUCTS = ['weed', 'pills', 'coke'];
 const RELAX = 1 / (8 * 60); // fraction of the gap closed per second (≈8 min to settle)
 const SHOCK_EVERY = CFG.MARKET_HOT ? 45 : CFG.TURF_FAST ? 120 : 300;
 const HOT = CFG.MARKET_HOT ? 1.5 : 1; // testing: demand boost everywhere
-const base = (d, p) => BASE_DEMAND[d][p] * HOT;
+// The President's war on drugs (0 hands off, 1 tough on drugs, 2 all-out war): buyers get
+// scared off (less demand), seizures cut supply (prices and plug costs go up), and the cops
+// work the trade harder (more raids on runs, more undercover buyers, street sweeps).
+export const WAR_LEVELS = [
+  { name: 'Hands off', detail: 'Police leave the drug trade alone unless someone gets hurt.' },
+  { name: 'Tough on drugs', detail: 'Fewer buyers, less supply, more raids and undercover cops.' },
+  { name: 'All-out war', detail: 'Buyers scared off, supply seized, raids and undercovers everywhere, street sweeps.' },
+];
+let warLevel = 0;
+const base = (d, p) => BASE_DEMAND[d][p] * HOT * (1 - 0.15 * warLevel);
 const PLUG_REPLACE = CFG.TURF_FAST ? 180 : 600; // seconds until a dead plug is replaced
 const KINGPIN_BACK = CFG.TURF_FAST ? 240 : 900;
 const SAVE_KEY = 'crimecity.market.v1';
@@ -54,6 +63,7 @@ export class Market {
     this.shockT = SHOCK_EVERY;
     this.trendT = 0;
     this.kingpins = {}; // gang -> { s, deadT }
+    this.war = 0;
     this.last = this.snapshot();
     this.prev = this.last;
     this.load();
@@ -69,6 +79,7 @@ export class Market {
         Object.assign(this.flood[d], s.flood?.[d] || {});
       }
       Object.assign(this.city, s.city || {});
+      this.war = warLevel = s.war || 0;
       this.news = s.news || {};
     } catch {
       // Fresh market.
@@ -77,10 +88,32 @@ export class Market {
 
   save() {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ demand: this.demand, flood: this.flood, city: this.city, news: this.news }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ demand: this.demand, flood: this.flood, city: this.city, news: this.news, war: this.war }));
     } catch {
       // Storage unavailable.
     }
+  }
+
+  // ---- The war on drugs ----
+  setWar(level) {
+    const game = this.game;
+    this.war = warLevel = level;
+    this.save();
+    game.hud.news(['President ends the war on drugs: police told to stand down', 'President gets tough on drugs: more raids and undercover operations', 'President declares all-out war on drugs'][level], level ? 'crime' : 'info');
+  }
+
+  // Street sweeps (all-out war only): the cops hit a district's corners now and then.
+  sweep(dt) {
+    if (warLevel < 2) return;
+    this.sweepT = (this.sweepT ?? 120) - dt;
+    if (this.sweepT > 0) return;
+    this.sweepT = (CFG.MARKET_HOT ? 90 : 240) * rand(0.7, 1.3);
+    const d = pick(DISTRICTS);
+    const p = pick(PRODUCTS);
+    this.flood[d][p] = Math.max(-0.5, this.flood[d][p] - 0.4);
+    this.demand[d][p] = Math.max(0.35, this.demand[d][p] - 0.25);
+    this.news[`${d}.${p}`] = `Street sweep in ${d}: ${p} dealers locked up`;
+    this.game.hud.news(`Police sweep ${d} corners in the war on drugs`, 'crime');
   }
 
   // ---- Supply and prices ----
@@ -224,7 +257,7 @@ export class Market {
     const plugs = this.game.drugs.plugs;
     for (const p of PRODUCTS) {
       const pl = plugs.find((x) => x.product === p);
-      const target = pl && pl.dead ? 0.35 : 1;
+      const target = (pl && pl.dead ? 0.35 : 1) * (1 - 0.2 * warLevel); // seizures
       this.city[p] += (target - this.city[p]) * RELAX * 1.5 * dt;
       if (this.city[p] > 0.85 && !(pl && pl.dead)) delete this.news[p];
     }
@@ -246,6 +279,7 @@ export class Market {
       this.save();
     }
     this.updateKingpins(dt);
+    this.sweep(dt);
   }
 
   // ---- Phone app rows ----

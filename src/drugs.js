@@ -253,11 +253,12 @@ export class Drugs {
     const P = PRODUCTS[p.product];
     const amount = kind === 'gang' ? P.gang : P.solo;
     // Risk: the product, the size of the load, and a gang run draws more attention.
-    const risk = Math.min(0.92, P.risk + (kind === 'gang' ? 0.25 : 0));
+    const war = game.market.war || 0; // the President's war on drugs
+    const risk = Math.min(0.95, P.risk + (kind === 'gang' ? 0.25 : 0) + 0.12 * war);
     let incident = null;
     if (Math.random() < risk) {
       const r = Math.random();
-      const raidW = p.product === 'coke' ? 0.5 : p.product === 'pills' ? 0.4 : 0.3;
+      const raidW = (p.product === 'coke' ? 0.5 : p.product === 'pills' ? 0.4 : 0.3) + 0.15 * war;
       incident = r < raidW ? 'raid' : 'chase';
       if (kind === 'gang' && Math.random() < 0.35) incident = 'both';
     }
@@ -602,6 +603,7 @@ export class Drugs {
     const turf = game.turfWars.turfAt(game.player.x, game.player.z);
     let uc = 0.05 + 0.015 * c.units + (c.kind === 'coke' ? 0.04 : 0);
     if (turf && turf.id === 'crew') uc *= 0.6;
+    uc *= 1 + 0.75 * (game.market.war || 0); // more undercover cops in a war on drugs
     c.undercover = Math.random() < uc;
     c.rob = !c.undercover && Math.random() < ROB_CHANCE[tier];
     // Sometimes you can read them.

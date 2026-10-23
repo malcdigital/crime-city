@@ -268,3 +268,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #phone-toast.news-text { box-shadow: inset 3px 0 0 #34c759, 0 6px 18px rgba(0,0,0,.45); }
 #phone-body .ph-row.head { font-weight: 800; background: rgba(255,255,255,.07); margin-top: 6px; }
 #phone-body .ph-row.head.sel { background: #2d6cdf; }
+
+#crackdowns .cd.drugwar { --gc: #f1c40f; flex-wrap: wrap; }
+#crackdowns .cd.drugwar i { flex-basis: 100%; font-style: normal; font-size: 11px; opacity: .7; margin-top: 3px; text-align: left; }
+#crackdowns .cd.drugwar.lv1 { box-shadow: inset 0 0 0 2px #f39c12; }
+#crackdowns .cd.drugwar.lv2 { box-shadow: inset 0 0 0 2px #e74c3c; }

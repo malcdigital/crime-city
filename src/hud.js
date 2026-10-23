@@ -1,5 +1,6 @@
 import { CFG, CRED_TIERS } from './config.js';
 import { GANGS } from './turf.js';
+import { WAR_LEVELS } from './market.js';
 
 const esc = (t) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
 
@@ -234,8 +235,14 @@ export class Hud {
       const on = !!(T.crackdown || {})[g.id];
       return `<button class="cd ${on ? 'on' : ''}" data-g="${g.id}" style="--gc:${g.color}"><span class="sw"></span>${g.name}${g.id === 'crew' ? ' (you)' : ''}<b>${on ? 'CRACKDOWN' : 'Left alone'}</b></button>`;
     }).join('');
+    // The war on drugs: click to step through the levels.
+    const M = game.market;
+    const lvl = M.war || 0;
+    const W = WAR_LEVELS[lvl];
+    box.innerHTML += `<button class="cd drugwar lv${lvl}"><span class="sw"></span>War on drugs<b>${W.name.toUpperCase()}</b><i>${W.detail}</i></button>`;
     box.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
-      T.setCrackdown(b.dataset.g, !T.crackdown[b.dataset.g]);
+      if (b.classList.contains('drugwar')) M.setWar((lvl + 1) % WAR_LEVELS.length);
+      else T.setCrackdown(b.dataset.g, !T.crackdown[b.dataset.g]);
       this.renderCrackdowns(game);
     }));
   }
