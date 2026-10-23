@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { CFG } from './config.js';
 import { makeCharacter, SKIN_TONES } from './character.js';
 import { Vehicle } from './vehicle.js';
@@ -112,6 +113,13 @@ export class Drugs {
       const x = b.cx;
       const z = b.minZ - 3.6;
       const plug = { ...p, b, x, z, r: 4, street: streetAt(x, z), dead: false, deadT: 0 };
+      // Where to pull up: a ring in the curb lane, shown while you're doing a pickup there.
+      const ring = new THREE.Mesh(new THREE.RingGeometry(3.3, 4, 40), new THREE.MeshBasicMaterial({ color: 0xe0b000, transparent: true, opacity: 0.7, depthWrite: false }));
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(x, 0.06, z);
+      ring.visible = false;
+      game.scene.add(ring);
+      plug.ring = ring;
       this.spawnPlug(plug);
       return plug;
     });
@@ -289,6 +297,10 @@ export class Drugs {
     // Prompts and progress for the HUD (shown after the other interactions run).
     this.prompt = '';
     this.progress = null;
+    for (const p of this.plugs) {
+      p.ring.visible = !!(this.run && this.run.plug === p.id && this.run.stage !== 'toHQ');
+      if (p.ring.visible) p.ring.material.opacity = 0.5 + 0.3 * Math.sin(this.game.time * 5);
+    }
     this.updatePlugs(dt);
     const taxPrompt = this.risk.update(dt, a);
     if (taxPrompt) this.prompt = taxPrompt;
@@ -309,14 +321,22 @@ export class Drugs {
     const [px, pz] = pl.pos();
     const v = pl.vehicle;
     if (r.stage === 'toPlug' || r.stage === 'loading') {
-      const near = dist(px, pz, p.x, p.z) < p.r + (v ? 1 : 2) && (!v || Math.abs(v.speed) < 1.5);
-      if (!near) {
-        if (r.stage === 'loading') {
-          // Took off before you were loaded: no product, no debt.
-          game.hud.toast('You left without the product', '#ff8080');
-          this.run = null;
-          game.mapView.waypoint = null;
-        }
+      const d = dist(px, pz, p.x, p.z);
+      const inSpot = d < p.r + (v ? 2 : 2.5);
+      const stopped = !v || Math.abs(v.speed) < 1.2;
+      if (r.stage === 'loading' && d > p.r + 12) {
+        // Actually drove off before you were loaded: no product, no debt.
+        game.hud.toast('You left without the product', '#ff8080');
+        this.run = null;
+        game.mapView.waypoint = null;
+        return;
+      }
+      if (!inSpot) {
+        if (r.stage === 'loading') this.prompt = `Get back to ${p.name} to finish loading`;
+        return;
+      }
+      if (!stopped) {
+        this.prompt = r.stage === 'loading' ? 'Hold still — still loading' : `Stop here to load up with ${p.name}`;
         return;
       }
       if (r.stage === 'toPlug') {
