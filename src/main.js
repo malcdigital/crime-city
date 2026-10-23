@@ -1210,11 +1210,12 @@ class Game {
     this.prompt = '';
     this.progress = null;
     const city = this.city;
-    // A drug deal or a pickup in progress has the buttons right now.
-    if (this.drugs.prompt || this.drugs.progress) {
+    // A drug deal or a pickup in progress has the interact button right now (its prompt wins),
+    // but getting in and out of cars and your weapons still work.
+    const drugsBusy = !!(this.drugs.prompt || this.drugs.progress);
+    if (drugsBusy) {
       this.prompt = this.drugs.prompt;
       this.progress = this.drugs.progress;
-      return;
     }
 
     if (p.busy) return; // tumbling / getting up
@@ -1242,6 +1243,7 @@ class Game {
         this.prompt = `Your car is on fire! Press ${input.label('enter')} to get out`;
         return;
       }
+      if (drugsBusy) return;
       if (this.shops.interact(a, dt)) return;
       const chop = city.chop;
       if (dist(v.x, v.z, chop.x, chop.z) < chop.r) {
@@ -1279,6 +1281,8 @@ class Game {
     p.showWeapon(w.id);
     if (a.melee || (w.melee && a.firePressed)) this.punch();
     else this.tryFire(a);
+
+    if (drugsBusy) return; // the drug prompt has the interact button
 
     // Store robberies.
     const store = city.stores.find((s) => dist(s.x, s.z, p.x, p.z) < s.r);
