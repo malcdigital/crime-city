@@ -638,6 +638,10 @@ export class Drugs {
     if (turf && turf.id === 'crew') uc *= 0.6;
     uc *= 1 + 0.75 * (game.market.war || 0); // more undercover cops in a war on drugs
     c.undercover = Math.random() < uc;
+    if (CFG.TEST_STING && !this.testStung) {
+      c.undercover = true; // testing: this one's a cop
+      this.testStung = true;
+    }
     c.rob = !c.undercover && Math.random() < ROB_CHANCE[tier];
     // Sometimes you can read them.
     c.tell = (c.undercover ? Math.random() < 0.65 : Math.random() < 0.12) ? pick(TELLS) : '';
