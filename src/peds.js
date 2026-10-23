@@ -241,7 +241,7 @@ export class Ped {
       const d = dist(this.x, this.z, px, pz);
       if (d > stopAt) {
         [tx, tz] = [px, pz];
-        speed = this.walkSpeed * 1.3;
+        speed = this.walkSpeed * (d > 12 ? 2.2 : 1.3); // hurry over, then walk up
       } else this.heading = lerpAngle(this.heading, Math.atan2(px - this.x, pz - this.z), Math.min(1, dt * 6));
     } else if (this.state === 'shop') {
       // Standing out front of the store, watching you.

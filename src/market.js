@@ -24,7 +24,9 @@ const BASE_DEMAND = {
 };
 const PRODUCTS = ['weed', 'pills', 'coke'];
 const RELAX = 1 / (8 * 60); // fraction of the gap closed per second (≈8 min to settle)
-const SHOCK_EVERY = CFG.TURF_FAST ? 120 : 300;
+const SHOCK_EVERY = CFG.MARKET_HOT ? 45 : CFG.TURF_FAST ? 120 : 300;
+const HOT = CFG.MARKET_HOT ? 1.5 : 1; // testing: demand boost everywhere
+const base = (d, p) => BASE_DEMAND[d][p] * HOT;
 const PLUG_REPLACE = CFG.TURF_FAST ? 180 : 600; // seconds until a dead plug is replaced
 const KINGPIN_BACK = CFG.TURF_FAST ? 240 : 900;
 const SAVE_KEY = 'crimecity.market.v1';
@@ -44,7 +46,7 @@ export class Market {
     this.demand = {};
     this.flood = {}; // extra local supply (big runs landing)
     for (const d of DISTRICTS) {
-      this.demand[d] = { ...BASE_DEMAND[d] };
+      this.demand[d] = { weed: base(d, 'weed'), pills: base(d, 'pills'), coke: base(d, 'coke') };
       this.flood[d] = { weed: 0, pills: 0, coke: 0 };
     }
     this.city = { weed: 1, pills: 1, coke: 1 }; // citywide supply (the plugs)
@@ -63,6 +65,7 @@ export class Market {
       if (!s) return;
       for (const d of DISTRICTS) {
         Object.assign(this.demand[d], s.demand?.[d] || {});
+        if (HOT > 1) for (const p of PRODUCTS) this.demand[d][p] = Math.max(this.demand[d][p], base(d, p)); // testing: start hot
         Object.assign(this.flood[d], s.flood?.[d] || {});
       }
       Object.assign(this.city, s.city || {});
@@ -124,7 +127,7 @@ export class Market {
 
   // Why a price is what it is (for the Market app).
   reason(d, p) {
-    const dem = this.demand[d][p] / BASE_DEMAND[d][p];
+    const dem = this.demand[d][p] / base(d, p);
     const why = [];
     if (this.city[p] < 0.8) why.push(this.news[p] || `${p} supply short citywide`);
     else if (this.city[p] > 1.15) why.push(`lot of ${p} on the street`);
@@ -214,7 +217,7 @@ export class Market {
     // Drift back toward normal.
     for (const d of DISTRICTS) {
       for (const p of PRODUCTS) {
-        this.demand[d][p] += (BASE_DEMAND[d][p] - this.demand[d][p]) * RELAX * dt;
+        this.demand[d][p] += (base(d, p) - this.demand[d][p]) * RELAX * dt;
         this.flood[d][p] += (0 - this.flood[d][p]) * RELAX * dt;
       }
     }
@@ -231,7 +234,7 @@ export class Market {
       this.shockT = SHOCK_EVERY * rand(0.7, 1.3);
       const [p, amt, msg] = pick(SHOCKS);
       const d = pick(DISTRICTS);
-      this.demand[d][p] = clamp(this.demand[d][p] + amt, 0.35, 2.2);
+      this.demand[d][p] = clamp(this.demand[d][p] + amt * HOT, 0.35, 2.2 * HOT);
       this.news[`${d}.${p}`] = msg.replace('{d}', d);
     }
     // Trend arrows compare against a minute ago.

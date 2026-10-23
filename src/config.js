@@ -35,7 +35,10 @@ export const CFG = {
   HELI_STARS: 4, // police helicopter from this many stars
   TURF_FAST: true,
   CLAIM_IGNORE_CRED: false,
-  GANG_RUNS_ANY_RANK: true, // testing: call gang drug runs before reaching Kingpin // testing: claim unclaimed blocks without the street cred tier // testing: turf locks 2 min, NPC attack rolls every 15 min (10 quiet min after a war), underground 5 min
+  GANG_RUNS_ANY_RANK: true,
+  // Testing switch: a hot drug market. Demand 1.5x everywhere (prices up), demand events every
+  // ~45 s, and buyers come 3x as often. Off for the finished game.
+  MARKET_HOT: true, // testing: call gang drug runs before reaching Kingpin // testing: claim unclaimed blocks without the street cred tier // testing: turf locks 2 min, NPC attack rolls every 15 min (10 quiet min after a war), underground 5 min
 };
 
 // Crimes the player can commit. heat raises the wanted level, cred is street cred earned.

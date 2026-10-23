@@ -119,7 +119,7 @@ export class Drugs {
     this.debts = []; // { plug, owe, left, hit, nextHit }
     this.run = null;
     this.customer = null;
-    this.custT = 30;
+    this.custT = CFG.MARKET_HOT ? 6 : 30;
     this.squads = [];
     this.load();
   }
@@ -490,7 +490,7 @@ export class Drugs {
       const d = districtAt(game.player.x, game.player.z);
       const held = Object.keys(this.inv).filter((k) => this.inv[k] > 0);
       const dem = held.reduce((n, k) => n + game.market.demand[d][k], 0) / Math.max(1, held.length);
-      this.custT = (CUSTOMER_GAP[this.tier()] / Math.min(1.8, Math.max(0.6, dem))) * rand(0.7, 1.3);
+      this.custT = (CUSTOMER_GAP[this.tier()] / Math.min(1.8 * (CFG.MARKET_HOT ? 1.8 : 1), Math.max(0.6, dem))) * rand(0.7, 1.3) / (CFG.MARKET_HOT ? 3 : 1);
       this.findCustomer();
       return;
     }
@@ -506,8 +506,18 @@ export class Drugs {
       const car = c.car;
       if (car.removed || car.wrecked || !car.driver || car.driver.stopAt !== c.stop) return this.dropCustomer(false);
       there = dist(car.x, car.z, px, pz) < 10 && Math.abs(car.speed) < 0.6;
-      // Stuck in traffic for a while: they give up.
+      // Stuck in traffic: close enough, they hop out and walk over; too far, they give up.
       c.stuckT = !there && Math.abs(car.speed) < 0.5 ? (c.stuckT || 0) + dt : 0;
+      if (c.stuckT > 2.5 && !c.offer && dist(car.x, car.z, px, pz) < 45) {
+        const [fx, fz] = car.forward();
+        const ped = game.peds.addAt(car.x + fz * 2, car.z - fx * 2);
+        ped.state = 'buyer';
+        car.driver.release(game);
+        c.ped = ped;
+        c.car = null;
+        c.t = 0;
+        return;
+      }
       if (c.stuckT > 8 && !c.offer) return this.dropCustomer(false);
     }
     if (!c.offer) {
@@ -562,7 +572,9 @@ export class Drugs {
       this.custT = 8;
       return;
     }
-    const ped = pick(peds);
+    // One of the closer ones.
+    peds.sort((p1, p2) => dist(p1.x, p1.z, px, pz) - dist(p2.x, p2.z, px, pz));
+    const ped = pick(peds.slice(0, 4));
     ped.state = 'buyer';
     this.customer = { ped, t: 0, wait: 0, offer: false };
   }
@@ -656,7 +668,7 @@ export class Drugs {
       c.car.driver.release(this.game);
       if (dealt && (c.rob || c.undercover)) c.car.driver.cruise = 20; // peel off
     }
-    if (!dealt) this.custT = Math.min(this.custT, 20);
+    if (!dealt) this.custT = Math.min(this.custT, CFG.MARKET_HOT ? 4 : 20); // they never showed: someone else soon
   }
 
   // Busted: the cops take everything you're holding. Wasted: whatever was in the car is gone.
