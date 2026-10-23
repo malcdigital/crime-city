@@ -799,12 +799,51 @@ class Game {
     this.pickups.push({ x, z, weapon, amount, mesh, t: 60 });
   }
 
+  // Cash on a body: a spinning wad of bills next to it. Walk (or drive) over it to grab it.
+  dropCash(x, z, amount) {
+    const g = new THREE.Group();
+    const wad = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.14, 0.24), lam(0x2e8b3a));
+    const band = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.15, 0.25), lam(0xf2e9b8));
+    g.add(wad, band);
+    g.position.set(x, 0.5, z);
+    this.scene.add(g);
+    this.pickups.push({ x, z, cash: amount, mesh: g, t: 90 });
+  }
+
+  // Bodies drop what they were carrying. Civilians often have a little; gang members
+  // usually have a lot more. (Your crew and cops: nothing.)
+  checkBodies() {
+    const [px, pz] = this.player.pos();
+    for (const c of this.characters()) {
+      if (c.alive || c.cashChecked) continue;
+      c.cashChecked = true;
+      if (c.isCop || c.isCrew || dist(c.x, c.z, px, pz) > 160) continue;
+      const r = Math.random();
+      let amount = 0;
+      if (c.isGang || c.isSoldier) {
+        if (Math.random() < 0.9) amount = Math.round(40 + 260 * Math.pow(r, 1.5));
+      } else if (Math.random() < 0.65) amount = Math.round(5 + 55 * r * r);
+      if (amount > 0) this.dropCash(c.x + rand(-0.6, 0.6), c.z + rand(-0.6, 0.6), amount);
+    }
+  }
+
   updatePickups(dt) {
+    this.checkBodies();
     for (const p of this.pickups) {
       p.t -= dt;
       p.mesh.rotation.y += dt * 2;
-      p.mesh.position.y = this.city.groundY(p.x, p.z) + 0.55 + Math.sin(this.time * 3) * 0.1;
-      if (!this.player.vehicle && dist(p.x, p.z, this.player.x, this.player.z) < 1.4) {
+      p.mesh.position.y = this.city.groundY(p.x, p.z) + (p.cash ? 0.3 : 0.55) + Math.sin(this.time * 3) * 0.1;
+      if (p.cash) {
+        const v = this.player.vehicle;
+        const [px, pz] = this.player.pos();
+        if (dist(p.x, p.z, px, pz) < (v ? 2.4 : 1.4)) {
+          this.cash += p.cash;
+          this.hud.toast(`+$${p.cash}`);
+          this.sfx.cash?.();
+          this.save();
+          p.t = 0;
+        }
+      } else if (!this.player.vehicle && dist(p.x, p.z, this.player.x, this.player.z) < 1.4) {
         this.arsenal.ammo[p.weapon].reserve += p.amount;
         const name = WEAPONS.find((w) => w.id === p.weapon).name;
         this.hud.toast(`+${p.amount} ${name} ammo`);

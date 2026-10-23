@@ -75,6 +75,25 @@ export class Sfx {
     this.explosion(Math.pow(1 - d / HEAR, 1.4));
   }
 
+  // Picking up cash: a quick bright double blip.
+  cash() {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running') return;
+    const t = ctx.currentTime;
+    for (const [f, dt] of [[1320, 0], [1760, 0.07]]) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'square';
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t + dt);
+      g.gain.exponentialRampToValueAtTime(0.12, t + dt + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.09);
+      o.connect(g).connect(this.master);
+      o.start(t + dt);
+      o.stop(t + dt + 0.1);
+    }
+  }
+
   empty() {
     this.burst(0.15, 'highpass', 3000, 0.03, 0);
   }
