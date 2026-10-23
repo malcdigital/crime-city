@@ -41,6 +41,23 @@ function carBlocked(cars, x0, z0, x1, z1, pad) {
   return false;
 }
 
+// Other people on foot within r of (x, z), from the per-frame crowd grid.
+function neighbors(game, e, x, z, r) {
+  const grid = game.crowd;
+  if (!grid) return [];
+  const out = [];
+  const i0 = Math.floor((x - r) / 3), i1 = Math.floor((x + r) / 3);
+  const j0 = Math.floor((z - r) / 3), j1 = Math.floor((z + r) / 3);
+  for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) {
+      const cell = grid.get(`${i},${j}`);
+      if (!cell) continue;
+      for (const o of cell) if (o !== e && Math.abs(o.x - x) < r && Math.abs(o.z - z) < r) out.push(o);
+    }
+  }
+  return out;
+}
+
 export function navStep(e, finalX, finalZ, speed, dt, game, radius = 0.4) {
   // Long trips follow the streets instead of cutting through buildings.
   e.navWpT = (e.navWpT || 0) - dt;
@@ -112,6 +129,35 @@ export function navStep(e, finalX, finalZ, speed, dt, game, radius = 0.4) {
     }
   }
 
+  // Step around other people walking in the way (whoever's closest ahead).
+  const crowd = neighbors(game, e, e.x, e.z, 3);
+  let block = null;
+  let blockAhead = 9;
+  for (const o of crowd) {
+    if (o === pl || Math.hypot(finalX - o.x, finalZ - o.z) < 1.2) continue; // not the person they're going to
+    const rx = o.x - e.x;
+    const rz = o.z - e.z;
+    const ahead = rx * ux + rz * uz;
+    const lat = rx * uz - rz * ux;
+    if (ahead > 0 && ahead < 2.4 && Math.abs(lat) < 0.85 && ahead < blockAhead) {
+      block = lat;
+      blockAhead = ahead;
+    }
+  }
+  if (block !== null) {
+    const away = block === 0 ? e.navSide || 1 : -Math.sign(block);
+    const k = 0.9 * (1 - blockAhead / 2.4) + 0.35;
+    let vx = ux + uz * away * k;
+    let vz = uz - ux * away * k;
+    const n = Math.hypot(vx, vz) || 1;
+    vx /= n;
+    vz /= n;
+    if (!segmentBlockedPad(e.x, e.z, e.x + vx * 1.2, e.z + vz * 1.2, boxes, radius * 0.75) && !carBlocked(cars, e.x, e.z, e.x + vx * 1.2, e.z + vz * 1.2, radius)) {
+      ux = vx;
+      uz = vz;
+    }
+  }
+
   const step = Math.min(d, speed * dt);
   const ox = e.x;
   const oz = e.z;
@@ -131,6 +177,19 @@ export function navStep(e, finalX, finalZ, speed, dt, game, radius = 0.4) {
       const k = sd > 1e-4 ? min / sd : 1;
       e.x = cx + (sd > 1e-4 ? sx * k : min);
       e.z = cz + (sd > 1e-4 ? sz * k : 0);
+    }
+  }
+  // A little personal space: ease apart from anyone overlapping.
+  for (const o of crowd) {
+    if (o === pl) continue;
+    const sx = e.x - o.x;
+    const sz = e.z - o.z;
+    const sd = Math.hypot(sx, sz);
+    const min = radius + 0.3;
+    if (sd < min && sd > 1e-4) {
+      const push = Math.min(min - sd, dt * 2);
+      e.x += (sx / sd) * push;
+      e.z += (sz / sd) * push;
     }
   }
   // Never end up inside the player.

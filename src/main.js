@@ -1537,6 +1537,15 @@ class Game {
     this.walkers.length = 0;
     if (!this.player.vehicle) this.walkers.push(this.player);
     for (const p of this.peds.peds) if (p.standing) this.walkers.push(p);
+    // Who's standing where (a 3 m grid), so people on foot can give each other room.
+    const grid = (this.crowd = new Map());
+    for (const c of this.characters()) {
+      if (!c.standing || c.state === 'inCar' || c.removed) continue;
+      const k = `${Math.floor(c.x / 3)},${Math.floor(c.z / 3)}`;
+      let cell = grid.get(k);
+      if (!cell) grid.set(k, (cell = []));
+      cell.push(c);
+    }
 
     const p = this.player;
     this.drugs.update(dt, a);
