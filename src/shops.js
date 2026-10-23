@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { CFG } from './config.js';
+import { CFG, CRED_TIERS } from './config.js';
+import { tierOf } from './claim.js';
 import { WEAPONS } from './weapons.js';
 import { GANG_GUNS } from './gang.js';
 import { GANGS } from './turf.js';
@@ -7,14 +8,16 @@ import { dist } from './util.js';
 import { streetAt } from './city.js';
 
 // Money in and money out.
-// In: every block Green Street holds pays $150 every 10 minutes of play (the home block pays
-// double) into a stash at the crew hangout. Walk up to it and grab it. Leave it sitting too
+// In: every block Green Street holds pays every 10 minutes of play, more the higher your street
+// cred ($100 a block as a Nobody up to $500 as Kingpin; the home block pays double) into a stash at the crew hangout. Walk up to it and grab it. Leave it sitting too
 // long and a rival gang will hit it.
 // Out: the gun shop (guns, ammo, body armor, crew gear), the mod garage (engine, brakes,
 // armor, repair, respray) and a safehouse (respawn there, rest to heal).
 
 const SAVE_KEY = 'crimecity.shop.v1';
-const PER_BLOCK = 150;
+// What each block pays per payout, by your street cred tier (Nobody .. Kingpin): the more
+// respected you are, the more the block kicks up.
+const PER_BLOCK = [100, 150, 200, 275, 375, 500];
 const PERIOD = CFG.TURF_FAST ? 2 * 60 : 10 * 60; // seconds of play between payouts
 const RAID_AFTER = 3; // uncollected payouts before a rival hits the stash
 const SAFEHOUSE_PRICE = 5000;
@@ -175,7 +178,11 @@ export class Shops {
     const T = this.game.turfWars;
     if (T.underground('crew')) return 0;
     const n = T.count('crew');
-    return n ? (n + (T.home.crew ? 1 : 0)) * PER_BLOCK : 0;
+    return n ? (n + (T.home.crew ? 1 : 0)) * this.perBlock() : 0;
+  }
+
+  perBlock() {
+    return PER_BLOCK[tierOf(this.game.cred)];
   }
 
   update(dt) {
@@ -190,7 +197,8 @@ export class Shops {
         this.stash += pay;
         this.unpaid++;
         this.bag.visible = true;
-        game.hud.news(`Your turf paid out ${money(pay)}. Stash at the hangout: ${money(this.stash)}`, 'good');
+        const tier = CRED_TIERS[tierOf(game.cred)].name;
+        game.hud.news(`Your turf paid out ${money(pay)} (${money(this.perBlock())} a block at ${tier}). Stash at the hangout: ${money(this.stash)}`, 'good');
         if (this.unpaid === RAID_AFTER - 1) {
           const r = this.raider();
           if (r) game.hud.news(`Word on the street: ${GANGS[r].name} are eyeing your stash. Go collect it.`, 'crime');
