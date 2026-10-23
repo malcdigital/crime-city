@@ -827,8 +827,24 @@ class Game {
     }
   }
 
+  // Bodies sink away after a little while (wherever you are).
+  clearBodies(dt) {
+    for (const c of this.characters()) {
+      if (c.alive || c.bodyGone) continue;
+      c.deadT = (c.deadT || 0) + dt;
+      if (c.deadT < 25) continue;
+      c.char.group.position.y -= (c.deadT - 25) * 0.35; // sink into the ground over 3 s
+      if (c.deadT > 28) {
+        c.bodyGone = true;
+        if (c.isCop) c.char.group.visible = false; // stays on the unit's roster, just gone from view
+        else c.dispose();
+      }
+    }
+  }
+
   updatePickups(dt) {
     this.checkBodies();
+    this.clearBodies(dt);
     for (const p of this.pickups) {
       p.t -= dt;
       p.mesh.rotation.y += dt * 2;

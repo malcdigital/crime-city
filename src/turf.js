@@ -28,8 +28,8 @@ const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
 // Test timings (CFG.TURF_FAST) so the system can be tried in one sitting.
 const T = CFG.TURF_FAST
-  ? { lock: 2 * MIN, roll: 3 * MIN, underground: 5 * MIN, remember: 15 * MIN }
-  : { lock: 2 * HOUR, roll: 45 * MIN, underground: 24 * HOUR, remember: 24 * HOUR };
+  ? { lock: 2 * MIN, roll: 15 * MIN, underground: 5 * MIN, remember: 15 * MIN, quiet: 10 * MIN }
+  : { lock: 2 * HOUR, roll: 45 * MIN, underground: 24 * HOUR, remember: 24 * HOUR, quiet: 30 * MIN };
 
 export const GANGS = {
   kings: { id: 'kings', name: GANG_NAME, car: 0x5b1a7a, color: '#9c27b0', shirt: 0x6a1b9a, bandana: 0x8e24aa, reckless: 0.85, leader: 'Big Lo' },
@@ -311,6 +311,7 @@ class War {
       if (this.attacker === 'crew') game.hud.toast(`Turf war lost: ${why}`, '#ff8080');
       if (this.defender === 'crew') game.hud.toast('Your block held!');
     }
+    if (!this.byPlayer) this.mgr.quietUntil = Date.now() + T.quiet;
     // Police come by afterwards to look into it (unless they were already here cracking down).
     if (!game.police.units.some((u) => u.task && u.task.war === this)) game.police.investigateLater(this.block, this.street);
     // Survivors: the side that holds the block posts up there; the others head home.
@@ -947,8 +948,12 @@ export class TurfManager {
   }
 
   // NPC gangs deciding whether (and where) to attack.
+  // NPC gangs start wars rarely: each rolls on its own timer, only one NPC-started war can
+  // be going at a time, and the streets stay quiet for a while after one ends.
   rollAttacks() {
     const now = Date.now();
+    if (this.wars.some((w) => w.state === 'active' && !w.byPlayer)) return;
+    if (now < (this.quietUntil || 0)) return;
     for (const g of ['kings', 'vipers']) {
       if (now < (this.nextRoll[g] || 0)) continue;
       this.nextRoll[g] = now + T.roll;
@@ -957,7 +962,7 @@ export class TurfManager {
       if (this.wars.some((w) => w.state === 'active' && (w.attacker === g || w.defender === g))) continue;
       if (Math.random() > 1 / 3) continue;
       const target = this.chooseTarget(g);
-      if (target) this.startWar(target, g, this.owner[key(target)] || null, false);
+      if (target && this.startWar(target, g, this.owner[key(target)] || null, false)) return;
     }
   }
 
