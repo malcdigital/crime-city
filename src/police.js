@@ -695,13 +695,16 @@ export class PoliceUnit {
       this.officers.forEach((o, k) => o.dismount(side, k >= 2 ? 1.8 : (k ? -1.2 : 0)));
       if (!plan.announced) {
         plan.announced = true;
-        game.hud.news(`Police roadblock on ${streetAt(plan.cx, plan.cz)}`);
+        // Once per chase is enough.
+        if (!game.story || !game.story.roadblock) game.hud.news(`Police roadblock on ${streetAt(plan.cx, plan.cz)}`);
+        if (game.story) game.story.roadblock = true;
       }
       // At 5 stars, a spike strip goes down across the road in front of the block.
       if (game.stars >= 5 && !plan.spiked) {
         plan.spiked = true;
         game.police.laySpikes(plan.cx - plan.ax * 12, plan.cz - plan.az * 12, plan.lx, plan.lz);
-        game.hud.news(`Police lay spike strips on ${streetAt(plan.cx, plan.cz)}`);
+        if (!game.story || !game.story.spikes) game.hud.news(`Police lay spike strips on ${streetAt(plan.cx, plan.cz)}`);
+        if (game.story) game.story.spikes = true;
       }
     }
   }
@@ -992,7 +995,8 @@ export class PoliceManager {
     this.heliCd = Math.max(0, (this.heliCd || 0) - dt);
     if (!this.heli && game.stars >= CFG.HELI_STARS && this.heliCd <= 0 && game.wastedT <= 0) {
       this.heli = new Helicopter(game, game.city.station.roof);
-      game.hud.news('Police helicopter in the air');
+      if (!game.story || !game.story.heli) game.hud.news('Police helicopter in the air');
+      if (game.story) game.story.heli = true;
     }
     const h = this.heli;
     if (!h) return;

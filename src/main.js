@@ -216,7 +216,7 @@ class Game {
     this.lastKnown = [px, pz];
     this.lastSeen = Math.max(this.lastSeen, this.time - 2);
     this.unseenT = 0;
-    if (this.time - (this.lastCallNews ?? -99) > 15) {
+    if (this.time - (this.lastCallNews ?? -99) > 60) {
       this.lastCallNews = this.time;
       this.hud.news(`911 caller reports the suspect near ${streetAt(px, pz)}`);
     }
@@ -257,11 +257,8 @@ class Game {
     this.unseenT = 0;
     this.cred += c.cred;
     const where = `${streetAt(x, z)}, ${districtAt(x, z)}`;
-    // Avoid flooding the news with the same headline.
-    if (type !== 'robbery' && this.time - (this.newsTimes[type] ?? -99) > 6) {
-      this.newsTimes[type] = this.time;
-      this.hud.news(`${c.label}${extra ? ` ${extra}` : ''} on ${where}`);
-    }
+    // One story per incident: only the first crime makes the news.
+    if (type !== 'robbery') this.storyEvent(null, x, z, `${c.label}${extra ? ` ${extra}` : ''} on ${where}`, false);
     if (this.stars > before && before === 0) this.hud.news(`Police dispatched from Central Precinct to ${districtAt(x, z)}`);
   }
 
@@ -277,15 +274,11 @@ class Game {
   }
 
   bust() {
-    {
-      const [bx, bz] = this.player.pos();
-      this.newsIncident(`Suspect arrested on ${streetAt(bx, bz)}`, bx, bz, 'info');
-    }
+    const [bx, bz] = this.player.pos();
+    this.endStory(`Suspect arrested on ${streetAt(bx, bz)}`, bx, bz, 'info', true);
     const fine = Math.min(this.cash, 200 * this.stars + Math.floor(this.cash * 0.1));
-    const [x, z] = this.player.pos();
     this.cash -= fine;
     this.cred = Math.max(0, this.cred - 10);
-    this.hud.news(`Gang member arrested in ${districtAt(x, z)}. Fined $${fine}.`, 'info');
     this.hud.busted(true, `Fined $${fine.toLocaleString('en-US')} · -10 street cred`);
     this.bustedT = 3;
     this.clearWanted();
@@ -300,16 +293,13 @@ class Game {
 
   wasted() {
     if (this.wastedT > 0 || this.bustedT > 0) return;
-    if (this.stars > 0) {
-      const [wx, wz] = this.player.pos();
-      this.newsIncident(`Suspect killed in shootout with police on ${streetAt(wx, wz)}`, wx, wz);
-    }
+    const [x, z] = this.player.pos();
+    if (this.stars > 0) this.endStory(`Suspect killed in shootout with police on ${streetAt(x, z)}`, x, z, 'crime', true);
+    else if (!this.endStory(`Suspect shot dead on ${streetAt(x, z)}`, x, z)) this.hud.news(`Shooting victim rushed to Harbor General from ${districtAt(x, z)}`, 'info');
     this.health = 0;
     const bill = Math.min(this.cash, 500);
-    const [x, z] = this.player.pos();
     this.cash -= bill;
     this.hud.wasted(true, `Hospital bill $${bill.toLocaleString('en-US')}`);
-    this.hud.news(`Shooting victim rushed to Harbor General from ${districtAt(x, z)}`, 'info');
     this.wastedT = 4;
     if (this.player.vehicle) this.player.exit();
     this.player.setDown(true);
@@ -378,7 +368,7 @@ class Game {
     if ((outside && since > 5 + this.stars * 1.5) || since > 30 + this.stars * 8) {
       const bonus = 10 * this.stars;
       this.cred += bonus;
-      this.hud.news(`Suspect escaped police in ${districtAt(px, pz)}`, 'good');
+      this.endStory(`Suspect escaped police in ${districtAt(px, pz)}`, px, pz, 'good', true);
       this.hud.toast(`ESCAPED  +${bonus} cred`);
       this.clearWanted();
       this.police.standDown();
@@ -402,11 +392,11 @@ class Game {
     if (c.isSoldier) c.onPlayerAttack();
     if (killed) {
       const st = streetAt(c.x, c.z);
-      if (c.isCop) this.newsIncident(`Officer shot dead on ${st}`, c.x, c.z);
-      else if (c.isGang) this.newsIncident(`${GANG_NAME} member gunned down on ${st}`, c.x, c.z);
-      else if (c.isSoldier) this.newsIncident(`${GANGS[c.gangId].name} member gunned down on ${st}`, c.x, c.z);
+      if (c.isCop) this.storyEvent('cops', c.x, c.z, `Officer shot dead on ${st}`);
+      else if (c.isGang) this.storyEvent('gang', c.x, c.z, `${GANG_NAME} member gunned down on ${st}`);
+      else if (c.isSoldier) this.storyEvent('gang', c.x, c.z, `${GANGS[c.gangId].name} member gunned down on ${st}`);
       if (c.isGang || c.isSoldier) this.turfWars.onPlayerKill(c);
-      else this.newsIncident(`Bystander killed on ${st}`, c.x, c.z);
+      else if (!c.isCop) this.storyEvent('civ', c.x, c.z, `Bystander killed on ${st}`);
     }
     if (c.isCop) {
       this.lethalFlag = true;
@@ -537,8 +527,8 @@ class Game {
       || this.police.units.some((u) => dist(u.car.x, u.car.z, px, pz) < 45);
     if (witnesses && this.time - this.lastGunfireCrime > 5 && !this.turfWars.gangBusiness(px, pz)) {
       this.lastGunfireCrime = this.time;
+      this.storyEvent(null, px, pz, `Armed shooter on the loose on ${streetAt(px, pz)}`);
       this.crime('gunfire', px, pz);
-      this.newsIncident(`Armed shooter on the loose on ${streetAt(px, pz)}`, px, pz);
     }
   }
 
@@ -1051,6 +1041,44 @@ class Game {
   }
 
   // A news story with helicopter footage of what just happened.
+  // --- News stories ---
+  // A shootout or rampage is one story: the first thing that happens makes the news, the rest
+  // is just counted, and when it's over (escaped, arrested, killed, or things go quiet) one
+  // wrap-up story gives the toll.
+  storyEvent(kind, x, z, headline, clip = true) {
+    let st = this.story;
+    if (!st) {
+      st = this.story = { cops: 0, gang: 0, civ: 0, street: streetAt(x, z), x, z, lastT: this.time };
+      if (clip) this.newsIncident(headline, x, z);
+      else this.hud.news(headline);
+    }
+    st.lastT = this.time;
+    if (kind) st[kind]++;
+  }
+
+  storyToll(st) {
+    const n = (k, one, many) => (st[k] ? `${st[k]} ${st[k] === 1 ? one : many}` : null);
+    const parts = [n('cops', 'officer', 'officers'), n('gang', 'gang member', 'gang members'), n('civ', 'bystander', 'bystanders')].filter(Boolean);
+    if (!parts.length) return '';
+    const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
+    return `${list} dead`;
+  }
+
+  // Close the current story with a headline (plus the toll). Returns true if it posted one.
+  endStory(headline, x, z, kind = 'crime', always = false) {
+    const st = this.story;
+    this.story = null;
+    const toll = st ? this.storyToll(st) : '';
+    if (!st && !always) return false;
+    if (!headline) {
+      if (!toll || st.cops + st.gang + st.civ < 2) return false; // one body was already the story
+      this.hud.news(`Violence on ${st.street} leaves ${toll}`);
+      return true;
+    }
+    this.newsIncident(toll ? `${headline} after a rampage that left ${toll}` : headline, x, z, kind);
+    return true;
+  }
+
   newsIncident(headline, x, z, kind = 'crime') {
     const clip = this.aircam.incident(headline, x, z);
     const item = this.hud.news(headline, kind);
@@ -1399,6 +1427,8 @@ class Game {
 
   update(dt, a) {
     this.time += dt;
+    // A story with no police after it goes quiet after a while.
+    if (this.story && this.stars === 0 && this.time - this.story.lastT > 45) this.endStory(null);
     const wp = this.mapView.waypoint;
     if (wp && dist(...this.player.pos(), ...wp) < 14) {
       this.mapView.waypoint = null;

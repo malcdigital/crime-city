@@ -110,7 +110,7 @@ export class GpsLine {
     this.tex = new THREE.CanvasTexture(c);
     this.tex.wrapS = THREE.RepeatWrapping;
     this.tex.colorSpace = THREE.SRGBColorSpace;
-    this.mat = new THREE.MeshBasicMaterial({ map: this.tex, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide });
+    this.mat = new THREE.MeshBasicMaterial({ map: this.tex, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide, transparent: true, opacity: 0.55, depthWrite: false });
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), this.mat);
     this.mesh.frustumCulled = false;
     this.mesh.visible = false;
@@ -143,7 +143,7 @@ export class GpsLine {
     const idx = [];
     // Measure from the end, so the chevrons don't jump as the start moves with you.
     let u = -routeLength(road);
-    const y = 0.04;
+    const y = 0.15; // floats just above the road
     for (let k = 1; k < road.length; k++) {
       const [ax, az] = road[k - 1];
       const [bx, bz] = road[k];
@@ -153,10 +153,12 @@ export class GpsLine {
       const dz = (bz - az) / len;
       const nx = -dz * (W / 2);
       const nz = dx * (W / 2);
-      // Stretch each piece by half the width so corners join up.
-      const sx = ax - dx * (W / 2), sz = az - dz * (W / 2);
+      // Corners: each piece runs half a width past its end, and the next starts half a width
+      // in, so they join without overlapping (overlaps would show darker).
+      const s0 = k === 1 ? -W / 2 : W / 2;
+      const sx = ax + dx * s0, sz = az + dz * s0;
       const ex = bx + dx * (W / 2), ez = bz + dz * (W / 2);
-      const u0 = (u - W / 2) / TILE;
+      const u0 = (u + s0) / TILE;
       const u1 = (u + len + W / 2) / TILE;
       const i = pos.length / 3;
       pos.push(sx + nx, y, sz + nz, sx - nx, y, sz - nz, ex + nx, y, ez + nz, ex - nx, y, ez - nz);
