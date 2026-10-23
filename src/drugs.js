@@ -711,7 +711,7 @@ export class Drugs {
     }
     game.crime('drugDeal', cop.x, cop.z);
     const [px, pz] = game.player.pos();
-    game.police.raid(px, pz, 3);
+    game.police.raid(px, pz, 3, true); // backup was already waiting around the corner
     game.startCinematic(px, pz, 'POLICE', 4.5);
     game.hud.toast('"Police! Hands where I can see em!"', '#ff8080');
     game.save();

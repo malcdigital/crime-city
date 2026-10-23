@@ -605,7 +605,7 @@ export class PoliceUnit {
       c.siren = true;
       [tx, tz] = this.stage;
       const ds = dist(c.x, c.z, tx, tz);
-      desired = Math.min(maxS, 3 + ds * 0.8);
+      desired = Math.min(this.rush ? c.type.max : maxS, 3 + ds * (this.rush ? 1.1 : 0.8));
       if (ds < 3) {
         desired = 0;
         if (Math.abs(c.speed) < 2) {
@@ -896,7 +896,8 @@ export class PoliceManager {
 
   // A raid: cruisers come screaming in from several directions at once, already close, and
   // pull up around the spot. n = how many cars.
-  raid(x, z, n = 3) {
+  // rush: an undercover's backup, already close by, arrives in a couple of seconds.
+  raid(x, z, n = 3, rush = false) {
     const game = this.game;
     const P = CFG.PITCH;
     const L = CFG.LANE;
@@ -915,7 +916,7 @@ export class PoliceManager {
     let sent = 0;
     for (const [dir, lane] of plans) {
       if (sent >= n) break;
-      const [sx, sz] = at(along + dir * 50, lane);
+      const [sx, sz] = at(along + dir * (rush ? 34 : 50), lane);
       if (sx < lo || sx > hi || sz < lo || sz > hi) continue;
       if (game.vehicles.some((v) => !v.removed && dist(v.x, v.z, sx, sz) < 6)) continue;
       let stage = null;
@@ -931,7 +932,8 @@ export class PoliceManager {
       taken.push(stage);
       const h = street ? (dir < 0 ? Math.PI / 2 : -Math.PI / 2) : dir < 0 ? 0 : Math.PI;
       const u = new PoliceUnit(game, sx, sz, h, 'police');
-      u.car.speed = 16; // already flying in
+      u.car.speed = rush ? 24 : 16; // already flying in
+      u.rush = rush;
       u.car.isCop = true;
       u.raid = true;
       u.stage = stage;
