@@ -6,6 +6,7 @@ import { tierOf } from './claim.js';
 import { streetAt, districtAt } from './city.js';
 import { NEW_PLUGS, PLUG_REPLACE } from './market.js';
 import { gpsRoute } from './gps.js';
+import { TurfRisk } from './turfrisk.js';
 import { dist, pick, rand, randInt } from './util.js';
 
 // Drug dealing.
@@ -121,6 +122,7 @@ export class Drugs {
     this.customer = null;
     this.custT = CFG.MARKET_HOT ? 6 : 30;
     this.squads = [];
+    this.risk = new TurfRisk(game);
     this.load();
   }
 
@@ -183,6 +185,7 @@ export class Drugs {
       if (s.inv) Object.assign(this.inv, s.inv);
       if (s.homie) this.homie = s.homie;
       if (s.debts) this.debts = s.debts;
+      if (s.beef) Object.assign(this.risk.beef, s.beef);
     } catch {
       // Fresh start.
     }
@@ -190,7 +193,7 @@ export class Drugs {
 
   save() {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ inv: this.inv, homie: this.homie, debts: this.debts }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ inv: this.inv, homie: this.homie, debts: this.debts, beef: this.risk.beef }));
     } catch {
       // Storage unavailable.
     }
@@ -286,6 +289,8 @@ export class Drugs {
     this.prompt = '';
     this.progress = null;
     this.updatePlugs(dt);
+    const taxPrompt = this.risk.update(dt, a);
+    if (taxPrompt) this.prompt = taxPrompt;
     this.updateRun(dt, a);
     this.updateDebts(dt);
     this.updateSquads(dt);
@@ -476,7 +481,7 @@ export class Drugs {
     const game = this.game;
     const v = game.player.vehicle;
     return game.stars > 0 || game.time - (game.lastLoudT ?? -99) < 20 || (this.run && this.run.stage !== 'toPlug') || game.wastedT > 0 || game.bustedT > 0 || game.player.busy
-      || game.turfWars.playerInWar() || game.turfWars.claim || (v && Math.abs(v.speed) > 1) || game.shops.menu;
+      || game.turfWars.playerInWar() || game.turfWars.claim || this.risk.busy() || (v && Math.abs(v.speed) > 1) || game.shops.menu;
   }
 
   updateCustomer(dt, a) {
@@ -490,7 +495,7 @@ export class Drugs {
       const d = districtAt(game.player.x, game.player.z);
       const held = Object.keys(this.inv).filter((k) => this.inv[k] > 0);
       const dem = held.reduce((n, k) => n + game.market.demand[d][k], 0) / Math.max(1, held.length);
-      this.custT = (CUSTOMER_GAP[this.tier()] / Math.min(1.8 * (CFG.MARKET_HOT ? 1.8 : 1), Math.max(0.6, dem))) * rand(0.7, 1.3) / (CFG.MARKET_HOT ? 3 : 1);
+      this.custT = this.risk.loyalty(game.player.x, game.player.z)[1] * (CUSTOMER_GAP[this.tier()] / Math.min(1.8 * (CFG.MARKET_HOT ? 1.8 : 1), Math.max(0.6, dem))) * rand(0.7, 1.3) / (CFG.MARKET_HOT ? 3 : 1);
       this.findCustomer();
       return;
     }
@@ -591,7 +596,8 @@ export class Drugs {
     c.district = d;
     const P = PRODUCTS[c.kind];
     c.units = Math.min(this.inv[c.kind], randInt(1, 2 + tier));
-    c.price = Math.max(5, Math.round((c.units * P.street * M.mult(d, c.kind) * (1 + 0.08 * tier) * rand(0.9, 1.1)) / 5) * 5);
+    const [loyal] = this.risk.loyalty(game.player.x, game.player.z); // rival turf: their buyers pay less
+    c.price = Math.max(5, Math.round((c.units * P.street * M.mult(d, c.kind) * loyal * (1 + 0.08 * tier) * rand(0.9, 1.1)) / 5) * 5);
     // Is it a setup? More likely on a big buy, less on your own turf.
     const turf = game.turfWars.turfAt(game.player.x, game.player.z);
     let uc = 0.05 + 0.015 * c.units + (c.kind === 'coke' ? 0.04 : 0);
@@ -629,6 +635,7 @@ export class Drugs {
     } else {
       game.cash += c.price;
       game.market.sold(c.district, c.kind, c.units);
+      this.risk.afterSale(where.x, where.z, c.price, c.units);
       game.cred += 1 + Math.floor(c.units / 3);
       game.sfx.cash?.();
       game.hud.toast(`+${money(c.price)}`);
@@ -680,6 +687,7 @@ export class Drugs {
   }
 
   onWasted() {
+    this.risk.onWasted();
     this.lostRun();
   }
 

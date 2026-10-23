@@ -232,8 +232,8 @@ export class Shops {
     return ['kings', 'vipers'].filter((g) => !T.underground(g) && T.count(g)).sort((a, b) => T.count(b) - T.count(a))[0];
   }
 
-  raid() {
-    const g = this.raider();
+  raid(gang = null) {
+    const g = gang || this.raider();
     if (!g) return;
     const took = Math.round(this.stash * 0.5);
     this.stash -= took;

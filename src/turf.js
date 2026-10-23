@@ -127,6 +127,21 @@ export class Soldier extends GangFighter {
     }
     if (this.updateDown(dt)) return;
     const game = this.game;
+    if (this.taxing) {
+      // Walking up to collect a cut from you for selling on their block.
+      const [px, pz] = game.player.pos();
+      const d = dist(this.x, this.z, px, pz);
+      if (this.state === 'fight') this.endFight();
+      if (d > 1.9) this.move(dt, px, pz, d > 10 ? 5 : 2.2, null);
+      else {
+        this.move(dt, this.x, this.z, 0, null);
+        this.heading = Math.atan2(px - this.x, pz - this.z);
+      }
+      this.char.armR.rotation.x = -0.3;
+      this.animate(dt);
+      this.place();
+      return;
+    }
     const list = this.enemies();
     const target = list.length ? game.pickTarget(this, list, 55) : null;
     const leaving = this.state === 'fight' && this.behavior === 'leave';
