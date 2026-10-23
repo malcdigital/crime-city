@@ -273,3 +273,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #crackdowns .cd.drugwar i { flex-basis: 100%; font-style: normal; font-size: 11px; opacity: .7; margin-top: 3px; text-align: left; }
 #crackdowns .cd.drugwar.lv1 { box-shadow: inset 0 0 0 2px #f39c12; }
 #crackdowns .cd.drugwar.lv2 { box-shadow: inset 0 0 0 2px #e74c3c; }
+
+#approval { margin: 8px 0 10px; padding: 10px 12px; border-radius: 8px; background: rgba(255,255,255,.06); }
+#approval .ap-top { display: flex; align-items: baseline; gap: 10px; font-size: 13px; }
+#approval .ap-top b { font-size: 20px; }
+#approval .ap-crime { margin-left: auto; opacity: .75; }
+#approval .ap-bar { height: 6px; border-radius: 3px; background: rgba(0,0,0,.4); margin: 6px 0; overflow: hidden; }
+#approval .ap-bar div { height: 100%; }
+#approval .ap-why { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 11.5px; opacity: .85; }
+#approval .ap-why .bad { color: #ff8a80; }
+#approval .ap-why .good { color: #8ff08f; }

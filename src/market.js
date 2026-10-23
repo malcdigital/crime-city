@@ -114,6 +114,7 @@ export class Market {
     this.demand[d][p] = Math.max(0.35, this.demand[d][p] - 0.25);
     this.news[`${d}.${p}`] = `Street sweep in ${d}: ${p} dealers locked up`;
     this.game.hud.news(`Police sweep ${d} corners in the war on drugs`, 'crime');
+    this.game.president?.win(1, 'Street sweeps');
   }
 
   // ---- Supply and prices ----
@@ -190,6 +191,7 @@ export class Market {
   raided(p) {
     this.city[p] = Math.max(0.3, this.city[p] - 0.25);
     this.news[p] = `raids cut the ${p} supply`;
+    this.game.president?.win(1.5, 'Drug raids');
     this.save();
   }
 
@@ -197,6 +199,7 @@ export class Market {
     this.city[plug.product] = Math.max(0.25, this.city[plug.product] - 0.6);
     this.news[plug.product] = `${plug.name} got killed — ${plug.product} drying up`;
     this.game.hud.news(`Drug supplier ${plug.name} found dead on ${plug.street}`, 'crime');
+    this.game.president?.add(3, 'Drug killings');
     this.save();
   }
 
@@ -216,6 +219,7 @@ export class Market {
         k.dead = true;
         k.deadT = KINGPIN_BACK;
         game.hud.news(`${GANGS[g].name} kingpin killed — their corners going dry`, 'crime');
+        game.president?.add(4, 'Drug killings');
         for (const d of DISTRICTS) for (const p of PRODUCTS) if (this.rivalSupply(d) > 0) this.demand[d][p] = Math.min(2, this.demand[d][p] + 0.1);
       }
       if (k && k.dead) {

@@ -20,6 +20,7 @@ import { MapView } from './mapview.js';
 import { Shops } from './shops.js';
 import { Drugs } from './drugs.js';
 import { Market } from './market.js';
+import { President } from './president.js';
 import { Phone } from './phone.js';
 import { Inventory } from './inventory.js';
 import { gpsRoute, GpsLine } from './gps.js';
@@ -119,6 +120,7 @@ class Game {
     this.shops = new Shops(this);
     this.drugs = new Drugs(this);
     this.market = new Market(this);
+    this.president = new President(this);
     this.phone = new Phone(this);
     this.inventory = new Inventory(this);
 
@@ -267,6 +269,7 @@ class Game {
 
   crime(type, x, z, extra = '') {
     const c = CRIMES[type];
+    this.president.crime(type, c.label);
     this.heat += c.heat;
     if (c.min && this.starsFor(this.heat) < c.min) this.heat = CFG.STAR_HEAT[c.min - 1];
     const before = this.stars;
@@ -293,6 +296,7 @@ class Game {
   }
 
   bust() {
+    this.president.win(3, 'Arrests');
     const [bx, bz] = this.player.pos();
     this.endStory(`Suspect arrested on ${streetAt(bx, bz)}`, bx, bz, 'info', true);
     const fine = Math.min(this.cash, 200 * this.stars + Math.floor(this.cash * 0.1));
@@ -391,6 +395,7 @@ class Game {
       const bonus = 10 * this.stars;
       this.cred += bonus;
       this.endStory(`Suspect escaped police in ${districtAt(px, pz)}`, px, pz, 'good', true);
+      this.president.loss(2, 'Suspects getting away');
       this.hud.toast(`ESCAPED  +${bonus} cred`);
       this.clearWanted();
       this.police.standDown();
@@ -1536,6 +1541,7 @@ class Game {
     const p = this.player;
     this.drugs.update(dt, a);
     this.market.update(dt);
+    this.president.update(dt);
     this.arsenal.update(dt);
     const gun = !this.arsenal.current().melee;
     this.aimingNow = !p.vehicle && !p.busy && gun && a.aim;

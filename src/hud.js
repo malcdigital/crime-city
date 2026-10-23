@@ -229,6 +229,16 @@ export class Hud {
 
   // Toggle crackdowns per gang (the President's orders).
   renderCrackdowns(game) {
+    // Approval rating and what's driving it.
+    const P = game.president;
+    const ap = Math.round(P.approval);
+    const t = Math.round(P.target());
+    const trend = t > ap + 1 ? '▲' : t < ap - 1 ? '▼' : '';
+    const col = ap >= 55 ? '#4cd964' : ap >= 40 ? '#ffcc00' : '#ff3b30';
+    const drivers = P.drivers().map(([k, w]) => `<span class="${w > 0 ? 'bad' : 'good'}">${w > 0 ? '▼' : '▲'} ${k}</span>`).join('');
+    $('approval').innerHTML = `<div class="ap-top"><span>Approval</span><b style="color:${col}">${ap}% ${trend}</b><span class="ap-crime">Crime: ${P.levelName()}</span></div>`
+      + `<div class="ap-bar"><div style="width:${ap}%;background:${col}"></div></div>`
+      + `<div class="ap-why">${drivers || '<span>Quiet lately</span>'}</div>`;
     const T = game.turfWars;
     const box = $('crackdowns');
     box.innerHTML = Object.values(GANGS).filter((g) => !g.hidden).map((g) => {

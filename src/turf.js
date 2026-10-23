@@ -322,6 +322,9 @@ class War {
   end(won, why = '') {
     this.state = 'over';
     const game = this.game;
+    // Bodies in the street count against the President.
+    const dead = this.fighters.filter((f) => !f.alive).length;
+    game.president?.add(3 + dead * 1.5, 'Gang wars');
     const A = GANGS[this.attacker].name;
     const D = this.defender ? GANGS[this.defender].name : null;
     const b = this.block;

@@ -1,0 +1,121 @@
+// The President's approval rating, driven by crime.
+// - Crime level: every crime adds to it (weighted by how bad it is: a cop killed counts far
+//   more than a carjacking), and it fades over about 10 minutes of play.
+// - Approval drifts toward a target: 65% in a quiet city, falling as the crime level climbs.
+//   Arrests and police wins give a small boost; criminals getting away cost a little.
+// - Policy: crackdowns on gangs and the war on drugs look strong when crime is high (approval
+//   up) and heavy-handed when the city is quiet (approval down).
+// City News reports big moves, and the pause menu shows the rating and what's driving it.
+const SAVE_KEY = 'crimecity.president.v1';
+const FADE = 1 / 600; // crime level fades with a ~10 minute time constant
+export const CRIME_WEIGHT = {
+  assault: 1, hitAndRun: 1.5, carjack: 1.5, assaultCop: 3, runOverCop: 4, stealCopCar: 2,
+  robberyAlarm: 0, robbery: 3, gunfire: 1, murder: 4, copKilled: 8, gangKill: 2, explosion: 3,
+  drugRaid: 1, drugRaidBig: 2, drugDeal: 0.5,
+};
+const LEVELS = [[0, 'Low'], [15, 'Moderate'], [35, 'High'], [60, 'Out of control']];
+
+export class President {
+  constructor(game) {
+    this.game = game;
+    this.crimeLevel = 0;
+    this.approval = 60;
+    this.recent = {}; // what's been driving it: label -> weight (fades too)
+    this.reported = 60;
+    this.load();
+  }
+
+  load() {
+    try {
+      const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+      if (s) Object.assign(this, { crimeLevel: s.crimeLevel || 0, approval: s.approval ?? 60, recent: s.recent || {}, reported: s.approval ?? 60 });
+    } catch {
+      // Fresh term.
+    }
+  }
+
+  save() {
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ crimeLevel: this.crimeLevel, approval: this.approval, recent: this.recent }));
+    } catch {
+      // Storage unavailable.
+    }
+  }
+
+  // Something criminal happened (by anyone).
+  crime(type, label) {
+    const w = CRIME_WEIGHT[type] ?? 1;
+    if (!w) return;
+    this.add(w, label || type);
+  }
+
+  add(w, label) {
+    this.crimeLevel = Math.min(120, this.crimeLevel + w);
+    this.recent[label] = (this.recent[label] || 0) + w;
+  }
+
+  // Good news for the President: an arrest, a raid, a sweep.
+  win(points, label) {
+    this.approval = Math.min(95, this.approval + points);
+    this.recent[label] = (this.recent[label] || 0) - points;
+  }
+
+  // Bad news that isn't a crime count: a suspect getting away, etc.
+  loss(points, label) {
+    this.approval = Math.max(5, this.approval - points);
+    this.recent[label] = (this.recent[label] || 0) + points;
+  }
+
+  // How tough the President is being right now (crackdowns + war on drugs).
+  toughness() {
+    const T = this.game.turfWars;
+    const crackdowns = Object.values(T.crackdown || {}).filter(Boolean).length;
+    return crackdowns + (this.game.market.war || 0);
+  }
+
+  target() {
+    const c = this.crimeLevel;
+    let t = 65 - c * 0.7;
+    // Being tough reads well when crime is up and heavy-handed when it's quiet.
+    const tough = this.toughness();
+    t += tough * (c > 30 ? 4 : c < 10 ? -4 : 1);
+    return Math.max(8, Math.min(90, t));
+  }
+
+  levelName() {
+    let name = LEVELS[0][1];
+    for (const [min, n] of LEVELS) if (this.crimeLevel >= min) name = n;
+    return name;
+  }
+
+  // Biggest things driving the rating lately.
+  drivers() {
+    return Object.entries(this.recent).filter(([, w]) => Math.abs(w) >= 0.5).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 4);
+  }
+
+  update(dt) {
+    const game = this.game;
+    this.crimeLevel = Math.max(0, this.crimeLevel - this.crimeLevel * FADE * dt);
+    for (const k of Object.keys(this.recent)) {
+      this.recent[k] -= this.recent[k] * FADE * dt;
+      if (Math.abs(this.recent[k]) < 0.2) delete this.recent[k];
+    }
+    // Approval moves toward where the public is (a point every ~10 seconds at most).
+    const t = this.target();
+    const step = Math.min(Math.abs(t - this.approval), dt * 0.12);
+    this.approval += Math.sign(t - this.approval) * step;
+    // Big moves make the news.
+    const a = Math.round(this.approval);
+    if (Math.abs(a - this.reported) >= 8) {
+      const up = a > this.reported;
+      this.reported = a;
+      const why = this.drivers().find(([, w]) => (up ? w < 0 : w > 0));
+      game.hud.news(up ? `President's approval climbs to ${a}%${why ? ` (${why[0]})` : ''}` : `President's approval falls to ${a}%${why ? ` amid ${why[0].toLowerCase()}` : ''}`, up ? 'good' : 'info');
+    }
+    this.saveT = (this.saveT || 0) - dt;
+    if (this.saveT <= 0) {
+      this.saveT = 10;
+      this.save();
+    }
+  }
+}
