@@ -1480,7 +1480,16 @@ class Game {
   // while the action plays out. The game keeps running; you just can't move until it ends.
   startCinematic(x, z, title, dur = 4) {
     const [px, pz] = this.player.pos();
-    this.cine = { x, z, t: 0, dur, a0: Math.atan2(px - x, pz - z) };
+    // End up across the street from the spot, looking at it with the road running left to
+    // right, so you can see cars come in from both ends. Never more than half a lap.
+    const P = CFG.PITCH;
+    const roadX = Math.round(x / P) * P; // nearest avenue
+    const roadZ = Math.round(z / P) * P; // nearest street
+    const end = Math.abs(z - roadZ) <= Math.abs(x - roadX)
+      ? (roadZ < z ? Math.PI : 0) // on a street: camera out over the road
+      : (roadX < x ? -Math.PI / 2 : Math.PI / 2); // on an avenue
+    const a0 = Math.atan2(px - x, pz - z);
+    this.cine = { x, z, t: 0, dur, a0, sweep: wrapAngle(end - a0) };
     const el = document.getElementById('cine');
     el.querySelector('.cine-title').textContent = title;
     el.classList.remove('hidden');
@@ -1508,9 +1517,9 @@ class Game {
     }
     const k = c.t / c.dur;
     const ease = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
-    const ang = c.a0 + ease * Math.PI * 2; // a full, quick lap around the spot
-    const r = 17 - 6 * ease;
-    const y = 8 - 4 * ease;
+    const ang = c.a0 + ease * c.sweep;
+    const r = 15 + 9 * ease; // pulls back so both ends of the street are in frame
+    const y = 7 - 0.5 * ease;
     this.camera.position.set(c.x + Math.sin(ang) * r, y, c.z + Math.cos(ang) * r);
     this.camera.lookAt(c.x, 1.3, c.z);
   }
