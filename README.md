@@ -48,7 +48,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - Street cred ladder from the design doc (Nobody → Kingpin)
 - HUD: cash, wanted stars, a round radar that rotates with the player, and an in-game phone with City News
 - PS5 / standard gamepad support, with button prompts that switch to the controller
-- Guns: fists, pistol and SMG with ammo, reloading, aim mode and controller aim assist that locks to the torso (flick up for the head)
+- Guns: fists, pistol and SMG with ammo, reloading, aim mode and controller aim assist that locks to the torso (flick up for the head; flick the right stick left or right to snap to the next opp or civilian that way on screen; hold it to one side to break the lock)
 - Testing switches in `src/config.js`: `INFINITE_AMMO`, `START_IN_CAR`, `CAR_SPAWN_KEY`
 - Rival gang (Southside Kings) on a Southgate corner who shoot back
 - Gang AI with "heart": low-heart fighters run, mid-heart fighters take cover (building corners, crates, parked cars) and pop out to shoot, reckless ones charge in the open; nerve drops when friends go down, and police in the fight make everyone likelier to run

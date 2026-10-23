@@ -911,9 +911,24 @@ class Game {
       this.lockHead = false;
     }
     if (t) {
-      // Break the lock by holding the right stick hard to one side.
+      // Flick the right stick to one side: snap to the next opp or civilian that way on screen.
+      // Keep holding it there (with nobody that way) to break the lock and aim freely.
       const fullX = Math.abs(a.lookX) > dt * 2.3;
-      this.breakT = fullX ? (this.breakT || 0) + dt : 0;
+      if (!fullX) this.flickUsed = false;
+      if (fullX && !this.flickHeld && !this.flickUsed) {
+        const next = this.nextTarget(t, a.lookX < 0 ? 1 : -1, valid);
+        if (next) {
+          this.lockTarget = next;
+          this.lockHead = false;
+          this.flickUsed = true; // let go of the stick before the next flick
+          this.breakT = 0;
+          this.flickHeld = fullX;
+          a.lookX = a.lookY = 0;
+          return;
+        }
+      }
+      this.flickHeld = fullX;
+      this.breakT = fullX && !this.flickUsed ? (this.breakT || 0) + dt : 0;
       if (this.breakT > 0.15) {
         this.lockIgnore = t;
         this.lockIgnoreT = 0.6;
@@ -937,6 +952,29 @@ class Game {
         this.camPitch = clamp(this.camPitch - ey * k, -0.3, 1.0);
       }
     }
+  }
+
+  // The closest target to the right (dir 1) or left (dir -1) of the current one on screen.
+  nextTarget(cur, dir, valid) {
+    const asp = this.camera.aspect;
+    tmpV.set(cur.x, this.city.groundY(cur.x, cur.z) + 1.3, cur.z).project(this.camera);
+    const x0 = tmpV.x * asp;
+    const y0 = tmpV.y;
+    let best = null;
+    let bestS = Infinity;
+    for (const c of this.characters()) {
+      if (c === cur || !valid(c)) continue;
+      tmpV.set(c.x, this.city.groundY(c.x, c.z) + 1.3, c.z).project(this.camera);
+      if (tmpV.z > 1 || Math.abs(tmpV.x) > 0.95 || Math.abs(tmpV.y) > 0.95) continue; // must be in view
+      const dx = (tmpV.x * asp - x0) * dir;
+      if (dx < 0.02) continue;
+      const s = dx + Math.abs(tmpV.y - y0) * 1.5 - (c.isGang || c.isSoldier || c.isCop ? 0.1 : 0); // opps first when close
+      if (s < bestS) {
+        bestS = s;
+        best = c;
+      }
+    }
+    return best;
   }
 
   // ---- Player actions ----
