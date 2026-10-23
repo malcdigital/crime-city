@@ -7,6 +7,7 @@ import { tierOf } from './claim.js';
 import { streetAt, districtAt } from './city.js';
 import { NEW_PLUGS, PLUG_REPLACE } from './market.js';
 import { gpsRoute } from './gps.js';
+import { escapePoint } from './nav.js';
 import { TurfRisk } from './turfrisk.js';
 import { dist, pick, rand, randInt } from './util.js';
 
@@ -354,7 +355,7 @@ export class Drugs {
           game.market.raided(r.product);
           // They were waiting for this: cars come in from every side right away.
           game.police.raid(p.x, p.z, r.product === 'coke' || r.kind === 'gang' ? 4 : 3);
-          game.startCinematic(p.x, p.b.minZ + 1.2, 'RAID', 4);
+          game.startCinematic(p.x, p.b.minZ + 1.2, 'RAID', 3);
           game.hud.toast('RAID! Grab the stuff and get out!', '#ff8080');
           game.storyEvent(null, p.x, p.z, `Police raid a drug spot on ${p.street}`);
         }
@@ -547,7 +548,9 @@ export class Drugs {
         const [fx, fz] = car.forward();
         const ped = game.peds.addAt(car.x + fz * 2, car.z - fx * 2);
         ped.state = 'buyer';
-        car.driver.release(game);
+        // The car waits, parked, for them to come back.
+        car.driver.driveTo([[car.x, car.z], [car.x, car.z]]);
+        ped.homeCar = car;
         c.ped = ped;
         c.car = null;
         c.t = 0;
@@ -611,6 +614,7 @@ export class Drugs {
     peds.sort((p1, p2) => dist(p1.x, p1.z, px, pz) - dist(p2.x, p2.z, px, pz));
     const ped = pick(peds.slice(0, 4));
     ped.state = 'buyer';
+    ped.cameFrom = [ped.x, ped.z]; // they head back this way after
     this.customer = { ped, t: 0, wait: 0, offer: false };
   }
 
@@ -651,9 +655,7 @@ export class Drugs {
     const where = c.ped || c.car;
     this.inv[c.kind] -= c.units;
     if (c.undercover) {
-      game.crime('drugDeal', where.x, where.z);
-      game.hud.toast("It's a setup — undercover cop!", '#ff8080');
-      this.dropCustomer(true);
+      this.sting(c);
     } else if (c.rob) {
       game.hud.toast(c.ped ? 'He snatched it and ran! Get it back!' : 'They grabbed it and took off!', '#ff8080');
       if (c.ped) {
@@ -675,6 +677,40 @@ export class Drugs {
     }
     game.save();
     this.save();
+  }
+
+  // Sold to an undercover cop: badge out, gun on you, and backup already rolling in.
+  sting(c) {
+    const game = this.game;
+    let cop = c.ped;
+    if (!cop) {
+      // A drive-up: he gets out of the car.
+      const car = c.car;
+      const [fx, fz] = car.forward();
+      cop = game.peds.addAt(car.x + fz * (car.radius + 0.8), car.z - fx * (car.radius + 0.8));
+      if (car.driver && car.driver.route) car.driver.driveTo([[car.x, car.z], [car.x, car.z]]);
+    }
+    this.customer = null;
+    cop.state = 'sting';
+    cop.isCop = true; // shooting him is shooting a cop
+    cop.served = true;
+    cop.fireT = 8; // holds you at gunpoint; fires if you resist (see Ped 'sting')
+    if (!cop.badgeGun) {
+      const gun = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.32), new THREE.MeshLambertMaterial({ color: 0x151515 }));
+      gun.position.set(0, -0.64, 0.05);
+      gun.rotation.x = Math.PI / 2;
+      cop.char.armR.add(gun);
+      const badge = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.2, 0.03), new THREE.MeshBasicMaterial({ color: 0xf1c40f }));
+      badge.position.set(0, -0.66, 0.06);
+      cop.char.armL.add(badge);
+      cop.badgeGun = true;
+    }
+    game.crime('drugDeal', cop.x, cop.z);
+    const [px, pz] = game.player.pos();
+    game.police.raid(px, pz, 3);
+    game.startCinematic(px, pz, 'POLICE', 3);
+    game.hud.toast('"Police! Hands where I can see em!"', '#ff8080');
+    game.save();
   }
 
   // Robbers who got away with your stuff: knock them down or kill them to get it back.
@@ -702,19 +738,29 @@ export class Drugs {
     if (c.ped) c.ped.askedT = this.game.time; // they don't come straight back
     if (c.ped && c.ped.state === 'buyer') {
       const ped = c.ped;
+      const game = this.game;
       ped.served = true;
-      // Got what they came for (or got turned down): walk off and get off the street.
-      const [px, pz] = this.game.player.pos();
-      const door = ped.nearestDoor();
-      if (door && dist(door[0], door[1], px, pz) > 4) {
-        ped.door = door;
-        ped.state = 'leave';
-        ped.navFails = 0;
+      ped.state = 'leave';
+      ped.navFails = 0;
+      const car = ped.homeCar;
+      if (car && !car.removed && !car.wrecked && car.driver && car.driver.route) {
+        // Back to the car they got out of, and off they drive.
+        const [fx, fz] = car.forward();
+        ped.door = [car.x + fz * (car.radius + 0.6), car.z - fx * (car.radius + 0.6)];
+        ped.onArrive = () => {
+          if (car.removed || !car.driver || !car.driver.release) return;
+          car.driver.release(game);
+          car.driver.cruise = rand(10, 13);
+        };
       } else {
-        ped.resumeWalking();
-        ped.hurryT = 10;
+        // Back the way they came, and around the corner out of sight.
+        const [px, pz] = game.player.pos();
+        const back = ped.cameFrom && dist(ped.cameFrom[0], ped.cameFrom[1], px, pz) > 8 ? ped.cameFrom : null;
+        ped.door = back || escapePoint(game, ped, px, pz);
+        ped.leaveAway = true;
       }
     }
+    if (c.homeCar && c.homeCar.driver && c.homeCar.driver.route && !(c.ped && c.ped.onArrive)) c.homeCar.driver.release(this.game);
     if (c.car && c.car.driver && c.car.driver.stopAt === c.stop) {
       c.car.driver.release(this.game);
       if (dealt && (c.rob || c.undercover)) c.car.driver.cruise = 20; // peel off
@@ -732,6 +778,19 @@ export class Drugs {
 
   onWasted() {
     this.risk.onWasted();
+    // Whatever you were holding hits the ground where you went down (grab it if you can get
+    // back before someone else does — it's gone in a minute and a half).
+    const game = this.game;
+    const [x, z] = game.player.pos();
+    let dropped = 0;
+    for (const [k, n] of Object.entries(this.inv)) {
+      if (n <= 0) continue;
+      game.inventory.dropDrug(x + rand(-1.2, 1.2), z + rand(-1.2, 1.2), k, n);
+      game.pickups.at(-1).t = 90;
+      dropped += n;
+      this.inv[k] = 0;
+    }
+    if (dropped) game.hud.toast('Your product hit the ground where you went down', '#ff8080');
     this.lostRun();
   }
 

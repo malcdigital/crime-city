@@ -85,7 +85,7 @@ export class Ped {
   }
 
   scare(fromX, fromZ, gun = false) {
-    if (this.state === 'down' || this.state === 'dead') return;
+    if (this.state === 'down' || this.state === 'dead' || this.state === 'sting') return;
     // A shop owner being shaken down stays at his store: he ducks, then stands back up.
     if (this.shopkeeper) {
       this.state = 'cower';
@@ -269,13 +269,41 @@ export class Ped {
         this.hurryT = 12;
       }
     } else if (this.state === 'leave') {
-      // Ducking into a building to get off the street.
+      // Leaving: back to their car, back the way they came, or into a building.
       [tx, tz] = this.door;
-      speed = 2.4;
-      if (dist(this.x, this.z, tx, tz) < 0.9 || this.navFails >= 3) {
-        this.dispose();
+      speed = this.leaveSpeed || 2.4;
+      if (this.leaveAway && dist(this.x, this.z, ...game.player.pos()) > 45) {
+        this.dispose(); // well out of sight
         return;
       }
+      if (dist(this.x, this.z, tx, tz) < 0.9 || this.navFails >= 3) {
+        const [px, pz] = game.player.pos();
+        if (this.onArrive) {
+          this.onArrive();
+          this.dispose();
+          return;
+        }
+        if (this.leaveAway && dist(this.x, this.z, px, pz) < 30) {
+          // Still in view: keep going, around the next corner.
+          this.door = escapePoint(game, this, px, pz);
+          this.navFails = 0;
+        } else {
+          this.dispose();
+          return;
+        }
+      }
+    } else if (this.state === 'sting') {
+      // An undercover cop: badge out, gun on you.
+      const [px, pz] = game.player.pos();
+      this.heading = lerpAngle(this.heading, Math.atan2(px - this.x, pz - this.z), Math.min(1, dt * 8));
+      this.fireT = (this.fireT ?? 8) - dt; // holds you at gunpoint...
+      if (game.lastShot >= (game.holdFireFrom || 0) && this.fireT > 0.4) this.fireT = 0.4; // ...until you shoot
+      const d = dist(this.x, this.z, px, pz);
+      if (this.fireT <= 0 && d < 30 && game.wastedT <= 0 && game.bustedT <= 0) {
+        this.fireT = rand(0.9, 1.5);
+        game.npcShoot({ x: this.x, z: this.z, heading: this.heading, muzzleY: game.city.groundY(this.x, this.z) + 1.35, crouched: false }, 8, 'pistol', 0.6);
+      }
+      if (d > 40 || game.stars === 0) this.afterFlee();
     } else {
       const cs = corners(this.block);
       [tx, tz] = cs[this.corner];
@@ -292,6 +320,11 @@ export class Ped {
     this.phase += dt * speed * 4;
     animateWalk(this.char, this.phase, Math.min(1, speed / 1.5));
     if (this.state === 'call') this.char.armR.rotation.x = -2.5; // phone to the ear
+    if (this.state === 'sting') {
+      // Gun out in the right hand, badge held up in the left.
+      this.char.armR.rotation.x = -1.5;
+      this.char.armL.rotation.x = -2.2;
+    }
     const y = game.city.groundY(this.x, this.z);
     let yOff = this.standing ? 0 : 0.2;
     const c = this.char;

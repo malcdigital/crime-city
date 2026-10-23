@@ -61,7 +61,7 @@ export const CRIMES = {
   explosion: { heat: 1.5, cred: 5, label: 'Explosion' },
   drugRaid: { heat: 3, cred: 5, min: 2, label: 'Drug raid' },
   drugRaidBig: { heat: 6, cred: 10, min: 3, label: 'Drug raid' },
-  drugDeal: { heat: 3, cred: 0, min: 2, label: 'Drug sale to an undercover officer' },
+  drugDeal: { heat: 4, cred: 0, min: 2, label: 'Drug sale to an undercover officer' },
 };
 
 export const GANG_NAME = 'Southside Kings';

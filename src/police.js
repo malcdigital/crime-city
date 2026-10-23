@@ -451,7 +451,9 @@ export class Officer {
       }
     }
 
-    if (canShoot) {
+    // Holding you at gunpoint (a raid or a sting): guns up, no shooting unless you resist.
+    const holding = game.time < (game.holdFireUntil || 0) && game.lastShot < game.holdFireFrom;
+    if (canShoot && !holding) {
       this.fireT -= dt;
       if (this.fireT <= 0) {
         this.fireT = rand(rate[0], rate[1]);
@@ -600,14 +602,15 @@ export class PoliceUnit {
       }
     } else {
       c.siren = true;
-      const seesPlayer = d < 45 && game.spots(c, 1.4, 60, false);
+      const seesPlayer = (d < 45 && game.spots(c, 1.4, 60, false)) || (this.raid && d < 45); // a raid knows exactly where you are
       if (seesPlayer) {
         const [vx, vz] = game.player.velocity();
         tx = px + vx * 0.6;
         tz = pz + vz * 0.6;
         desired = Math.min(maxS, 6 + d * 0.9);
-        const stopRange = game.lethal ? 22 : 14;
-        if ((!game.player.vehicle || game.lethal) && d < stopRange) {
+        const stopRange = this.raid ? 20 : game.lethal ? 22 : 14;
+        // A raid team bails out on arrival, car or no car.
+        if ((!game.player.vehicle || game.lethal || this.raid) && d < stopRange) {
           desired = 0;
           if (Math.abs(c.speed) < 4) this.dismountAll();
         }
@@ -898,10 +901,12 @@ export class PoliceManager {
       const u = new PoliceUnit(game, px, pz, h, 'police');
       u.car.speed = 16; // already flying in
       u.raid = true;
+      game.lethalFlag = true; // guns out, from behind their doors
       this.units.push(u);
       game.vehicles.push(u.car);
       sent++;
     }
+    game.holdFire(8); // ...but they don't open fire unless you resist
     return sent;
   }
 

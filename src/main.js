@@ -1439,6 +1439,38 @@ class Game {
     if (this.cine) this.cineCamera(dt);
   }
 
+  // Police holding you at gunpoint: they won't fire for a while unless you shoot. Stand
+  // still (no aiming) and you're arrested; run or shoot and it's on.
+  holdFire(secs) {
+    this.holdFireFrom = this.time;
+    this.holdFireUntil = this.time + secs;
+    this.surrenderT = 0;
+    this.holdPos = this.player.pos();
+  }
+
+  updateSurrender(dt, a) {
+    const p = this.player;
+    if (this.time >= (this.holdFireUntil || 0) || this.stars === 0 || this.lastShot >= this.holdFireFrom || this.cine) return;
+    const [px, pz] = p.pos();
+    const close = this.police.officers().some((o) => o.standing && dist(o.x, o.z, px, pz) < 16)
+      || this.peds.peds.some((q) => q.state === 'sting' && dist(q.x, q.z, px, pz) < 16);
+    if (!close) return;
+    // Running off or pulling a gun on them counts as resisting: then they open fire.
+    const [hx, hz] = this.holdPos || [px, pz];
+    if (dist(px, pz, hx, hz) > 7 || (this.aimingNow && !p.vehicle)) {
+      this.holdFireUntil = 0;
+      this.hud.toast('Resisting arrest!', '#ff8080');
+      return;
+    }
+    const still = !p.vehicle ? Math.hypot(a.moveX, a.moveY) < 0.2 && !a.aim : Math.abs(p.vehicle.speed) < 1;
+    this.surrenderT = still ? (this.surrenderT || 0) + dt : 0;
+    if (!this.prompt) this.prompt = 'Police! Stay still to give up · run or shoot to resist';
+    if (this.surrenderT > 3) {
+      this.holdFireUntil = 0;
+      this.bust();
+    }
+  }
+
   // ---- Cinematics ----
   // A short scripted shot: letterbox bars, a title, and the camera sweeping around a spot
   // while the action plays out. The game keeps running; you just can't move until it ends.
@@ -1472,7 +1504,7 @@ class Game {
     }
     const k = c.t / c.dur;
     const ease = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
-    const ang = c.a0 + ease * Math.PI * 1.6; // most of a lap around the spot
+    const ang = c.a0 + ease * Math.PI * 2; // a full, quick lap around the spot
     const r = 17 - 6 * ease;
     const y = 8 - 4 * ease;
     this.camera.position.set(c.x + Math.sin(ang) * r, y, c.z + Math.cos(ang) * r);
@@ -1668,6 +1700,7 @@ class Game {
     this.peds.update(dt);
     this.checkRunOver();
     this.handleInteractions(dt, a);
+    this.updateSurrender(dt, a);
     this.updateVehicleDamage(dt);
     this.updatePickups(dt, a);
     this.vehicles = this.vehicles.filter((v) => !v.removed);
