@@ -113,10 +113,10 @@ export class Drugs {
       const x = b.cx;
       const z = b.minZ - 3.6;
       const plug = { ...p, b, x, z, r: 4, street: streetAt(x, z), dead: false, deadT: 0 };
-      // Where to pull up: a ring in the curb lane, shown while you're doing a pickup there.
-      const ring = new THREE.Mesh(new THREE.RingGeometry(3.3, 4, 40), new THREE.MeshBasicMaterial({ color: 0xe0b000, transparent: true, opacity: 0.7, depthWrite: false }));
+      // A ring around the plug, shown while you're doing a pickup with them.
+      const ring = new THREE.Mesh(new THREE.RingGeometry(1.4, 1.8, 32), new THREE.MeshBasicMaterial({ color: 0xe0b000, transparent: true, opacity: 0.7, depthWrite: false }));
       ring.rotation.x = -Math.PI / 2;
-      ring.position.set(x, 0.06, z);
+      ring.position.set(x, 0.26, b.minZ + 1.2); // around the plug, on the sidewalk
       ring.visible = false;
       game.scene.add(ring);
       plug.ring = ring;
@@ -321,23 +321,28 @@ export class Drugs {
     const [px, pz] = pl.pos();
     const v = pl.vehicle;
     if (r.stage === 'toPlug' || r.stage === 'loading') {
-      const d = dist(px, pz, p.x, p.z);
-      const inSpot = d < p.r + (v ? 2 : 2.5);
-      const stopped = !v || Math.abs(v.speed) < 1.2;
-      if (r.stage === 'loading' && d > p.r + 12) {
-        // Actually drove off before you were loaded: no product, no debt.
+      // Park up, get out, and walk up to the plug on foot.
+      const [qx, qz] = p.ped && p.ped.alive ? [p.ped.x, p.ped.z] : [p.x, p.b.minZ + 1.2];
+      const d = dist(px, pz, qx, qz);
+      if (r.stage === 'loading' && d > 16) {
+        // Walked (or drove) off before you had it: no product, no debt.
         game.hud.toast('You left without the product', '#ff8080');
         this.run = null;
         game.mapView.waypoint = null;
         return;
       }
-      if (!inSpot) {
-        if (r.stage === 'loading') this.prompt = `Get back to ${p.name} to finish loading`;
+      if (v) {
+        if (dist(v.x, v.z, qx, qz) < 18) this.prompt = `Get out and walk up to ${p.name}`;
         return;
       }
-      if (!stopped) {
-        this.prompt = r.stage === 'loading' ? 'Hold still — still loading' : `Stop here to load up with ${p.name}`;
+      if (d > 2.4) {
+        if (r.stage === 'loading') this.prompt = `Get back to ${p.name} to finish the pickup`;
+        else if (d < 10) this.prompt = `Walk up to ${p.name}`;
         return;
+      }
+      if (r.stage === 'toPlug') {
+        this.prompt = `Press ${game.input.label('interact')} to pick up from ${p.name}`;
+        if (!(a.interactHeld && !game.interactWasHeld)) return;
       }
       if (r.stage === 'toPlug') {
         r.stage = 'loading';
@@ -351,7 +356,7 @@ export class Drugs {
         }
       }
       r.loadT += dt;
-      this.progress = { value: Math.min(1, r.loadT / LOAD_TIME), label: `Loading ${amountText(r.product, r.amount)}…` };
+      this.progress = { value: Math.min(1, r.loadT / LOAD_TIME), label: `Getting ${amountText(r.product, r.amount)} from ${p.name}…` };
       if (r.loadT >= LOAD_TIME) {
         r.stage = 'toHQ';
         this.debts.push({ plug: p.id, owe: r.owe, left: DEADLINE, hit: false, nextHit: 0, warned: 0 });

@@ -6,6 +6,41 @@ const TRY = [0.45, 0.9, 1.35, 1.8, 2.3];
 
 // Move an on-foot character `e` ({x, z}) toward a goal, steering around buildings and
 // sliding along walls instead of running into them. Returns the heading it moved along.
+// Cars are solid for people on foot: each car is a capsule (its two collision circles joined).
+function nearCars(game, e, x, z) {
+  const out = [];
+  for (const v of game.vehicles) {
+    if (v.removed || v === e.vehicle || (e.boarding && v === e.boarding.car)) continue;
+    if (Math.abs(v.x - x) > 9 || Math.abs(v.z - z) > 9) continue;
+    const [fx, fz] = v.forward();
+    const o = v.halfLen - v.radius;
+    out.push([v.x + fx * o, v.z + fz * o, v.x - fx * o, v.z - fz * o, v.radius]);
+  }
+  return out;
+}
+
+// Closest point on segment a-b to p.
+function closest(px, pz, ax, az, bx, bz) {
+  const dx = bx - ax;
+  const dz = bz - az;
+  const L = dx * dx + dz * dz || 1;
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / L));
+  return [ax + dx * t, az + dz * t];
+}
+
+// Would walking from (x0,z0) to (x1,z1) go through a car?
+function carBlocked(cars, x0, z0, x1, z1, pad) {
+  for (const [ax, az, bx, bz, r] of cars) {
+    for (let k = 1; k <= 4; k++) {
+      const px = x0 + ((x1 - x0) * k) / 4;
+      const pz = z0 + ((z1 - z0) * k) / 4;
+      const [cx, cz] = closest(px, pz, ax, az, bx, bz);
+      if (Math.hypot(px - cx, pz - cz) < r + pad) return true;
+    }
+  }
+  return false;
+}
+
 export function navStep(e, finalX, finalZ, speed, dt, game, radius = 0.4) {
   // Long trips follow the streets instead of cutting through buildings.
   e.navWpT = (e.navWpT || 0) - dt;
@@ -23,6 +58,7 @@ export function navStep(e, finalX, finalZ, speed, dt, game, radius = 0.4) {
   const boxes = game.city.colliders;
   let ux = dx / d;
   let uz = dz / d;
+  const cars = nearCars(game, e, e.x, e.z);
 
   if (e.navDetourT > 0) {
     // Following a wall for a moment after getting stuck.
@@ -32,7 +68,7 @@ export function navStep(e, finalX, finalZ, speed, dt, game, radius = 0.4) {
   } else {
     const look = Math.min(d, 2.5);
     const pad = radius * 0.75; // a bit less than the body, so hugging a wall still counts as clear
-    if (segmentBlockedPad(e.x, e.z, e.x + ux * look, e.z + uz * look, boxes, pad)) {
+    if (segmentBlockedPad(e.x, e.z, e.x + ux * look, e.z + uz * look, boxes, pad) || carBlocked(cars, e.x, e.z, e.x + ux * look, e.z + uz * look, radius)) {
       const base = Math.atan2(ux, uz);
       const side = e.navSide || 1;
       for (const a of TRY) {
@@ -41,7 +77,7 @@ export function navStep(e, finalX, finalZ, speed, dt, game, radius = 0.4) {
           const h = base + a * s;
           const cx = Math.sin(h);
           const cz = Math.cos(h);
-          if (!segmentBlockedPad(e.x, e.z, e.x + cx * 2.5, e.z + cz * 2.5, boxes, pad)) {
+          if (!segmentBlockedPad(e.x, e.z, e.x + cx * 2.5, e.z + cz * 2.5, boxes, pad) && !carBlocked(cars, e.x, e.z, e.x + cx * 2.5, e.z + cz * 2.5, radius)) {
             ux = cx;
             uz = cz;
             e.navSide = s; // keep turning the same way so we don't zigzag
@@ -84,6 +120,19 @@ export function navStep(e, finalX, finalZ, speed, dt, game, radius = 0.4) {
   const r = pushCircle(e.x, e.z, radius, boxes);
   e.x = r.x;
   e.z = r.z;
+  // Never end up inside a car.
+  for (const [ax, az, bx, bz, cr] of cars) {
+    const [cx, cz] = closest(e.x, e.z, ax, az, bx, bz);
+    const sx = e.x - cx;
+    const sz = e.z - cz;
+    const sd = Math.hypot(sx, sz);
+    const min = cr + radius;
+    if (sd < min) {
+      const k = sd > 1e-4 ? min / sd : 1;
+      e.x = cx + (sd > 1e-4 ? sx * k : min);
+      e.z = cz + (sd > 1e-4 ? sz * k : 0);
+    }
+  }
   // Never end up inside the player.
   if (pl && e !== pl && !pl.vehicle) {
     const sx = e.x - pl.x;

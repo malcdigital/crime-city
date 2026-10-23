@@ -236,13 +236,23 @@ export class Ped {
       }
     } else if (this.state === 'buyer') {
       // Coming up to buy from you (to your window if you're in a car).
-      const [px, pz] = game.player.pos();
-      const stopAt = game.player.vehicle ? 2.8 : 1.5;
+      // On foot: walk up to you. In a car: come around to the driver's window, not through it.
+      let [px, pz] = game.player.pos();
+      const pv = game.player.vehicle;
+      if (pv) {
+        const [fx, fz] = pv.forward();
+        px = pv.x + fz * (pv.radius + 0.75); // at the driver's window
+        pz = pv.z - fx * (pv.radius + 0.75);
+      }
+      const stopAt = pv ? 0.5 : 1.5;
       const d = dist(this.x, this.z, px, pz);
       if (d > stopAt) {
         [tx, tz] = [px, pz];
         speed = this.walkSpeed * (d > 12 ? 2.2 : 1.3); // hurry over, then walk up
-      } else this.heading = lerpAngle(this.heading, Math.atan2(px - this.x, pz - this.z), Math.min(1, dt * 6));
+      } else {
+        const [lx, lz] = game.player.pos(); // face you (or your car)
+        this.heading = lerpAngle(this.heading, Math.atan2(lx - this.x, lz - this.z), Math.min(1, dt * 6));
+      }
     } else if (this.state === 'shop') {
       // Standing out front of the store, watching you.
       const [px, pz] = game.player.pos();
