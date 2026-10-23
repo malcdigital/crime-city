@@ -106,7 +106,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | `src/main.js` | Game loop, crimes, wanted level, interactions, camera |
 | `src/city.js` | City generation, road graph, minimap |
 | `src/vehicle.js` | Car models and arcade driving physics |
-| `src/traffic.js` | NPC traffic drivers (pass stopped cars in the other lane when it's clear, or turn back if stuck) |
+| `src/traffic.js` | NPC traffic drivers: pass stopped cars in the other lane (pulling out early, backing up for room, giving up the pass if something is coming), sort out nose-to-nose standoffs (the one in the wrong lane backs off), turn back if stuck, and get towed if stuck out of sight |
 | `src/peds.js` | NPC pedestrians |
 | `src/police.js` | Police units and officers |
 | `src/player.js` | Player on foot and in cars |

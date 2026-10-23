@@ -4,8 +4,10 @@ import { steerToward, throttleFor, StuckHelper } from './driving.js';
 import { pick, rand, dist } from './util.js';
 
 // An NPC driver that follows lanes and turns randomly at intersections.
+let nextId = 1;
 export class TrafficDriver {
   constructor(car, from, to) {
+    this.id = nextId++;
     this.car = car;
     this.from = from;
     this.to = to;
@@ -67,10 +69,39 @@ export class TrafficDriver {
   unjam(dt, game, ux, uz, dn) {
     const c = this.car;
     const b = this.blockedBy;
+    this.passCooldown = Math.max(0, (this.passCooldown || 0) - dt);
     if (this.passing) {
       this.passT -= dt;
       const p = this.passCar;
-      const behind = !p || p.removed || (p.x - c.x) * ux + (p.z - c.z) * uz < -6;
+      // Something coming the other way (or stopped) in the lane we're borrowing: if we're
+      // not alongside yet, give it up and tuck back in behind.
+      const L0 = CFG.LANE;
+      const pfwd = p && !p.removed ? (p.x - c.x) * ux + (p.z - c.z) * uz : -99;
+      // Measured from our own lane's center line: the other lane is around -2 lanes over.
+      const lx = this.from.x - uz * L0;
+      const lz = this.from.z + ux * L0;
+      const oncoming = game.vehicles.some((o) => {
+        if (o === c || o === p || o.removed) return false;
+        const fwd = (o.x - c.x) * ux + (o.z - c.z) * uz;
+        const side = (o.x - lx) * -uz + (o.z - lz) * ux;
+        return fwd > 0 && fwd < 26 && side < -L0 * 1.1 && side > -L0 * 3.2;
+      });
+      if (oncoming && pfwd > 2) {
+        this.passing = false;
+        this.passCar = null;
+        this.jamT = 0;
+        this.passCooldown = 4;
+        return;
+      }
+      // Right on its bumper with no room to swing out: back up a few meters first.
+      this.closeT = this.tooClose && Math.abs(c.speed) < 0.5 ? (this.closeT || 0) + dt : 0;
+      if (this.closeT > 0.8) {
+        this.closeT = 0;
+        this.backT = 1.3;
+        this.backKeepPass = true;
+        return;
+      }
+      const behind = !p || p.removed || pfwd < -6;
       if (behind || this.passT <= 0 || dn < 14) {
         this.passing = false;
         this.passCar = null;
@@ -82,7 +113,7 @@ export class TrafficDriver {
     // Spot the stopped car early (while there's still room to pull out), or once stuck.
     const s = this.stoppedAhead;
     const early = s && s.fwd > 9;
-    if ((early || this.jamT > 1.2) && dn > 30) {
+    if ((early || this.jamT > 1.2) && dn > 30 && this.passCooldown <= 0) {
       const blocker = early ? s.v : b;
       // Other lane clear for the next 30 m? (oncoming traffic, or anything parked there)
       const L = CFG.LANE;
@@ -108,12 +139,39 @@ export class TrafficDriver {
     }
   }
 
+  // Nose to nose with a car that's waiting on us: whoever's in the wrong lane (or, if
+  // neither, one of them) backs off so the other can go.
+  standoff(dt) {
+    const c = this.car;
+    const b = this.blockedBy;
+    if (!b || Math.abs(c.speed) > 1 || Math.abs(b.speed) > 1) {
+      this.faceT = 0;
+      return;
+    }
+    const [fx, fz] = c.forward();
+    const [bx, bz] = b.forward();
+    if (fx * bx + fz * bz > -0.3) {
+      this.faceT = 0;
+      return; // not facing each other
+    }
+    this.faceT = (this.faceT || 0) + dt;
+    if (this.faceT < 1.5) return;
+    const other = b.driver && b.driver.id ? b.driver : null;
+    const meWrong = !!this.passing;
+    const himWrong = !!(other && other.passing);
+    if (meWrong || (!himWrong && (!other || this.id < other.id))) {
+      this.backT = 2;
+      this.faceT = 0;
+    }
+  }
+
   // Slow down or stop for cars and people ahead. Remembers what made it stop (blockedBy).
   yieldTo(game, desired) {
     const c = this.car;
     const [fx, fz] = c.forward();
     this.blockedBy = null;
     this.stoppedAhead = null;
+    this.tooClose = false;
     let worst = desired;
     for (const o of game.vehicles) {
       if (o === c) continue;
@@ -126,7 +184,10 @@ export class TrafficDriver {
       if (fwd > 0 && fwd < 25 && lat < 2.6 && Math.abs(o.speed) < 1 && (!this.stoppedAhead || fwd < this.stoppedAhead.fwd)) this.stoppedAhead = { v: o, fwd };
       if (this.passing && o === this.passCar) {
         // Going around it: keep clear of its back end until we're out beside it.
-        if (fwd > -5 && fwd < 15 && lat < 2.1) worst = Math.min(worst, fwd > 7.5 ? 5 : fwd > 5.6 ? 1.2 : 0);
+        if (fwd > -5 && fwd < 15 && lat < 2.1) {
+          worst = Math.min(worst, fwd > 7.5 ? 5 : fwd > 5.6 ? 1.2 : 0);
+          if (fwd > 0 && fwd <= 5.6) this.tooClose = true;
+        }
         continue;
       }
       if (Math.abs(ox) > 15 || Math.abs(oz) > 15) continue;
@@ -152,6 +213,28 @@ export class TrafficDriver {
 
   update(dt, game) {
     const c = this.car;
+    // Backing off out of a standoff.
+    if (this.backT > 0) {
+      this.backT -= dt;
+      c.update(dt, { throttle: -0.7, steer: 0, handbrake: false }, game.city.colliders);
+      if (this.backT <= 0 && !this.backKeepPass) {
+        this.passing = false;
+        this.passCar = null;
+        this.jamT = 2; // and if it's still blocked, think about turning around
+      }
+      if (this.backT <= 0) this.backKeepPass = false;
+      return;
+    }
+    // Stuck for good somewhere you can't see: tow it away (traffic respawns elsewhere).
+    this.stillT = Math.abs(c.speed) < 0.4 && !this.stopAt ? (this.stillT || 0) + dt : 0;
+    if (this.stillT > 12 && game.player.vehicle !== c) {
+      const [px, pz] = game.player.pos();
+      if (dist(c.x, c.z, px, pz) > 70) {
+        c.dispose();
+        this.active = false;
+        return;
+      }
+    }
     if (this.route) return this.followRoute(dt, game);
     if (dist(c.x, c.z, this.to.x, this.to.z) < 8) {
       this.from = this.to;
@@ -186,6 +269,7 @@ export class TrafficDriver {
     }
 
     desired = this.yieldTo(game, desired);
+    this.standoff(dt);
 
     const ctrl = { throttle: throttleFor(c, desired), steer: steerToward(c, tx, tz), handbrake: desired === 0 };
     this.stuck.apply(dt, c, desired, ctrl);
