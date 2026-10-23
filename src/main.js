@@ -18,6 +18,7 @@ import { lam } from './character.js';
 import { segmentBlocked } from './collision.js';
 import { MapView } from './mapview.js';
 import { Shops } from './shops.js';
+import { Drugs } from './drugs.js';
 import { gpsRoute, GpsLine } from './gps.js';
 import { clamp, dist, lerp, lerpAngle, rand, randInt, wrapAngle } from './util.js';
 
@@ -113,6 +114,7 @@ class Game {
     this.turfWars = new TurfManager(this);
     this.armor = 0;
     this.shops = new Shops(this);
+    this.drugs = new Drugs(this);
 
     addEventListener('resize', () => this.resize());
     this.resize();
@@ -292,6 +294,7 @@ class Game {
     this.cred = Math.max(0, this.cred - 10);
     this.hud.busted(true, `Fined $${fine.toLocaleString('en-US')} · -10 street cred`);
     this.bustedT = 3;
+    this.drugs.onBusted();
     this.clearWanted();
     this.robbing = null;
     this.save();
@@ -309,6 +312,7 @@ class Game {
     else if (!this.endStory(`Suspect shot dead on ${streetAt(x, z)}`, x, z)) this.hud.news(`Shooting victim rushed to Harbor General from ${districtAt(x, z)}`, 'info');
     this.health = 0;
     this.armor = 0;
+    this.drugs.onWasted();
     const bill = Math.min(this.cash, 500);
     this.cash -= bill;
     this.hud.wasted(true, `Hospital bill $${bill.toLocaleString('en-US')}`);
@@ -1192,6 +1196,12 @@ class Game {
     this.prompt = '';
     this.progress = null;
     const city = this.city;
+    // A drug deal or a pickup in progress has the buttons right now.
+    if (this.drugs.prompt || this.drugs.progress) {
+      this.prompt = this.drugs.prompt;
+      this.progress = this.drugs.progress;
+      return;
+    }
 
     if (p.busy) return; // tumbling / getting up
     if (p.vehicle) {
@@ -1485,6 +1495,12 @@ class Game {
       if (a.dpadDown || a.dpadUp) this.hud.moveClipSelection(a.dpadDown ? 1 : -1);
       a.nextWeapon = a.prevWeapon = false;
       a.interactHeld = a.interactKey; // D-pad ↑ is for the phone right now
+      // □ / R: contacts (plugs: set up a pickup, pay what you owe).
+      if (a.reload) {
+        a.reload = false;
+        this.hud.togglePhone();
+        this.shops.openCustom('Contacts', () => this.drugs.contacts());
+      }
       if (a.playClip) {
         const clip = this.hud.selectedClip();
         if (clip) this.clipPlayer.play(clip);
@@ -1521,6 +1537,7 @@ class Game {
     for (const p of this.peds.peds) if (p.standing) this.walkers.push(p);
 
     const p = this.player;
+    this.drugs.update(dt, a);
     this.updateWeaponWheel(dt, a);
     this.arsenal.update(dt);
     const gun = !this.arsenal.current().melee;

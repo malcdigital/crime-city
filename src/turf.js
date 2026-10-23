@@ -38,6 +38,8 @@ export const GANGS = {
   kings: { id: 'kings', name: GANG_NAME, car: 0x5b1a7a, color: '#9c27b0', shirt: 0x6a1b9a, bandana: 0x8e24aa, reckless: 0.85, leader: 'Big Lo' },
   vipers: { id: 'vipers', name: 'East Side Vipers', car: 0xc8551b, color: '#ff7a1a', shirt: 0xc0561a, bandana: 0xff8f2a, reckless: 0.3, leader: 'Slim' },
   crew: { id: 'crew', name: CREW_NAME, car: 0x1f6b34, color: '#3dff6e', shirt: 0x1e7d32, bandana: 0x2e7d32, reckless: 0.5, leader: 'You' },
+  // Not a turf gang: the plug's shooters, sent when you don't pay up.
+  plug: { id: 'plug', name: "The plug's shooters", car: 0x111111, color: '#c8c8c8', shirt: 0x202020, bandana: 0x111111, reckless: 0, leader: '', hidden: true },
 };
 const START = {
   kings: { home: '1,6', blocks: ['1,6', '0,6', '0,7', '1,7', '1,5', '0,5'] },
@@ -340,7 +342,7 @@ class War {
 
 // A gang car taking a crew to a fight: drives the street grid, pulls up near the block, and
 // everyone piles out.
-class GangRide {
+export class GangRide {
   constructor(mgr, car, riders, block, mode = 'war') {
     this.mgr = mgr;
     this.game = mgr.game;
@@ -911,6 +913,26 @@ export class TurfManager {
     const an = /^[AEIOU]/i.test(GANGS[g].name) ? 'an' : 'a';
     game.hud.toast(near ? `You stole ${an} ${GANGS[g].name} car — ${near} of them are coming for you` : `You stole ${an} ${GANGS[g].name} car`, '#ff8080');
     if (near) game.hud.news(`${GANGS[g].name} car stolen on ${streetAt(v.x, v.z)}`, 'crime');
+  }
+
+  // A rival gang hears you're carrying: their nearest crews with cars come hunting you
+  // (real members from where they are, not out of nowhere).
+  sendHunters(g, x, z, maxRides = 2) {
+    if (this.underground(g)) return 0;
+    const game = this.game;
+    const cars = this.cars
+      .filter((c) => !c.removed && !c.wrecked && c.driver === null && c.gangCar === g && dist(c.x, c.z, x, z) < 400)
+      .sort((p, q) => dist(p.x, p.z, x, z) - dist(q.x, q.z, x, z));
+    let rides = 0;
+    for (const car of cars) {
+      if (rides >= maxRides) break;
+      const crew = this.soldiers.filter((s) => s.gangId === g && s.alive && s.standing && !s.war && !s.boarding && dist(s.x, s.z, car.x, car.z) < 35).slice(0, 3);
+      if (!crew.length) continue;
+      for (const s of crew) s.aggroUntil = game.time + 120;
+      this.rides.push(new GangRide(this, car, crew, null, 'chase'));
+      rides++;
+    }
+    return rides;
   }
 
   // You killed a gang member: three on the same block of their turf starts a war.

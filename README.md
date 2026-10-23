@@ -59,6 +59,8 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - Gun shop, Iron Mike's Guns (A on the radar): body armor ($500), ammo, SMG / Pump Shotgun / Assault Rifle, and crew gear (SMGs & shotguns, then rifles for every homie; vests so they take 40% less damage). Won't serve you with stars. You start with fists and a pistol (`CFG.START_ALL_GUNS` gives everything for testing); what you buy is saved
 - Body armor: a blue bar next to health that soaks up 70% of each hit until it's worn through
 - Mod garage, Lou's Mod Garage (M on the radar): stop the car in the ring and press E. Repair, engine / brakes / armor in three levels each, and respray (with stars: drops one; at 1 star the cops lose you). Mods stay on that car
+- Drug dealing (src/drugs.js): three plugs (D on the radar) — Smokey (weed), Doc (pills), Marco (coke). Open the phone and press R / □ for Contacts to set up a pickup: a solo pickup (small load) or, at Kingpin, a gang run (big load; `CFG.GANG_RUNS_ANY_RANK` unlocks it for testing). Drive to the plug, load up, and get it back to the hangout with no cops on you. Risk grows with the product and the load: the cops can raid the spot while you load (2–3 stars), or the nearest rival gang sends real crews in their cars to chase you down on the way back (gang runs can get both). The plug fronts it: pay them back from Contacts within 30 minutes of play or they put a hit out on you (owed amount +50%, shooters in a black car from the plug's corner every 2.5 minutes until you pay). Gang runs split 40% to you, 60% to your homies, who sell it off into the turf stash over the next three payouts. Busted: the cops take everything you're holding
+- Selling: while you're holding and not on a run or wanted, buyers walk up (or drive up and pull over at the curb). E / ✕ sells, Q / ○ turns them down. Some are undercover cops (2 stars; sometimes you get a tell, like "shoes are too clean"); some snatch it and run (knock them down to get it back). Higher street cred brings buyers more often (every 90 s as a Nobody down to 25 s as Kingpin), bigger buys, better prices and fewer robberies
 - Safehouse (S on the radar): $5,000. You respawn there after being wasted or busted, start there, and can rest to heal and save
 - Cars take damage, catch fire and explode; ammo drops from downed enemies
 
@@ -79,6 +81,8 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | Reload | R | □ |
 | Phone (City News) | T | D-pad → |
 | Full map (pauses; move cursor, zoom, set waypoint, block info) | M | Touchpad |
+| Contacts (plugs: pickups, pay back) | Phone open, then R | Phone open, then □ |
+| Sell / turn down a buyer | E / Q | ✕ / ○ |
 | Enter, exit or carjack | F | △ |
 | Accelerate / brake | W / S | R2 / L2 |
 | Handbrake | Space | R1 |
@@ -105,6 +109,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | `src/nav.js` | On-foot navigation: steering around buildings, getting unstuck, following streets |
 | `src/effects.js` | Muzzle flashes, tracers, smoke, fire, explosions |
 | `src/audio.js` | Synthesized sound effects |
+| `src/drugs.js` | Plugs, drug runs and their complications, debts and hits, street buyers |
 | `src/shops.js` | Turf income stash, gun shop, mod garage, safehouse, crew gear, shop menus |
 | `src/claim.js` | Earning unclaimed blocks: tags, shakedowns, the rival response |
 | `src/mapview.js` | Full-screen map |

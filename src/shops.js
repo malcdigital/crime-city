@@ -192,6 +192,12 @@ export class Shops {
     this.payT += dt;
     if (this.payT >= PERIOD) {
       this.payT = 0;
+      const sold = game.drugs.homieSales();
+      if (sold) {
+        this.stash += sold;
+        this.bag.visible = true;
+        game.hud.news(`Your homies moved product: ${money(sold)} into the stash`, 'good');
+      }
       const pay = this.payout();
       if (pay) {
         this.stash += pay;
@@ -360,10 +366,20 @@ export class Shops {
     this.el.classList.add('hidden');
   }
 
+  // A menu with its own items (e.g. phone contacts).
+  openCustom(title, items) {
+    this.open('custom');
+    this.menu.title = title;
+    this.menu.custom = items;
+    this.render();
+  }
+
   // Items for the open menu: { label, price, detail, can (true or a reason), buy() }.
   items() {
     const game = this.game;
     const ar = game.arsenal;
+    if (this.menu.custom) return this.menu.custom();
+    if (this.menu.kind === 'custom') return [];
     if (this.menu.kind === 'gun') {
       const list = [];
       list.push({
@@ -457,10 +473,10 @@ export class Shops {
     }
     game.cash -= item.price;
     item.buy();
-    game.sfx.cash?.();
+    if (item.price) game.sfx.cash?.();
     game.save();
     this.save();
-    this.render();
+    if (this.menu) this.render(); // some choices close the menu
   }
 
   // Game paused while a menu is open.
@@ -478,12 +494,12 @@ export class Shops {
     const m = this.menu;
     m.i = Math.min(m.i, items.length - 1);
     const place = m.kind === 'gun' ? this.gun : this.garage;
-    this.el.querySelector('.shop-title').textContent = place.name;
+    this.el.querySelector('.shop-title').textContent = m.title || place.name;
     this.el.querySelector('.shop-cash').textContent = money(game.cash);
     this.el.querySelector('.shop-list').innerHTML = items.map((it, i) => {
       const off = it.can !== true;
       const poor = !off && game.cash < it.price;
-      return `<div class="shop-row${i === m.i ? ' sel' : ''}${off ? ' off' : ''}${poor ? ' poor' : ''}" data-i="${i}"><span>${it.label}</span><span>${off ? it.can : money(it.price)}</span></div>`;
+      return `<div class="shop-row${i === m.i ? ' sel' : ''}${off ? ' off' : ''}${poor ? ' poor' : ''}" data-i="${i}"><span>${it.label}</span><span>${off ? it.can : it.priceText ?? money(it.price)}</span></div>`;
     }).join('');
     const it = items[m.i];
     this.el.querySelector('.shop-detail').textContent = it ? it.detail : '';

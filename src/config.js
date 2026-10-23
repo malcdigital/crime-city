@@ -34,7 +34,8 @@ export const CFG = {
   SWAT_PER_STAR: [0, 0, 0, 0, 2, 3], // SWAT vans
   HELI_STARS: 4, // police helicopter from this many stars
   TURF_FAST: true,
-  CLAIM_IGNORE_CRED: false, // testing: claim unclaimed blocks without the street cred tier // testing: turf locks 2 min, NPC attack rolls every 15 min (10 quiet min after a war), underground 5 min
+  CLAIM_IGNORE_CRED: false,
+  GANG_RUNS_ANY_RANK: true, // testing: call gang drug runs before reaching Kingpin // testing: claim unclaimed blocks without the street cred tier // testing: turf locks 2 min, NPC attack rolls every 15 min (10 quiet min after a war), underground 5 min
 };
 
 // Crimes the player can commit. heat raises the wanted level, cred is street cred earned.
@@ -52,6 +53,9 @@ export const CRIMES = {
   copKilled: { heat: 4, cred: 30, min: 3, label: 'Officer killed' },
   gangKill: { heat: 0.5, cred: 25, label: 'Gang shooting' },
   explosion: { heat: 1.5, cred: 5, label: 'Explosion' },
+  drugRaid: { heat: 3, cred: 5, min: 2, label: 'Drug raid' },
+  drugRaidBig: { heat: 6, cred: 10, min: 3, label: 'Drug raid' },
+  drugDeal: { heat: 3, cred: 0, min: 2, label: 'Drug sale to an undercover officer' },
 };
 
 export const GANG_NAME = 'Southside Kings';

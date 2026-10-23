@@ -234,6 +234,15 @@ export class Ped {
         this.calmT -= dt;
         if (this.calmT <= 0) this.recover();
       }
+    } else if (this.state === 'buyer') {
+      // Coming up to buy from you (to your window if you're in a car).
+      const [px, pz] = game.player.pos();
+      const stopAt = game.player.vehicle ? 2.8 : 1.5;
+      const d = dist(this.x, this.z, px, pz);
+      if (d > stopAt) {
+        [tx, tz] = [px, pz];
+        speed = this.walkSpeed * 1.3;
+      } else this.heading = lerpAngle(this.heading, Math.atan2(px - this.x, pz - this.z), Math.min(1, dt * 6));
     } else if (this.state === 'shop') {
       // Standing out front of the store, watching you.
       const [px, pz] = game.player.pos();
@@ -388,7 +397,7 @@ export class PedManager {
     // Keep the population steady: drop extras far from the player, refill when low.
     const [px, pz] = this.game.player.pos();
     if (this.peds.length > CFG.PEDS) {
-      const far = this.peds.find((p) => dist(p.x, p.z, px, pz) > 120 && p.standing && !p.shopkeeper);
+      const far = this.peds.find((p) => dist(p.x, p.z, px, pz) > 120 && p.standing && !p.shopkeeper && p.state !== 'buyer' && !p.loot);
       if (far) far.dispose();
     }
     this.peds = this.peds.filter((p) => !p.removed);

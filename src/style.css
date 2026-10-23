@@ -195,3 +195,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #shop .shop-row.sel.poor span:last-child { color: #ffd0d0; }
 #shop .shop-detail { padding: 10px 18px; min-height: 20px; font-size: 13px; color: #c8d0dc; border-top: 1px solid #2b303b; }
 #shop .shop-help { padding: 8px 18px 12px; font-size: 12px; color: #8a93a3; }
+
+#product { font-size: 13px; font-weight: 700; color: #d7b8ff; margin-top: 4px; text-align: right; }
+#product:empty { display: none; }

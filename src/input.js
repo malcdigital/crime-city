@@ -22,6 +22,7 @@ const LABELS = {
   phone: ['T', 'D-pad →'],
   crouch: ['C', 'L3'],
   map: ['M', 'Touchpad'],
+  contacts: ['R', '□'],
 };
 
 // Keyboard, mouse and gamepad input, merged into one set of actions per frame.
@@ -201,6 +202,8 @@ export class Input {
     a.menuDown = this.hit('ArrowDown') || this.hit('KeyS') || this.btnHit(PAD.DOWN);
     a.menuOk = this.hit('Enter') || this.hit('Space') || this.hit('KeyE') || this.btnHit(PAD.CROSS);
     a.menuBack = this.hit('Escape') || this.hit('Backspace') || this.btnHit(PAD.CIRCLE) || this.btnHit(PAD.OPTIONS);
+    a.dealYes = this.hit('KeyE') || this.btnHit(PAD.CROSS);
+    a.dealNo = this.hit('KeyQ') || this.btnHit(PAD.CIRCLE);
     a.map = this.hit('KeyM') || this.btnHit(PAD.TOUCHPAD);
     a.mapWaypoint = this.hit('Enter') || this.hit('Space') || this.btnHit(PAD.CROSS);
     a.playClip = this.hit('Enter') || this.btnHit(PAD.CROSS);

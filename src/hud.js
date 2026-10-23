@@ -40,7 +40,7 @@ export class Hud {
     for (const t of CRED_TIERS) if (game.cred >= t.min) tier = t;
     this.set('cred-tier', tier.name);
     this.set('cred-value', game.cred.toLocaleString('en-US'));
-    const war = game.turfWars.banner();
+    const war = game.turfWars.banner() || game.drugs.banner();
     $('war').textContent = war;
     $('war').classList.toggle('hidden', !war);
     this.set('district', game.turf ? `${game.district} · ${game.turf.name} turf` : game.district);
@@ -88,6 +88,7 @@ export class Hud {
       bar.style.width = `${hp}%`;
       bar.style.background = hp > 50 ? '#4cd964' : hp > 25 ? '#ffcc00' : '#ff3b30';
     }
+    this.set('product', game.drugs.hudLine());
     const ap = Math.max(0, Math.round(game.armor || 0));
     if (this.last.ap !== ap) {
       this.last.ap = ap;
@@ -115,7 +116,7 @@ export class Hud {
     }
     const key = game.input.label('phone');
     this.set('phone-hint', this.phoneOpen ? '' : this.unread ? `${key}  Phone · ${this.unread} new` : `${key}  Phone`);
-    this.set('phone-foot', `${key} to put the phone away`);
+    this.set('phone-foot', `${key} to put the phone away · ${game.input.label('contacts')} contacts`);
     if (this.toastT > 0) {
       this.toastT -= dt;
       if (this.toastT <= 0) $('toast').classList.remove('show');
@@ -207,7 +208,7 @@ export class Hud {
   renderCrackdowns(game) {
     const T = game.turfWars;
     const box = $('crackdowns');
-    box.innerHTML = Object.values(GANGS).map((g) => {
+    box.innerHTML = Object.values(GANGS).filter((g) => !g.hidden).map((g) => {
       const on = !!(T.crackdown || {})[g.id];
       return `<button class="cd ${on ? 'on' : ''}" data-g="${g.id}" style="--gc:${g.color}"><span class="sw"></span>${g.name}${g.id === 'crew' ? ' (you)' : ''}<b>${on ? 'CRACKDOWN' : 'Left alone'}</b></button>`;
     }).join('');
@@ -416,7 +417,7 @@ export class Hud {
     blip(city.gangHome.x, city.gangHome.z, '#8e24aa', 'K');
     blip(city.crewHome.x, city.crewHome.z, '#2e7d32', 'G');
     for (const [x, z, col, txt] of game.turfWars.claimMarks()) blip(x, z, col, txt);
-    for (const [x, z, col, txt] of game.shops.blips()) blip(x, z, col, txt);
+    for (const [x, z, col, txt] of [...game.shops.blips(), ...game.drugs.blips()]) blip(x, z, col, txt);
     const wp = game.mapView.waypoint;
     if (wp) blip(wp[0], wp[1], '#e0b000', 'W');
     const tc = game.testCar;
