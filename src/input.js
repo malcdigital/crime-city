@@ -216,6 +216,7 @@ export class Input {
     a.menuBack = this.hit('Escape') || this.hit('Backspace') || this.btnHit(PAD.CIRCLE) || this.btnHit(PAD.OPTIONS);
     a.dealYes = this.hit('KeyE') || this.btnHit(PAD.CROSS);
     a.dealNo = this.hit('KeyQ') || this.btnHit(PAD.CIRCLE);
+    a.mapHeat = this.hit('KeyH') || this.btnHit(PAD.SQUARE);
     a.map = this.hit('KeyM') || this.btnHit(PAD.TOUCHPAD);
     a.mapWaypoint = this.hit('Enter') || this.hit('Space') || this.btnHit(PAD.CROSS);
     a.playClip = this.hit('Enter') || this.btnHit(PAD.CROSS);

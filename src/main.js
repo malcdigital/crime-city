@@ -19,6 +19,7 @@ import { segmentBlocked } from './collision.js';
 import { MapView } from './mapview.js';
 import { Shops } from './shops.js';
 import { Drugs } from './drugs.js';
+import { Market } from './market.js';
 import { Phone } from './phone.js';
 import { Inventory } from './inventory.js';
 import { gpsRoute, GpsLine } from './gps.js';
@@ -117,6 +118,7 @@ class Game {
     this.armor = 0;
     this.shops = new Shops(this);
     this.drugs = new Drugs(this);
+    this.market = new Market(this);
     this.phone = new Phone(this);
     this.inventory = new Inventory(this);
 
@@ -1533,6 +1535,7 @@ class Game {
 
     const p = this.player;
     this.drugs.update(dt, a);
+    this.market.update(dt);
     this.arsenal.update(dt);
     const gun = !this.arsenal.current().melee;
     this.aimingNow = !p.vehicle && !p.busy && gun && a.aim;

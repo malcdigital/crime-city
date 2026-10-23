@@ -13,6 +13,7 @@ const APPS = [
   { id: 'contacts', name: 'Contacts', icon: '☎', color: '#2ecc71' },
   { id: 'news', name: 'City News', icon: 'N', color: '#e63946' },
   { id: 'missions', name: 'Missions', icon: '★', color: '#f39c12' },
+  { id: 'market', name: 'Market', icon: '$', color: '#8e44ad' },
 ];
 const money = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
 const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
@@ -105,6 +106,16 @@ export class Phone {
       }));
     }
     if (this.app === 'missions') return this.missions();
+    if (this.app === 'market') {
+      return game.market.rows().map((r) => ({
+        ...r,
+        act: r.district ? () => {
+          game.mapView.waypoint = game.market.center(r.district);
+          game.hud.toast(`Waypoint set: ${r.district}`);
+          this.close();
+        } : null,
+      }));
+    }
     if (this.app === 'messages') {
       const t = game.hud.texts || [];
       if (!t.length) return [{ label: 'No messages yet', right: '', detail: '' }];
@@ -239,7 +250,7 @@ export class Phone {
     if (this.app === 'messages') game.hud.unreadTexts = 0;
     const rows = this.rows();
     this.rowSel = Math.min(this.rowSel, Math.max(0, rows.length - 1));
-    body.innerHTML = rows.map((r, i) => `<div class="ph-row${i === this.rowSel ? ' sel' : ''}${r.off ? ' off' : ''}" data-i="${i}"><span>${esc(r.label)}</span><b>${esc(r.right || '')}</b></div>`).join('');
+    body.innerHTML = rows.map((r, i) => `<div class="ph-row${i === this.rowSel ? ' sel' : ''}${r.off ? ' off' : ''}${r.head ? ' head' : ''}" data-i="${i}"><span>${esc(r.label)}</span><b>${esc(r.right || '')}</b></div>`).join('');
     detail.textContent = rows[this.rowSel] ? rows[this.rowSel].detail || '' : '';
     body.querySelector('.ph-row.sel')?.scrollIntoView({ block: 'nearest' });
   }

@@ -77,14 +77,20 @@ export class MapView {
     this.cursor = [px, pz]; // cursor starts on you
     this.mouse = null;
     if (game.input.locked) game.input.unlock();
-    this.el.querySelector('.bm-help').textContent = game.input.mode === 'pad'
-      ? 'Left stick: move · D-pad ↑↓: go to a place · R2 / L2: zoom · ✕: waypoint · Touchpad / ○: close'
-      : 'WASD / drag: move · ↑↓ or click the legend: go to a place · Wheel: zoom · Click / Enter: waypoint · M / Esc: close';
+    this.setHelp();
     this.legendSel = 0;
     this.legendActive = false;
     this.legendHtml = '';
     this.legend();
     this.draw();
+  }
+
+  setHelp() {
+    const pad = this.game.input.mode === 'pad';
+    const heat = this.heat ? `${this.heat} prices` : 'prices';
+    this.el.querySelector('.bm-help').textContent = pad
+      ? `Left stick: move · D-pad ↑↓: go to a place · □: ${heat} · R2 / L2: zoom · ✕: waypoint · ○: close`
+      : `WASD / drag: move · ↑↓ / legend: go to a place · H: ${heat} · Wheel: zoom · Enter / click: waypoint · M / Esc: close`;
   }
 
   hide() {
@@ -132,7 +138,8 @@ export class MapView {
     add('blip', S.safehouse ? '#2c3e50' : '#7f8c8d', 'S', S.safehouse ? 'Your safehouse' : 'Safehouse (for sale)', S.safe.x, S.safe.z);
     head('Business');
     if (S.stash > 0) add('blip', '#27ae60', '$', `Turf stash · $${S.stash.toLocaleString('en-US')}`, S.stashAt.x, S.stashAt.z);
-    for (const p of D.plugs) add('blip', '#6c3483', 'D', `Plug: ${p.name} (${p.product})`, p.x, p.z);
+    for (const p of D.plugs) add('blip', p.dead ? '#555' : '#6c3483', 'D', p.dead ? `Plug (${p.product}): dead, replaced soon` : `Plug: ${p.name} (${p.product})`, p.x, p.z);
+    for (const k of game.market.kingpinSpots()) add('blip', '#111', '♛', `${GANGS[k.g].name} kingpin`, k.x, k.z);
     for (const st of city.stores) add('text', st.cooldown > 0 ? '#777' : '#2ecc71', '$', `${st.name} (rob it)${st.cooldown > 0 ? ' · robbed' : ''}`, st.x, st.z);
     for (const [x, z, col, txt] of T.claimMarks()) add('blip', col, txt, txt === 'T' ? 'Claim: wall to tag' : 'Claim: shop owner', x, z);
     const cops = game.police.units;
@@ -245,6 +252,12 @@ export class MapView {
       if (sy < m) this.cz -= (m - sy) / this.scale;
       if (sy > innerHeight - m) this.cz += (sy - innerHeight + m) / this.scale;
     }
+    // □ / H: cycle the drug price heat map (off → weed → pills → coke).
+    if (a.mapHeat) {
+      const order = [null, 'weed', 'pills', 'coke'];
+      this.heat = order[(order.indexOf(this.heat || null) + 1) % order.length];
+      this.setHelp();
+    }
     const zoom = game.input.btnVal(7) - game.input.btnVal(6);
     if (Math.abs(zoom) > 0.1) this.zoomAt(Math.exp(zoom * dt * 2), ...this.toScreen(...this.cursor));
     if (a.mapWaypoint) this.toggleWaypoint(...this.cursor);
@@ -300,6 +313,16 @@ export class MapView {
       ctx.fillRect(b.minX, b.minZ, b.maxX - b.minX, b.maxZ - b.minZ);
     }
     ctx.globalAlpha = 1;
+    // Drug price heat (cycle with □ / H): blue = cheap there, red = sells high.
+    const heat = this.heat ? game.market : null;
+    if (heat) {
+      for (const b of game.turfWars.blocks) {
+        const m = heat.mult(districtAt(b.cx, b.cz), this.heat);
+        const k = clamp((m - 0.6) / 1.1, 0, 1);
+        ctx.fillStyle = `hsla(${Math.round(220 - k * 220)}, 90%, 50%, 0.62)`;
+        ctx.fillRect(b.minX, b.minZ, b.maxX - b.minX, b.maxZ - b.minZ);
+      }
+    }
     // Hovered block outline.
     const hb = game.turfWars.blockAt(...this.cursor);
     if (hb) {
@@ -359,6 +382,7 @@ export class MapView {
     blip(city.crewHome.x, city.crewHome.z, '#2e7d32', 'G');
     for (const [x, z, col, txt] of game.turfWars.claimMarks()) blip(x, z, col, txt, 9);
     for (const [x, z, col, txt] of [...game.shops.blips(), ...game.drugs.blips()]) blip(x, z, col, txt);
+    for (const k of game.market.kingpinSpots()) blip(k.x, k.z, '#111', '♛', 10);
     const tc = game.testCar;
     if (tc && !tc.removed && !tc.exploded && game.player.vehicle !== tc) blip(tc.x, tc.z, '#1e88e5', 'V', 9);
     for (const m of game.crew.following) if (m.alive && m.state !== 'inCar') dot(m.x, m.z, 4, '#7ee081');
@@ -439,6 +463,21 @@ export class MapView {
       ctx.moveTo(sx, sy + 6);
       ctx.lineTo(sx, sy + 16);
       ctx.stroke();
+    }
+    if (heat) {
+      const base = { weed: 40, pills: 85, coke: 190 }[this.heat];
+      ctx.font = 'bold 15px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (const d of ['Downtown', 'Hillcrest', 'Southgate', 'Eastside', 'Harbor']) {
+        const [sx, sy] = this.toScreen(...heat.center(d));
+        const t = `${d} $${Math.round(base * heat.mult(d, this.heat))} ${heat.trend(d, this.heat)}`;
+        const w = ctx.measureText(t).width + 14;
+        ctx.fillStyle = 'rgba(0,0,0,.75)';
+        ctx.fillRect(sx - w / 2, sy - 12, w, 24);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(t, sx, sy);
+      }
     }
     this.info.innerHTML = this.blockInfo(hb);
     this.legend();

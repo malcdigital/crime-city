@@ -3,7 +3,8 @@ import { makeCharacter, SKIN_TONES } from './character.js';
 import { Vehicle } from './vehicle.js';
 import { Soldier, GangRide, GANGS } from './turf.js';
 import { tierOf } from './claim.js';
-import { streetAt } from './city.js';
+import { streetAt, districtAt } from './city.js';
+import { NEW_PLUGS, PLUG_REPLACE } from './market.js';
 import { gpsRoute } from './gps.js';
 import { dist, pick, rand, randInt } from './util.js';
 
@@ -62,11 +63,9 @@ export class Drugs {
       const b = city.blocks.find((k) => k.i === p.block[0] && k.j === p.block[1]);
       const x = b.cx;
       const z = b.minZ - 3.6;
-      const ch = makeCharacter({ shirt: 0x111111, pants: 0x222222, skin: pick(SKIN_TONES), bandana: 0x444444 });
-      ch.group.position.set(x, city.groundY(x, b.minZ + 1.2), b.minZ + 1.2);
-      ch.group.rotation.y = Math.PI;
-      game.scene.add(ch.group);
-      return { ...p, b, x, z, r: 4, street: streetAt(x, z) };
+      const plug = { ...p, b, x, z, r: 4, street: streetAt(x, z), dead: false, deadT: 0 };
+      this.spawnPlug(plug);
+      return plug;
     });
     this.inv = { weed: 0, pills: 0, coke: 0 };
     this.homie = { units: 0, value: 0, per: 0 };
@@ -76,6 +75,53 @@ export class Drugs {
     this.custT = 30;
     this.squads = [];
     this.load();
+  }
+
+  // The plug himself, on his corner. He can be killed (and gets replaced after a while).
+  spawnPlug(plug) {
+    const game = this.game;
+    const ped = game.peds.addAt(plug.x, plug.b.minZ + 1.2);
+    ped.shopkeeper = true; // stays on his corner
+    ped.state = 'shop';
+    ped.heading = ped.shopHeading = Math.PI;
+    ped.name = plug.name;
+    ped.isPlug = true;
+    plug.ped = ped;
+  }
+
+  // What a plug charges per unit right now (more when supply is short).
+  unitCost(product) {
+    return PRODUCTS[product].cost * (this.game.market ? this.game.market.costMult(product) : 1);
+  }
+
+  // Plugs dying and being replaced.
+  updatePlugs(dt) {
+    const game = this.game;
+    for (const p of this.plugs) {
+      if (!p.dead && p.ped && !p.ped.alive) {
+        p.dead = true;
+        p.deadT = PLUG_REPLACE;
+        game.market.plugDied(p);
+        if (this.run && this.run.plug === p.id && this.run.stage !== 'toHQ') {
+          this.run = null;
+          game.mapView.waypoint = null;
+          game.hud.toast("Your plug is dead — the deal's off", '#ff8080');
+        }
+      }
+      if (p.dead) {
+        p.deadT -= dt;
+        const [px, pz] = game.player.pos();
+        if (p.deadT <= 0 && dist(p.x, p.z, px, pz) > 60) {
+          const old = p.name;
+          p.name = pick(NEW_PLUGS[p.product].filter((n) => n !== old)) || old;
+          p.dead = false;
+          this.spawnPlug(p);
+          const d = this.debts.find((x) => x.plug === p.id);
+          game.hud.news(`New ${p.product} connect setting up on ${p.street}`, 'info');
+          if (d) game.hud.text(p.name, `${old} gone. His book mine now. You owe me ${money(d.owe)}, same deal.`);
+        }
+      }
+    }
   }
 
   load() {
@@ -130,15 +176,17 @@ export class Drugs {
     const why = this.run ? "You're already on a run" : this.debts.length ? 'Pay what you owe first' : game.stars > 0 ? 'Lose the cops first' : true;
     for (const p of this.plugs) {
       const P = PRODUCTS[p.product];
+      const unit = this.unitCost(p.product);
+      const ok = p.dead ? `Dead · new plug in ${Math.ceil(p.deadT / 60)} min` : why;
       list.push({
-        label: `${p.name} · ${P.name} · ${P.solo} ${P.units}`, price: 0, priceText: `owe ${money(P.solo * P.cost)}`,
-        detail: `Solo pickup on ${p.street}. Fronted: pay ${money(P.solo * P.cost)} within 30 min. Sells for about ${money(P.street)} a ${P.unit}.`,
-        can: why, buy: () => this.startRun(p, 'solo'),
+        label: `${p.name} · ${P.name} · ${P.solo} ${P.units}`, price: 0, priceText: `owe ${money(P.solo * unit)}`,
+        detail: `Solo pickup on ${p.street}. Fronted at ${money(unit)} a ${P.unit}: pay ${money(P.solo * unit)} within 30 min. Check the Market app for where it sells best.`,
+        can: ok, buy: () => this.startRun(p, 'solo'),
       });
       list.push({
-        label: `${p.name} · gang run · ${P.gang} ${P.units}`, price: 0, priceText: `owe ${money(P.gang * P.cost)}`,
+        label: `${p.name} · gang run · ${P.gang} ${P.units}`, price: 0, priceText: `owe ${money(P.gang * unit)}`,
         detail: `A big load: much riskier. You keep 40% to sell, your homies move the rest into the stash.`,
-        can: this.canGangRun() ? why : `Kingpin only`, buy: () => this.startRun(p, 'gang'),
+        can: p.dead ? ok : this.canGangRun() ? why : `Kingpin only`, buy: () => this.startRun(p, 'gang'),
       });
     }
     return list;
@@ -157,7 +205,7 @@ export class Drugs {
       incident = r < raidW ? 'raid' : 'chase';
       if (kind === 'gang' && Math.random() < 0.35) incident = 'both';
     }
-    this.run = { plug: p.id, kind, product: p.product, amount, owe: amount * P.cost, stage: 'toPlug', incident, loadT: 0, chased: false };
+    this.run = { plug: p.id, kind, product: p.product, amount, owe: Math.round(amount * this.unitCost(p.product)), stage: 'toPlug', incident, loadT: 0, chased: false };
     game.mapView.waypoint = [p.x, p.z];
     game.shops.close();
     game.hud.toast(`${p.name}: "Pull up on ${p.street}."`, '#e0b000');
@@ -183,6 +231,7 @@ export class Drugs {
     // Prompts and progress for the HUD (shown after the other interactions run).
     this.prompt = '';
     this.progress = null;
+    this.updatePlugs(dt);
     this.updateRun(dt, a);
     this.updateDebts(dt);
     this.updateSquads(dt);
@@ -216,6 +265,7 @@ export class Drugs {
         if (r.incident === 'raid' || r.incident === 'both') {
           // The spot gets raided while you're there.
           game.crime(r.product === 'coke' || r.kind === 'gang' ? 'drugRaidBig' : 'drugRaid', p.x, p.z);
+          game.market.raided(r.product);
           game.hud.toast('RAID! Grab the stuff and get out!', '#ff8080');
           game.storyEvent(null, p.x, p.z, `Police raid a drug spot on ${p.street}`);
         }
@@ -267,12 +317,13 @@ export class Drugs {
     const P = PRODUCTS[r.product];
     this.run = null;
     game.mapView.waypoint = null;
+    game.market.landed(r.product, r.amount, game.city.crewHome.x, game.city.crewHome.z);
     if (r.kind === 'gang') {
       const mine = Math.round(r.amount * 0.4);
       const theirs = r.amount - mine;
       this.inv[r.product] += mine;
       this.homie.units += theirs;
-      this.homie.value += theirs * P.street * 0.8;
+      this.homie.value += theirs * P.street * 0.8 * game.market.mult(districtAt(game.city.crewHome.x, game.city.crewHome.z), r.product);
       this.homie.per = Math.ceil(this.homie.units / 3);
       game.hud.toast(`Run complete: ${amountText(r.product, mine)} for you, the rest to your homies`);
       game.cred += 60;
@@ -381,7 +432,11 @@ export class Drugs {
       if (!this.holding() || this.busy()) return;
       this.custT -= dt;
       if (this.custT > 0) return;
-      this.custT = CUSTOMER_GAP[this.tier()] * rand(0.7, 1.3);
+      // More buyers where demand for what you're holding is high.
+      const d = districtAt(game.player.x, game.player.z);
+      const held = Object.keys(this.inv).filter((k) => this.inv[k] > 0);
+      const dem = held.reduce((n, k) => n + game.market.demand[d][k], 0) / Math.max(1, held.length);
+      this.custT = (CUSTOMER_GAP[this.tier()] / Math.min(1.8, Math.max(0.6, dem))) * rand(0.7, 1.3);
       this.findCustomer();
       return;
     }
@@ -461,11 +516,16 @@ export class Drugs {
   makeOffer(c) {
     const game = this.game;
     const tier = this.tier();
+    // What they want depends on what's in demand around here.
+    const M = game.market;
+    const d = districtAt(game.player.x, game.player.z);
     const kinds = Object.keys(this.inv).filter((k) => this.inv[k] > 0);
-    c.kind = pick(kinds);
+    let r = Math.random() * kinds.reduce((n, k) => n + M.demand[d][k], 0);
+    c.kind = kinds.find((k) => (r -= M.demand[d][k]) <= 0) || kinds[0];
+    c.district = d;
     const P = PRODUCTS[c.kind];
     c.units = Math.min(this.inv[c.kind], randInt(1, 2 + tier));
-    c.price = Math.round((c.units * P.street * (1 + 0.08 * tier) * rand(0.9, 1.1)) / 5) * 5;
+    c.price = Math.max(5, Math.round((c.units * P.street * M.mult(d, c.kind) * (1 + 0.08 * tier) * rand(0.9, 1.1)) / 5) * 5);
     // Is it a setup? More likely on a big buy, less on your own turf.
     const turf = game.turfWars.turfAt(game.player.x, game.player.z);
     let uc = 0.05 + 0.015 * c.units + (c.kind === 'coke' ? 0.04 : 0);
@@ -496,6 +556,7 @@ export class Drugs {
       this.dropCustomer(true);
     } else {
       game.cash += c.price;
+      game.market.sold(c.district, c.kind, c.units);
       game.cred += 1 + Math.floor(c.units / 3);
       game.sfx.cash?.();
       game.hud.toast(`+${money(c.price)}`);
