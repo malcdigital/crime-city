@@ -16,6 +16,7 @@ import { TurfManager, GANGS } from './turf.js';
 import { Arsenal, WEAPONS, SLOTS, KEY_SLOTS, raycast, rayBox } from './weapons.js';
 import { lam } from './character.js';
 import { segmentBlocked } from './collision.js';
+import { MapView } from './mapview.js';
 import { clamp, dist, lerp, lerpAngle, rand, randInt, wrapAngle } from './util.js';
 
 const SAVE_KEY = 'crimecity.v1';
@@ -48,6 +49,7 @@ class Game {
     this.city = buildCity(this.scene);
     this.input = new Input(canvas);
     this.hud = new Hud(this.city);
+    this.mapView = new MapView(this);
     this.aircam = new AirCam(this);
     this.clipPlayer = new ClipPlayer();
     this.effects = new Effects(this.scene);
@@ -1376,6 +1378,12 @@ class Game {
           ? 'This page blocks controllers. Run the game locally (npm run dev) to use a PS5 controller.'
           : 'Plug in or pair a PS5 controller and press any button, then ✕ to play.';
       if (a.start) this.start();
+    } else if (this.mapView.open) {
+      // Full map: the game is paused underneath.
+      if (a.map || a.closeClip || a.pause) this.mapView.hide();
+      else this.mapView.update(dt, a);
+    } else if (a.map && !this.paused) {
+      this.mapView.show();
     } else if (a.pause) {
       this.setPaused(!this.paused);
     } else if (!this.paused) {
@@ -1389,6 +1397,11 @@ class Game {
 
   update(dt, a) {
     this.time += dt;
+    const wp = this.mapView.waypoint;
+    if (wp && dist(...this.player.pos(), ...wp) < 14) {
+      this.mapView.waypoint = null;
+      this.hud.toast('Waypoint reached');
+    }
     if (a.phone) {
       this.hud.togglePhone();
       if (this.hud.phoneOpen && this.input.locked) this.input.unlock(); // so you can tap stories

@@ -3,7 +3,7 @@ import { clamp } from './util.js';
 // PS5 / standard gamepad button indices.
 export const PAD = {
   CROSS: 0, CIRCLE: 1, SQUARE: 2, TRIANGLE: 3, L1: 4, R1: 5, L2: 6, R2: 7,
-  CREATE: 8, OPTIONS: 9, L3: 10, R3: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15,
+  CREATE: 8, OPTIONS: 9, L3: 10, R3: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15, TOUCHPAD: 17,
 };
 
 const DEAD = 0.18;
@@ -21,6 +21,7 @@ const LABELS = {
   play: ['Click PLAY', 'Press ✕'],
   phone: ['T', 'D-pad →'],
   crouch: ['C', 'L3'],
+  map: ['M', 'Touchpad'],
 };
 
 // Keyboard, mouse and gamepad input, merged into one set of actions per frame.
@@ -194,8 +195,10 @@ export class Input {
     a.gas = k('KeyW') || k('ArrowUp') || this.btnVal(PAD.R2) > 0.5;
     a.brakeHeld = k('KeyS') || k('ArrowDown') || this.btnVal(PAD.L2) > 0.5;
     a.pause = this.hit('KeyP') || this.btnHit(PAD.OPTIONS);
-    a.phone = this.hit('KeyT') || this.hit('KeyM') || this.btnHit(PAD.RIGHT) || this.btnHit(PAD.CREATE);
+    a.phone = this.hit('KeyT') || this.btnHit(PAD.RIGHT) || this.btnHit(PAD.CREATE);
     a.start = this.btnHit(PAD.CROSS) || this.btnHit(PAD.OPTIONS);
+    a.map = this.hit('KeyM') || this.btnHit(PAD.TOUCHPAD);
+    a.mapWaypoint = this.hit('Enter') || this.hit('Space') || this.btnHit(PAD.CROSS);
     a.playClip = this.hit('Enter') || this.btnHit(PAD.CROSS);
     a.closeClip = this.hit('Escape') || this.btnHit(PAD.CIRCLE);
     a.spawnCar = this.hit('KeyV') || this.btnHit(PAD.R3);
