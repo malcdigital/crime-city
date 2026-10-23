@@ -115,7 +115,7 @@ export class Hud {
     }
     const key = game.input.label('phone');
     this.set('phone-hint', this.phoneOpen ? '' : this.unread ? `${key}  Phone · ${this.unread} new` : `${key}  Phone`);
-    this.set('phone-foot', `${key} to put the phone away · ${game.input.label('contacts')} contacts`);
+    this.set('phone-foot', game.input.mode === 'pad' ? 'D-pad move · ✕ open · ○ back · Create: put away' : 'Arrows move · Enter open · Backspace back · T: put away');
     if (this.toastT > 0) {
       this.toastT -= dt;
       if (this.toastT <= 0) $('toast').classList.remove('show');
@@ -141,6 +141,7 @@ export class Hud {
     list.prepend(item);
     while (list.children.length > 30) list.lastChild.remove();
     item._kind = kind;
+    this.unreadNews = (this.unreadNews || 0) + 1;
     if (!this.phoneOpen) {
       this.unread++;
       $('pt-time').textContent = time;
@@ -217,8 +218,8 @@ export class Hud {
     }));
   }
 
-  // Inventory strip (hold L1 / Tab): your two weapons, then ammo, cash and drugs.
-  inventoryStrip(game, S) {
+  // Inventory strip (hold L1 / Tab): weapons, ammo, cash and drugs, one tile each.
+  inventoryStrip(game, inv) {
     let el = $('strip');
     if (!el) {
       el = document.createElement('div');
@@ -226,28 +227,25 @@ export class Hud {
       el.className = 'hidden';
       document.getElementById('hud').appendChild(el);
     }
-    el.classList.toggle('hidden', !S.open);
-    if (!S.open) return;
+    el.classList.toggle('hidden', !inv.open);
+    if (!inv.open) return;
     const ars = game.arsenal;
     const inf = CFG.INFINITE_AMMO;
-    const tile = (cls, top, name, sub) => `<div class="st ${cls}"><div class="st-top">${top}</div><div class="st-name">${name}</div><div class="st-sub">${sub}</div></div>`;
-    const ammoLeft = (id) => ars.ammo[id].mag + ars.ammo[id].reserve;
-    const weapons = [0, 1].map((i) => {
-      const w = ars.inSlot(i);
-      const empty = !ars.slots[i];
-      const sub = empty ? 'empty slot' : inf ? '∞' : `${ars.ammo[w.id].mag} / ${ars.ammo[w.id].reserve}`;
-      return tile(`weap${i === ars.active ? ' cur' : ''}${empty ? ' empty' : ''} r-${w.id}`, `${i + 1}`, w.name, sub);
+    const items = inv.items();
+    inv.sel = Math.min(inv.sel, items.length - 1);
+    const html = items.map((it, i) => {
+      const sel = i === inv.sel ? ' sel' : '';
+      if (it.type === 'weapon') {
+        const w = ars.inSlot(it.slot);
+        const empty = !ars.slots[it.slot];
+        const sub = empty ? 'empty slot' : inf ? '∞' : `${ars.ammo[w.id].mag} / ${ars.ammo[w.id].reserve}`;
+        return `<div class="st weap${it.slot === ars.active ? ' cur' : ''}${empty ? ' empty' : ''} r-${w.id}${sel}"><div class="st-top">${it.slot + 1}${it.slot === ars.active ? ' · in hand' : ''}</div><div class="st-name">${w.name}</div><div class="st-sub">${sub}</div></div>`;
+      }
+      if (it.type === 'ammo') return `<div class="st small${it.count ? '' : ' none'}${ars.has(it.id) ? ' own' : ''}${sel}"><div class="st-top">Ammo</div><div class="st-name">${it.name}</div><div class="st-sub">${it.count}</div></div>`;
+      if (it.type === 'cash') return `<div class="st cash${sel}"><div class="st-top">Cash</div><div class="st-cash">$${game.cash.toLocaleString('en-US')}</div><div class="st-sub">Armor ${Math.round(game.armor || 0)}</div></div>`;
+      return `<div class="st small drug d-${it.kind}${it.count ? '' : ' none'}${sel}"><div class="st-top">Drugs</div><div class="st-name">${it.kind[0].toUpperCase() + it.kind.slice(1)}</div><div class="st-sub">${it.count}</div></div>`;
     }).join('');
-    const AMMO = [['pistol', 'Pistol'], ['smg', 'SMG'], ['rifle', 'Rifle'], ['shotgun', 'Shells']];
-    const ammo = AMMO.map(([id, n]) => `<div class="am${ars.has(id) ? ' own' : ''}"><span>${n}</span><b>${inf ? '∞' : ammoLeft(id)}</b></div>`).join('');
-    const D = game.drugs;
-    const drugs = Object.entries(D.inv).map(([k, n]) => `<div class="am${n ? ' own' : ''}"><span>${k[0].toUpperCase() + k.slice(1)}</span><b>${n}</b></div>`).join('');
-    const key = game.input.mode === 'pad' ? 'L1' : 'Tab';
-    el.innerHTML = `<div class="st-row">${weapons}`
-      + `<div class="st info"><div class="st-top">Ammo</div><div class="st-list">${ammo}</div></div>`
-      + `<div class="st info cash"><div class="st-top">Cash</div><div class="st-cash">$${game.cash.toLocaleString('en-US')}</div><div class="st-sub">Armor ${Math.round(game.armor || 0)}</div></div>`
-      + `<div class="st info"><div class="st-top">Drugs</div><div class="st-list">${drugs}</div></div>`
-      + `</div><div class="st-hint">Tap ${key} to swap weapons</div>`;
+    el.innerHTML = `<div class="st-row">${html}</div><div class="st-hint">${inv.hint()}</div>`;
   }
 
   hitmarker(kill) {

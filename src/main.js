@@ -19,6 +19,8 @@ import { segmentBlocked } from './collision.js';
 import { MapView } from './mapview.js';
 import { Shops } from './shops.js';
 import { Drugs } from './drugs.js';
+import { Phone } from './phone.js';
+import { Inventory } from './inventory.js';
 import { gpsRoute, GpsLine } from './gps.js';
 import { clamp, dist, lerp, lerpAngle, rand, randInt, wrapAngle } from './util.js';
 
@@ -115,6 +117,8 @@ class Game {
     this.armor = 0;
     this.shops = new Shops(this);
     this.drugs = new Drugs(this);
+    this.phone = new Phone(this);
+    this.inventory = new Inventory(this);
 
     addEventListener('resize', () => this.resize());
     this.resize();
@@ -858,11 +862,53 @@ class Game {
     }
   }
 
-  updatePickups(dt) {
+  updatePickups(dt, a = {}) {
     this.checkBodies();
     this.clearBodies(dt);
+    const [qx, qz] = this.player.pos();
+    const onFoot = !this.player.vehicle;
     for (const p of this.pickups) {
       p.t -= dt;
+      // Something you just dropped: not until you've stepped away from it.
+      if (p.armed === false) {
+        if (dist(p.x, p.z, qx, qz) > 2.2) p.armed = true;
+        else {
+          p.mesh.rotation.y += dt * 2;
+          continue;
+        }
+      }
+      if (p.drug || p.gun) {
+        p.mesh.rotation.y += dt * 2;
+        p.mesh.position.y = this.city.groundY(p.x, p.z) + 0.45 + Math.sin(this.time * 3) * 0.08;
+        if (onFoot && dist(p.x, p.z, qx, qz) < 1.4) {
+          if (p.drug) {
+            this.drugs.inv[p.drug] += p.amount;
+            this.drugs.save();
+            this.hud.toast(`+${p.amount} ${p.drug}`);
+            p.t = 0;
+          } else {
+            const ar = this.arsenal;
+            const name = WEAPONS.find((w) => w.id === p.gun).name;
+            if (ar.has(p.gun) || ar.slots.includes(null)) {
+              ar.give(p.gun);
+              this.hud.toast(`Picked up a ${name}`);
+              p.t = 0;
+            } else {
+              const out = ar.slots[ar.active];
+              const outName = WEAPONS.find((w) => w.id === out).name;
+              this.prompt = `Press ${this.input.label('interact')} to swap your ${outName} for the ${name}`;
+              if (a.interactHeld && !this.interactWasHeld) {
+                ar.give(p.gun);
+                p.t = 0;
+                this.inventory.dropGun(p.x, p.z, out);
+                this.hud.toast(`Swapped your ${outName} for the ${name}`);
+              }
+            }
+          }
+        }
+        if (p.t <= 0) this.scene.remove(p.mesh);
+        continue;
+      }
       p.mesh.rotation.y += dt * 2;
       p.mesh.position.y = this.city.groundY(p.x, p.z) + (p.cash ? 0.3 : 0.55) + Math.sin(this.time * 3) * 0.1;
       if (p.cash) {
@@ -1105,21 +1151,6 @@ class Game {
     const clip = this.aircam.incident(headline, x, z);
     const item = this.hud.news(headline, kind);
     if (clip && item) this.hud.attachClip(item, clip, () => this.clipPlayer.play(clip));
-  }
-
-  // Inventory strip. Tap L1 / Tab to swap between your two weapons; hold it to show the
-  // strip (weapons, ammo, cash, drugs). The game keeps running.
-  updateStrip(dt, a) {
-    const S = this.stripState || (this.stripState = { holdT: 0, open: false });
-    if (a.stripHeld && this.wastedT <= 0 && this.bustedT <= 0) {
-      S.holdT += dt;
-      if (!S.open && S.holdT > 0.2) S.open = true;
-    } else if (S.holdT > 0) {
-      if (!S.open) this.arsenal.swap();
-      S.open = false;
-      S.holdT = 0;
-    }
-    this.hud.inventoryStrip(this, S);
   }
 
   // Tire smoke and skid marks from burnouts and drifts.
@@ -1453,35 +1484,24 @@ class Game {
       this.gps = gpsRoute(this.city, ...this.player.pos(), ...w);
     }
     this.gpsLine.update(dt, this.gps, w);
-    if (a.phone) {
-      this.hud.togglePhone();
-      if (this.hud.phoneOpen && this.input.locked) this.input.unlock(); // so you can tap stories
-    }
-    // Phone open (D-pad →): D-pad ↑ / ↓ step through stories, ✕ / Enter plays a video.
-    // ○ / Esc closes a video.
+    // Inventory strip (hold L1 / Tab) gets the D-pad and face buttons while it's open.
+    if (this.wastedT <= 0 && this.bustedT <= 0 && !this.hud.phoneOpen) this.inventory.update(dt, a);
+    // Phone: D-pad → (or T) takes it out. While it's out the D-pad, ✕ and ○ work the phone
+    // (see phone.js); T / Create puts it away.
     if (this.hud.phoneOpen) {
-      // Scroll stories: mouse wheel or right stick too.
+      if (a.phoneToggle) this.phone.close();
+      else this.phone.update(a);
+      // Scroll the news: mouse wheel or right stick.
       if (a.wheelDelta) this.hud.scrollPhone(a.wheelDelta * 60);
       if (Math.abs(a.rsY) > 0.2) {
         this.hud.scrollPhone(a.rsY * dt * 600);
         a.lookX = a.lookY = 0;
         a.looking = false;
       }
-      if (a.dpadDown || a.dpadUp) this.hud.moveClipSelection(a.dpadDown ? 1 : -1);
       a.nextWeapon = a.prevWeapon = false;
-      a.interactHeld = a.interactKey; // D-pad ↑ is for the phone right now
-      // □ / R: contacts (plugs: set up a pickup, pay what you owe).
-      if (a.reload) {
-        a.reload = false;
-        this.hud.togglePhone();
-        this.shops.openCustom('Contacts', () => this.drugs.contacts());
-      }
-      if (a.playClip) {
-        const clip = this.hud.selectedClip();
-        if (clip) this.clipPlayer.play(clip);
-        a.sprint = false;
-      }
-    }
+      a.interactHeld = a.interactKey; // the D-pad is for the phone right now
+      a.sprint = a.melee = a.reload = a.dealYes = a.dealNo = a.stripHeld = false;
+    } else if (a.phone) this.phone.show();
     if (this.clipPlayer.open && a.closeClip) this.clipPlayer.close();
     if (a.spawnCar && CFG.CAR_SPAWN_KEY) this.spawnTestCar();
     this.effects.update(dt);
@@ -1497,8 +1517,8 @@ class Game {
         if (this.wastedT <= 0) this.afterWasted();
       }
       this.aimingNow = false;
-      if (this.stripState) this.stripState.open = false;
-      this.hud.inventoryStrip(this, { open: false });
+      this.inventory.open = false;
+      this.hud.inventoryStrip(this, this.inventory);
       this.showCrosshair = false;
       this.lockScreen = null;
       this.updateCamera(dt, a);
@@ -1513,7 +1533,6 @@ class Game {
 
     const p = this.player;
     this.drugs.update(dt, a);
-    this.updateStrip(dt, a);
     this.arsenal.update(dt);
     const gun = !this.arsenal.current().melee;
     this.aimingNow = !p.vehicle && !p.busy && gun && a.aim;
@@ -1583,7 +1602,7 @@ class Game {
     this.checkRunOver();
     this.handleInteractions(dt, a);
     this.updateVehicleDamage(dt);
-    this.updatePickups(dt);
+    this.updatePickups(dt, a);
     this.vehicles = this.vehicles.filter((v) => !v.removed);
     this.cleanupVehicles();
 

@@ -19,7 +19,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - Third-person on foot (walk, sprint, crouch, punch) and driving (4 car types, handbrake)
 - Cover: press C / L3 next to a wall, crate or car to snap to it, crate or car and stay there; slide along it, lean out at corners or pop up over low cover to aim; push away or press again to leave
 - Crouching bends at the knees; crouch behind low cover to block bullets and break line of sight
-- Two weapon slots, Fortnite-style: you carry at most two guns (fists when a slot is empty). Tap L1 / Tab (or 1 / 2, or the mouse wheel) to swap between them. Buying a third gun replaces the one in your hand. Ammo is kept per gun type. Hold L1 / Tab to show the inventory strip: both weapons (with mag / reserve), all your ammo, cash and armor, and your drugs
+- Two weapon slots, Fortnite-style: you carry at most two guns (fists when a slot is empty). Tap L1 / Tab (or 1 / 2, or the mouse wheel) to swap between them. Buying a third gun replaces the one in your hand. Ammo is kept per gun type. Hold L1 / Tab to show the inventory strip: both weapons (with mag / reserve), all your ammo, cash and armor, and your drugs. While the strip is open, D-pad ← → (arrow keys) picks a tile, ✕ (E) gives it, □ (G) drops it: a press moves a set amount (one mag of ammo, $100, one unit of product), holding moves all of it, guns go whole. Dropped things land in front of you and can be picked back up (step away first); a dropped gun with both slots full asks to swap. Giving goes to a homie following you (they use the gun, or sell the product into the stash); cash and ammo will go to other players once there's multiplayer
 - Getting out of a moving car: 30 mph or less, you brake hard (about 1 g) to a stop and step out; faster, you dive head-first out the driver's door, take impact damage scaled to speed, tumble along the ground (about 0.95 g of friction; walls hurt) and get back up, while the car rolls on without you
 - Driving (your car): a tire model after GTA V's handling.meta — per-car traction curves (peak grip at ~9° of slip easing to a lower sliding grip), front/rear grip bias, weight transfer, friction circles, traction control, speed-sensitive steering lock and stability damping. Drift: hold gas + brake while turning; the rear steps out and the stick sets the drift angle (~15° light, ~35° full lock); let go and it eases back to grip in about half a second. Burnouts with gas + brake from a stop (steer for donuts)
 - Helicopter footage: when the police helicopter is up and near a big incident (shootings, police killings, explosions, arrests), the phone news story gets a 640×360 clip from its belly camera. Scroll stories with the mouse wheel or right stick; tap a story (D-pad → opens the phone; D-pad ↑/↓ to pick, ✕ to play)
@@ -46,7 +46,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - Getting busted: fine, lost street cred, respawn at the police station
 - Chop shop: sell stolen cars for cash once the police lose you
 - Street cred ladder from the design doc (Nobody → Kingpin)
-- HUD: cash, wanted stars, a round radar that rotates with the player, and an in-game phone with City News (one story per incident: a shootout or rampage gets one headline when it starts and one wrap-up with the death toll when you escape, get busted or go down — not a story per kill; roadblock, spike, helicopter and SWAT news once per chase); a full-screen map (touchpad / M) that pauses the game, shows turf, landmarks, cops and the block under the cursor, and lets you drop a waypoint that shows on the radar with a yellow GPS route along the streets (fewest turns), also drawn on the road in 3D as a see-through strip floating just above it, with sliding chevrons and a light beam on the waypoint; the city stays centered when zoomed out
+- HUD: cash, wanted stars, a round radar that rotates with the player, and an in-game phone with a home screen of apps — Contacts (plugs: pickups and paying back), City News, and Missions (what you're in the middle of plus jobs to go do; ✕ sets a waypoint) — and City News (one story per incident: a shootout or rampage gets one headline when it starts and one wrap-up with the death toll when you escape, get busted or go down — not a story per kill; roadblock, spike, helicopter and SWAT news once per chase); a full-screen map (touchpad / M) that pauses the game, shows turf, landmarks, cops and the block under the cursor, and lets you drop a waypoint that shows on the radar with a yellow GPS route along the streets (fewest turns), also drawn on the road in 3D as a see-through strip floating just above it, with sliding chevrons and a light beam on the waypoint; the city stays centered when zoomed out
 - PS5 / standard gamepad support, with button prompts that switch to the controller
 - Guns: fists, pistol and SMG with ammo, reloading, aim mode and controller aim assist that locks to the torso (flick up for the head; flick the right stick left or right to snap to the next opp or civilian that way on screen; hold it to one side to break the lock)
 - Testing switches in `src/config.js`: `INFINITE_AMMO`, `START_IN_CAR`, `CAR_SPAWN_KEY`
@@ -79,9 +79,10 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | Shoot | Left mouse | R2 |
 | Punch | J (or click with fists) | ○ |
 | Reload | R | □ |
-| Phone (City News) | T | D-pad → |
+| Phone (Contacts, City News, Missions) | T | D-pad → |
 | Full map (pauses; move cursor, zoom, set waypoint, block info) | M | Touchpad |
-| Contacts (plugs: pickups, pay back) | Phone open, then R | Phone open, then □ |
+| Phone: move / open / back / put away | arrows / Enter / Backspace / T | D-pad / ✕ / ○ / Create |
+| Inventory: choose / give / drop (hold = all) | hold Tab + ← → / E / G | hold L1 + D-pad ← → / ✕ / □ |
 | Sell / turn down a buyer | E / Q | ✕ / ○ |
 | Enter, exit or carjack | F | △ |
 | Accelerate / brake | W / S | R2 / L2 |

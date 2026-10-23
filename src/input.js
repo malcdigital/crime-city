@@ -182,6 +182,9 @@ export class Input {
     a.dpadUp = this.btnHit(PAD.UP);
     // Weapons: tap L1 / Tab to swap your two weapons, hold it to see your inventory strip.
     a.stripHeld = k('Tab') || this.btn(PAD.L1);
+    // While the strip is open: give (✕ / E) and drop (□ / G), held for "all".
+    a.giveHeld = this.btn(PAD.CROSS) || k('KeyE');
+    a.dropHeld = this.btn(PAD.SQUARE) || k('KeyG');
     a.rsX = this.axis(2);
     a.rsY = this.axis(3);
     a.mouseDX = this.mdx;
@@ -196,7 +199,15 @@ export class Input {
     a.gas = k('KeyW') || k('ArrowUp') || this.btnVal(PAD.R2) > 0.5;
     a.brakeHeld = k('KeyS') || k('ArrowDown') || this.btnVal(PAD.L2) > 0.5;
     a.pause = this.hit('KeyP') || this.btnHit(PAD.OPTIONS);
-    a.phone = this.hit('KeyT') || this.btnHit(PAD.RIGHT) || this.btnHit(PAD.CREATE);
+    a.phoneToggle = this.hit('KeyT') || this.btnHit(PAD.CREATE);
+    a.phone = a.phoneToggle || this.btnHit(PAD.RIGHT);
+    // Working the phone (and the inventory strip): D-pad / arrows, ✕ / Enter, ○ / Backspace.
+    a.phoneUp = this.btnHit(PAD.UP) || this.hit('ArrowUp');
+    a.phoneDown = this.btnHit(PAD.DOWN) || this.hit('ArrowDown');
+    a.phoneLeft = this.btnHit(PAD.LEFT) || this.hit('ArrowLeft');
+    a.phoneRight = this.btnHit(PAD.RIGHT) || this.hit('ArrowRight');
+    a.phoneOk = this.btnHit(PAD.CROSS) || this.hit('Enter');
+    a.phoneBack = this.btnHit(PAD.CIRCLE) || this.hit('Backspace') || this.hit('Escape');
     a.start = this.btnHit(PAD.CROSS) || this.btnHit(PAD.OPTIONS);
     a.menuUp = this.hit('ArrowUp') || this.hit('KeyW') || this.btnHit(PAD.UP);
     a.menuDown = this.hit('ArrowDown') || this.hit('KeyS') || this.btnHit(PAD.DOWN);
