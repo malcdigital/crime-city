@@ -1436,6 +1436,47 @@ class Game {
     // Keep the sun's shadow box around the player.
     this.sun.position.set(tx + 60, 120, tz + 40);
     this.sun.target.position.set(tx, 0, tz);
+    if (this.cine) this.cineCamera(dt);
+  }
+
+  // ---- Cinematics ----
+  // A short scripted shot: letterbox bars, a title, and the camera sweeping around a spot
+  // while the action plays out. The game keeps running; you just can't move until it ends.
+  startCinematic(x, z, title, dur = 4) {
+    const [px, pz] = this.player.pos();
+    this.cine = { x, z, t: 0, dur, a0: Math.atan2(px - x, pz - z) };
+    const el = document.getElementById('cine');
+    el.querySelector('.cine-title').textContent = title;
+    el.classList.remove('hidden');
+    document.getElementById('hud').classList.add('cine');
+    requestAnimationFrame(() => el.classList.add('on'));
+  }
+
+  endCinematic() {
+    this.cine = null;
+    const el = document.getElementById('cine');
+    el.classList.remove('on');
+    document.getElementById('hud').classList.remove('cine');
+    setTimeout(() => el.classList.add('hidden'), 400);
+  }
+
+  cineCamera(dt) {
+    const c = this.cine;
+    c.t += dt;
+    if (c.t >= c.dur) {
+      // Hand the camera back pointing at the scene.
+      const [px, pz] = this.player.pos();
+      this.camYaw = Math.atan2(c.x - px, c.z - pz) + Math.PI;
+      this.endCinematic();
+      return;
+    }
+    const k = c.t / c.dur;
+    const ease = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+    const ang = c.a0 + ease * Math.PI * 1.6; // most of a lap around the spot
+    const r = 17 - 6 * ease;
+    const y = 8 - 4 * ease;
+    this.camera.position.set(c.x + Math.sin(ang) * r, y, c.z + Math.cos(ang) * r);
+    this.camera.lookAt(c.x, 1.3, c.z);
   }
 
   // ---- Main loop ----
@@ -1474,6 +1515,14 @@ class Game {
 
   update(dt, a) {
     this.time += dt;
+    if (this.cine) {
+      // Watching a cinematic: hands off the controls (the car brakes).
+      a.moveX = a.moveY = a.throttle = a.steer = 0;
+      a.fire = a.firePressed = a.aim = a.aimPressed = a.melee = a.enter = a.sprint = a.crouch = false;
+      a.interactHeld = a.gas = a.brakeHeld = false;
+      a.handbrake = true;
+      a.lookX = a.lookY = 0;
+    }
     // A story with no police after it goes quiet after a while.
     if (this.story && this.stars === 0 && this.time - this.story.lastT > 45) this.endStory(null);
     const wp = this.mapView.waypoint;

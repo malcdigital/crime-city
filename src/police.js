@@ -871,6 +871,40 @@ export class PoliceManager {
     return true;
   }
 
+  // A raid: cruisers come screaming in from several directions at once, already close, and
+  // pull up around the spot. n = how many cars.
+  raid(x, z, n = 3) {
+    const game = this.game;
+    const P = CFG.PITCH;
+    const half = CFG.ROAD / 2;
+    // The street the spot is on, and the avenues at either end of the block.
+    const j = Math.round(z / P);
+    const sz = j * P;
+    const i0 = Math.floor(x / P);
+    const ax0 = i0 * P;
+    const ax1 = (i0 + 1) * P;
+    const L = CFG.LANE;
+    const spots = [
+      [x - 48, sz + L, Math.PI / 2], // along the street from the west
+      [x + 48, sz - L, -Math.PI / 2], // from the east
+      [ax0 - L, sz - 42, 0], // down the west avenue
+      [ax1 + L, sz + 42, Math.PI], // up the east avenue
+      [ax1 - L, sz - 42, 0],
+    ].filter(([px, pz]) => px > -half && px < CFG.SIZE + half && pz > -half && pz < CFG.SIZE + half);
+    let sent = 0;
+    for (const [px, pz, h] of spots) {
+      if (sent >= n) break;
+      if (game.vehicles.some((v) => !v.removed && dist(v.x, v.z, px, pz) < 6)) continue;
+      const u = new PoliceUnit(game, px, pz, h, 'police');
+      u.car.speed = 16; // already flying in
+      u.raid = true;
+      this.units.push(u);
+      game.vehicles.push(u.car);
+      sent++;
+    }
+    return sent;
+  }
+
   // Roadblocks: find a spot on the road ahead of you that police cars can reach first,
   // and send them there (cars already in the chase, or fresh ones from the station).
   planRoadblock() {

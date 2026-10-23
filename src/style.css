@@ -283,3 +283,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #approval .ap-why { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 11.5px; opacity: .85; }
 #approval .ap-why .bad { color: #ff8a80; }
 #approval .ap-why .good { color: #8ff08f; }
+
+#cine { position: fixed; inset: 0; pointer-events: none; z-index: 30; }
+#cine .cine-bar { position: absolute; left: 0; right: 0; height: 0; background: #000; transition: height .35s ease-out; }
+#cine .cine-bar.top { top: 0; }
+#cine .cine-bar.bottom { bottom: 0; }
+#cine.on .cine-bar { height: 11vh; }
+#cine .cine-title { position: absolute; left: 0; right: 0; bottom: calc(11vh + 18px); text-align: center; font-size: 46px; font-weight: 900; letter-spacing: .3em; color: #ff3b3b; text-shadow: 0 0 18px rgba(255,0,0,.6), 0 3px 0 #000; opacity: 0; transition: opacity .4s .25s; }
+#cine.on .cine-title { opacity: 1; animation: cineflash .5s steps(2) infinite .6s; }
+@keyframes cineflash { 50% { color: #3b7bff; text-shadow: 0 0 18px rgba(40,90,255,.7), 0 3px 0 #000; } }
+#hud.cine #minimap, #hud.cine #phone-toast, #hud.cine #phone-hint, #hud.cine #crew, #hud.cine #health, #hud.cine #armor, #hud.cine #toast, #hud.cine #crosshair { opacity: 0; transition: opacity .3s; }

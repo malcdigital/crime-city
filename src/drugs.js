@@ -351,6 +351,9 @@ export class Drugs {
           // The spot gets raided while you're there.
           game.crime(r.product === 'coke' || r.kind === 'gang' ? 'drugRaidBig' : 'drugRaid', p.x, p.z);
           game.market.raided(r.product);
+          // They were waiting for this: cars come in from every side right away.
+          game.police.raid(p.x, p.z, r.product === 'coke' || r.kind === 'gang' ? 4 : 3);
+          game.startCinematic(p.x, p.b.minZ + 1.2, 'RAID', 4);
           game.hud.toast('RAID! Grab the stuff and get out!', '#ff8080');
           game.storyEvent(null, p.x, p.z, `Police raid a drug spot on ${p.street}`);
         }
