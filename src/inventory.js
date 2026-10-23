@@ -14,15 +14,23 @@ import { dist } from './util.js';
 const HOLD_ALL = 0.5; // seconds to hold for "all"
 const CASH_STEP = 100;
 const AMMO = [['pistol', 'Pistol'], ['smg', 'SMG'], ['rifle', 'Rifle'], ['shotgun', 'Shells']];
+// The strip's top row: two weapons, an Ammo tab, cash, and a Drugs tab. The tabs open up to
+// show what's in them (indexes into items()).
+export const TOP = [{ flat: 0 }, { flat: 1 }, { group: 'ammo', name: 'Ammo', items: [2, 3, 4, 5] }, { flat: 6 }, { group: 'drugs', name: 'Drugs', items: [7, 8, 9] }];
 const money = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
 const gunName = (id) => WEAPONS.find((w) => w.id === id).name;
 
 export class Inventory {
+  static TOP = TOP;
+
   constructor(game) {
     this.game = game;
     this.open = false;
     this.holdT = 0;
-    this.sel = 0;
+    this.sel = 0; // index into items() (-1: a closed tab is selected)
+    this.top = 0; // index into TOP
+    this.group = null; // the open tab, if any
+    this.sub = 0;
     this.btn = { give: { t: 0, done: false }, drop: { t: 0, done: false } };
   }
 
@@ -52,11 +60,10 @@ export class Inventory {
       if (!this.open) g.arsenal.swap();
       this.open = false;
       this.holdT = 0;
+      this.group = null; // tabs start closed next time
     }
     if (this.open) {
-      const n = this.items().length;
-      if (a.phoneLeft) this.sel = (this.sel - 1 + n) % n;
-      if (a.phoneRight) this.sel = (this.sel + 1) % n;
+      this.navigate(a);
       for (const [k, held] of [['give', a.giveHeld], ['drop', a.dropHeld]]) {
         const b = this.btn[k];
         if (held) {
@@ -83,6 +90,30 @@ export class Inventory {
     g.hud.inventoryStrip(g, this);
   }
 
+  // D-pad ← → moves along the strip (or along the open tab). ↑ / ✕ opens a tab; ↓ / ○ closes it.
+  navigate(a) {
+    const t = TOP[this.top];
+    if (this.group) {
+      const n = t.items.length;
+      if (a.phoneLeft) this.sub = (this.sub - 1 + n) % n;
+      if (a.phoneRight) this.sub = (this.sub + 1) % n;
+      if (a.phoneDown || a.phoneBack) this.group = null;
+    } else {
+      const n = TOP.length;
+      if (a.phoneLeft) this.top = (this.top - 1 + n) % n;
+      if (a.phoneRight) this.top = (this.top + 1) % n;
+      if (a.phoneUp && TOP[this.top].group) this.openTab();
+    }
+    const now = TOP[this.top];
+    this.sel = this.group ? now.items[this.sub] : now.group ? -1 : now.flat;
+  }
+
+  openTab() {
+    this.group = TOP[this.top].group;
+    this.sub = 0;
+    this.sel = TOP[this.top].items[0];
+  }
+
   // Who's close enough to hand things to: other players (none yet) or homies following you.
   receiver() {
     const g = this.game;
@@ -94,6 +125,8 @@ export class Inventory {
 
   act(kind, all) {
     const g = this.game;
+    // A closed tab: pressing on it opens it.
+    if (this.sel < 0) return this.openTab();
     const it = this.items()[this.sel];
     if (!it || it.count <= 0) return g.hud.toast(it && it.type === 'weapon' ? 'Empty slot' : 'You have none of that', '#ff8080');
     if (g.player.vehicle && kind === 'drop') return g.hud.toast('Get out of the car to drop things', '#ff8080');
@@ -189,7 +222,9 @@ export class Inventory {
 
   hint() {
     const pad = this.game.input.mode === 'pad';
-    return pad ? 'D-pad ← → choose · ✕ give · □ drop · hold for all · tap L1 to swap weapons' : '← → choose · E give · G drop · hold for all · tap Tab to swap weapons';
+    if (this.sel < 0) return pad ? 'D-pad ← → choose · ✕ or ↑ open · tap L1 to swap weapons' : '← → choose · E or ↑ open · tap Tab to swap weapons';
+    const close = this.group ? (pad ? ' · ↓ close' : ' · ↓ close') : '';
+    return pad ? `D-pad ← → choose · ✕ give · □ drop · hold for all${close}` : `← → choose · E give · G drop · hold for all${close}`;
   }
 }
 

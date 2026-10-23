@@ -52,6 +52,10 @@ export class MapView {
       }
       drag = null;
     });
+    this.el.querySelector('.bm-legend').addEventListener('click', (e) => {
+      const r = e.target.closest('.lg-row');
+      if (r && +r.dataset.i >= 0) this.jumpTo(+r.dataset.i);
+    });
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       this.zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY);
@@ -74,8 +78,11 @@ export class MapView {
     this.mouse = null;
     if (game.input.locked) game.input.unlock();
     this.el.querySelector('.bm-help').textContent = game.input.mode === 'pad'
-      ? 'Left stick: move · R2 / L2: zoom · ✕: set waypoint · Touchpad / ○: close'
-      : 'Drag: move · Wheel: zoom · Click: set waypoint · M / Esc: close';
+      ? 'Left stick: move · D-pad ↑↓: go to a place · R2 / L2: zoom · ✕: waypoint · Touchpad / ○: close'
+      : 'WASD / drag: move · ↑↓ or click the legend: go to a place · Wheel: zoom · Click / Enter: waypoint · M / Esc: close';
+    this.legendSel = 0;
+    this.legendActive = false;
+    this.legendHtml = '';
     this.legend();
     this.draw();
   }
@@ -85,13 +92,97 @@ export class MapView {
     this.el.classList.add('hidden');
   }
 
+  // Everything on the map, grouped. Each entry has a place: picking it in the legend (D-pad
+  // ↑ ↓ / arrow keys, or a click) moves the cursor there.
+  legendEntries() {
+    const game = this.game;
+    const city = game.city;
+    const T = game.turfWars;
+    const S = game.shops;
+    const D = game.drugs;
+    const [px, pz] = game.player.pos();
+    const out = [];
+    const head = (t) => out.push({ head: t });
+    const add = (kind, color, text, label, x, z) => out.push({ kind, color, text, label, x, z });
+    head('You');
+    add('you', '#fff', '➤', 'You', px, pz);
+    if (this.waypoint) add('pin', '#ffd23f', '', 'Waypoint', ...this.waypoint);
+    head('Territories');
+    for (const t of T.view()) {
+      if (GANGS[t.gang].hidden) continue;
+      const hb = T.homeBlock(t.gang) || t.blocks[0];
+      const n = t.blocks.length;
+      const name = t.gang === 'crew' ? `${t.name} (you)` : t.name;
+      if (hb) add('swatch', t.color, '', `${name} · ${n} block${n === 1 ? '' : 's'}`, hb.cx, hb.cz);
+      else add('swatch', t.color, '', `${name} · underground`, null, null);
+    }
+    const free = T.blocks.filter((b) => !T.owner[`${b.i},${b.j}`]).sort((a, b) => dist(a.cx, a.cz, px, pz) - dist(b.cx, b.cz, px, pz));
+    if (free.length) add('swatch', '#555', '', `Unclaimed · ${free.length} blocks (nearest)`, free[0].cx, free[0].cz);
+    for (const w of T.wars) if (w.state === 'active') add('swatch', '#ff4d4d', '', `Turf war · ${w.street}`, w.block.cx, w.block.cz);
+    head('Places');
+    add('blip', '#2e7d32', 'G', 'Green Street hangout', city.crewHome.x, city.crewHome.z);
+    add('blip', '#8e24aa', 'K', `${GANGS.kings.name} hangout`, city.gangHome.x, city.gangHome.z);
+    const vh = T.homeBlock('vipers');
+    if (vh) add('blip', '#ff7a1a', 'V', `${GANGS.vipers.name} home`, vh.cx, vh.cz);
+    add('blip', '#2e6fd8', 'P', 'Police station', city.station.x, city.station.z);
+    add('blip', '#d63031', 'H', 'Hospital', city.hospital.x, city.hospital.z);
+    add('blip', '#e67e22', 'C', 'Chop shop (sell cars)', city.chop.x, city.chop.z);
+    add('blip', S.gun.color, 'A', `${S.gun.name} (guns, armor)`, S.gun.x, S.gun.z);
+    add('blip', S.garage.color, 'M', `${S.garage.name} (mods, respray)`, S.garage.x, S.garage.z);
+    add('blip', S.safehouse ? '#2c3e50' : '#7f8c8d', 'S', S.safehouse ? 'Your safehouse' : 'Safehouse (for sale)', S.safe.x, S.safe.z);
+    head('Business');
+    if (S.stash > 0) add('blip', '#27ae60', '$', `Turf stash · $${S.stash.toLocaleString('en-US')}`, S.stashAt.x, S.stashAt.z);
+    for (const p of D.plugs) add('blip', '#6c3483', 'D', `Plug: ${p.name} (${p.product})`, p.x, p.z);
+    for (const st of city.stores) add('text', st.cooldown > 0 ? '#777' : '#2ecc71', '$', `${st.name} (rob it)${st.cooldown > 0 ? ' · robbed' : ''}`, st.x, st.z);
+    for (const [x, z, col, txt] of T.claimMarks()) add('blip', col, txt, txt === 'T' ? 'Claim: wall to tag' : 'Claim: shop owner', x, z);
+    const cops = game.police.units;
+    const heli = game.police.heli;
+    if (cops.length || (heli && !heli.removed)) head('Police');
+    if (cops.length) {
+      const u = [...cops].sort((a, b) => dist(a.car.x, a.car.z, px, pz) - dist(b.car.x, b.car.z, px, pz))[0];
+      add('dot', '#ff3b3b', '', `Police units · ${cops.length} (nearest)`, u.car.x, u.car.z);
+    }
+    if (heli && !heli.removed) add('blip', '#3b7bff', '✦', 'Police helicopter', heli.x, heli.z);
+    return out;
+  }
+
   legend() {
-    const row = (c, t) => `<div><span style="background:${c}"></span>${t}</div>`;
-    this.el.querySelector('.bm-legend').innerHTML = [
-      ...Object.values(GANGS).filter((g) => !g.hidden).map((g) => row(g.color, g.id === 'crew' ? `${g.name} (you)` : g.name)),
-      row('#555', 'Unclaimed'),
-      row('#ffd23f', 'Waypoint'),
-    ].join('');
+    const entries = this.legendEntries();
+    const pickable = entries.filter((e) => !e.head && e.x !== null);
+    this.legendSel = Math.min(this.legendSel ?? 0, pickable.length - 1);
+    const sel = pickable[this.legendSel];
+    const icon = (e) => {
+      if (e.kind === 'swatch') return `<span class="lg-sw" style="background:${e.color}"></span>`;
+      if (e.kind === 'dot') return `<span class="lg-dot" style="background:${e.color}"></span>`;
+      if (e.kind === 'text') return `<span class="lg-tx" style="color:${e.color}">${e.text}</span>`;
+      if (e.kind === 'pin') return '<span class="lg-pin"></span>';
+      if (e.kind === 'you') return '<span class="lg-you">▲</span>';
+      return `<span class="lg-bl" style="background:${e.color}">${e.text}</span>`;
+    };
+    const html = entries.map((e) => {
+      if (e.head) return `<div class="lg-head">${e.head}</div>`;
+      const i = pickable.indexOf(e);
+      return `<div class="lg-row${e === sel && this.legendActive ? ' sel' : ''}${i < 0 ? ' off' : ''}" data-i="${i}">${icon(e)}<span class="lg-l">${e.label}</span></div>`;
+    }).join('');
+    if (html !== this.legendHtml) {
+      this.legendHtml = html;
+      const box = this.el.querySelector('.bm-legend');
+      box.innerHTML = html;
+      box.querySelector('.lg-row.sel')?.scrollIntoView({ block: 'nearest' });
+    }
+    this.pickable = pickable;
+  }
+
+  // Jump the cursor (and the view) to a legend entry.
+  jumpTo(i) {
+    const e = this.pickable && this.pickable[i];
+    if (!e) return;
+    this.legendSel = i;
+    this.legendActive = true;
+    this.cursor = [e.x, e.z];
+    this.cx = e.x;
+    this.cz = e.z;
+    this.mouse = null;
   }
 
   // Keep the city centered on screen when it fits; when zoomed in, don't scroll past its edges.
@@ -134,10 +225,16 @@ export class MapView {
     const game = this.game;
     // Cursor: the stick (or WASD) moves it; the view follows when it nears the edge.
     if (this.mouse && game.input.mode !== 'pad') this.cursor = this.toWorld(...this.mouse);
+    // The legend: step through the places on the map; the cursor jumps to each.
+    if (a.phoneUp || a.phoneDown) {
+      const n = (this.pickable || []).length;
+      if (n) this.jumpTo(this.legendActive ? (this.legendSel + (a.phoneDown ? 1 : -1) + n) % n : 0);
+    }
     const mx = a.moveX;
-    const my = -a.moveY;
+    const my = -(a.moveY - (a.arrowY || 0)); // arrow keys are for the legend here
     if (mx || my) {
       this.mouse = null;
+      this.legendActive = false;
       const sp = 520 / this.scale; // screen pixels per second, in world units
       this.cursor[0] = clamp(this.cursor[0] + mx * sp * dt, -CFG.ROAD, CFG.SIZE + CFG.ROAD);
       this.cursor[1] = clamp(this.cursor[1] + my * sp * dt, -CFG.ROAD, CFG.SIZE + CFG.ROAD);
@@ -344,6 +441,7 @@ export class MapView {
       ctx.stroke();
     }
     this.info.innerHTML = this.blockInfo(hb);
+    this.legend();
   }
 
   // What's on the block under the cursor.

@@ -218,7 +218,8 @@ export class Hud {
     }));
   }
 
-  // Inventory strip (hold L1 / Tab): weapons, ammo, cash and drugs, one tile each.
+  // Inventory strip (hold L1 / Tab): two weapons, an Ammo tab, cash, and a Drugs tab. An
+  // open tab shows its contents in a row above.
   inventoryStrip(game, inv) {
     let el = $('strip');
     if (!el) {
@@ -232,20 +233,35 @@ export class Hud {
     const ars = game.arsenal;
     const inf = CFG.INFINITE_AMMO;
     const items = inv.items();
-    inv.sel = Math.min(inv.sel, items.length - 1);
-    const html = items.map((it, i) => {
-      const sel = i === inv.sel ? ' sel' : '';
+    const TOP = inv.constructor.TOP;
+    const cap = (k) => k[0].toUpperCase() + k.slice(1);
+    const tile = (it, sel) => {
+      const s = sel ? ' sel' : '';
       if (it.type === 'weapon') {
         const w = ars.inSlot(it.slot);
         const empty = !ars.slots[it.slot];
         const sub = empty ? 'empty slot' : inf ? '∞' : `${ars.ammo[w.id].mag} / ${ars.ammo[w.id].reserve}`;
-        return `<div class="st weap${it.slot === ars.active ? ' cur' : ''}${empty ? ' empty' : ''} r-${w.id}${sel}"><div class="st-top">${it.slot + 1}${it.slot === ars.active ? ' · in hand' : ''}</div><div class="st-name">${w.name}</div><div class="st-sub">${sub}</div></div>`;
+        return `<div class="st weap${it.slot === ars.active ? ' cur' : ''}${empty ? ' empty' : ''} r-${w.id}${s}"><div class="st-top">${it.slot + 1}${it.slot === ars.active ? ' · in hand' : ''}</div><div class="st-name">${w.name}</div><div class="st-sub">${sub}</div></div>`;
       }
-      if (it.type === 'ammo') return `<div class="st small${it.count ? '' : ' none'}${ars.has(it.id) ? ' own' : ''}${sel}"><div class="st-top">Ammo</div><div class="st-name">${it.name}</div><div class="st-sub">${it.count}</div></div>`;
-      if (it.type === 'cash') return `<div class="st cash${sel}"><div class="st-top">Cash</div><div class="st-cash">$${game.cash.toLocaleString('en-US')}</div><div class="st-sub">Armor ${Math.round(game.armor || 0)}</div></div>`;
-      return `<div class="st small drug d-${it.kind}${it.count ? '' : ' none'}${sel}"><div class="st-top">Drugs</div><div class="st-name">${it.kind[0].toUpperCase() + it.kind.slice(1)}</div><div class="st-sub">${it.count}</div></div>`;
+      if (it.type === 'ammo') return `<div class="st small${it.count ? '' : ' none'}${s}"><div class="st-top">Ammo</div><div class="st-name">${it.name}</div><div class="st-sub">${inf && ars.has(it.id) ? '∞' : it.count}</div></div>`;
+      if (it.type === 'cash') return `<div class="st cash${s}"><div class="st-top">Cash</div><div class="st-cash">$${game.cash.toLocaleString('en-US')}</div><div class="st-sub">Armor ${Math.round(game.armor || 0)}</div></div>`;
+      return `<div class="st small drug d-${it.kind}${it.count ? '' : ' none'}${s}"><div class="st-top">Drugs</div><div class="st-name">${cap(it.kind)}</div><div class="st-sub">${it.count}</div></div>`;
+    };
+    const top = TOP.map((t, i) => {
+      const here = i === inv.top;
+      if (!t.group) return tile(items[t.flat], here && !inv.group);
+      const inside = t.items.map((k) => items[k]);
+      const total = inside.reduce((n, it) => n + it.count, 0);
+      const kinds = inside.filter((it) => it.count > 0).length;
+      const open = inv.group === t.group;
+      return `<div class="st tab${here && !inv.group ? ' sel' : ''}${open ? ' open' : ''}${total ? '' : ' none'}"><div class="st-top">${t.name} ${open ? '▾' : '▸'}</div><div class="st-name">${kinds} type${kinds === 1 ? '' : 's'}</div><div class="st-sub">${total}</div></div>`;
     }).join('');
-    el.innerHTML = `<div class="st-row">${html}</div><div class="st-hint">${inv.hint()}</div>`;
+    let sub = '';
+    if (inv.group) {
+      const t = TOP[inv.top];
+      sub = `<div class="st-row st-open">${t.items.map((k, j) => tile(items[k], j === inv.sub)).join('')}</div>`;
+    }
+    el.innerHTML = `${sub}<div class="st-row">${top}</div><div class="st-hint">${inv.hint()}</div>`;
   }
 
   hitmarker(kill) {

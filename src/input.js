@@ -202,6 +202,7 @@ export class Input {
     a.phoneToggle = this.hit('KeyT') || this.btnHit(PAD.CREATE);
     a.phone = a.phoneToggle || this.btnHit(PAD.RIGHT);
     // Working the phone (and the inventory strip): D-pad / arrows, ✕ / Enter, ○ / Backspace.
+    a.arrowY = (k('ArrowUp') ? 1 : 0) - (k('ArrowDown') ? 1 : 0);
     a.phoneUp = this.btnHit(PAD.UP) || this.hit('ArrowUp');
     a.phoneDown = this.btnHit(PAD.DOWN) || this.hit('ArrowDown');
     a.phoneLeft = this.btnHit(PAD.LEFT) || this.hit('ArrowLeft');
