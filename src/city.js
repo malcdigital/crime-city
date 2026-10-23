@@ -120,7 +120,7 @@ export function buildCity(scene) {
   scene.add(asphalt);
   const grass = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), lam(0x3d5a3a));
   grass.rotation.x = -Math.PI / 2;
-  grass.position.set(SIZE / 2, -0.05, SIZE / 2);
+  grass.position.set(SIZE / 2, -0.6, SIZE / 2); // well below the asphalt so it never shows through
   scene.add(grass);
 
   const building = (cx, cz, w, d, h, mat) => {

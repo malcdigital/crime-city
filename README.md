@@ -46,7 +46,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - Getting busted: fine, lost street cred, respawn at the police station
 - Chop shop: sell stolen cars for cash once the police lose you
 - Street cred ladder from the design doc (Nobody → Kingpin)
-- HUD: cash, wanted stars, a round radar that rotates with the player, and an in-game phone with City News; a full-screen map (touchpad / M) that pauses the game, shows turf, landmarks, cops and the block under the cursor, and lets you drop a waypoint that shows on the radar with a yellow GPS route along the streets (fewest turns); the city stays centered when zoomed out
+- HUD: cash, wanted stars, a round radar that rotates with the player, and an in-game phone with City News; a full-screen map (touchpad / M) that pauses the game, shows turf, landmarks, cops and the block under the cursor, and lets you drop a waypoint that shows on the radar with a yellow GPS route along the streets (fewest turns), also drawn on the road in 3D with sliding chevrons and a light beam on the waypoint; the city stays centered when zoomed out
 - PS5 / standard gamepad support, with button prompts that switch to the controller
 - Guns: fists, pistol and SMG with ammo, reloading, aim mode and controller aim assist that locks to the torso (flick up for the head; flick the right stick left or right to snap to the next opp or civilian that way on screen; hold it to one side to break the lock)
 - Testing switches in `src/config.js`: `INFINITE_AMMO`, `START_IN_CAR`, `CAR_SPAWN_KEY`

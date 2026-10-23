@@ -71,7 +71,7 @@ export function gpsRoute(city, fx, fz, tx, tz) {
   const pts = [[fx, fz], a.p, ...nodes.map((n) => [n.x, n.z]), b.p, [tx, tz]];
   // Drop points in the middle of a straight line.
   return pts.filter((p, k) => {
-    if (k === 0 || k === pts.length - 1) return true;
+    if (k <= 1 || k >= pts.length - 2) return true; // ends, and where they join the road
     const [p0, p1] = [pts[k - 1], pts[k + 1]];
     const cross = (p[0] - p0[0]) * (p1[1] - p[1]) - (p[1] - p0[1]) * (p1[0] - p[0]);
     return Math.abs(cross) > 1e-3;
@@ -83,4 +83,92 @@ export function routeLength(pts) {
   let d = 0;
   for (let k = 1; k < pts.length; k++) d += dist(...pts[k - 1], ...pts[k]);
   return d;
+}
+
+// The route drawn on the road in 3D: a yellow strip with chevrons sliding toward the
+// waypoint, plus a light beam standing on the waypoint itself.
+const W = 0.9; // strip width
+const TILE = 2.4; // meters per chevron
+export class GpsLine {
+  constructor(THREE, scene) {
+    this.THREE = THREE;
+    this.scene = scene;
+    const c = document.createElement('canvas');
+    c.width = 64;
+    c.height = 32;
+    const g = c.getContext('2d');
+    g.fillStyle = '#e0a800';
+    g.fillRect(0, 0, 64, 32);
+    g.strokeStyle = '#fff2a8';
+    g.lineWidth = 7;
+    g.lineJoin = 'miter';
+    g.beginPath();
+    g.moveTo(18, 3);
+    g.lineTo(40, 16);
+    g.lineTo(18, 29);
+    g.stroke();
+    this.tex = new THREE.CanvasTexture(c);
+    this.tex.wrapS = THREE.RepeatWrapping;
+    this.tex.colorSpace = THREE.SRGBColorSpace;
+    this.mat = new THREE.MeshBasicMaterial({ map: this.tex, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide });
+    this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), this.mat);
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+    scene.add(this.mesh);
+    this.beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.7, 0.7, 60, 16, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    this.beam.visible = false;
+    scene.add(this.beam);
+    this.key = '';
+  }
+
+  // pts: the route from gpsRoute (first and last points are off the road, so skip them).
+  update(dt, pts, waypoint) {
+    this.tex.offset.x -= dt * 0.9; // chevrons slide toward the waypoint
+    this.beam.visible = !!waypoint;
+    if (waypoint) {
+      this.beam.position.set(waypoint[0], 30, waypoint[1]);
+      this.beam.material.opacity = 0.28 + 0.1 * Math.sin(performance.now() / 300);
+    }
+    const road = pts && pts.length > 2 ? pts.slice(1, -1) : null;
+    this.mesh.visible = !!road;
+    if (!road) return;
+    const key = road.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join('|');
+    if (key === this.key) return;
+    this.key = key;
+    const pos = [];
+    const uv = [];
+    const idx = [];
+    // Measure from the end, so the chevrons don't jump as the start moves with you.
+    let u = -routeLength(road);
+    const y = 0.04;
+    for (let k = 1; k < road.length; k++) {
+      const [ax, az] = road[k - 1];
+      const [bx, bz] = road[k];
+      const len = Math.hypot(bx - ax, bz - az);
+      if (len < 0.01) continue;
+      const dx = (bx - ax) / len;
+      const dz = (bz - az) / len;
+      const nx = -dz * (W / 2);
+      const nz = dx * (W / 2);
+      // Stretch each piece by half the width so corners join up.
+      const sx = ax - dx * (W / 2), sz = az - dz * (W / 2);
+      const ex = bx + dx * (W / 2), ez = bz + dz * (W / 2);
+      const u0 = (u - W / 2) / TILE;
+      const u1 = (u + len + W / 2) / TILE;
+      const i = pos.length / 3;
+      pos.push(sx + nx, y, sz + nz, sx - nx, y, sz - nz, ex + nx, y, ez + nz, ex - nx, y, ez - nz);
+      uv.push(u0, 1, u0, 0, u1, 1, u1, 0);
+      idx.push(i, i + 2, i + 1, i + 1, i + 2, i + 3);
+      u += len;
+    }
+    const geo = new this.THREE.BufferGeometry();
+    geo.setAttribute('position', new this.THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new this.THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    this.mesh.geometry.dispose();
+    this.mesh.geometry = geo;
+  }
 }

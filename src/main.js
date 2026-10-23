@@ -17,7 +17,7 @@ import { Arsenal, WEAPONS, SLOTS, KEY_SLOTS, raycast, rayBox } from './weapons.j
 import { lam } from './character.js';
 import { segmentBlocked } from './collision.js';
 import { MapView } from './mapview.js';
-import { gpsRoute } from './gps.js';
+import { gpsRoute, GpsLine } from './gps.js';
 import { clamp, dist, lerp, lerpAngle, rand, randInt, wrapAngle } from './util.js';
 
 const SAVE_KEY = 'crimecity.v1';
@@ -51,6 +51,7 @@ class Game {
     this.input = new Input(canvas);
     this.hud = new Hud(this.city);
     this.mapView = new MapView(this);
+    this.gpsLine = new GpsLine(THREE, this.scene);
     this.aircam = new AirCam(this);
     this.clipPlayer = new ClipPlayer();
     this.effects = new Effects(this.scene);
@@ -1412,6 +1413,7 @@ class Game {
       this.gpsFor = w;
       this.gps = gpsRoute(this.city, ...this.player.pos(), ...w);
     }
+    this.gpsLine.update(dt, this.gps, w);
     if (a.phone) {
       this.hud.togglePhone();
       if (this.hud.phoneOpen && this.input.locked) this.input.unlock(); // so you can tap stories
