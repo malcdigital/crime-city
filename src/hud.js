@@ -1,3 +1,4 @@
+import { drawHeli, drawSearchlight } from './heliicon.js';
 import { CFG, CRED_TIERS } from './config.js';
 import { GANGS } from './turf.js';
 import { WAR_LEVELS } from './market.js';
@@ -517,19 +518,6 @@ export class Hud {
       ctx.fill();
       ctx.stroke();
     }
-    // Police helicopter: a flashing diamond.
-    const heli = game.police.heli;
-    if (heli && !heli.removed) {
-      const [hx, hy] = rim(project(heli.x, heli.z), 5);
-      ctx.fillStyle = flash ? '#ffffff' : '#3b7bff';
-      ctx.beginPath();
-      ctx.moveTo(hx, hy - 6);
-      ctx.lineTo(hx + 6, hy);
-      ctx.lineTo(hx, hy + 6);
-      ctx.lineTo(hx - 6, hy);
-      ctx.closePath();
-      ctx.fill();
-    }
     ctx.restore();
 
     // North marker on the rim.
@@ -555,5 +543,24 @@ export class Hud {
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+
+    // Police helicopter, on top (it's above you): a little helicopter pointing where it's
+    // flying, rotor spinning, and its searchlight on the ground.
+    const heli = game.police.heli;
+    if (heli && !heli.removed) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(C, C, R, 0, Math.PI * 2);
+      ctx.clip();
+      const hp = project(heli.x, heli.z);
+      const [hx, hy] = rim(hp, 12);
+      if (heli.beam && heli.beam.visible && inside(hp)) {
+        const [sx, sy] = project(heli.aim[0], heli.aim[1]);
+        drawSearchlight(ctx, hx, hy, sx, sy, Math.max(4, 5 * k), heli.sees);
+      }
+      const [nx, ny] = project(heli.x + Math.sin(heli.heading), heli.z + Math.cos(heli.heading));
+      drawHeli(ctx, hx, hy, Math.atan2(nx - hp[0], -(ny - hp[1])), 1.6);
+      ctx.restore();
+    }
   }
 }

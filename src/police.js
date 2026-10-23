@@ -1064,11 +1064,19 @@ export class PoliceManager {
     this.pending = this.pending.filter((p) => !p.sent);
   }
 
-  // Police helicopter: takes off from the precinct roof at 4+ stars.
+  // Police helicopter: at 4+ stars air support gets called in, and some time later (20-30 s)
+  // it takes off from the precinct roof and flies over.
   updateHeli(dt) {
     const game = this.game;
     this.heliCd = Math.max(0, (this.heliCd || 0) - dt);
-    if (!this.heli && game.stars >= CFG.HELI_STARS && this.heliCd <= 0 && game.wastedT <= 0) {
+    const wanted = !this.heli && game.stars >= CFG.HELI_STARS && this.heliCd <= 0 && game.wastedT <= 0;
+    if (!wanted) this.heliEta = null;
+    else if (this.heliEta == null) {
+      this.heliEta = 20 + Math.random() * 10;
+      game.hud.toast('Police are calling in air support', '#9fc3ff');
+    } else this.heliEta -= dt;
+    if (wanted && this.heliEta <= 0) {
+      this.heliEta = null;
       this.heli = new Helicopter(game, game.city.station.roof);
       if (!game.story || !game.story.heli) game.hud.news('Police helicopter in the air');
       if (game.story) game.story.heli = true;

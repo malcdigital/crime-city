@@ -548,6 +548,7 @@ export class Drugs {
         const [fx, fz] = car.forward();
         const ped = game.peds.addAt(car.x + fz * 2, car.z - fx * 2);
         ped.state = 'buyer';
+        ped.jaywalk = true; // already out in the street
         // The car waits, parked, for them to come back.
         car.driver.driveTo([[car.x, car.z], [car.x, car.z]]);
         ped.homeCar = car;
@@ -557,6 +558,22 @@ export class Drugs {
         return;
       }
       if (c.stuckT > 8 && !c.offer) return this.dropCustomer(false);
+    }
+    // Across the street, waving you down: say the word and they come over.
+    if (ped && ped.flagging && !c.offer) {
+      c.flagT = (c.flagT || 0) + dt;
+      c.t = Math.min(c.t, 5);
+      const pad = game.input.mode === 'pad';
+      this.prompt = `Someone across the street is waving you down — ${pad ? '✕' : 'E'} wave them over · ${pad ? '○' : 'Q'} ignore`;
+      if (a.dealYes) {
+        ped.jaywalk = true; // they cross wherever they are
+        ped.flagging = false;
+        c.t = 0;
+      } else if (a.dealNo || c.flagT > 12 || this.busy() || dist(ped.x, ped.z, px, pz) > 60) return this.dropCustomer(false);
+      a.melee = false;
+      a.sprint = false;
+      a.interactHeld = false;
+      return;
     }
     if (!c.offer) {
       if (c.t > (c.car ? 45 : 25) || (this.busy() && !there)) return this.dropCustomer(false);

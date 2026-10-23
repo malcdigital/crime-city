@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CFG, CRIMES, GANG_NAME } from './config.js';
 import { buildCity, districtAt, streetAt } from './city.js';
+import { buildSidewalks } from './sidewalk.js';
 import { Input } from './input.js';
 import { Player } from './player.js';
 import { Vehicle, resolveCarCollisions } from './vehicle.js';
@@ -54,6 +55,7 @@ class Game {
     this.scene.add(this.sun, this.sun.target);
 
     this.city = buildCity(this.scene);
+    this.city.walk = buildSidewalks(this.city, this.scene); // sidewalks and crosswalks for people on foot
     this.input = new Input(canvas);
     this.hud = new Hud(this.city);
     this.mapView = new MapView(this);

@@ -1,3 +1,4 @@
+import { drawHeli, drawSearchlight } from './heliicon.js';
 import { CFG, CRED_TIERS } from './config.js';
 import { GANGS } from './turf.js';
 import { districtAt, streetAt } from './city.js';
@@ -8,6 +9,9 @@ import { gpsRoute, routeLength } from './gps.js';
 // Full-screen city map (touchpad / M). The game pauses while it's open.
 // Left stick / WASD / mouse drag pans the cursor, R2 / L2 / wheel zoom, ✕ / click sets or
 // clears a waypoint, touchpad / M / ○ / Esc closes.
+// A tiny helicopter for the legend.
+const HELI_SVG = '<svg width="18" height="18" viewBox="-10 -10 20 20"><rect x="-0.9" y="2" width="1.8" height="7" fill="#1c2a44" stroke="#fff" stroke-width="1"/><rect x="-2.6" y="7.6" width="5.2" height="1.4" fill="#1c2a44" stroke="#fff" stroke-width="1"/><ellipse cx="0" cy="-0.5" rx="3.6" ry="5" fill="#1c2a44" stroke="#fff" stroke-width="1"/><circle cx="-2.2" cy="1.5" r="1.1" fill="#ff3b3b"/><circle cx="2.2" cy="1.5" r="1.1" fill="#3b7bff"/><path d="M-8 -8L8 8M-8 8L8 -8" stroke="#fff" stroke-width="1.3"/></svg>';
+
 export class MapView {
   constructor(game) {
     this.game = game;
@@ -149,7 +153,7 @@ export class MapView {
       const u = [...cops].sort((a, b) => dist(a.car.x, a.car.z, px, pz) - dist(b.car.x, b.car.z, px, pz))[0];
       add('dot', '#ff3b3b', '', `Police units · ${cops.length} (nearest)`, u.car.x, u.car.z);
     }
-    if (heli && !heli.removed) add('blip', '#3b7bff', '✦', 'Police helicopter', heli.x, heli.z);
+    if (heli && !heli.removed) add('heli', '#3b7bff', '', heli.sees ? 'Police helicopter · has you in the light' : 'Police helicopter · searching', heli.x, heli.z);
     return out;
   }
 
@@ -163,6 +167,7 @@ export class MapView {
       if (e.kind === 'dot') return `<span class="lg-dot" style="background:${e.color}"></span>`;
       if (e.kind === 'text') return `<span class="lg-tx" style="color:${e.color}">${e.text}</span>`;
       if (e.kind === 'pin') return '<span class="lg-pin"></span>';
+      if (e.kind === 'heli') return '<span class="lg-heli">' + HELI_SVG + '</span>';
       if (e.kind === 'you') return '<span class="lg-you">▲</span>';
       return `<span class="lg-bl" style="background:${e.color}">${e.text}</span>`;
     };
@@ -393,8 +398,6 @@ export class MapView {
       const g = r.riders[0] && GANGS[r.riders[0].gangId];
       dot(r.car.x, r.car.z, 6, g ? g.color : '#fff');
     }
-    const heli = game.police.heli;
-    if (heli && !heli.removed) blip(heli.x, heli.z, flash ? '#fff' : '#3b7bff', '✦', 8);
     // GPS route, then the waypoint pin.
     this.route = this.waypoint ? gpsRoute(city, ...game.player.pos(), ...this.waypoint) : null;
     if (this.route) {
@@ -446,6 +449,16 @@ export class MapView {
       ctx.fill();
       ctx.stroke();
       ctx.restore();
+    }
+    // Police helicopter on top (it's above everything).
+    const heli = game.police.heli;
+    if (heli && !heli.removed) {
+      const [hx, hy] = this.toScreen(heli.x, heli.z);
+      if (heli.beam && heli.beam.visible) {
+        const [sx, sy] = this.toScreen(heli.aim[0], heli.aim[1]);
+        drawSearchlight(ctx, hx, hy, sx, sy, Math.max(4, 5 * this.scale), heli.sees);
+      }
+      drawHeli(ctx, hx, hy, Math.PI - heli.heading, Math.max(1.5, Math.min(2.4, this.scale * 2)));
     }
     // Cursor.
     {

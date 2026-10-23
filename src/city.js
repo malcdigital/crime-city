@@ -280,7 +280,7 @@ export function buildCity(scene) {
   const dashes = [];
   for (let k = 0; k <= N; k++) {
     for (let j = 0; j < N; j++) {
-      for (let t = roadC(j) + R / 2 + 3; t < roadC(j + 1) - R / 2 - 2; t += 6) {
+      for (let t = roadC(j) + R / 2 + 6.5; t < roadC(j + 1) - R / 2 - 5; t += 6) { // clear of the crosswalks
         dashes.push([roadC(k), t, 0]);
         dashes.push([t, roadC(k), Math.PI / 2]);
       }

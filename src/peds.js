@@ -3,24 +3,11 @@ import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES } from './c
 import { pushCircle } from './collision.js';
 import { pick, rand, dist, lerpAngle } from './util.js';
 import { navStep, escapePoint } from './nav.js';
+import { corners, CROSSINGS, sameSide, sideBlock, curbPoint } from './sidewalk.js';
 import { findCover } from './gang.js';
 
 const SHIRTS = [0xe74c3c, 0x3498db, 0xf1c40f, 0x9b59b6, 0xecf0f1, 0x1abc9c, 0xe67e22, 0x34495e, 0xff7eb6, 0x95a5a6];
 const PANTS = [0x2c3e50, 0x1b1b1b, 0x5d4037, 0x34495e, 0x7f8c8d, 0x1f3a5f];
-
-// Sidewalk corner points around a block, clockwise.
-function corners(b) {
-  const x0 = b.minX + 2, x1 = b.maxX - 2, z0 = b.minZ + 2, z1 = b.maxZ - 2;
-  return [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];
-}
-
-// Where a pedestrian at a corner can cross to: [di, dj, corner on the new block].
-const CROSSINGS = [
-  [[-1, 0, 1], [0, -1, 3]],
-  [[1, 0, 0], [0, -1, 2]],
-  [[1, 0, 3], [0, 1, 1]],
-  [[-1, 0, 2], [0, 1, 0]],
-];
 
 export class Ped {
   constructor(game, block, corner) {
@@ -42,6 +29,7 @@ export class Ped {
     this.threat = null;
     this.removed = false;
     this.health = 100;
+    this.sidewalk = true; // stays on the sidewalks, crossing only at crosswalks (see nav.js)
   }
 
   get standing() {
@@ -240,13 +228,30 @@ export class Ped {
       let [px, pz] = game.player.pos();
       const pv = game.player.vehicle;
       if (pv) {
+        // At a window: whichever side is closer (the curb side if they came along the sidewalk).
         const [fx, fz] = pv.forward();
-        px = pv.x + fz * (pv.radius + 0.75); // at the driver's window
-        pz = pv.z - fx * (pv.radius + 0.75);
+        const o = pv.radius + 0.75;
+        const w1 = [pv.x + fz * o, pv.z - fx * o];
+        const w2 = [pv.x - fz * o, pv.z + fx * o];
+        [px, pz] = dist(this.x, this.z, ...w1) <= dist(this.x, this.z, ...w2) ? w1 : w2;
       }
       const stopAt = pv ? 0.5 : 1.5;
       const d = dist(this.x, this.z, px, pz);
-      if (d > stopAt) {
+      // You're across the street: they come to the curb on their side and wave you down
+      // (they cross once you say so).
+      this.flagging = false;
+      if (!this.jaywalk && !sameSide(game.city, this.x, this.z, px, pz)) {
+        const [b] = sideBlock(game.city, this.x, this.z);
+        const [cx, cz] = curbPoint(b, px, pz);
+        if (dist(this.x, this.z, cx, cz) > 0.8) {
+          [tx, tz] = [cx, cz];
+          speed = this.walkSpeed * (d > 12 ? 2.2 : 1.3);
+        } else {
+          this.flagging = true;
+          const [lx, lz] = game.player.pos();
+          this.heading = lerpAngle(this.heading, Math.atan2(lx - this.x, lz - this.z), Math.min(1, dt * 6));
+        }
+      } else if (d > stopAt) {
         [tx, tz] = [px, pz];
         speed = this.walkSpeed * (d > 12 ? 2.2 : 1.3); // hurry over, then walk up
       } else {
@@ -320,6 +325,7 @@ export class Ped {
     this.phase += dt * speed * 4;
     animateWalk(this.char, this.phase, Math.min(1, speed / 1.5));
     if (this.state === 'call') this.char.armR.rotation.x = -2.5; // phone to the ear
+    if (this.flagging && this.state === 'buyer') this.char.armR.rotation.x = -2.6 + Math.sin(game.time * 9) * 0.45; // waving you down
     if (this.state === 'sting') {
       // Gun out in the right hand, badge held up in the left.
       this.char.armR.rotation.x = -1.5;

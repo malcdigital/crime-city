@@ -1,5 +1,9 @@
 import { pushCircle, segmentBlockedPad } from './collision.js';
 import { dist } from './util.js';
+import { sidewalkWaypoint, sidewalkEscape } from './sidewalk.js';
+
+// Civilians (e.sidewalk) keep to the sidewalks and crosswalks unless e.jaywalk is set.
+const onSidewalks = (game, e) => e.sidewalk && !e.jaywalk && e.state !== 'hide' && game.city.walk;
 
 // Directions to try (radians from the straight line) when the way ahead is blocked.
 const TRY = [0.45, 0.9, 1.35, 1.8, 2.3];
@@ -254,6 +258,10 @@ export function navStep(e, finalX, finalZ, speed, dt, game, radius = 0.4) {
 
 // A street intersection to run to, away from a threat and not too far from `e`.
 export function escapePoint(game, e, threatX, threatZ) {
+  if (onSidewalks(game, e)) {
+    const p = sidewalkEscape(game, e, threatX, threatZ);
+    if (p) return p;
+  }
   let best = null;
   let bestScore = -Infinity;
   for (const n of game.city.nodes) {
@@ -274,6 +282,7 @@ export function escapePoint(game, e, threatX, threatZ) {
 // Next point to head for on the way to (gx, gz): the goal itself if the way is clear,
 // otherwise out of the block onto the road, then along the road to an intersection.
 export function waypoint(game, e, gx, gz) {
+  if (onSidewalks(game, e)) return sidewalkWaypoint(game, e, gx, gz);
   const { city } = game;
   if (!segmentBlockedPad(e.x, e.z, gx, gz, city.los, 0.3)) return [gx, gz];
   const clear = (x, z) => !segmentBlockedPad(e.x, e.z, x, z, city.los, 0.3);
