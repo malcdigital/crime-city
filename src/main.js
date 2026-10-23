@@ -410,13 +410,13 @@ class Game {
     } else if (c.isSoldier) {
       if (killed) {
         if (!this.turfWars.gangBusiness(c.x, c.z, c.gangId)) this.crime('gangKill', c.x, c.z);
-        this.dropAmmo(c.x, c.z, 'smg', 30);
+        this.dropAmmo(c.x, c.z, c.weapon ? c.weapon.id : 'smg', c.weapon ? c.weapon.ammo * 2 : 30);
       }
     } else if (c.isGang) {
       this.gang.anger();
       if (killed) {
         if (!this.turfWars.gangBusiness(c.x, c.z, 'kings')) this.crime('gangKill', c.x, c.z);
-        this.dropAmmo(c.x, c.z, 'smg', 30);
+        this.dropAmmo(c.x, c.z, c.weapon ? c.weapon.id : 'smg', c.weapon ? c.weapon.ammo * 2 : 30);
       }
     } else if (killed) {
       this.crime('murder', c.x, c.z);
@@ -572,7 +572,7 @@ class Game {
     if (killed && shooter.isCrew) {
       if (ref.isGang) {
         this.cred += 10;
-        this.dropAmmo(ref.x, ref.z, 'smg', 30);
+        this.dropAmmo(ref.x, ref.z, ref.weapon ? ref.weapon.id : 'smg', ref.weapon ? ref.weapon.ammo * 2 : 30);
       } else if (ref.isCop) this.crime('copKilled', ref.x, ref.z);
     }
   }
@@ -852,7 +852,9 @@ class Game {
       if (p.cash) {
         const v = this.player.vehicle;
         const [px, pz] = this.player.pos();
-        if (dist(p.x, p.z, px, pz) < (v ? 2.4 : 1.4)) {
+        // On foot: step on it. In a car: anywhere under the car (front to back) grabs it.
+        const grab = v ? v.circles().some(([cx, cz]) => dist(p.x, p.z, cx, cz) < v.radius + 1.0) : dist(p.x, p.z, px, pz) < 1.4;
+        if (grab) {
           this.cash += p.cash;
           this.hud.toast(`+$${p.cash}`);
           this.sfx.cash?.();
@@ -1082,13 +1084,13 @@ class Game {
         for (const [cx, cz] of v.circles()) if (dist(cx, cz, t.x, t.z) < v.radius + 0.35) hit = true;
         if (!hit) continue;
         // Only your driving kills outright; computer-driven cars knock people over.
-        const fast = Math.abs(v.speed) > 14 && v.driver === 'player';
+        const fast = Math.abs(v.speed) > 9 && v.driver === 'player'; // ~20 mph and up is deadly
         const killed = fast ? t.takeHit(999, v.x, v.z) : false;
         if (!killed) t.knockDown(v.x, v.z, 2);
         v.speed *= 0.85;
         if (v.driver === 'player') {
           if (t.isCop) this.crime(killed ? 'copKilled' : 'runOverCop', t.x, t.z);
-          else if (t.isGang || t.isCrew) this.onPlayerHit(t, killed);
+          else if (t.isGang || t.isCrew || t.isSoldier) this.onPlayerHit(t, killed);
           else this.crime(killed ? 'murder' : 'hitAndRun', t.x, t.z);
           this.scareNearby(t.x, t.z, 16);
         }

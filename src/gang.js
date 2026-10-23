@@ -1,5 +1,6 @@
 import { GANG_NAME, CREW_NAME } from './config.js';
-import { makeCharacter, setDown, crouchPose, SKIN_TONES } from './character.js';
+import * as THREE from 'three';
+import { makeCharacter, setDown, crouchPose, SKIN_TONES, lam } from './character.js';
 import { pushCircle, segmentBlocked } from './collision.js';
 import { dist, pick, rand, lerpAngle, clamp } from './util.js';
 import { navStep, escapePoint } from './nav.js';
@@ -79,6 +80,18 @@ export function findCover(game, self, threat) {
   return best;
 }
 
+// What gang members carry. Pistols are common; shotguns hit hard up close; rifles reach far.
+export const GANG_GUNS = {
+  pistol: { id: 'pistol', dmg: 7, range: 42, rate: 1.35, acc: 1.0, size: [0.08, 0.14, 0.32], color: 0x1a1a1a, ammo: 12 },
+  smg: { id: 'smg', dmg: 6, range: 45, rate: 0.8, acc: 0.9, size: [0.1, 0.18, 0.6], color: 0x2a2a2a, ammo: 30 },
+  shotgun: { id: 'shotgun', dmg: 16, range: 20, rate: 2.2, acc: 1.25, size: [0.11, 0.15, 0.9], color: 0x4a3420, ammo: 6 },
+  rifle: { id: 'rifle', dmg: 9, range: 65, rate: 1.0, acc: 1.15, size: [0.1, 0.2, 0.95], color: 0x2b2f26, ammo: 30 },
+};
+function pickGun() {
+  const r = Math.random();
+  return r < 0.35 ? GANG_GUNS.pistol : r < 0.65 ? GANG_GUNS.smg : r < 0.85 ? GANG_GUNS.shotgun : GANG_GUNS.rifle;
+}
+
 // Shared body and combat behavior for rival gang members and your crew.
 export class GangFighter {
   constructor(game, x, z, look) {
@@ -108,6 +121,13 @@ export class GangFighter {
     this.phase = Math.random() * 6;
     this.removed = false;
     this.speedNow = 0;
+    // Their gun, in the right hand.
+    this.weapon = pickGun();
+    const [w, h, l] = this.weapon.size;
+    const gun = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), lam(this.weapon.color));
+    gun.position.set(0, -0.64, 0);
+    gun.rotation.x = Math.PI / 2;
+    this.char.armR.add(gun);
   }
 
   get standing() {
@@ -388,16 +408,28 @@ export class GangFighter {
       rate = [0.22, 0.55];
     }
 
+    // Out of range for this gun (a shotgun at 30 m): close in before shooting.
+    const W = this.weapon;
+    if ((this.behavior === 'cover' || this.behavior === 'rush') && d > W.range * 0.9 && !this.peeking) {
+      goX = tx;
+      goZ = tz;
+      speed = Math.max(speed, 4.8);
+      face = null;
+      canShoot = false;
+    }
     this.move(dt, goX, goZ, speed, face);
     const armed = !(this.behavior === 'flee' && this.fleeT > 0) && this.behavior !== 'leave' && !(this.behavior === 'hide' && !this.crouched);
     this.char.armR.rotation.x = armed ? -1.45 : -0.3;
 
-    if (canShoot && d < 50) {
+    if (canShoot && d < W.range) {
       this.fireT -= dt;
       if (this.fireT <= 0) {
         this.fireT = rand(rate[0], rate[1]);
         this.peekShots--;
-        game.npcShootAt(this, target.ref, 6, 'smg', acc);
+        // Shotguns hit hardest up close.
+        const dmg = W.id === 'shotgun' ? W.dmg * Math.max(0.3, 1.4 - d / 18) : W.dmg;
+        this.fireT *= W.rate;
+        game.npcShootAt(this, target.ref, dmg, W.id, acc * W.acc);
       }
     }
   }
