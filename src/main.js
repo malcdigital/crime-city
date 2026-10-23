@@ -852,8 +852,8 @@ class Game {
       if (p.cash) {
         const v = this.player.vehicle;
         const [px, pz] = this.player.pos();
-        // On foot: step on it. In a car: anywhere under the car (front to back) grabs it.
-        const grab = v ? v.circles().some(([cx, cz]) => dist(p.x, p.z, cx, cz) < v.radius + 1.0) : dist(p.x, p.z, px, pz) < 1.4;
+        // On foot only: you have to get out and pick it up.
+        const grab = !v && dist(p.x, p.z, px, pz) < 1.4;
         if (grab) {
           this.cash += p.cash;
           this.hud.toast(`+$${p.cash}`);
@@ -901,7 +901,7 @@ class Game {
         if (!valid(c)) continue;
         if (c === this.lockIgnore && this.lockIgnoreT > 0) continue;
         const off = this.crosshairOffset(c);
-        const grab = c.isGang || c.isCop ? 0.07 : 0.04; // bystanders are harder to lock
+        const grab = c.isGang || c.isCop || c.shopkeeper ? 0.07 : 0.04; // bystanders are harder to lock
         if (off < grab && off < bestOff) {
           bestOff = off;
           best = c;

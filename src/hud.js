@@ -391,6 +391,7 @@ export class Hud {
     blip(city.hospital.x, city.hospital.z, '#d63031', 'H');
     blip(city.gangHome.x, city.gangHome.z, '#8e24aa', 'K');
     blip(city.crewHome.x, city.crewHome.z, '#2e7d32', 'G');
+    for (const [x, z, col, txt] of game.turfWars.claimMarks()) blip(x, z, col, txt);
     const tc = game.testCar;
     if (tc && !tc.removed && !tc.exploded && game.player.vehicle !== tc) {
       const pulse = game.carPingT > 0 && Math.floor(performance.now() / 200) % 2 === 0;

@@ -86,6 +86,13 @@ export class Ped {
 
   scare(fromX, fromZ, gun = false) {
     if (this.state === 'down' || this.state === 'dead') return;
+    // A shop owner being shaken down stays at his store: he ducks, then stands back up.
+    if (this.shopkeeper) {
+      this.state = 'cower';
+      this.calmT = rand(3, 5);
+      this.threat = [fromX, fromZ];
+      return;
+    }
     // Already taking cover from gunfire: stay put while the shooting goes on.
     if (this.state === 'dive' || this.state === 'cower' || this.state === 'hide') {
       this.calmT = rand(5, 8);
@@ -144,6 +151,10 @@ export class Ped {
     setDown(this.char, false);
     this.char.group.rotation.x = 0;
     this.hidden = false;
+    if (this.shopkeeper) {
+      this.state = 'shop';
+      return;
+    }
     const [fx, fz] = this.threat;
     this.state = 'walk';
     this.scare(fx, fz);
@@ -223,6 +234,11 @@ export class Ped {
         this.calmT -= dt;
         if (this.calmT <= 0) this.recover();
       }
+    } else if (this.state === 'shop') {
+      // Standing out front of the store, watching you.
+      const [px, pz] = game.player.pos();
+      const look = dist(this.x, this.z, px, pz) < 12 ? Math.atan2(px - this.x, pz - this.z) : this.shopHeading;
+      this.heading = lerpAngle(this.heading, look, Math.min(1, dt * 4));
     } else if (this.state === 'call') {
       // On the phone to 911, watching the scene.
       this.t -= dt;
@@ -372,7 +388,7 @@ export class PedManager {
     // Keep the population steady: drop extras far from the player, refill when low.
     const [px, pz] = this.game.player.pos();
     if (this.peds.length > CFG.PEDS) {
-      const far = this.peds.find((p) => dist(p.x, p.z, px, pz) > 120 && p.standing);
+      const far = this.peds.find((p) => dist(p.x, p.z, px, pz) > 120 && p.standing && !p.shopkeeper);
       if (far) far.dispose();
     }
     this.peds = this.peds.filter((p) => !p.removed);

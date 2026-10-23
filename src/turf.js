@@ -1,4 +1,4 @@
-import { CFG, GANG_NAME, CREW_NAME } from './config.js';
+import { CFG, GANG_NAME, CREW_NAME, CRED_TIERS } from './config.js';
 import { GangFighter } from './gang.js';
 import { pushCircle, segmentBlocked } from './collision.js';
 import { Vehicle } from './vehicle.js';
@@ -6,6 +6,7 @@ import { steerToward, throttleFor, StuckHelper } from './driving.js';
 import { dist, pick, rand } from './util.js';
 import { streetAt } from './city.js';
 import { SKIN_TONES } from './character.js';
+import { Claim, claimTier, tierOf, makeTag } from './claim.js';
 
 // Turf wars. Rules (agreed with the designer):
 // - Each gang holds blocks; the rest of the city is unclaimed. No border rule, no cap.
@@ -15,7 +16,9 @@ import { SKIN_TONES } from './character.js';
 //   held). Home blocks get an extra wave per other block held and 1.5x bigger waves; taking
 //   a home block takes all of that gang's turf, and the gang goes underground (no turf) and
 //   can't start a war for 24 hours.
-// - Unclaimed blocks: hold them for 60 seconds with no enemies on them.
+// - Unclaimed blocks: NPC gangs hold them for 60 seconds with no enemies on them. You have to
+//   earn them (see claim.js): enough street cred, tag the block, shake down the shops, then
+//   survive the nearest rival gang's response.
 // - A block that changes hands is locked from attack for 2 hours.
 // - NPC gangs: every 45 minutes each rolls a 1 in 3 chance to attack. They go after blocks
 //   they lost first; otherwise the leader decides (reckless leaders hit stronger gangs, even
@@ -160,7 +163,7 @@ export class Soldier extends GangFighter {
 }
 
 class War {
-  constructor(mgr, block, attacker, defender, byPlayer) {
+  constructor(mgr, block, attacker, defender, byPlayer, responder = null) {
     const game = mgr.game;
     this.mgr = mgr;
     this.game = game;
@@ -169,6 +172,7 @@ class War {
     this.attacker = attacker;
     this.defender = defender;
     this.byPlayer = byPlayer;
+    this.responder = responder; // a rival answering a claim on an unclaimed block
     this.home = !!defender && mgr.home[defender] === this.key;
     this.fighters = [];
     this.state = 'active';
@@ -183,6 +187,10 @@ class War {
       const n = this.home ? 3 + Math.max(0, mgr.count(defender) - 1) : 3;
       const s = this.home ? Math.ceil(size(defender) * 1.5) : size(defender);
       this.waves.def = Array(n).fill(s);
+    } else if (responder) {
+      // Answering a claim: two waves, three if they're bigger than Green Street.
+      const n = mgr.count(responder) > mgr.count(attacker) ? 3 : 2;
+      this.waves.def = Array(n).fill(size(responder));
     }
     // NPC attackers come lighter than defenders (about 40% fewer).
     if (!byPlayer) this.waves.att = Array(3).fill(Math.max(2, Math.round(size(attacker) * 0.6)));
@@ -212,7 +220,7 @@ class War {
   // gang's cars. If the gang has nobody left to send, it's out of waves.
   dispatchWave(side) {
     const n = this.waves[side][this.waveIdx[side]];
-    const gang = side === 'att' ? this.attacker : this.defender;
+    const gang = side === 'att' ? this.attacker : this.defender || this.responder;
     const b = this.block;
     const free = this.mgr.available(gang).sort((p, q) => dist(p.x, p.z, b.cx, b.cz) - dist(q.x, q.z, b.cx, b.cz));
     const picked = free.slice(0, n);
@@ -237,15 +245,16 @@ class War {
     const mine = this.attacker === 'crew' ? 'att' : this.defender === 'crew' ? 'def' : null;
     const opp = mine === 'att' ? 'def' : 'att';
     const g = (id) => (id ? GANGS[id].name : 'nobody');
+    const defG = this.defender || this.responder;
     const side = mine ? opp : 'def';
     const waves = this.waves[side].length;
     const idx = Math.max(1, this.waveIdx[side]);
-    const gang = side === 'att' ? this.attacker : this.defender;
+    const gang = side === 'att' ? this.attacker : defG;
     const queued = this.waves[side].slice(this.waveIdx[side]).reduce((a, b) => a + b, 0);
     const left = this.living(side).length + Math.min(queued, gang ? this.mgr.available(gang).length : 0);
-    let text = `TURF WAR · ${g(this.attacker)} vs ${g(this.defender)} · ${this.street}`;
-    if (this.defender || !this.byPlayer) text += ` · wave ${Math.min(idx, waves || 1)}/${waves || 1} · ${left} opps left`;
-    if (!this.defender) text += ` · hold ${Math.max(0, 60 - this.holdT).toFixed(0)}s`;
+    let text = this.responder ? `CLAIMING ${this.street} · 3/3 survive ${g(this.responder)}` : `TURF WAR · ${g(this.attacker)} vs ${g(this.defender)} · ${this.street}`;
+    if (defG || !this.byPlayer) text += ` · wave ${Math.min(idx, waves || 1)}/${waves || 1} · ${left} opps left`;
+    if (!defG) text += ` · hold ${Math.max(0, 60 - this.holdT).toFixed(0)}s`;
     if (this.home) text += ' · HOME BLOCK';
     if (this.byPlayer && this.awayT > 0) text += ` · get back on the block! ${Math.max(0, 20 - this.awayT).toFixed(0)}s`;
     return text;
@@ -272,11 +281,12 @@ class War {
     // You leading the attack: stay alive and stay on the block.
     if (this.byPlayer) {
       if (game.wastedT > 0) return this.end(false, 'you went down');
+      if (game.bustedT > 0) return this.end(false, 'you got busted');
       const [px, pz] = game.player.pos();
       this.awayT = this.onBlock(px, pz) ? 0 : this.awayT + dt;
       if (this.awayT > 20) return this.end(false, 'you left the block');
     }
-    if (!this.defender) {
+    if (!this.defender && !this.responder) {
       // Unclaimed: hold it with nobody else's people on it.
       const [px, pz] = game.player.pos();
       const here = this.byPlayer ? this.onBlock(px, pz) : this.living('att').some((f) => this.onBlock(f.x, f.z));
@@ -304,11 +314,11 @@ class War {
         ? `${A} take ${D} turf on ${this.street}${this.home ? ' — their home block' : ''}`
         : `${A} claim a block on ${this.street}`;
       game.newsIncident(head, b.cx, b.cz, this.attacker === 'crew' ? 'good' : 'crime');
-      if (this.attacker === 'crew') game.hud.toast(this.home ? `${D} turf is yours!` : 'Block taken!');
+      if (this.attacker === 'crew') game.hud.toast(this.home ? `${D} turf is yours!` : this.responder ? `${GANGS[this.responder].name} ran off. ${this.street} is Green Street now!` : 'Block taken!');
     } else {
       const head = this.defender ? `${D} hold off ${A} on ${this.street}` : `${A} fail to claim ${this.street}`;
       game.hud.news(head, this.defender === 'crew' ? 'good' : 'info');
-      if (this.attacker === 'crew') game.hud.toast(`Turf war lost: ${why}`, '#ff8080');
+      if (this.attacker === 'crew') game.hud.toast(this.responder ? `Claim failed: ${why}` : `Turf war lost: ${why}`, '#ff8080');
       if (this.defender === 'crew') game.hud.toast('Your block held!');
     }
     if (!this.byPlayer) this.mgr.quietUntil = Date.now() + T.quiet;
@@ -516,6 +526,9 @@ export class TurfManager {
     this.wars = [];
     this.provoke = {}; // key -> { n, t }
     this.claimHold = 0;
+    this.claim = null; // your claim in progress on an unclaimed block
+    this.claimCooldown = {};
+    this.tagMeshes = {};
     this.blocks = game.city.blocks.filter((b) => b.type !== 'police' && b.type !== 'hospital');
     this.byKey = Object.fromEntries(this.blocks.map((b) => [key(b), b]));
     if (!this.load()) this.reset();
@@ -715,6 +728,7 @@ export class TurfManager {
     this.lost = { kings: [], vipers: [], crew: [] };
     this.under = {};
     this.crackdown = {};
+    this.tags = {};
     const now = Date.now();
     this.nextRoll = { kings: now + T.roll * rand(0.3, 1), vipers: now + T.roll * rand(0.3, 1) };
     this.save();
@@ -724,7 +738,7 @@ export class TurfManager {
     try {
       const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
       if (!s || !s.owner) return false;
-      Object.assign(this, { owner: s.owner, home: s.home, lock: s.lock || {}, lost: s.lost || { kings: [], vipers: [], crew: [] }, under: s.under || {}, nextRoll: s.nextRoll || {}, crackdown: s.crackdown || {} });
+      Object.assign(this, { owner: s.owner, home: s.home, lock: s.lock || {}, lost: s.lost || { kings: [], vipers: [], crew: [] }, under: s.under || {}, nextRoll: s.nextRoll || {}, crackdown: s.crackdown || {}, tags: s.tags || {} });
       return true;
     } catch {
       return false;
@@ -734,7 +748,7 @@ export class TurfManager {
   save() {
     this.version++;
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ owner: this.owner, home: this.home, lock: this.lock, lost: this.lost, under: this.under, nextRoll: this.nextRoll, crackdown: this.crackdown }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ owner: this.owner, home: this.home, lock: this.lock, lost: this.lost, under: this.under, nextRoll: this.nextRoll, crackdown: this.crackdown, tags: this.tags }));
     } catch {
       // Storage unavailable: turf just won't persist.
     }
@@ -831,10 +845,10 @@ export class TurfManager {
     return this.wars.find((w) => w.state === 'active' && w.key === k);
   }
 
-  startWar(b, attacker, defender, byPlayer) {
+  startWar(b, attacker, defender, byPlayer, responder = null) {
     const k = key(b);
     if (this.warOn(k)) return null;
-    const w = new War(this, b, attacker, defender, byPlayer);
+    const w = new War(this, b, attacker, defender, byPlayer, responder);
     this.wars.push(w);
     this.game.police.crackdownOn(w);
     const A = GANGS[attacker].name;
@@ -843,6 +857,8 @@ export class TurfManager {
     if (defender === 'crew') {
       game.hud.news(`${A} are hitting your block on ${w.street}!`, 'crime');
       game.hud.toast(`${A} attacking your turf on ${w.street}`, '#ff8080');
+    } else if (responder) {
+      game.hud.news(`${GANGS[responder].name} roll up on Green Street at ${w.street}`, 'crime');
     } else if (attacker === 'crew') {
       game.hud.news(defender ? `Turf war: Green Street move on ${D} at ${w.street}` : `Green Street moving to claim ${w.street}`, 'info');
     } else {
@@ -857,6 +873,7 @@ export class TurfManager {
     const keys = home ? Object.keys(this.owner).filter((k) => this.owner[k] === loser) : [war.key];
     if (!keys.includes(war.key)) keys.push(war.key);
     for (const k of keys) {
+      if (winner !== 'crew') this.clearTags(k);
       this.owner[k] = winner;
       this.lock[k] = now + T.lock;
       if (loser) this.lost[loser] = [...(this.lost[loser] || []), { key: k, t: now }].slice(-12);
@@ -917,9 +934,56 @@ export class TurfManager {
     this.startWar(this.byKey[k], 'crew', g, true);
   }
 
-  // Prompt to claim an unclaimed block (hold E / D-pad →). Returns true if it showed one.
+  // Green Street tags on blocks you claimed (drawn on the walls).
+  addTags(k, spots) {
+    this.tags[k] = spots;
+    this.save();
+    this.drawTags();
+  }
+
+  clearTags(k) {
+    if (!this.tags[k]) return;
+    delete this.tags[k];
+    this.drawTags();
+  }
+
+  drawTags() {
+    const scene = this.game.scene;
+    for (const [k, list] of Object.entries(this.tagMeshes)) {
+      if (this.tags[k]) continue;
+      for (const m of list) {
+        scene.remove(m);
+        m.geometry.dispose();
+        m.material.dispose();
+      }
+      delete this.tagMeshes[k];
+    }
+    for (const [k, spots] of Object.entries(this.tags)) {
+      if (!this.tagMeshes[k]) this.tagMeshes[k] = spots.map(([x, z, nx, nz]) => makeTag(scene, x, z, nx, nz));
+    }
+  }
+
+  // A claim with nobody around to answer it: the block is just yours.
+  transferClaim(claim) {
+    const k = claim.key;
+    this.owner[k] = 'crew';
+    this.lock[k] = Date.now() + T.lock;
+    if (!this.home.crew) this.home.crew = k;
+    this.save();
+    this.game.newsIncident(`Green Street claim a block on ${claim.street}`, claim.block.cx, claim.block.cz, 'good');
+    this.game.hud.toast(`${claim.street} is Green Street now!`);
+  }
+
+  // Cred tier you need to claim another block.
+  claimNeed() {
+    return claimTier(this.count('crew'));
+  }
+
+  // Prompt to start claiming an unclaimed block, or the current claim's prompts.
+  // Returns true if it showed one.
   interact(a, dt) {
     const game = this.game;
+    if (this.claim) return this.claim.interact(a, dt);
     const p = game.player;
     if (p.vehicle) return false;
     const b = this.blockAt(p.x, p.z);
@@ -935,15 +999,24 @@ export class TurfManager {
       game.prompt = `Unclaimed block · locked for ${fmt(this.lock[k] - Date.now())}`;
       return true;
     }
+    if ((this.claimCooldown[k] || 0) > Date.now()) {
+      game.prompt = `Unclaimed block · the street's still watching after your last try (${fmt(this.claimCooldown[k] - Date.now())})`;
+      return true;
+    }
+    const need = this.claimNeed();
+    if (!CFG.CLAIM_IGNORE_CRED && tierOf(game.cred) < need) {
+      game.prompt = `Unclaimed block · you need ${CRED_TIERS[need].name} street cred to claim it (${game.cred.toLocaleString('en-US')}/${CRED_TIERS[need].min.toLocaleString('en-US')})`;
+      return true;
+    }
     if (a.interactHeld) {
       this.claimHold += dt;
-      game.progress = { value: Math.min(1, this.claimHold / 1.5), label: 'Claiming…' };
+      game.progress = { value: Math.min(1, this.claimHold / 1.5), label: 'Starting a claim…' };
       if (this.claimHold >= 1.5) {
         this.claimHold = 0;
-        this.startWar(b, 'crew', null, true);
+        this.claim = new Claim(this, b);
       }
     } else this.claimHold = 0;
-    game.prompt = `Unclaimed block · hold ${label} to claim it for Green Street`;
+    game.prompt = `Unclaimed block · hold ${label} to claim it: tag it, shake it down, hold it`;
     return true;
   }
 
@@ -1001,6 +1074,11 @@ export class TurfManager {
     return targets.length ? pick(targets) : open[0] || null;
   }
 
+  // Radar markers for your claim.
+  claimMarks() {
+    return this.claim ? this.claim.radar() : [];
+  }
+
   fighters() {
     return this.soldiers;
   }
@@ -1014,6 +1092,14 @@ export class TurfManager {
     }
     if (!this.populated) this.populate();
     this.recruit(dt);
+    if (!this.tagsDrawn) {
+      this.tagsDrawn = true;
+      this.drawTags();
+    }
+    if (this.claim) {
+      this.claim.update(dt);
+      if (!this.claim.active) this.claim = null;
+    }
     for (const w of this.wars) w.update(dt);
     for (const r of this.rides) r.update(dt);
     this.rides = this.rides.filter((r) => !r.done || r.keep);
@@ -1061,6 +1147,7 @@ export class TurfManager {
 
   // HUD banner: the war you're in or near.
   banner() {
+    if (this.claim && this.claim.stage !== 'response') return this.claim.summary();
     const [px, pz] = this.game.player.pos();
     const w = this.wars.find((x) => x.state === 'active' && (x.attacker === 'crew' || x.defender === 'crew'))
       || this.wars.find((x) => x.state === 'active' && dist(x.block.cx, x.block.cz, px, pz) < 160);

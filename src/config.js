@@ -31,7 +31,8 @@ export const CFG = {
   UNITS_PER_STAR: [0, 1, 2, 3, 5, 6],
   SWAT_PER_STAR: [0, 0, 0, 0, 2, 3], // SWAT vans
   HELI_STARS: 4, // police helicopter from this many stars
-  TURF_FAST: true, // testing: turf locks 2 min, NPC attack rolls every 15 min (10 quiet min after a war), underground 5 min
+  TURF_FAST: true,
+  CLAIM_IGNORE_CRED: false, // testing: claim unclaimed blocks without the street cred tier // testing: turf locks 2 min, NPC attack rolls every 15 min (10 quiet min after a war), underground 5 min
 };
 
 // Crimes the player can commit. heat raises the wanted level, cred is street cred earned.
