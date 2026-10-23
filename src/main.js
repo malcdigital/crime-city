@@ -1518,10 +1518,16 @@ class Game {
     const k = c.t / c.dur;
     const ease = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
     const ang = c.a0 + ease * c.sweep;
-    const r = 15 + 9 * ease; // pulls back so both ends of the street are in frame
-    const y = 7 - 0.5 * ease;
+    // Swing around and up into a high, wide shot over the street.
+    const r = 14 - 4 * ease;
+    const y = 6 + 22 * ease;
     this.camera.position.set(c.x + Math.sin(ang) * r, y, c.z + Math.cos(ang) * r);
-    this.camera.lookAt(c.x, 1.3, c.z);
+    this.camera.lookAt(c.x, 0.5, c.z);
+    const fov = 65 + 20 * ease;
+    if (Math.abs(this.camera.fov - fov) > 0.1) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   // ---- Main loop ----

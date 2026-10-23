@@ -600,6 +600,26 @@ export class PoliceUnit {
         desired = maxS;
         if (dist(c.x, c.z, tx, tz) < 22) desired = Math.min(desired, 14);
       }
+    } else if (this.stage && !this.staged) {
+      // A raid: drive to our spot on the road near you, pull up, and everyone out.
+      c.siren = true;
+      [tx, tz] = this.stage;
+      const ds = dist(c.x, c.z, tx, tz);
+      desired = Math.min(maxS, 3 + ds * 0.8);
+      if (ds < 3) {
+        desired = 0;
+        if (Math.abs(c.speed) < 2) {
+          this.staged = true;
+          this.dismountAll();
+        }
+      }
+      // Something parked on our spot or in the way for a while: stop where we are.
+      this.stageT = (this.stageT || 0) + dt;
+      if (this.stageT > 7 && Math.abs(c.speed) < 1) {
+        this.staged = true;
+        this.dismountAll();
+      }
+      this.to = null;
     } else {
       c.siren = true;
       const seesPlayer = (d < 45 && game.spots(c, 1.4, 60, false)) || (this.raid && d < 45); // a raid knows exactly where you are
@@ -879,28 +899,42 @@ export class PoliceManager {
   raid(x, z, n = 3) {
     const game = this.game;
     const P = CFG.PITCH;
-    const half = CFG.ROAD / 2;
-    // The street the spot is on, and the avenues at either end of the block.
-    const j = Math.round(z / P);
-    const sz = j * P;
-    const i0 = Math.floor(x / P);
-    const ax0 = i0 * P;
-    const ax1 = (i0 + 1) * P;
     const L = CFG.LANE;
-    const spots = [
-      [x - 48, sz + L, Math.PI / 2], // along the street from the west
-      [x + 48, sz - L, -Math.PI / 2], // from the east
-      [ax0 - L, sz - 42, 0], // down the west avenue
-      [ax1 + L, sz + 42, Math.PI], // up the east avenue
-      [ax1 - L, sz - 42, 0],
-    ].filter(([px, pz]) => px > -half && px < CFG.SIZE + half && pz > -half && pz < CFG.SIZE + half);
+    const lo = -CFG.ROAD / 2;
+    const hi = CFG.SIZE + CFG.ROAD / 2;
+    // The road you're on (or next to): a street runs along x, an avenue along z.
+    const roadX = Math.round(x / P) * P;
+    const roadZ = Math.round(z / P) * P;
+    const street = Math.abs(z - roadZ) <= Math.abs(x - roadX);
+    const along = street ? x : z; // position along the road
+    const at = (s, lane) => (street ? [s, roadZ + lane] : [roadX + lane, s]);
+    // Cars come in from both ends, in both lanes, and each heads for its own spot on the
+    // road 10-15 m from you (clear of your car and anything else parked there).
+    const plans = [[-1, L], [1, -L], [-1, -L], [1, L]];
+    const taken = [];
     let sent = 0;
-    for (const [px, pz, h] of spots) {
+    for (const [dir, lane] of plans) {
       if (sent >= n) break;
-      if (game.vehicles.some((v) => !v.removed && dist(v.x, v.z, px, pz) < 6)) continue;
-      const u = new PoliceUnit(game, px, pz, h, 'police');
+      const [sx, sz] = at(along + dir * 50, lane);
+      if (sx < lo || sx > hi || sz < lo || sz > hi) continue;
+      if (game.vehicles.some((v) => !v.removed && dist(v.x, v.z, sx, sz) < 6)) continue;
+      let stage = null;
+      for (const off of [12, 14, 10, 16, 18, 20]) {
+        const [tx, tz] = at(along + dir * off, lane);
+        const clear = !game.vehicles.some((v) => !v.removed && dist(v.x, v.z, tx, tz) < 4.5) && !taken.some(([qx, qz]) => dist(qx, qz, tx, tz) < 5);
+        if (clear) {
+          stage = [tx, tz];
+          break;
+        }
+      }
+      if (!stage) continue;
+      taken.push(stage);
+      const h = street ? (dir < 0 ? Math.PI / 2 : -Math.PI / 2) : dir < 0 ? 0 : Math.PI;
+      const u = new PoliceUnit(game, sx, sz, h, 'police');
       u.car.speed = 16; // already flying in
+      u.car.isCop = true;
       u.raid = true;
+      u.stage = stage;
       game.lethalFlag = true; // guns out, from behind their doors
       this.units.push(u);
       game.vehicles.push(u.car);
