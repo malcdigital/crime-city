@@ -102,7 +102,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | `src/main.js` | Game loop, crimes, wanted level, interactions, camera |
 | `src/city.js` | City generation, road graph, minimap |
 | `src/vehicle.js` | Car models and arcade driving physics |
-| `src/traffic.js` | NPC traffic drivers |
+| `src/traffic.js` | NPC traffic drivers (pass stopped cars in the other lane when it's clear, or turn back if stuck) |
 | `src/peds.js` | NPC pedestrians |
 | `src/police.js` | Police units and officers |
 | `src/player.js` | Player on foot and in cars |
@@ -110,7 +110,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | `src/input.js` | Keyboard, mouse and gamepad input |
 | `src/weapons.js` | Weapons, ammo and bullet hit tests |
 | `src/gang.js` | Gang fighter AI (heart, cover, morale), rival gang and your crew |
-| `src/nav.js` | On-foot navigation: steering around buildings, getting unstuck, following streets |
+| `src/nav.js` | On-foot navigation: steering around buildings and around you, getting unstuck, following streets |
 | `src/effects.js` | Muzzle flashes, tracers, smoke, fire, explosions |
 | `src/audio.js` | Synthesized sound effects |
 | `src/drugs.js` | Plugs, drug runs and their complications, debts and hits, street buyers |

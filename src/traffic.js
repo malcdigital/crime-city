@@ -63,19 +63,69 @@ export class TrafficDriver {
     c.update(dt, ctrl, game.city.colliders);
   }
 
-  // Slow down or stop for cars and people ahead.
+  // Stuck behind a stopped car (a parked car in the lane, a wreck, a jam): pass it, or turn back.
+  unjam(dt, game, ux, uz, dn) {
+    const c = this.car;
+    const b = this.blockedBy;
+    if (this.passing) {
+      this.passT -= dt;
+      const p = this.passCar;
+      const behind = !p || p.removed || (p.x - c.x) * ux + (p.z - c.z) * uz < -6;
+      if (behind || this.passT <= 0 || dn < 14) {
+        this.passing = false;
+        this.passCar = null;
+      }
+      return;
+    }
+    if (b && Math.abs(c.speed) < 1.5 && Math.abs(b.speed) < 1) this.jamT = (this.jamT || 0) + dt;
+    else this.jamT = 0;
+    if (this.jamT > 1.2 && dn > 30) {
+      // Other lane clear for the next 30 m? (oncoming traffic, or anything parked there)
+      const L = CFG.LANE;
+      const clear = !game.vehicles.some((o) => {
+        if (o === c || o === b || o.removed) return false;
+        const fwd = (o.x - c.x) * ux + (o.z - c.z) * uz;
+        const side = (o.x - c.x) * -uz + (o.z - c.z) * ux; // + is our lane's side
+        return fwd > -4 && fwd < 32 && side < -L * 0.4 && side > -L * 3.2;
+      });
+      if (clear) {
+        this.passing = true;
+        this.passCar = b;
+        this.passT = 6;
+        this.jamT = 0;
+        return;
+      }
+    }
+    if (this.jamT > 5) {
+      // Can't get around it: turn back and take another way.
+      [this.from, this.to] = [this.to, this.from];
+      this.next = this.pickNext();
+      this.jamT = 0;
+    }
+  }
+
+  // Slow down or stop for cars and people ahead. Remembers what made it stop (blockedBy).
   yieldTo(game, desired) {
     const c = this.car;
     const [fx, fz] = c.forward();
+    this.blockedBy = null;
+    let worst = desired;
     for (const o of game.vehicles) {
-      if (o === c) continue;
+      if (o === c || (this.passing && o === this.passCar)) continue;
       const ox = o.x - c.x;
       const oz = o.z - c.z;
       if (Math.abs(ox) > 15 || Math.abs(oz) > 15) continue;
       const fwd = ox * fx + oz * fz;
       const lat = Math.abs(ox * fz - oz * fx);
-      if (fwd > 0 && fwd < 15 && lat < 2.6) desired = Math.min(desired, Math.max(0, (fwd - 6.5) * 1.3));
+      if (fwd > 0 && fwd < 15 && lat < 2.6) {
+        const v = Math.max(0, (fwd - 6.5) * 1.3);
+        if (v < worst) {
+          worst = v;
+          this.blockedBy = o;
+        }
+      }
     }
+    desired = worst;
     for (const w of game.walkers) {
       const ox = w.x - c.x;
       const oz = w.z - c.z;
@@ -98,7 +148,11 @@ export class TrafficDriver {
     const L = dist(this.from.x, this.from.z, this.to.x, this.to.z) || 1;
     const ux = (this.to.x - this.from.x) / L;
     const uz = (this.to.z - this.from.z) / L;
-    const off = CFG.LANE;
+    const dn0 = dist(c.x, c.z, this.to.x, this.to.z);
+    // Jammed behind a stopped car: pass it in the other lane when that's clear, or turn
+    // around and take another way if it stays stuck.
+    this.unjam(dt, game, ux, uz, dn0);
+    const off = this.passing ? -CFG.LANE : CFG.LANE;
     const lx0 = this.from.x - uz * off;
     const lz0 = this.from.z + ux * off;
     const along = (c.x - lx0) * ux + (c.z - lz0) * uz;

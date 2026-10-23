@@ -54,6 +54,28 @@ export function navStep(e, finalX, finalZ, speed, dt, game, radius = 0.4) {
     }
   }
 
+  // Walk around the player instead of through them (unless the player is where they're going).
+  const pl = game.player;
+  if (pl && e !== pl && !pl.vehicle && Math.hypot(finalX - pl.x, finalZ - pl.z) > 2.2) {
+    const rx = pl.x - e.x;
+    const rz = pl.z - e.z;
+    const ahead = rx * ux + rz * uz;
+    const lat = rx * uz - rz * ux; // + : the player is off to our right-hand perpendicular
+    if (ahead > -0.2 && ahead < 3.2 && Math.abs(lat) < 1.2) {
+      const away = lat === 0 ? e.navSide || 1 : -Math.sign(lat);
+      const k = 1.3 * (1 - Math.max(0, ahead) / 3.2) + 0.4;
+      let vx = ux + uz * away * k;
+      let vz = uz - ux * away * k;
+      const n = Math.hypot(vx, vz) || 1;
+      vx /= n;
+      vz /= n;
+      if (!segmentBlockedPad(e.x, e.z, e.x + vx * 1.5, e.z + vz * 1.5, boxes, radius * 0.75)) {
+        ux = vx;
+        uz = vz;
+      }
+    }
+  }
+
   const step = Math.min(d, speed * dt);
   const ox = e.x;
   const oz = e.z;
@@ -62,6 +84,17 @@ export function navStep(e, finalX, finalZ, speed, dt, game, radius = 0.4) {
   const r = pushCircle(e.x, e.z, radius, boxes);
   e.x = r.x;
   e.z = r.z;
+  // Never end up inside the player.
+  if (pl && e !== pl && !pl.vehicle) {
+    const sx = e.x - pl.x;
+    const sz = e.z - pl.z;
+    const sd = Math.hypot(sx, sz);
+    const min = radius + 0.35;
+    if (sd < min && sd > 1e-4) {
+      e.x = pl.x + (sx / sd) * min;
+      e.z = pl.z + (sz / sd) * min;
+    }
+  }
   const moved = Math.hypot(e.x - ox, e.z - oz);
 
   // Barely moving: slide along the wall for a bit.
