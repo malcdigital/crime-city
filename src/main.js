@@ -900,8 +900,11 @@ class Game {
 
   enterVehicle(v) {
     const d = v.driver;
+    if (v.gangCar) this.turfWars.carStolen(v);
     if (d && d !== 'player') {
-      if (d.officers) {
+      if (d.riders) {
+        d.dismount(); // a gang crew on its way to a fight: they jump out (and they're angry)
+      } else if (d.officers) {
         for (const o of d.officers) o.dismount(-1);
         this.crime('stealCopCar', v.x, v.z);
       } else {

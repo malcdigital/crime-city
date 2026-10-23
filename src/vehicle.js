@@ -21,11 +21,11 @@ export const VTYPES = {
 // peak grip in radians (from fTractionCurveLateral), bias = front share of grip
 // (fTractionBiasFront; a little under 0.5 keeps the rear planted).
 const HANDLING = {
-  sedan: { max: 1.45, slide: 0.86, peak: 0.16, bias: 0.48 },
-  sports: { max: 1.75, slide: 0.88, peak: 0.15, bias: 0.48 },
-  van: { max: 1.2, slide: 0.84, peak: 0.17, bias: 0.47 },
-  police: { max: 1.6, slide: 0.87, peak: 0.16, bias: 0.48 },
-  swat: { max: 1.25, slide: 0.85, peak: 0.17, bias: 0.47 },
+  sedan: { max: 1.95, slide: 0.86, peak: 0.16, bias: 0.48 },
+  sports: { max: 2.3, slide: 0.88, peak: 0.15, bias: 0.48 },
+  van: { max: 1.6, slide: 0.84, peak: 0.17, bias: 0.47 },
+  police: { max: 2.1, slide: 0.87, peak: 0.16, bias: 0.48 },
+  swat: { max: 1.65, slide: 0.85, peak: 0.17, bias: 0.47 },
 };
 
 const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 10);
@@ -348,7 +348,7 @@ export class Vehicle {
     this.driftAmt = lerp(this.driftAmt || 0, driftWanted ? 1 : 0, Math.min(1, dt * (driftWanted ? 5 : 3.5)));
     const drift = this.driftAmt;
     // Steering: ~39 degrees parked, less at speed; more lock available while drifting.
-    const lock = lerp(0.68 / (1 + this.vx * 0.055), 0.6, drift);
+    const lock = lerp(0.72 / (1 + this.vx * 0.032), 0.6, drift);
     this.steerVis = lerp(this.steerVis, steer * lock, Math.min(1, dt * 9));
     const delta = this.steerVis;
     // Pedals.
@@ -378,7 +378,8 @@ export class Vehicle {
       const Fzr = (m * g * a) / L - transfer;
       // Front: brakes, then whatever grip is left corners.
       const fMax = muF * Fzf;
-      const Fxf = Math.max(-fMax * 0.95, -brakeAmt * m * t.brake * 0.6);
+      const brakeDecel = Math.min(t.brake, 12.5); // ~1.3 g at most, like real brakes on sticky tires
+      const Fxf = Math.max(-fMax * 0.95, -brakeAmt * m * brakeDecel * 0.6);
       const fyf = Math.sqrt(Math.max(0, fMax * fMax - Fxf * Fxf));
       const af = Math.atan2(this.vy + a * this.r, vx) - delta;
       const Fyf = clamp(-Math.sign(af) * curve(af, muF) * Fzf, -fyf, fyf);
@@ -387,7 +388,7 @@ export class Vehicle {
       // Traction control keeps drive force within what the rears can take while cornering;
       // in a drift you're deliberately spinning them.
       const tc = rMax * (driftWanted ? 0.7 : 0.55 + 0.35 * (1 - Math.abs(steer)));
-      let Fxr = Math.min(gasAmt * m * accel * Math.max(0, 1 - this.vx / maxS), tc) - brakeAmt * m * t.brake * 0.4 - hb * 0.3 * rMax; // handbrake: slows the rear, no slide
+      let Fxr = Math.min(gasAmt * m * accel * Math.max(0, 1 - this.vx / maxS), tc) - brakeAmt * m * Math.min(t.brake, 12.5) * 0.4 - hb * 0.3 * rMax; // handbrake: slows the rear, no slide
       Fxr = clamp(Fxr, -rMax, rMax);
       const fyr = Math.sqrt(Math.max(0, rMax * rMax - Fxr * Fxr));
       const ar = Math.atan2(this.vy - b * this.r, vx);
@@ -396,7 +397,7 @@ export class Vehicle {
       const coast = gasAmt === 0 && brakeAmt === 0 ? m * 2.0 : 0;
       const drag = m * 0.08 * this.vx + coast + (this.flatCount ? m * 0.25 * this.flatCount * this.vx * 0.1 : 0);
       // Throttle holding the slide: drifting on the gas keeps most of your speed.
-      const driftPush = drift * m * 6.5 * Math.max(0, 1 - this.vx / (maxS * 0.75));
+      const driftPush = drift * m * 9 * Math.max(0, 1 - this.vx / (maxS * 0.75));
       const Fx = Fxr + Fxf * Math.cos(delta) - Fyf * Math.sin(delta) - drag + driftPush;
       const Fy = Fyr + Fyf * Math.cos(delta) + Fxf * Math.sin(delta);
       ax = Fx / m;
@@ -415,7 +416,7 @@ export class Vehicle {
         this.r += (want - this.r) * (1 - Math.exp(-ddt * 9 * drift));
       }
       // Angular damping, and sideways creep dies out at walking pace.
-      this.r *= Math.exp(-ddt * (0.6 + 1.4 * (1 - drift))); // stability (less while drifting)
+      this.r *= Math.exp(-ddt * (0.6 + 1.0 * (1 - drift) * Math.min(1, this.vx / 20))); // stability at speed (less while drifting)
       if (this.vx < 6) this.vy *= Math.exp(-ddt * (6 - this.vx) * 1.5);
       this.heading = wrapAngle(this.heading - this.r * ddt);
       const [fx, fz] = this.forward();

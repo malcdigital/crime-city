@@ -756,9 +756,27 @@ export class TurfManager {
   }
 
   // You shot at a gang member: they and nearby guards of the same gang come for you.
-  aggro(g, x, z) {
-    const until = this.game.time + 40;
-    for (const s of this.soldiers) if (s.gangId === g && s.alive && dist(s.x, s.z, x, z) < 45) s.aggroUntil = until;
+  aggro(g, x, z, radius = 45, secs = 40) {
+    const until = this.game.time + secs;
+    for (const s of this.soldiers) if (s.gangId === g && s.alive && dist(s.x, s.z, x, z) < radius) s.aggroUntil = until;
+  }
+
+  // You took one of their cars: everyone from that gang nearby comes after you.
+  carStolen(v) {
+    const g = v.gangCar;
+    if (!g || g === 'crew') return;
+    const game = this.game;
+    this.aggro(g, v.x, v.z, 90, 60);
+    if (g === 'kings' && dist(v.x, v.z, game.city.gangHome.x, game.city.gangHome.z) < 90) game.gang.anger();
+    // It's yours now: they won't use it for rides any more.
+    for (const gr of this.groups) gr.cars = gr.cars.filter((c) => c !== v);
+    this.cars = this.cars.filter((c) => c !== v);
+    v.stolenFrom = g;
+    v.gangCar = null;
+    const near = this.soldiers.filter((s) => s.gangId === g && s.alive && dist(s.x, s.z, v.x, v.z) < 90).length;
+    const an = /^[AEIOU]/i.test(GANGS[g].name) ? 'an' : 'a';
+    game.hud.toast(near ? `You stole ${an} ${GANGS[g].name} car — ${near} of them are coming for you` : `You stole ${an} ${GANGS[g].name} car`, '#ff8080');
+    if (near) game.hud.news(`${GANGS[g].name} car stolen on ${streetAt(v.x, v.z)}`, 'crime');
   }
 
   // You killed a gang member: three on the same block of their turf starts a war.
