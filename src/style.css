@@ -198,3 +198,27 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 
 #product { font-size: 13px; font-weight: 700; color: #d7b8ff; margin-top: 4px; text-align: right; }
 #product:empty { display: none; }
+
+#strip { position: absolute; left: 50%; bottom: 168px; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); pointer-events: none; text-shadow: none; }
+@media (max-width: 640px) { #strip { bottom: auto; top: 140px; } #strip .st { min-width: 0; } #strip .weap { width: auto; min-width: 120px; } }
+#strip .st-row { display: flex; gap: 6px; align-items: stretch; flex-wrap: wrap; justify-content: center; }
+#strip .st-name { overflow: hidden; text-overflow: ellipsis; }
+#strip .st { min-width: 92px; padding: 7px 10px 8px; border-radius: 8px; background: rgba(14,18,26,.86); border: 2px solid rgba(255,255,255,.12); }
+#strip .st-top { font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; opacity: .6; }
+#strip .st-name { font-size: 15px; font-weight: 900; margin-top: 2px; white-space: nowrap; }
+#strip .st-sub { font-size: 12px; opacity: .8; margin-top: 2px; }
+#strip .weap { width: 146px; }
+#strip .weap.cur { border-color: #ffd23f; background: rgba(60,50,14,.9); box-shadow: 0 0 0 2px rgba(255,210,63,.25); }
+#strip .weap.empty { opacity: .5; }
+#strip .r-pistol { border-bottom: 4px solid #9aa4b2; }
+#strip .r-smg { border-bottom: 4px solid #4fa3ff; }
+#strip .r-shotgun { border-bottom: 4px solid #b06bff; }
+#strip .r-rifle { border-bottom: 4px solid #ffb02e; }
+#strip .r-fists { border-bottom: 4px solid #555; }
+#strip .st-list { display: grid; grid-template-columns: auto auto; column-gap: 10px; font-size: 12px; margin-top: 3px; }
+#strip .am { display: contents; opacity: .45; }
+#strip .am span { opacity: .45; }
+#strip .am b { text-align: right; opacity: .45; }
+#strip .am.own span, #strip .am.own b { opacity: 1; }
+#strip .st-cash { font-size: 18px; font-weight: 900; color: #8ff08f; margin-top: 2px; }
+#strip .st-hint { text-align: center; font-size: 11px; opacity: .7; margin-top: 6px; }

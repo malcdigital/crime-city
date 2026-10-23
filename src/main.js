@@ -13,7 +13,7 @@ import { Effects } from './effects.js';
 import { Sfx } from './audio.js';
 import { AirCam, ClipPlayer } from './aircam.js';
 import { TurfManager, GANGS } from './turf.js';
-import { Arsenal, WEAPONS, SLOTS, KEY_SLOTS, raycast, rayBox } from './weapons.js';
+import { Arsenal, WEAPONS, raycast, rayBox } from './weapons.js';
 import { lam } from './character.js';
 import { segmentBlocked } from './collision.js';
 import { MapView } from './mapview.js';
@@ -1107,43 +1107,19 @@ class Game {
     if (clip && item) this.hud.attachClip(item, clip, () => this.clipPlayer.play(clip));
   }
 
-  // Weapon wheel. Hold L1 / Tab to open it (the game keeps running), point with the right
-  // stick or mouse, release to equip. A quick tap swaps back to your last weapon.
-  updateWeaponWheel(dt, a) {
-    const W = this.wheelState || (this.wheelState = { holdT: 0, open: false, sel: -1, vx: 0, vy: 0 });
-    if (a.wheelHeld && this.wastedT <= 0 && this.bustedT <= 0) {
-      W.holdT += dt;
-      if (!W.open && W.holdT > 0.2) {
-        W.open = true;
-        W.vx = W.vy = 0;
-        W.sel = SLOTS.findIndex((s) => s.id === this.arsenal.current().slot);
-      }
-      if (W.open) {
-        // Pointing: right stick, or mouse movement.
-        let x = 0, y = 0;
-        if (Math.hypot(a.rsX, a.rsY) > 0.5) [x, y] = [a.rsX, a.rsY];
-        else {
-          W.vx = clamp(W.vx + a.mouseDX, -80, 80);
-          W.vy = clamp(W.vy + a.mouseDY, -80, 80);
-          if (Math.hypot(W.vx, W.vy) > 25) [x, y] = [W.vx, W.vy];
-        }
-        if (x || y) {
-          const ang = Math.atan2(x, -y); // 0 = up, clockwise
-          W.sel = ((Math.round(ang / (Math.PI / 4)) % 8) + 8) % 8;
-        }
-        // No shooting or looking around while choosing.
-        a.fire = a.firePressed = a.aim = a.aimPressed = a.melee = false;
-        a.lookX = a.lookY = 0;
-        a.looking = false;
-      }
-    } else if (W.holdT > 0) {
-      if (W.open) {
-        if (W.sel >= 0) this.arsenal.selectSlot(SLOTS[W.sel].id);
-      } else this.arsenal.swapLast();
-      W.open = false;
-      W.holdT = 0;
+  // Inventory strip. Tap L1 / Tab to swap between your two weapons; hold it to show the
+  // strip (weapons, ammo, cash, drugs). The game keeps running.
+  updateStrip(dt, a) {
+    const S = this.stripState || (this.stripState = { holdT: 0, open: false });
+    if (a.stripHeld && this.wastedT <= 0 && this.bustedT <= 0) {
+      S.holdT += dt;
+      if (!S.open && S.holdT > 0.2) S.open = true;
+    } else if (S.holdT > 0) {
+      if (!S.open) this.arsenal.swap();
+      S.open = false;
+      S.holdT = 0;
     }
-    this.hud.weaponWheel(this, W);
+    this.hud.inventoryStrip(this, S);
   }
 
   // Tire smoke and skid marks from burnouts and drifts.
@@ -1258,9 +1234,8 @@ class Game {
     }
 
     // Weapons.
-    if (a.slot >= 0) this.arsenal.selectSlot(KEY_SLOTS[a.slot]);
-    if (a.nextWeapon) this.arsenal.cycle(1);
-    if (a.prevWeapon) this.arsenal.cycle(-1);
+    if (a.slot === 0 || a.slot === 1) this.arsenal.selectSlot(a.slot);
+    if (a.nextWeapon || a.prevWeapon) this.arsenal.swap();
     if (a.reload) this.arsenal.startReload();
     const w = this.arsenal.current();
     p.showWeapon(w.id);
@@ -1522,8 +1497,8 @@ class Game {
         if (this.wastedT <= 0) this.afterWasted();
       }
       this.aimingNow = false;
-      if (this.wheelState) this.wheelState.open = false;
-      this.hud.weaponWheel(this, { open: false });
+      if (this.stripState) this.stripState.open = false;
+      this.hud.inventoryStrip(this, { open: false });
       this.showCrosshair = false;
       this.lockScreen = null;
       this.updateCamera(dt, a);
@@ -1538,7 +1513,7 @@ class Game {
 
     const p = this.player;
     this.drugs.update(dt, a);
-    this.updateWeaponWheel(dt, a);
+    this.updateStrip(dt, a);
     this.arsenal.update(dt);
     const gun = !this.arsenal.current().melee;
     this.aimingNow = !p.vehicle && !p.busy && gun && a.aim;

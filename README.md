@@ -19,7 +19,7 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - Third-person on foot (walk, sprint, crouch, punch) and driving (4 car types, handbrake)
 - Cover: press C / L3 next to a wall, crate or car to snap to it, crate or car and stay there; slide along it, lean out at corners or pop up over low cover to aim; push away or press again to leave
 - Crouching bends at the knees; crouch behind low cover to block bullets and break line of sight
-- Weapon wheel: hold L1 / Tab (real time, no slow-mo) with 8 slots — melee, pistol, SMG, rifle, shotgun, heavy, throwable, special; one weapon per slot; tap to swap back to your last weapon. Weapons: fists, pistol, SMG, assault rifle, pump shotgun
+- Two weapon slots, Fortnite-style: you carry at most two guns (fists when a slot is empty). Tap L1 / Tab (or 1 / 2, or the mouse wheel) to swap between them. Buying a third gun replaces the one in your hand. Ammo is kept per gun type. Hold L1 / Tab to show the inventory strip: both weapons (with mag / reserve), all your ammo, cash and armor, and your drugs
 - Getting out of a moving car: 30 mph or less, you brake hard (about 1 g) to a stop and step out; faster, you dive head-first out the driver's door, take impact damage scaled to speed, tumble along the ground (about 0.95 g of friction; walls hurt) and get back up, while the car rolls on without you
 - Driving (your car): a tire model after GTA V's handling.meta — per-car traction curves (peak grip at ~9° of slip easing to a lower sliding grip), front/rear grip bias, weight transfer, friction circles, traction control, speed-sensitive steering lock and stability damping. Drift: hold gas + brake while turning; the rear steps out and the stick sets the drift angle (~15° light, ~35° full lock); let go and it eases back to grip in about half a second. Burnouts with gas + brake from a stop (steer for donuts)
 - Helicopter footage: when the police helicopter is up and near a big incident (shootings, police killings, explosions, arrests), the phone news story gets a 640×360 clip from its belly camera. Scroll stories with the mouse wheel or right stick; tap a story (D-pad → opens the phone; D-pad ↑/↓ to pick, ✕ to play)
@@ -72,8 +72,8 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | Look | Mouse / arrow keys | Right stick |
 | Sprint | Shift | ✕ (hold) |
 | Crouch / take cover | C | L3 |
-| Weapon wheel (tap = last weapon) | hold Tab | hold L1 |
-| Switch weapon | 1–8 / mouse wheel | D-pad ↓ ← |
+| Swap your two weapons | tap Tab (or 1 / 2, mouse wheel) | tap L1 |
+| Inventory strip (weapons, ammo, cash, drugs) | hold Tab | hold L1 |
 | Burnout (stopped) | W + S | R2 + L2 |
 | Aim | Right mouse | L2 (sticks to targets near the crosshair) |
 | Shoot | Left mouse | R2 |

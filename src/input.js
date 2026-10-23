@@ -176,19 +176,19 @@ export class Input {
     a.interactHeld = k('KeyE') || this.btn(PAD.UP);
     a.interactKey = k('KeyE');
     a.reload = this.hit('KeyR') || this.btnHit(PAD.SQUARE);
-    a.nextWeapon = this.wheel > 0 || this.btnHit(PAD.DOWN);
+    a.nextWeapon = this.wheel > 0; // mouse wheel swaps weapons too
     a.wheelDelta = this.wheel;
     a.dpadDown = this.btnHit(PAD.DOWN);
     a.dpadUp = this.btnHit(PAD.UP);
-    // Weapon wheel: hold L1 / Tab (tap to swap back to your last weapon).
-    a.wheelHeld = k('Tab') || this.btn(PAD.L1);
+    // Weapons: tap L1 / Tab to swap your two weapons, hold it to see your inventory strip.
+    a.stripHeld = k('Tab') || this.btn(PAD.L1);
     a.rsX = this.axis(2);
     a.rsY = this.axis(3);
     a.mouseDX = this.mdx;
     a.mouseDY = this.mdy;
-    a.prevWeapon = this.wheel < 0 || this.btnHit(PAD.LEFT);
+    a.prevWeapon = this.wheel < 0;
     a.slot = -1;
-    for (let n = 1; n <= 8; n++) if (this.hit(`Digit${n}`)) a.slot = n - 1;
+    for (let n = 1; n <= 2; n++) if (this.hit(`Digit${n}`)) a.slot = n - 1;
     a.throttle = clamp((k('KeyW') || k('ArrowUp') ? 1 : 0) - (k('KeyS') || k('ArrowDown') ? 1 : 0) + this.btnVal(PAD.R2) - this.btnVal(PAD.L2), -1, 1);
     a.steer = clamp((k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0) + this.axis(0), -1, 1);
     a.handbrake = k('Space') || this.btn(PAD.R1);

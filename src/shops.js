@@ -24,12 +24,12 @@ const SAFEHOUSE_PRICE = 5000;
 
 // What the gun shop sells. Ammo amounts are rounds per purchase.
 const GUN_STOCK = [
+  { id: 'pistol', price: 400, ammo: 36, ammoPrice: 60 },
   { id: 'smg', price: 1500, ammo: 90, ammoPrice: 150 },
   { id: 'shotgun', price: 2500, ammo: 18, ammoPrice: 120 },
   { id: 'rifle', price: 4500, ammo: 90, ammoPrice: 250 },
 ];
 const ARMOR_PRICE = 500;
-const PISTOL_AMMO = { ammo: 36, price: 60 };
 // Crew gear: guns in two steps, and vests.
 const CREW_GUNS = [
   { price: 3000, name: 'SMGs & shotguns', detail: 'No more pistols: every homie carries an SMG or a shotgun' },
@@ -153,10 +153,16 @@ export class Shops {
     this.crewVest = !!s.crewVest;
     this.game.armor = s.armor || 0;
     const ar = this.game.arsenal;
-    if (s.owned) ar.owned = s.owned;
-    else if (!CFG.START_ALL_GUNS) ar.owned = { melee: 'fists', pistol: 'pistol' };
+    if (s.slots) {
+      ar.slots = s.slots;
+      ar.active = s.active || 0;
+    } else if (s.owned) {
+      // Older saves: keep your two best guns.
+      const best = ['rifle', 'shotgun', 'smg', 'pistol'].filter((id) => Object.values(s.owned).includes(id)).slice(0, 2);
+      ar.slots = [best[0] || null, best[1] || null];
+    } else if (CFG.START_ALL_GUNS) ar.slots = ['rifle', 'shotgun'];
+    ar.refresh();
     if (s.ammo) for (const [id, v] of Object.entries(s.ammo)) if (ar.ammo[id]) Object.assign(ar.ammo[id], v);
-    if (!ar.inSlot(ar.current().slot)) ar.select(WEAPONS.findIndex((w) => w.id === 'pistol'));
     this.bag.visible = this.stash > 0;
     this.safeSign.material.color.set(this.safehouse ? 0xffffff : 0x888888);
   }
@@ -166,7 +172,7 @@ export class Shops {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
         stash: this.stash, unpaid: this.unpaid, payT: this.payT, safehouse: this.safehouse, crewGuns: this.crewGuns,
-        crewVest: this.crewVest, armor: Math.round(this.game.armor), owned: ar.owned, ammo: ar.ammo,
+        crewVest: this.crewVest, armor: Math.round(this.game.armor), slots: ar.slots, active: ar.active, ammo: ar.ammo,
       }));
     } catch {
       // Storage unavailable.
@@ -386,24 +392,24 @@ export class Shops {
         label: 'Body armor', price: ARMOR_PRICE, detail: 'Soaks up most of the damage you take until it wears out',
         can: game.armor >= 100 ? 'Already full' : true, buy: () => (game.armor = 100),
       });
-      list.push({
-        label: `Pistol ammo ×${PISTOL_AMMO.ammo}`, price: PISTOL_AMMO.price, detail: `Carrying ${ar.ammo.pistol.mag + ar.ammo.pistol.reserve}`,
-        can: true, buy: () => (ar.ammo.pistol.reserve += PISTOL_AMMO.ammo),
-      });
       for (const s of GUN_STOCK) {
         const w = WEAPONS.find((x) => x.id === s.id);
-        const have = ar.owned[w.slot] === w.id;
+        const have = ar.has(w.id);
         if (!have) {
+          const out = ar.wouldReplace(w.id);
+          const outName = out ? WEAPONS.find((x) => x.id === out).name : null;
           list.push({
-            label: w.name, price: s.price, detail: `Comes with ${s.ammo} rounds`, can: true,
+            label: out ? `${w.name} (swap out your ${outName})` : w.name, price: s.price,
+            detail: out ? `You carry two guns. This replaces the ${outName} in your hand. Comes with ${s.ammo} rounds.` : `Comes with ${s.ammo} rounds`,
+            can: true,
             buy: () => {
-              ar.owned[w.slot] = w.id;
+              ar.give(w.id);
               ar.ammo[w.id].mag = w.mag;
-              ar.ammo[w.id].reserve = s.ammo;
-              ar.select(WEAPONS.indexOf(w));
+              ar.ammo[w.id].reserve += s.ammo;
             },
           });
-        } else {
+        }
+        {
           const am = ar.ammo[w.id];
           list.push({
             label: `${w.name} ammo ×${s.ammo}`, price: s.ammoPrice, detail: `Carrying ${am.mag + am.reserve}`,
