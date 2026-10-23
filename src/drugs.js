@@ -39,6 +39,16 @@ const PLUGS = [
 const CUSTOMER_GAP = [90, 70, 55, 45, 35, 25];
 const ROB_CHANCE = [0.18, 0.13, 0.09, 0.06, 0.04, 0.02];
 const TELLS = ['seems nervous', 'shoes are too clean', 'keeps looking over his shoulder', 'asks a lot of questions', 'fresh haircut, no tattoos'];
+// The plug's texts while you owe, colder the closer the deadline: [seconds left, message].
+// {owe} and {name} are filled in.
+const REMINDERS = [
+  [20 * 60, "Hope it's moving good. {owe} when you're ready. Don't make me wait."],
+  [10 * 60, '10 minutes. {owe}. I fronted you on trust.'],
+  [5 * 60, "5 minutes. I'm not asking twice. {owe}."],
+  [2 * 60, "2 minutes. You know what happens to people who play with my money."],
+  [60, "60 seconds. My people already know what you drive."],
+  [20, "Clock's out. Pray."],
+];
 const money = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
 const fmt = (s) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, '0')}`;
 const amountText = (kind, n) => `${n} ${n === 1 ? PRODUCTS[kind].unit : PRODUCTS[kind].units} of ${PRODUCTS[kind].name.toLowerCase()}`;
@@ -165,7 +175,7 @@ export class Drugs {
     this.debts = this.debts.filter((x) => x !== d);
     for (const sq of this.squads) sq.called = true;
     game.hud.toast(`Paid ${p.name} ${money(d.owe)}. You're square.`);
-    if (d.hit) game.hud.news(`${p.name} calls off the hit`, 'good');
+    game.hud.text(p.name, d.hit ? "Money's good. I called them off. Next time it won't be this easy." : 'We good. Pleasure doing business.');
   }
 
   // ---- Updates ----
@@ -294,17 +304,18 @@ export class Drugs {
       const p = this.plug(d.plug);
       if (!d.hit) {
         d.left -= dt;
-        for (const [mark, msg] of [[600, '10 minutes'], [300, '5 minutes'], [60, '1 minute']]) {
+        // Texts from the plug, getting colder as time runs out.
+        for (const [mark, msg] of REMINDERS) {
           if (d.left <= mark && (d.warned || 1e9) > mark) {
             d.warned = mark;
-            game.hud.news(`${p.name}: "You got ${msg} to pay me ${money(d.owe)}."`, 'crime');
+            game.hud.text(p.name, msg.replace('{owe}', money(d.owe)));
           }
         }
         if (d.left <= 0) {
           d.hit = true;
           d.owe = Math.round(d.owe * 1.5);
           d.nextHit = 5;
-          game.hud.news(`${p.name} put a hit out on you. Pay ${money(d.owe)} to call it off.`, 'crime');
+          game.hud.text(p.name, `You had your chance. There's a price on your head now. ${money(d.owe)} and maybe I call them off.`);
           game.hud.toast(`${p.name} put a hit out on you!`, '#ff8080');
           this.save();
         }
@@ -336,6 +347,7 @@ export class Drugs {
     T.rides.push(ride);
     this.squads.push({ plug: p.id, car, riders, called: false });
     game.hud.toast(`${p.name}'s shooters are coming for you`, '#ff8080');
+    game.hud.text(p.name, `Sent some friends to see you. Still ${money(this.debts.find((x) => x.plug === p.id)?.owe || 0)} to make it stop.`);
   }
 
   updateSquads() {
