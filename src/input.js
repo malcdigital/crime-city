@@ -12,14 +12,14 @@ const deadzone = (v) => (Math.abs(v) < DEAD ? 0 : (v - Math.sign(v) * DEAD) / (1
 // Button names shown in prompts, for keyboard and controller.
 const LABELS = {
   enter: ['F', '△'],
-  interact: ['E', 'D-pad →'],
+  interact: ['E', 'D-pad ↑'],
   fire: ['Left-click', 'R2'],
   aim: ['Right-click', 'L2'],
   melee: ['J', '○'],
   reload: ['R', '□'],
   sprint: ['Shift', '✕'],
   play: ['Click PLAY', 'Press ✕'],
-  phone: ['T', 'D-pad ↑'],
+  phone: ['T', 'D-pad →'],
   crouch: ['C', 'L3'],
 };
 
@@ -171,11 +171,13 @@ export class Input {
     a.firePressed = this.clicked || this.btnHit(PAD.R2);
     a.melee = this.hit('KeyJ') || this.btnHit(PAD.CIRCLE);
     a.enter = this.hit('KeyF') || this.btnHit(PAD.TRIANGLE);
-    a.interactHeld = k('KeyE') || this.btn(PAD.RIGHT);
+    a.interactHeld = k('KeyE') || this.btn(PAD.UP);
+    a.interactKey = k('KeyE');
     a.reload = this.hit('KeyR') || this.btnHit(PAD.SQUARE);
     a.nextWeapon = this.wheel > 0 || this.btnHit(PAD.DOWN);
     a.wheelDelta = this.wheel;
     a.dpadDown = this.btnHit(PAD.DOWN);
+    a.dpadUp = this.btnHit(PAD.UP);
     // Weapon wheel: hold L1 / Tab (tap to swap back to your last weapon).
     a.wheelHeld = k('Tab') || this.btn(PAD.L1);
     a.rsX = this.axis(2);
@@ -192,7 +194,7 @@ export class Input {
     a.gas = k('KeyW') || k('ArrowUp') || this.btnVal(PAD.R2) > 0.5;
     a.brakeHeld = k('KeyS') || k('ArrowDown') || this.btnVal(PAD.L2) > 0.5;
     a.pause = this.hit('KeyP') || this.btnHit(PAD.OPTIONS);
-    a.phone = this.hit('KeyT') || this.hit('KeyM') || this.btnHit(PAD.UP) || this.btnHit(PAD.CREATE);
+    a.phone = this.hit('KeyT') || this.hit('KeyM') || this.btnHit(PAD.RIGHT) || this.btnHit(PAD.CREATE);
     a.start = this.btnHit(PAD.CROSS) || this.btnHit(PAD.OPTIONS);
     a.playClip = this.hit('Enter') || this.btnHit(PAD.CROSS);
     a.closeClip = this.hit('Escape') || this.btnHit(PAD.CIRCLE);

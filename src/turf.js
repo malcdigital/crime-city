@@ -1,6 +1,8 @@
 import { CFG, GANG_NAME, CREW_NAME } from './config.js';
 import { GangFighter } from './gang.js';
-import { pushCircle } from './collision.js';
+import { pushCircle, segmentBlocked } from './collision.js';
+import { Vehicle } from './vehicle.js';
+import { steerToward, throttleFor, StuckHelper } from './driving.js';
 import { dist, pick, rand } from './util.js';
 import { streetAt } from './city.js';
 import { SKIN_TONES } from './character.js';
@@ -30,9 +32,9 @@ const T = CFG.TURF_FAST
   : { lock: 2 * HOUR, roll: 45 * MIN, underground: 24 * HOUR, remember: 24 * HOUR };
 
 export const GANGS = {
-  kings: { id: 'kings', name: GANG_NAME, color: '#9c27b0', shirt: 0x6a1b9a, bandana: 0x8e24aa, reckless: 0.85, leader: 'Big Lo' },
-  vipers: { id: 'vipers', name: 'East Side Vipers', color: '#ff7a1a', shirt: 0xc0561a, bandana: 0xff8f2a, reckless: 0.3, leader: 'Slim' },
-  crew: { id: 'crew', name: CREW_NAME, color: '#3dff6e', shirt: 0x1e7d32, bandana: 0x2e7d32, reckless: 0.5, leader: 'You' },
+  kings: { id: 'kings', name: GANG_NAME, car: 0x5b1a7a, color: '#9c27b0', shirt: 0x6a1b9a, bandana: 0x8e24aa, reckless: 0.85, leader: 'Big Lo' },
+  vipers: { id: 'vipers', name: 'East Side Vipers', car: 0xc8551b, color: '#ff7a1a', shirt: 0xc0561a, bandana: 0xff8f2a, reckless: 0.3, leader: 'Slim' },
+  crew: { id: 'crew', name: CREW_NAME, car: 0x1f6b34, color: '#3dff6e', shirt: 0x1e7d32, bandana: 0x2e7d32, reckless: 0.5, leader: 'You' },
 };
 const START = {
   kings: { home: '1,6', blocks: ['1,6', '0,6', '0,7', '1,7', '1,5', '0,5'] },
@@ -100,6 +102,14 @@ export class Soldier extends GangFighter {
   }
 
   update(dt) {
+    if (this.state === 'inCar') {
+      // Riding to a fight: just keep up with the car.
+      if (this.ride) {
+        this.x = this.ride.car.x;
+        this.z = this.ride.car.z;
+      }
+      return;
+    }
     if (this.updateDown(dt)) return;
     const game = this.game;
     const list = this.enemies();
@@ -113,18 +123,22 @@ export class Soldier extends GangFighter {
       this.char.armR.rotation.x = this.war ? -1.2 : -0.3;
       const w = this.war && this.war.state === 'active' ? this.war : null;
       if (w) {
-        // Head for the fight: the nearest opp anywhere, or the block itself.
+        // Defenders hold the block (meeting opps that get close to it); attackers head for
+        // the block, taking on any opps they run into on the way.
         let goal = null;
         let best = Infinity;
         for (const e of list) {
-          const d = dist(this.x, this.z, e.x, e.z);
-          if (d < best) {
+          const d = this.side === 'def' ? dist(w.block.cx, w.block.cz, e.x, e.z) : dist(this.x, this.z, e.x, e.z);
+          if (d < (this.side === 'def' ? 80 : 60) && d < best) {
             best = d;
             goal = e;
           }
         }
-        const gx = goal ? goal.x : w.block.cx;
-        const gz = goal ? goal.z : w.block.cz;
+        let gx = goal ? goal.x : w.block.cx;
+        let gz = goal ? goal.z : w.block.cz;
+        // Far away: follow the streets instead of walking into buildings.
+        if (dist(this.x, this.z, gx, gz) > 70) [gx, gz] = this.mgr.streetStep(this, gx, gz);
+        else this.route = null;
         if (dist(this.x, this.z, gx, gz) > 3) this.move(dt, gx, gz, 4.6, null);
         else this.move(dt, this.x, this.z, 0, null);
       } else if (dist(this.x, this.z, this.homeX, this.homeZ) > 1) this.move(dt, this.homeX, this.homeZ, 1.6, null);
@@ -183,38 +197,28 @@ class War {
     return this.fighters.filter((f) => f.side === side && f.alive && !f.removed && f.behavior !== 'leave');
   }
 
-  // Where a side's next wave comes from.
-  spawnPoint(side, i) {
-    const b = this.block;
-    const city = this.game.city;
-    let x, z;
-    if (side === 'def') {
-      // Out of the buildings onto the block's sidewalks.
-      const edge = Math.floor(Math.random() * 4);
-      const u = rand(4, 60);
-      [x, z] = [[b.minX + u, b.minZ + 2.2], [b.minX + u, b.maxZ - 2.2], [b.minX + 2.2, b.minZ + u], [b.maxX - 2.2, b.minZ + u]][edge];
-    } else {
-      // Rolling in from the direction of their own turf (or anywhere), down the street.
-      const home = this.mgr.homeBlock(this.attacker);
-      let ang = home ? Math.atan2(home.cz - b.cz, home.cx - b.cx) : Math.random() * Math.PI * 2;
-      ang += (i - 1) * 0.15;
-      const r = 48 + Math.random() * 6;
-      x = b.cx + Math.cos(ang) * r;
-      z = b.cz + Math.sin(ang) * r;
-    }
-    const p = pushCircle(x, z, 0.5, city.colliders);
-    return [p.x, p.z];
-  }
-
-  spawnWave(side) {
+  // Send a side's next wave: real members of that gang, nearest first (the ones already on
+  // or near the block, then crews from posts and the home base). Far ones drive over in the
+  // gang's cars. If the gang has nobody left to send, it's out of waves.
+  dispatchWave(side) {
     const n = this.waves[side][this.waveIdx[side]];
     const gang = side === 'att' ? this.attacker : this.defender;
-    for (let i = 0; i < n; i++) {
-      const [x, z] = this.spawnPoint(side, i);
-      const s = new Soldier(this.game, this.mgr, x + rand(-1.5, 1.5), z + rand(-1.5, 1.5), gang, this, side);
-      this.fighters.push(s);
-      this.mgr.soldiers.push(s);
+    const b = this.block;
+    const free = this.mgr.available(gang).sort((p, q) => dist(p.x, p.z, b.cx, b.cz) - dist(q.x, q.z, b.cx, b.cz));
+    const picked = free.slice(0, n);
+    if (!picked.length) {
+      this.waveIdx[side] = this.waves[side].length; // nobody left to send
+      return;
     }
+    for (const s of picked) {
+      s.war = this;
+      s.side = side;
+      s.aggroUntil = 0;
+      if (s.group) s.group.members = s.group.members.filter((m) => m !== s);
+      s.group = null;
+      this.fighters.push(s);
+    }
+    this.mgr.sendRides(picked.filter((s) => dist(s.x, s.z, b.cx, b.cz) > 90), b);
     this.waveIdx[side]++;
   }
 
@@ -226,7 +230,9 @@ class War {
     const side = mine ? opp : 'def';
     const waves = this.waves[side].length;
     const idx = Math.max(1, this.waveIdx[side]);
-    const left = this.living(side).length + this.waves[side].slice(this.waveIdx[side]).reduce((a, b) => a + b, 0);
+    const gang = side === 'att' ? this.attacker : this.defender;
+    const queued = this.waves[side].slice(this.waveIdx[side]).reduce((a, b) => a + b, 0);
+    const left = this.living(side).length + Math.min(queued, gang ? this.mgr.available(gang).length : 0);
     let text = `TURF WAR · ${g(this.attacker)} vs ${g(this.defender)} · ${this.street}`;
     if (this.defender || !this.byPlayer) text += ` · wave ${Math.min(idx, waves || 1)}/${waves || 1} · ${left} opps left`;
     if (!this.defender) text += ` · hold ${Math.max(0, 60 - this.holdT).toFixed(0)}s`;
@@ -242,12 +248,13 @@ class War {
     // Next wave once the last one is down.
     for (const side of ['def', 'att']) {
       if (this.waveIdx[side] >= this.waves[side].length) continue;
-      if (this.living(side).length) {
-        this.spawnT[side] = 2.5;
+      // The next crew heads out when the current wave is nearly finished (they need time to get there).
+      if (this.living(side).length > (this.waveIdx[side] === 0 ? 0 : 1)) {
+        this.spawnT[side] = 2;
         continue;
       }
       this.spawnT[side] -= dt;
-      if (this.spawnT[side] <= 0) this.spawnWave(side);
+      if (this.spawnT[side] <= 0) this.dispatchWave(side);
     }
     const defOut = this.waveIdx.def >= this.waves.def.length && !this.living('def').length;
     const attOut = !this.byPlayer && this.waveIdx.att >= this.waves.att.length && !this.living('att').length;
@@ -296,19 +303,110 @@ class War {
     }
     // Police come by afterwards to look into it (unless they were already here cracking down).
     if (!game.police.units.some((u) => u.task && u.task.war === this)) game.police.investigateLater(this.block, this.street);
-    // Survivors drift off.
+    // Survivors: the side that holds the block posts up there; the others head home.
+    const holder = won ? this.attacker : this.defender;
+    const stay = this.fighters.filter((f) => f.alive && f.gangId === holder && f.state !== 'inCar');
+    if (holder && stay.length) this.mgr.postGroup(holder, this.block, stay);
     for (const f of this.fighters) {
-      if (!f.alive) continue;
+      if (!f.alive || stay.includes(f)) continue;
       f.war = null;
       f.side = 'guard';
-      if (f.gangId !== (won ? this.attacker : this.defender)) f.giveUp();
-      else {
-        f.homeX = f.x;
-        f.homeZ = f.z;
-        f.leaveAfter = game.time + 40;
-      }
+      this.mgr.sendHome(f);
     }
     this.mgr.save();
+  }
+}
+
+// A gang car taking a crew to a fight: drives the street grid, pulls up near the block, and
+// everyone piles out.
+class GangRide {
+  constructor(mgr, car, riders, block) {
+    this.mgr = mgr;
+    this.game = mgr.game;
+    this.car = car;
+    this.riders = riders;
+    this.block = block;
+    this.stuck = new StuckHelper();
+    this.to = null;
+    this.from = null;
+    this.done = false;
+    this.keep = true;
+    this.t = 0;
+    car.driver = this;
+    for (const r of riders) {
+      r.state = 'inCar';
+      r.ride = this;
+      r.char.group.visible = false;
+    }
+  }
+
+  dismount() {
+    const c = this.car;
+    const [fx, fz] = c.forward();
+    this.riders.forEach((r, i) => {
+      if (!r.alive || r.state !== 'inCar') return;
+      const side = i % 2 ? 1 : -1;
+      const p = pushCircle(c.x - fz * side * 1.9 - fx * (i > 1 ? 1.6 : 0), c.z + fx * side * 1.9 - fz * (i > 1 ? 1.6 : 0), 0.4, this.game.city.colliders);
+      r.x = p.x;
+      r.z = p.z;
+      r.state = 'idle';
+      r.ride = null;
+      r.char.group.visible = true;
+      c.openDoor(side, 1.2);
+    });
+    if (c.driver === this) c.driver = null;
+    this.done = true;
+  }
+
+  update(dt) {
+    if (this.done) return;
+    const c = this.car;
+    const game = this.game;
+    this.t += dt;
+    if (c.removed || c.wrecked || c.driver !== this || this.t > 120) return this.dismount();
+    // Wedged in somewhere: everyone out, go on foot.
+    this.stillT = Math.abs(c.speed) < 0.5 && this.t > 3 ? (this.stillT || 0) + dt : 0;
+    if (this.stillT > 6) return this.dismount();
+    const b = this.block;
+    const d = dist(c.x, c.z, b.cx, b.cz);
+    let tx, tz, want;
+    if (d < 60 && !segmentBlocked(c.x, c.z, b.cx, b.cz, game.city.los)) {
+      tx = b.cx;
+      tz = b.cz;
+      want = d < 38 ? 0 : 9;
+    } else {
+      const city = game.city;
+      if (!this.to) this.to = city.nearestNode(c.x, c.z);
+      if (dist(c.x, c.z, this.to.x, this.to.z) < 10) {
+        const opts = this.to.nb.filter((nb) => nb !== this.from).sort((p, q) => dist(p.x, p.z, b.cx, b.cz) - dist(q.x, q.z, b.cx, b.cz));
+        this.from = this.to;
+        this.to = opts[0] || this.from;
+      }
+      tx = this.to.x;
+      tz = this.to.z;
+      want = dist(c.x, c.z, tx, tz) < 22 ? 11 : 20;
+    }
+    const [fx, fz] = c.forward();
+    // Don't plow into the car in front.
+    const pullingOut = this.t < 4;
+    if (pullingOut) {
+      // Pull out of the parking spot into the lane first.
+      tx = c.x + fx * 8 + (this.to ? Math.sign(this.to.x - c.x) * 3 : 0);
+      tz = c.z + fz * 8 + (this.to ? Math.sign(this.to.z - c.z) * 3 : 0);
+      want = Math.min(want, 6);
+    }
+    for (const o of game.vehicles) {
+      if (o === c || o.removed) continue;
+      if (pullingOut && o.driver === null) continue; // parked cars: just ease out past them
+      const ox = o.x - c.x, oz = o.z - c.z;
+      if (Math.abs(ox) > 16 || Math.abs(oz) > 16) continue;
+      const fwd = ox * fx + oz * fz;
+      if (fwd > 0 && fwd < 14 && Math.abs(ox * fz - oz * fx) < 2.6) want = Math.min(want, Math.max(0, (fwd - 6) * 1.2));
+    }
+    const ctrl = { throttle: throttleFor(c, want), steer: steerToward(c, tx, tz), handbrake: want === 0 };
+    this.stuck.apply(dt, c, want, ctrl);
+    c.update(dt, ctrl, game.city.colliders);
+    if (want === 0 && d < 40 && Math.abs(c.speed) < 1) this.dismount();
   }
 }
 
@@ -323,8 +421,171 @@ export class TurfManager {
     this.byKey = Object.fromEntries(this.blocks.map((b) => [key(b), b]));
     if (!this.load()) this.reset();
     this.rollT = 0;
-    this.guardT = 0;
     this.version = 0;
+    this.groups = []; // gang members hanging out somewhere, with their cars
+    this.rides = []; // crews driving to a fight
+    this.cars = [];
+    this.recruitT = {};
+    this.populated = false;
+  }
+
+  // --- The gangs on the map -------------------------------------------------------------
+  // Each gang has a busy home base (a crowd and several cars), small groups posted on its
+  // other blocks, and a crew hanging around elsewhere. Groups of three or more have a car;
+  // big groups have two or more.
+  populate() {
+    this.populated = true;
+    for (const g of Object.keys(GANGS)) {
+      if (this.underground(g)) continue;
+      const hb = this.homeBlock(g);
+      if (hb) this.makeGroup(g, hb, g === 'kings' ? 6 : 8, 3, 'home', g === 'kings' ? 1 : 0);
+      const posts = this.blocks.filter((b) => this.owner[key(b)] === g && key(b) !== this.home[g]);
+      posts.forEach((b, i) => {
+        const n = i % 2 ? 3 : 2;
+        this.makeGroup(g, b, n, n >= 3 ? 1 : 0, 'post');
+      });
+      // A crew of four hanging out on an unclaimed block near their turf.
+      const mine = this.blocks.filter((b) => this.owner[key(b)] === g);
+      const open = this.blocks.filter((b) => !this.owner[key(b)] && b.type !== 'park')
+        .sort((p, q) => Math.min(...mine.map((m) => dist(m.cx, m.cz, p.cx, p.cz))) - Math.min(...mine.map((m) => dist(m.cx, m.cz, q.cx, q.cz))));
+      if (open.length) this.makeGroup(g, open[Math.floor(Math.random() * Math.min(3, open.length))], 4, 2, 'roam');
+    }
+  }
+
+  // Spots along one edge of a block: people on the sidewalk, cars at the curb.
+  edgeSpots(b, side) {
+    const W = b.maxX - b.minX;
+    return {
+      person: (i) => [[b.minX + 8 + i * 2.6, b.minZ + 2.2], [b.minX + 8 + i * 2.6, b.maxZ - 2.2], [b.minX + 2.2, b.minZ + 8 + i * 2.6], [b.maxX - 2.2, b.minZ + 8 + i * 2.6]][side],
+      car: (j) => [[b.minX + 10 + j * 6.5, b.minZ - 1.4, Math.PI / 2], [b.minX + 10 + j * 6.5, b.maxZ + 1.4, -Math.PI / 2], [b.minX - 1.4, b.minZ + 10 + j * 6.5, 0], [b.maxX + 1.4, b.minZ + 10 + j * 6.5, Math.PI]][side],
+      W,
+    };
+  }
+
+  makeGroup(g, b, n, nCars, kind, side = Math.floor(Math.random() * 4)) {
+    const game = this.game;
+    const group = { gang: g, block: b, kind, side, members: [], cars: [] };
+    const E = this.edgeSpots(b, side);
+    for (let i = 0; i < n; i++) {
+      let [x, z] = E.person(i);
+      x += rand(-0.6, 0.6);
+      z += rand(-0.6, 0.6);
+      const r = pushCircle(x, z, 0.45, game.city.colliders);
+      const s = new Soldier(game, this, r.x, r.z, g, null, 'guard');
+      s.group = group;
+      group.members.push(s);
+      this.soldiers.push(s);
+    }
+    for (let j = 0; j < nCars; j++) this.parkCar(group, ...E.car(j));
+    this.groups.push(group);
+    return group;
+  }
+
+  parkCar(group, x, z, h) {
+    const game = this.game;
+    if (game.vehicles.some((v) => !v.removed && dist(v.x, v.z, x, z) < 5)) return null;
+    const type = group.kind === 'home' && group.cars.length === 2 ? 'van' : 'sedan';
+    const v = new Vehicle(game.scene, type, x, z, h, GANGS[group.gang].car);
+    v.gangCar = group.gang;
+    game.vehicles.push(v);
+    group.cars.push(v);
+    this.cars.push(v);
+    return v;
+  }
+
+  // Next street corner on the way to (gx, gz), for someone on foot crossing town.
+  streetStep(s, gx, gz) {
+    const city = this.game.city;
+    if (!s.route || dist(s.x, s.z, s.route.x, s.route.z) < 4) {
+      const from = s.route || city.nearestNode(s.x, s.z);
+      if (!s.route) s.route = from;
+      else {
+        const opts = from.nb.filter((n) => n !== s.routePrev).sort((p, q) => dist(p.x, p.z, gx, gz) - dist(q.x, q.z, gx, gz));
+        s.routePrev = from;
+        s.route = opts[0] || from;
+      }
+    }
+    return [s.route.x, s.route.z];
+  }
+
+  // Gang members free to be sent to a fight.
+  available(g) {
+    return this.soldiers.filter((s) => s.gangId === g && s.alive && s.standing && !s.war && s.behavior !== 'leave' && s.state !== 'fight');
+  }
+
+  // Members far from the fight pile into nearby gang cars (up to four a car) and drive over.
+  sendRides(members, block) {
+    const left = [...members];
+    while (left.length) {
+      const s = left[0];
+      const car = this.cars.find((v) => !v.removed && !v.wrecked && v.driver === null && Math.abs(v.speed) < 1
+        && v.gangCar === s.gangId && dist(v.x, v.z, s.x, s.z) < 30);
+      if (!car) {
+        left.shift(); // no car handy: run
+        continue;
+      }
+      const riders = left.filter((m) => dist(m.x, m.z, car.x, car.z) < 35).slice(0, 4);
+      for (const m of riders) left.splice(left.indexOf(m), 1);
+      this.rides.push(new GangRide(this, car, riders, block));
+    }
+  }
+
+  // The winners of a fight stay posted on the block they hold.
+  postGroup(g, block, members) {
+    const group = { gang: g, block, kind: 'post', side: 0, members: [], cars: [] };
+    for (const s of members) {
+      s.war = null;
+      s.side = 'guard';
+      s.group = group;
+      s.homeX = s.x;
+      s.homeZ = s.z;
+      group.members.push(s);
+    }
+    for (const r of this.rides) if (r.block === block && r.car.gangCar === g && r.done) group.cars.push(r.car);
+    this.groups.push(group);
+  }
+
+  // Back to the home base (or wherever the gang hangs out now).
+  sendHome(s) {
+    const home = this.groups.find((gr) => gr.gang === s.gangId && gr.kind === 'home') || this.groups.find((gr) => gr.gang === s.gangId);
+    if (s.state === 'fight') s.endFight();
+    if (home) {
+      const [x, z] = this.edgeSpots(home.block, home.side).person(home.members.length % 8);
+      s.homeX = x;
+      s.homeZ = z;
+      s.group = home;
+      home.members.push(s);
+    } else {
+      s.homeX = s.x;
+      s.homeZ = s.z;
+    }
+  }
+
+  // Gangs slowly recruit back up to strength; new members walk out at the home base
+  // (only while you're not watching it).
+  recruit(dt) {
+    const game = this.game;
+    const [px, pz] = game.player.pos();
+    for (const g of Object.keys(GANGS)) {
+      const home = this.groups.find((gr) => gr.gang === g && gr.kind === 'home');
+      if (!home || this.underground(g)) continue;
+      this.recruitT[g] = (this.recruitT[g] || 0) + dt;
+      if (this.recruitT[g] < (CFG.TURF_FAST ? 30 : 90)) continue;
+      this.recruitT[g] = 0;
+      const want = 8 + this.count(g) * 2.5;
+      if (this.soldiers.filter((s) => s.gangId === g && s.alive).length >= want) continue;
+      if (dist(home.block.cx, home.block.cz, px, pz) < 90) continue;
+      const [x, z] = this.edgeSpots(home.block, home.side).person(home.members.length % 8);
+      const s = new Soldier(game, this, x, z, g, null, 'guard');
+      s.group = home;
+      home.members.push(s);
+      this.soldiers.push(s);
+      // Replace a lost car now and then.
+      if (home.cars.filter((v) => !v.removed && !v.wrecked && v.gangCar === g).length < 3) {
+        const E = this.edgeSpots(home.block, home.side);
+        for (let j = 0; j < 4; j++) if (this.parkCar(home, ...E.car(j))) break;
+      }
+    }
   }
 
   reset() {
@@ -601,29 +862,6 @@ export class TurfManager {
     return targets.length ? pick(targets) : open[0] || null;
   }
 
-  // Corner boys on the turf near you (so there's someone to provoke).
-  updateGuards(dt) {
-    const game = this.game;
-    const [px, pz] = game.player.pos();
-    this.guardT -= dt;
-    if (this.guardT > 0) return;
-    this.guardT = 1;
-    const guards = this.soldiers.filter((s) => s.side === 'guard' && s.alive && !s.war);
-    for (const b of this.blocks) {
-      const g = this.owner[key(b)];
-      if (!g || g === 'crew' || this.warOn(key(b))) continue;
-      if (g === 'kings' && key(b) === this.home.kings && game.gang.members.some((m) => m.alive)) continue; // the hangout crew is there
-      const d = dist(b.cx, b.cz, px, pz);
-      if (d > 140 || d < 45) continue; // appear out of view, not in front of you
-      const here = guards.filter((s) => s.gangId === g && dist(s.homeX, s.homeZ, b.cx, b.cz) < 45);
-      if (here.length >= 2 || guards.length >= 14) continue;
-      const corner = [[b.minX + 2, b.minZ + 2], [b.maxX - 2, b.minZ + 2], [b.maxX - 2, b.maxZ - 2], [b.minX + 2, b.maxZ - 2]][here.length * 2 + Math.floor(Math.random() * 2)];
-      const s = new Soldier(game, this, corner[0], corner[1], g, null, 'guard');
-      this.soldiers.push(s);
-      guards.push(s);
-    }
-  }
-
   fighters() {
     return this.soldiers;
   }
@@ -635,14 +873,25 @@ export class TurfManager {
       this.rollT = 2;
       this.rollAttacks();
     }
-    this.updateGuards(dt);
+    if (!this.populated) this.populate();
+    this.recruit(dt);
     for (const w of this.wars) w.update(dt);
+    for (const r of this.rides) r.update(dt);
+    this.rides = this.rides.filter((r) => !r.done || r.keep);
     this.wars = this.wars.filter((w) => w.state === 'active');
     // Everyone fights for real, wherever they are; distant soldiers think a bit less often.
     const [px, pz] = game.player.pos();
     this.tick = (this.tick || 0) + 1;
     for (const s of this.soldiers) {
-      const far = dist(s.x, s.z, px, pz) > 160;
+      const d = dist(s.x, s.z, px, pz);
+      // Idle members far away just stand there (not drawn, not thinking) until needed.
+      const idle = !s.war && s.state !== 'fight' && s.aggroUntil <= game.time && s.alive;
+      if (idle && d > 200 && dist(s.x, s.z, s.homeX, s.homeZ) < 2) {
+        s.char.group.visible = false;
+        continue;
+      }
+      if (s.state !== 'inCar') s.char.group.visible = true;
+      const far = d > 160;
       if (!far) s.update(dt);
       else {
         s.farDt = (s.farDt || 0) + dt;
@@ -652,15 +901,22 @@ export class TurfManager {
         }
       }
     }
-    // Clear the dead, the departed, and idle guards far from you.
+    // Clear away bodies once you're gone. Members who ran off regroup at home.
     for (const s of this.soldiers) {
       const d = dist(s.x, s.z, px, pz);
       if (s.state === 'dead' && s.t <= 0 && d > 50) s.dispose();
-      else if (s.alive && !s.war && s.behavior === 'leave' && d > 70) s.dispose();
-      else if (s.alive && !s.war && s.leaveAfter && game.time > s.leaveAfter && d > 90) s.dispose();
-      else if (s.alive && s.side === 'guard' && !s.war && d > 220 && s.state !== 'fight') s.dispose();
+      else if (s.alive && !s.war && s.behavior === 'leave' && d > 70) {
+        s.endFight();
+        this.sendHome(s);
+        const h = s.group;
+        if (h) [s.x, s.z] = [s.homeX, s.homeZ];
+      }
     }
     this.soldiers = this.soldiers.filter((s) => !s.removed);
+    for (const gr of this.groups) gr.members = gr.members.filter((m) => !m.removed && m.alive);
+    // Gang cars far away aren't drawn.
+    this.cars = this.cars.filter((v) => !v.removed);
+    for (const v of this.cars) v.group.visible = dist(v.x, v.z, px, pz) < 300;
     for (const w of this.wars) w.fighters = w.fighters.filter((f) => !f.removed || f.state === 'dead');
   }
 

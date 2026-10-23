@@ -1295,17 +1295,19 @@ class Game {
       this.hud.togglePhone();
       if (this.hud.phoneOpen && this.input.locked) this.input.unlock(); // so you can tap stories
     }
-    // Phone open: D-pad ↓ / ← pick a video story, ✕ / Enter plays it. ○ / Esc closes a video.
+    // Phone open (D-pad →): D-pad ↑ / ↓ step through stories, ✕ / Enter plays a video.
+    // ○ / Esc closes a video.
     if (this.hud.phoneOpen) {
-      // Scroll stories: mouse wheel or right stick. D-pad ↓ / ← step through them.
+      // Scroll stories: mouse wheel or right stick too.
       if (a.wheelDelta) this.hud.scrollPhone(a.wheelDelta * 60);
       if (Math.abs(a.rsY) > 0.2) {
         this.hud.scrollPhone(a.rsY * dt * 600);
         a.lookX = a.lookY = 0;
         a.looking = false;
       }
-      if (a.dpadDown || a.prevWeapon) this.hud.moveClipSelection(a.dpadDown ? 1 : -1);
+      if (a.dpadDown || a.dpadUp) this.hud.moveClipSelection(a.dpadDown ? 1 : -1);
       a.nextWeapon = a.prevWeapon = false;
+      a.interactHeld = a.interactKey; // D-pad ↑ is for the phone right now
       if (a.playClip) {
         const clip = this.hud.selectedClip();
         if (clip) this.clipPlayer.play(clip);
@@ -1507,7 +1509,7 @@ class Game {
   // Remove abandoned and burnt-out cars far from the player so the city doesn't fill up.
   cleanupVehicles() {
     const [px, pz] = this.player.pos();
-    const abandoned = this.vehicles.filter((v) => v.driver === null);
+    const abandoned = this.vehicles.filter((v) => v.driver === null && !v.gangCar);
     const far = abandoned.find((v) => dist(v.x, v.z, px, pz) > 150 && (v.exploded || abandoned.length > 10));
     if (far) far.dispose();
   }
