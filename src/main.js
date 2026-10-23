@@ -17,6 +17,7 @@ import { Arsenal, WEAPONS, SLOTS, KEY_SLOTS, raycast, rayBox } from './weapons.j
 import { lam } from './character.js';
 import { segmentBlocked } from './collision.js';
 import { MapView } from './mapview.js';
+import { gpsRoute } from './gps.js';
 import { clamp, dist, lerp, lerpAngle, rand, randInt, wrapAngle } from './util.js';
 
 const SAVE_KEY = 'crimecity.v1';
@@ -1401,6 +1402,15 @@ class Game {
     if (wp && dist(...this.player.pos(), ...wp) < 14) {
       this.mapView.waypoint = null;
       this.hud.toast('Waypoint reached');
+    }
+    // GPS route to the waypoint, refreshed as you move.
+    this.gpsT = (this.gpsT || 0) - dt;
+    const w = this.mapView.waypoint;
+    if (!w) this.gps = null;
+    else if (this.gpsT <= 0 || !this.gps || this.gpsFor !== w) {
+      this.gpsT = 0.3;
+      this.gpsFor = w;
+      this.gps = gpsRoute(this.city, ...this.player.pos(), ...w);
     }
     if (a.phone) {
       this.hud.togglePhone();

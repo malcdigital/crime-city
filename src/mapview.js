@@ -3,6 +3,7 @@ import { GANGS } from './turf.js';
 import { districtAt, streetAt } from './city.js';
 import { clamp, dist } from './util.js';
 import { tierOf } from './claim.js';
+import { gpsRoute, routeLength } from './gps.js';
 
 // Full-screen city map (touchpad / M). The game pauses while it's open.
 // Left stick / WASD / mouse drag pans the cursor, R2 / L2 / wheel zoom, ✕ / click sets or
@@ -93,6 +94,20 @@ export class MapView {
     ].join('');
   }
 
+  // Keep the city centered on screen when it fits; when zoomed in, don't scroll past its edges.
+  clampView() {
+    const lo = -CFG.ROAD;
+    const hi = CFG.SIZE + CFG.ROAD;
+    const mid = (lo + hi) / 2;
+    const fitAxis = (c, screen) => {
+      const half = screen / 2 / this.scale;
+      if (hi - lo <= half * 2) return mid;
+      return clamp(c, lo + half, hi - half);
+    };
+    this.cx = fitAxis(this.cx, innerWidth);
+    this.cz = fitAxis(this.cz, innerHeight);
+  }
+
   toWorld(sx, sy) {
     return [this.cx + (sx - innerWidth / 2) / this.scale, this.cz + (sy - innerHeight / 2) / this.scale];
   }
@@ -103,7 +118,7 @@ export class MapView {
 
   zoomAt(f, sx, sy) {
     const [wx, wz] = this.toWorld(sx, sy);
-    this.scale = clamp(this.scale * f, this.fit() * 0.8, this.fit() * 6);
+    this.scale = clamp(this.scale * f, this.fit(), this.fit() * 6);
     // Keep the point under the mouse where it was.
     this.cx = wx - (sx - innerWidth / 2) / this.scale;
     this.cz = wz - (sy - innerHeight / 2) / this.scale;
@@ -147,6 +162,7 @@ export class MapView {
       c.width = innerWidth;
       c.height = innerHeight;
     }
+    this.clampView();
     const ctx = this.ctx;
     const s = this.scale;
     ctx.fillStyle = '#1d2b1f';
@@ -257,7 +273,23 @@ export class MapView {
     }
     const heli = game.police.heli;
     if (heli && !heli.removed) blip(heli.x, heli.z, flash ? '#fff' : '#3b7bff', '✦', 8);
-    // Waypoint.
+    // GPS route, then the waypoint pin.
+    this.route = this.waypoint ? gpsRoute(city, ...game.player.pos(), ...this.waypoint) : null;
+    if (this.route) {
+      ctx.lineJoin = ctx.lineCap = 'round';
+      ctx.beginPath();
+      this.route.forEach(([x, z], i) => {
+        const [sx, sy] = this.toScreen(x, z);
+        if (i) ctx.lineTo(sx, sy);
+        else ctx.moveTo(sx, sy);
+      });
+      ctx.strokeStyle = 'rgba(0,0,0,.6)';
+      ctx.lineWidth = Math.max(6, s * 4 + 3);
+      ctx.stroke();
+      ctx.strokeStyle = '#ffd23f';
+      ctx.lineWidth = Math.max(3.5, s * 4);
+      ctx.stroke();
+    }
     if (this.waypoint) {
       const [wx, wy] = this.toScreen(...this.waypoint);
       ctx.fillStyle = '#ffd23f';
@@ -333,7 +365,7 @@ export class MapView {
         lines.push(ok ? 'You can claim this block' : `Claiming needs ${CRED_TIERS[need].name} cred`);
       } else if (g && g !== 'crew') lines.push('Kill 3 of theirs here to start a war');
     }
-    if (this.waypoint) lines.push(`Waypoint ${Math.round(dist(...this.game.player.pos(), ...this.waypoint))} m away`);
+    if (this.route) lines.push(`Waypoint ${Math.round(routeLength(this.route))} m by road`);
     return lines.map((l) => `<div>${l}</div>`).join('');
   }
 }

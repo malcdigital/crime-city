@@ -356,6 +356,25 @@ export class Hud {
     ctx.globalAlpha = 1;
     ctx.restore();
 
+    // GPS route to the waypoint.
+    if (game.gps) {
+      ctx.lineJoin = ctx.lineCap = 'round';
+      const path = () => {
+        ctx.beginPath();
+        game.gps.forEach(([x, z], i) => {
+          const [sx, sy] = project(x, z);
+          if (i) ctx.lineTo(sx, sy);
+          else ctx.moveTo(sx, sy);
+        });
+      };
+      path();
+      ctx.strokeStyle = 'rgba(0,0,0,.55)';
+      ctx.lineWidth = 7;
+      ctx.stroke();
+      ctx.strokeStyle = '#ffd23f';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+    }
     // Police search area.
     if (game.stars > 0 && game.searching && game.lastKnown) {
       const [sx, sy] = project(game.lastKnown[0], game.lastKnown[1]);
