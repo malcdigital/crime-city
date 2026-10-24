@@ -37,6 +37,7 @@ export class Hud {
 
   update(game, dt) {
     this.set('cash', `$${game.cash.toLocaleString('en-US')}`);
+    if (game.bank) this.set('bank-line', `Bank $${Math.round(game.bank.balance).toLocaleString('en-US')}${game.bank.stashTotal() ? ` · Stash $${Math.round(game.bank.stashTotal()).toLocaleString('en-US')}` : ''}`);
     let tier = CRED_TIERS[0];
     for (const t of CRED_TIERS) if (game.cred >= t.min) tier = t;
     this.set('cred-tier', tier.name);
@@ -471,6 +472,14 @@ export class Hud {
     blip(city.crewHome.x, city.crewHome.z, '#2e7d32', 'G');
     for (const [x, z, col, txt] of game.turfWars.claimMarks()) blip(x, z, col, txt);
     for (const [x, z, col, txt] of [...game.shops.blips(), ...game.drugs.blips()]) blip(x, z, col, txt);
+    // Banks, homes and ATMs: only when they're on the radar (not pinned to the rim).
+    for (const [x, z, col, txt] of game.bank.blips()) if (inside(project(x, z))) blip(x, z, col, txt);
+    for (const t of game.bank.atmSpots()) {
+      const p = project(t.x, t.z);
+      if (!inside(p)) continue;
+      ctx.fillStyle = '#5dade2';
+      ctx.fillRect(p[0] - 2.5, p[1] - 2.5, 5, 5);
+    }
     const wp = game.mapView.waypoint;
     if (wp) blip(wp[0], wp[1], '#e0b000', 'W');
     const tc = game.testCar;

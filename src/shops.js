@@ -50,7 +50,7 @@ const PAINTS = [0x1c1c1c, 0xf2f2f2, 0xb71c1c, 0x0d47a1, 0x1b5e20, 0xf9a825, 0x4a
 const money = (n) => `$${n.toLocaleString('en-US')}`;
 
 // A storefront on the north face of a block: the building wall nearest the street there.
-function storefront(city, i, j) {
+export function storefront(city, i, j) {
   const b = city.blocks.find((k) => k.i === i && k.j === j);
   let best = null;
   for (const w of city.los) {
@@ -65,7 +65,7 @@ function storefront(city, i, j) {
   return { block: b, x, wallZ, z: wallZ - 1.6, h: best ? best.h : 6 };
 }
 
-function signTexture(text, bg, fg) {
+export function signTexture(text, bg, fg) {
   const c = document.createElement('canvas');
   c.width = 512;
   c.height = 96;
@@ -275,8 +275,11 @@ export class Shops {
   }
 
   // Where you come back after being wasted or busted, if you own the safehouse.
+  // Or the nearest home you own.
   respawnPoint() {
-    return this.safehouse ? { x: this.safe.x, z: this.safe.z - 3 } : null;
+    const [px, pz] = this.game.player.pos();
+    const homes = this.game.bank.ownedHomes().sort((a, b) => dist(a.x, a.z, px, pz) - dist(b.x, b.z, px, pz));
+    return homes.length ? { x: homes[0].x, z: homes[0].z - 3 } : null;
   }
 
   // On foot: stash, gun shop, safehouse. In a car: the garage. Returns true if it showed a prompt.
@@ -298,6 +301,7 @@ export class Shops {
       if (pressed) this.open('garage');
       return true;
     }
+    if (game.bank.interact(a)) return true;
     if (this.stash > 0 && dist(px, pz, this.stashAt.x, this.stashAt.z) < 1.8) {
       game.prompt = `Press ${key} to grab ${money(this.stash)} from the stash`;
       if (pressed) this.collect();
@@ -316,9 +320,8 @@ export class Shops {
       if (!this.safehouse) {
         game.prompt = `Press ${key} to buy this safehouse for ${money(SAFEHOUSE_PRICE)} (respawn here, rest to heal)`;
         if (pressed) {
-          if (game.cash < SAFEHOUSE_PRICE) game.hud.toast(`You need ${money(SAFEHOUSE_PRICE)}`, '#ff8080');
+          if (!game.bank.pay(SAFEHOUSE_PRICE)) game.hud.toast(`You need ${money(SAFEHOUSE_PRICE)} (bank + cash)`, '#ff8080');
           else {
-            game.cash -= SAFEHOUSE_PRICE;
             this.safehouse = true;
             this.safeSign.material.color.set(0xffffff);
             game.hud.toast('Safehouse bought. You respawn here now.');
@@ -329,14 +332,8 @@ export class Shops {
         }
       } else if (game.stars > 0) game.prompt = "Lose the cops first — don't lead them home";
       else {
-        game.prompt = `Press ${key} to rest (heal up and save)`;
-        if (pressed) {
-          game.health = 100;
-          game.save();
-          this.save();
-          game.turfWars.save();
-          game.hud.toast('Rested. Game saved.');
-        }
+        game.prompt = `Press ${key} for your safehouse (stash ${money(game.bank.safeHome.stash)} · rest)`;
+        if (pressed) game.bank.openHome(game.bank.safeHome);
       }
       return true;
     }
@@ -479,11 +476,11 @@ export class Shops {
     const item = this.items()[this.menu.i];
     if (!item) return;
     if (item.can !== true) return game.sfx.empty?.();
-    if (game.cash < item.price) {
+    // Shops take bank money (card first), then cash.
+    if (!game.bank.pay(item.price)) {
       game.hud.toast("You can't afford that", '#ff8080');
       return;
     }
-    game.cash -= item.price;
     item.buy();
     if (item.price) game.sfx.cash?.();
     game.save();
@@ -507,10 +504,10 @@ export class Shops {
     m.i = Math.min(m.i, items.length - 1);
     const place = m.kind === 'gun' ? this.gun : this.garage;
     this.el.querySelector('.shop-title').textContent = m.title || place.name;
-    this.el.querySelector('.shop-cash').textContent = money(game.cash);
+    this.el.querySelector('.shop-cash').textContent = `Cash ${money(game.cash)} · Bank ${money(game.bank.balance)}`;
     this.el.querySelector('.shop-list').innerHTML = items.map((it, i) => {
       const off = it.can !== true;
-      const poor = !off && game.cash < it.price;
+      const poor = !off && !game.bank.canPay(it.price);
       return `<div class="shop-row${i === m.i ? ' sel' : ''}${off ? ' off' : ''}${poor ? ' poor' : ''}" data-i="${i}"><span>${it.label}</span><span>${off ? it.can : it.priceText ?? money(it.price)}</span></div>`;
     }).join('');
     const it = items[m.i];

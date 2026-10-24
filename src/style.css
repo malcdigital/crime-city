@@ -10,6 +10,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #district { font-size: 13px; opacity: .85; margin-top: 2px; }
 #top-right { position: absolute; top: 16px; right: 20px; text-align: right; }
 #cash { font-size: 30px; font-weight: 800; color: #8ff08f; font-family: 'Courier New', monospace; }
+#bank-line { font-size: 12px; font-weight: 700; opacity: .75; margin-top: -2px; }
 #stars { font-size: 28px; letter-spacing: 3px; margin-top: 2px; color: rgba(255,255,255,.25); }
 #stars .on { color: #ffd23f; }
 #stars.flash .on { animation: flash .5s steps(2) infinite; }

@@ -184,6 +184,8 @@ export class TurfRisk {
     this.beef[g] = 30;
     this.beefWarned[g] = false;
     game.hud.text(GANGS[g].name, 'u wanted to eat on our side. now we eatin on yours');
+    const home = game.bank.biggestHome();
+    if (home && home.stash > Math.max(300, S.stash)) return game.bank.robHome(home, g);
     if (S.stash > 300) return S.raid(g);
     const busy = T.wars.some((w) => w.state === 'active' && (w.attacker === 'crew' || w.defender === 'crew'));
     const blocks = T.blocks.filter((b) => {

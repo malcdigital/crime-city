@@ -422,7 +422,8 @@ export class Drugs {
   // Late because of you? You had the money (on you or in the stash), or sat on the product.
   fault(d) {
     const game = this.game;
-    if (game.cash + game.shops.stash >= d.owe) return 'money';
+    // Money in the bank only counts if the bank was open at some point while the clock ran.
+    if (game.cash + game.shops.stash + game.bank.stashTotal() + (d.bankSeen ? game.bank.balance : 0) >= d.owe) return 'money';
     if (this.inv[d.product] > 0 && (d.idle || 0) > 600) return 'sat';
     return null;
   }

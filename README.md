@@ -26,6 +26,13 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
   - The Docks (SE): warehouses, stacked shipping containers, the chop shop
   Districts show as slightly different shades on the radar and map, with faint names on the full map. Traffic and pedestrians fill the streets around you (cars more than 380 m away and people more than 300 m away are replaced nearer). Static buildings are merged per 2×2-block chunk to keep draw calls down, and collision checks use a spatial grid
 - Day and night: a full day is 48 real minutes (one real second is half a game minute); sessions start at 9:00 PM
+- Money (src/bank.js): cash on you, the bank, and home stashes — you go to each in person.
+  - Cash on you is what plugs take (they don't do wires) and what you lose when opps drop you or rob you. The HUD shows your bank balance and stash total under your cash.
+  - City Bank (B on the map; branches in the Financial District, Midtown and the Docks): safe from robbers, open 9 AM–6 PM only, 2% to deposit, no limit at the counter, and a $250 monthly fee (an in-game month is 30 game days, about 24 hours of play). Shops (gun shop, garage, homes, safehouse) take bank money first, then cash.
+  - ATMs (blue squares, 10 around the city): withdraw only, up to $2,000 per game day (resets at midnight), any time.
+  - Homes for sale (⌂ on the map): trap apartment in the Projects ($3,000), Midtown condo ($8,000), Strip loft ($12,000), Heights house ($25,000), Downtown penthouse ($60,000). Each home (and the safehouse) has a stash: no fees and open any time, plus rest (heal and save). Stashes can be robbed: rarely at random, and as payback when a gang has beef with you (they hit your biggest stash if it's bigger than the turf stash); robbers take half. You respawn at the nearest home you own.
+  - Plug debt: money in the bank only counts as "you had the money" (the +50% late penalty) if the bank was open at some point while the clock ran. Cash on you and in your stashes always counts.
+  - Tuning in `CFG`: `BANK_OPEN`, `BANK_CLOSE`, `BANK_DEPOSIT_FEE`, `BANK_MONTHLY_FEE`, `ATM_DAILY_LIMIT`
 - Third-person on foot (walk, sprint, crouch, punch) and driving (4 car types, handbrake)
 - Cover: press C / L3 next to a wall, crate or car to snap to it, crate or car and stay there; slide along it, lean out at corners or pop up over low cover to aim; push away or press again to leave
 - Crouching bends at the knees; crouch behind low cover to block bullets and break line of sight
@@ -118,6 +125,8 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | `src/vehicle.js` | Car models and arcade driving physics |
 | `src/traffic.js` | NPC traffic drivers: pass stopped cars in the other lane (pulling out early, backing up for room, giving up the pass if something is coming), sort out nose-to-nose standoffs (the one in the wrong lane backs off), turn back if stuck, and get towed if stuck out of sight |
 | `src/peds.js` | NPC pedestrians |
+| `src/bank.js` | Bank branches, ATMs, homes for sale and their stashes |
+| `src/districts.js` | City layout: districts, special places, starting turf, banks, ATMs, homes |
 | `src/sidewalk.js` | Sidewalk/crosswalk walking graph (routes for people on foot) and the crosswalk stripes |
 | `src/heliicon.js` | The helicopter icon and searchlight on the radar and map |
 | `src/police.js` | Police units and officers |

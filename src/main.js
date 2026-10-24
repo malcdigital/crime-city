@@ -20,6 +20,7 @@ import { segmentBlocked } from './collision.js';
 import { MapView } from './mapview.js';
 import { Shops } from './shops.js';
 import { Drugs } from './drugs.js';
+import { Bank } from './bank.js';
 import { Market } from './market.js';
 import { President } from './president.js';
 import { Phone } from './phone.js';
@@ -127,6 +128,7 @@ class Game {
     this.armor = 0;
     this.shops = new Shops(this);
     this.drugs = new Drugs(this);
+    this.bank = new Bank(this);
     this.market = new Market(this);
     this.president = new President(this);
     this.phone = new Phone(this);
@@ -1819,6 +1821,7 @@ class Game {
     this.crew.update(dt);
     this.turfWars.update(dt);
     this.shops.update(dt);
+    this.bank.update(dt);
     for (const v of this.vehicles) {
       if (v.driver === null && !v.removed) {
         // A car you bailed out of keeps rolling until it slows down on its own.

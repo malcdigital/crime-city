@@ -99,3 +99,22 @@ export const START_TURF = {
   crew: { home: '4,6', blocks: ['4,6', '3,6', '4,5', '3,5', '4,7', '5,6'] },
   vipers: { home: '11,7', blocks: ['11,7', '10,7', '12,7', '11,6', '11,8', '10,8', '12,8'] },
 };
+
+// City Bank branches (open 9 AM to 6 PM): [i, j, name].
+export const BANKS = [
+  [6, 2, 'City Bank'],
+  [1, 6, 'City Bank · Midtown'],
+  [10, 9, 'City Bank · Docks'],
+];
+
+// ATMs (withdraw only, daily limit), on the north sidewalk of these blocks.
+export const ATMS = [[5, 5], [8, 6], [3, 9], [10, 5], [12, 10], [1, 3], [7, 10], [4, 1], [9, 8], [2, 13]];
+
+// Homes for sale: each has a stash (no fees, open any time, but it can get robbed).
+export const HOMES = [
+  { id: 'trap', name: 'Trap apartment', block: [3, 10], price: 3000 },
+  { id: 'condo', name: 'Midtown condo', block: [0, 7], price: 8000 },
+  { id: 'loft', name: 'Strip loft', block: [12, 4], price: 12000 },
+  { id: 'house', name: 'Heights house', block: [3, 1], price: 25000 },
+  { id: 'penthouse', name: 'Downtown penthouse', block: [6, 7], price: 60000 },
+];
