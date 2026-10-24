@@ -257,7 +257,7 @@ export class Helicopter {
         this.fireT = rand(0.25, 0.5);
         if (Math.random() < 0.15) this.fireT = rand(1.5, 2.5); // pause between bursts
         const h = Math.atan2(px - this.x, pz - this.z);
-        game.npcShoot({ x: this.x, z: this.z, heading: h, muzzleY: this.y - 1.2, crouched: false }, 7, 'smg', 0.7);
+        game.npcShoot({ x: this.x, z: this.z, heading: h, muzzleY: this.y - 1.2, crouched: false, isCop: true }, 7, 'smg', 0.7);
       }
     }
     if (this.health < 180) game.effects.smoke(this.x, this.y + 0.5, this.z - 1, true);

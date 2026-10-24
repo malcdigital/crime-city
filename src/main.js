@@ -27,6 +27,12 @@ import { Inventory } from './inventory.js';
 import { gpsRoute, GpsLine } from './gps.js';
 import { clamp, dist, lerp, lerpAngle, rand, randInt, wrapAngle } from './util.js';
 
+// Dirty cop tells (1-2 show on a stop; 'name' means it's an officer from the misconduct stories).
+const DIRTY_TELLS = ['came alone, no partner', 'no siren, never called it in', 'unmarked car', 'asks "what you got on you?"', 'waves you around the corner', "hasn't cuffed you", 'name'];
+const CLEAN_TELLS = ['partner watching from the car', 'calls it in on the radio', 'reads you your rights', 'cuffs out', 'body cam light blinking', 'lights flashing'];
+const DIRTY_NAMES = ['Kessler', 'Ortega', 'Mallory', 'Brandt'];
+const CLEAN_NAMES = ['Nguyen', 'Harris', 'Cole', 'Delgado', 'Price', 'Watts', 'Kim', 'Barnes'];
+
 const SAVE_KEY = 'crimecity.v1';
 const tmpV = new THREE.Vector3();
 
@@ -297,14 +303,21 @@ class Game {
     this.bustPressure = 0;
   }
 
-  bust() {
+  // The cops have you. A lone patrol stop (1-2 stars, not a raid or a sting) can turn out to be
+  // a dirty cop: you get a moment to read him first (see updateStop).
+  bust(opts = {}) {
+    if (this.stop) return;
+    if (!opts.final && this.canStop()) return this.startStop();
     this.president.win(3, 'Arrests');
     const [bx, bz] = this.player.pos();
     this.endStory(`Suspect arrested on ${streetAt(bx, bz)}`, bx, bz, 'info', true);
-    const fine = Math.min(this.cash, 200 * this.stars + Math.floor(this.cash * 0.1));
+    let fine = Math.min(this.cash, 200 * Math.max(1, this.stars) + Math.floor(this.cash * 0.1));
+    if (opts.bribery) fine = Math.min(this.cash, fine + 500 + Math.floor((this.cash - fine) * 0.25)); // tried to bribe a straight cop
     this.cash -= fine;
-    this.cred = Math.max(0, this.cred - 10);
-    this.hud.busted(true, `Fined $${fine.toLocaleString('en-US')} · -10 street cred`);
+    const credLoss = opts.bribery ? 25 : 10;
+    this.cred = Math.max(0, this.cred - credLoss);
+    this.hud.busted(true, `Fined $${fine.toLocaleString('en-US')}${opts.bribery ? ' (+ bribery charge)' : ''} · -${credLoss} street cred`);
+    if (opts.bribery) this.hud.news(`Suspect charged with trying to bribe an officer on ${streetAt(bx, bz)}`, 'info');
     this.bustedT = 3;
     this.drugs.onBusted();
     this.clearWanted();
@@ -324,7 +337,8 @@ class Game {
     else if (!this.endStory(`Suspect shot dead on ${streetAt(x, z)}`, x, z)) this.hud.news(`Shooting victim rushed to Harbor General from ${districtAt(x, z)}`, 'info');
     this.health = 0;
     this.armor = 0;
-    this.drugs.onWasted();
+    const recent = this.time - (this.lastHitT ?? -99) < 4;
+    this.drugs.onWasted(recent ? this.lastHitBy : null, recent ? this.lastHitGang : null);
     const bill = Math.min(this.cash, 500);
     this.cash -= bill;
     this.hud.wasted(true, `Hospital bill $${bill.toLocaleString('en-US')}`);
@@ -635,8 +649,13 @@ class Game {
     this.effects.muzzle(m[0], m[1], m[2]);
     this.effects.tracer(m[0], m[1], m[2], tx, tyy, tz, 0xffd28a);
     this.sfx.shotAt(kind, d);
-    if (hit) this.hurtPlayer(dmg);
-    else this.effects.impact(tx, tyy, tz);
+    if (hit) {
+      // Remember who's shooting you: if they finish you, it decides who takes what you had.
+      this.lastHitBy = shooter.isCop ? 'cops' : shooter.gangId === 'plug' ? 'plug' : shooter.isGang || (shooter.gangId && shooter.gangId !== 'crew') ? 'opps' : null;
+      this.lastHitGang = shooter.isGang ? GANG_NAME : shooter.gangId && GANGS[shooter.gangId] ? GANGS[shooter.gangId].name : null;
+      this.lastHitT = this.time;
+      this.hurtPlayer(dmg);
+    } else this.effects.impact(tx, tyy, tz);
   }
 
   // Where on the player an NPC aims (chest, lower when crouched).
@@ -1477,6 +1496,93 @@ class Game {
     }
   }
 
+  // ---- Dirty cops ----
+  // A lone patrol stop can be a dirty cop. Every stop shows one or two details about the officer;
+  // dirty ones give themselves away in small ways. Go quietly or offer a bribe:
+  // - straight cop: going quietly is a normal arrest; a bribe gets you a bribery charge on top.
+  // - dirty cop: going quietly, he takes everything you've got (cash and product) and lets you
+  //   walk, wanted level cleared; a bribe costs your product and half your cash instead.
+  canStop() {
+    if (this.stars === 0 || this.stars > 2) return false;
+    if (this.police.units.some((u) => u.raid)) return false; // a raid or a sting: by the book
+    if (this.peds.peds.some((q) => q.state === 'sting')) return false;
+    return true;
+  }
+
+  dirtyChance() {
+    const [x, z] = this.player.pos();
+    const m = (21 * 60 + Math.floor(this.time)) % 1440;
+    const night = m >= 22 * 60 || m < 4 * 60;
+    const d = districtAt(x, z);
+    return 0.2 + (night && (d === 'Southgate' || d === 'Harbor') ? 0.2 : night ? 0.08 : 0);
+  }
+
+  startStop() {
+    const dirty = CFG.TEST_DIRTY_COP ? CFG.TEST_DIRTY_COP === 'dirty' : Math.random() < this.dirtyChance();
+    const n = Math.random() < 0.5 ? 1 : 2;
+    const tells = [];
+    const pool = [...(dirty ? DIRTY_TELLS : CLEAN_TELLS)];
+    while (tells.length < n && pool.length) tells.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    // Not every detail means something: straight cops sometimes work alone, and a dirty one
+    // can look by the book.
+    if (!dirty && Math.random() < 0.2) tells[tells.length - 1] = 'came alone';
+    if (dirty && Math.random() < 0.25) tells[tells.length - 1] = CLEAN_TELLS[Math.floor(Math.random() * CLEAN_TELLS.length)];
+    let name = null;
+    if (dirty && tells.includes('name')) name = DIRTY_NAMES[Math.floor(Math.random() * DIRTY_NAMES.length)];
+    else if (!dirty && Math.random() < 0.5) name = CLEAN_NAMES[Math.floor(Math.random() * CLEAN_NAMES.length)];
+    const shown = tells.filter((t) => t !== 'name');
+    this.stop = { dirty, tells: shown, name, t: 0 };
+    this.holdFire(30);
+    this.bustPressure = 0;
+    if (this.player.vehicle) this.player.vehicle.speed *= 0.3;
+    this.hud.toast(`Pulled over${name ? ` by Officer ${name}` : ''}`, '#9fc3ff');
+  }
+
+  updateStop(dt, a) {
+    const s = this.stop;
+    if (!s) return;
+    s.t += dt;
+    const pad = this.input.mode === 'pad';
+    const who = s.name ? `Officer ${s.name}` : 'The officer';
+    const details = s.tells.length ? ` (${s.tells.join(' · ')})` : '';
+    this.prompt = `${who}${details}: "Hands where I can see em." — ${pad ? '✕' : 'E'} go quietly · ${pad ? '○' : 'Q'} offer a bribe`;
+    if (s.t < 0.6) return; // a beat before you can answer
+    const quiet = a.dealYes || s.t > 15;
+    const bribe = a.dealNo && !quiet;
+    if (!quiet && !bribe) return;
+    this.stop = null;
+    this.holdFireUntil = 0;
+    if (!s.dirty) {
+      if (bribe) this.hud.toast(`"You just made it worse."`, '#ff8080');
+      this.bust({ final: true, bribery: bribe });
+      return;
+    }
+    // Dirty: he takes his cut and you walk.
+    const cash = this.cash;
+    const took = bribe ? Math.floor(cash * 0.5) : cash;
+    const held = this.drugs.holding();
+    this.cash -= took;
+    this.drugs.inv = { weed: 0, pills: 0, coke: 0 };
+    this.drugs.luck('busted');
+    this.drugs.lostRun();
+    this.clearWanted();
+    this.police.standDown();
+    const what = [took > 0 ? `-$${took.toLocaleString('en-US')}` : '', held ? 'your product' : ''].filter(Boolean).join(' and ');
+    this.hud.toast(bribe ? `${who} took the bribe${what ? `: ${what}` : ''}. "Get outta here."` : `${who} took everything${what ? `: ${what}` : ''}. "We never met."`, '#ffd36b');
+    this.save();
+    this.drugs.save();
+  }
+
+  // City News now and then: Internal Affairs looking at a dirty officer (remember the names).
+  updateIA(dt) {
+    this.iaT = (this.iaT ?? 240 + Math.random() * 180) - dt;
+    if (this.iaT > 0) return;
+    this.iaT = 360 + Math.random() * 240;
+    const n = DIRTY_NAMES[Math.floor(Math.random() * DIRTY_NAMES.length)];
+    const lines = [`Internal Affairs reviewing complaints against Officer ${n}`, `Officer ${n} cleared again despite missing evidence reports`, `Lawsuit says Officer ${n} took cash during a traffic stop`];
+    this.hud.news(lines[Math.floor(Math.random() * lines.length)], 'info');
+  }
+
   // ---- Cinematics ----
   // A short scripted shot: letterbox bars, a title, and the camera sweeping around a spot
   // while the action plays out. The game keeps running; you just can't move until it ends.
@@ -1568,8 +1674,8 @@ class Game {
 
   update(dt, a) {
     this.time += dt;
-    if (this.cine) {
-      // Watching a cinematic: hands off the controls (the car brakes).
+    if (this.cine || this.stop) {
+      // Watching a cinematic (or stopped by a cop): hands off the controls (the car brakes).
       a.moveX = a.moveY = a.throttle = a.steer = 0;
       a.fire = a.firePressed = a.aim = a.aimPressed = a.melee = a.enter = a.sprint = a.crouch = false;
       a.interactHeld = a.gas = a.brakeHeld = false;
@@ -1722,6 +1828,8 @@ class Game {
     this.checkRunOver();
     this.handleInteractions(dt, a);
     this.updateSurrender(dt, a);
+    this.updateStop(dt, a);
+    this.updateIA(dt);
     this.updateVehicleDamage(dt);
     this.updatePickups(dt, a);
     this.vehicles = this.vehicles.filter((v) => !v.removed);

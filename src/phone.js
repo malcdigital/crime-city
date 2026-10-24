@@ -97,9 +97,10 @@ export class Phone {
         act: it.can === true ? () => {
           if (game.cash < it.price) return game.hud.toast("You can't afford that", '#ff8080');
           game.cash -= it.price;
-          it.buy();
+          const r = it.buy();
           game.save();
           game.drugs.save();
+          if (r === 'close') return this.close();
           if (!game.drugs.run || game.drugs.run.stage !== 'toPlug') return;
           this.close(); // headed to the plug
         } : null,

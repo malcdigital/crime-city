@@ -14,8 +14,20 @@ import { dist, pick, rand, randInt } from './util.js';
 // Drug dealing.
 // - Plugs: three suppliers around the city, one product each. Call one from your phone
 //   (Contacts) to set up a pickup. Solo pickups are small; a gang run (a big load) is only
-//   for a Kingpin. The plug fronts it: you owe them, and have 30 minutes of play to pay.
-//   Miss it and the plug puts a hit out on you (shooters keep coming until you pay, plus 50%).
+//   for a Kingpin. The plug fronts it: you owe them, and have 30 minutes of play to pay —
+//   in person, with cash on you, at the plug's corner.
+// - Load sizes: a small pickup is safest but the plug charges the most per unit (weed most of
+//   all); a re-up is bigger, cheaper per unit and riskier; a gang run is the biggest, cheapest
+//   and riskiest.
+// - Late: the plug gives you one 10-minute extension with interest — 20% if it wasn't your fault
+//   (raid, bust, robbed, killed, market crashed), 50% if it was (you had the money, or sat on the
+//   product). Trust drops either way. Miss that too and there's a hit on you (+50%). After you
+//   die or get busted the shooters fall back for 5 minutes. Short on cash? Ask the plug for
+//   work: a delivery or a collection takes a chunk off what you owe.
+// - Trust (per plug): paying on time raises it; being late lowers it. Low trust means higher
+//   prices, and below 20 the plug wants cash up front. Below 10 there's no extension.
+// - Pushing it: in the last quarter of the clock you can sell cheap to move product fast
+//   (buyers come quicker and buy more), but never below what you paid for it.
 // - The run: drive to the plug and load up. Bigger loads and harder product mean more risk:
 //   the cops might raid the spot while you're there, or a rival gang hears about it and
 //   chases you down on the way back. Get it to the hangout (with no cops on you) to finish.
@@ -27,12 +39,21 @@ import { dist, pick, rand, randInt } from './util.js';
 
 const SAVE_KEY = 'crimecity.drugs.v1';
 const DEADLINE = 30 * 60; // seconds of play to pay the plug
+const EXTENSION = 10 * 60; // one extension when you're late
+const BREATHER = 5 * 60; // the plug's shooters fall back this long after you die or get busted
 const HIT_EVERY = 150; // seconds between hit squads while you owe past the deadline
 const LOAD_TIME = 3;
 export const PRODUCTS = {
-  weed: { name: 'Weed', unit: 'bag', units: 'bags', cost: 15, street: 40, solo: 20, gang: 120, risk: 0.25, color: '#6ab04c' },
-  pills: { name: 'Pills', unit: 'pack', units: 'packs', cost: 35, street: 85, solo: 12, gang: 70, risk: 0.4, color: '#e056fd' },
-  coke: { name: 'Coke', unit: 'gram', units: 'grams', cost: 80, street: 190, solo: 6, gang: 40, risk: 0.55, color: '#dfe6e9' },
+  weed: { name: 'Weed', unit: 'bag', units: 'bags', cost: 15, street: 40, solo: 20, big: 50, gang: 120, risk: 0.25, color: '#6ab04c' },
+  pills: { name: 'Pills', unit: 'pack', units: 'packs', cost: 35, street: 85, solo: 12, big: 30, gang: 70, risk: 0.4, color: '#e056fd' },
+  coke: { name: 'Coke', unit: 'gram', units: 'grams', cost: 80, street: 190, solo: 6, big: 15, gang: 40, risk: 0.55, color: '#dfe6e9' },
+};
+// Load sizes. cost: multiplier on the plug's unit price (small loads cost the most per unit,
+// weed most of all); risk: added to the chance something goes wrong on the run.
+export const LOADS = {
+  solo: { label: 'Small pickup', cost: { weed: 1.5, pills: 1.3, coke: 1.3 }, risk: -0.1 },
+  big: { label: 'Re-up', cost: { weed: 1, pills: 1, coke: 1 }, risk: 0.12 },
+  gang: { label: 'Gang run', cost: { weed: 0.8, pills: 0.8, coke: 0.8 }, risk: 0.25 },
 };
 const PLUGS = [
   { id: 'smokey', name: 'Smokey', product: 'weed', block: [0, 1] },
@@ -62,6 +83,15 @@ const VOICES = {
     paid: 'we good. pleasure',
     paidHit: 'money good. i called em off. dont let it happen again',
     takeover: '{old} gone. his book mine now. u owe me {owe}, same terms',
+    ext: 'heard what happened. aight, i got u. 10 more min. its {owe} now',
+    extFault: 'u had it and still aint pull up? 10 min. {owe}. dont play w me',
+    noExt: 'u been bad business. no more time.',
+    cashFirst: 'u been bad business. cash up front this time',
+    breather: 'my people gon fall back for a min. dont get comfortable',
+    job: 'u short? i got sum u can do. {job}',
+    jobDone: 'good looks. took {cut} off. u owe {owe}',
+    jobFail: 'u fumbled that too. still {owe}',
+    took: 'my people grabbed what u had on u. {cut} off. {owe} left',
   },
   doc: {
     call: '{street}. dont text me again til u outside',
@@ -76,6 +106,15 @@ const VOICES = {
     paid: 'received.',
     paidHit: 'received. we done. for now.',
     takeover: '{old} out the picture. i got his book. {owe}. same clock.',
+    ext: 'heard. 10 min. {owe}.',
+    extFault: 'u had it. 10 min. {owe}. last time.',
+    noExt: 'no.',
+    cashFirst: 'cash first. no more fronts.',
+    breather: 'they fallin back. for now.',
+    job: 'u cant pay, u work. {job}',
+    jobDone: '{cut} off. {owe} left.',
+    jobFail: 'useless. {owe}.',
+    took: 'took {cut} off ur body. {owe} left.',
   },
   marco: {
     call: "Come see me on {street}. Don't bring nobody.",
@@ -90,6 +129,15 @@ const VOICES = {
     paid: 'Good doing business with you.',
     paidHit: "We square. Don't ever make me do that again.",
     takeover: "{old} ain't with us no more. His book is mine. You owe {owe}, same terms.",
+    ext: "I heard what happened. That's the game. Ten more minutes. {owe}.",
+    extFault: "You had my money and sat on it. Ten minutes. {owe}. Don't test me again.",
+    noExt: "I'm done giving you time.",
+    cashFirst: 'No more credit. Cash up front from now on.',
+    breather: "I told them to fall back. For now.",
+    job: "Can't pay? Then you work. {job}",
+    jobDone: 'Took {cut} off. You owe {owe}.',
+    jobFail: "You couldn't even handle that. Still {owe}.",
+    took: 'My people took {cut} off you. You owe {owe}.',
   },
 };
 const REMINDER_MARKS = [1200, 600, 300, 120, 60, 20];
@@ -126,7 +174,11 @@ export class Drugs {
     });
     this.inv = { weed: 0, pills: 0, coke: 0 };
     this.homie = { units: 0, value: 0, per: 0 };
-    this.debts = []; // { plug, owe, left, hit, nextHit }
+    this.debts = []; // { plug, product, owe, left, stage: due | ext | hit, nextHit, luck, ... }
+    this.trust = {}; // plug id -> 0..100 (50 to start)
+    this.basis = {}; // product -> what you paid per unit for what you're holding
+    this.pushing = false; // selling cheap to beat the clock
+    this.job = null; // working off a debt
     this.run = null;
     this.customer = null;
     this.custT = CFG.MARKET_HOT ? 6 : 30;
@@ -150,12 +202,32 @@ export class Drugs {
   // A plug's line, in their voice (a new plug in the same spot keeps the spot's voice).
   say(p, key, vars = {}) {
     const t = (VOICES[p.id] || VOICES.smokey)[key] || '';
-    return t.replace('{owe}', money(vars.owe || 0)).replace('{street}', p.street).replace('{old}', vars.old || '');
+    return t.replace('{owe}', money(vars.owe || 0)).replace('{street}', p.street).replace('{old}', vars.old || '').replace('{cut}', money(vars.cut || 0)).replace('{job}', vars.job || '');
   }
 
-  // What a plug charges per unit right now (more when supply is short).
-  unitCost(product) {
-    return PRODUCTS[product].cost * (this.game.market ? this.game.market.costMult(product) : 1);
+  // What a plug charges per unit right now (more when supply is short, and when he doesn't
+  // trust you). For a load size, the size multiplier too.
+  unitCost(product, kind = 'big') {
+    const p = this.plugFor(product);
+    const trust = p ? this.trustOf(p.id) : 50;
+    return PRODUCTS[product].cost * (this.game.market ? this.game.market.costMult(product) : 1) * (1.15 - trust * 0.003) * LOADS[kind].cost[product];
+  }
+
+  plugFor(product) {
+    return this.plugs.find((p) => p.product === product);
+  }
+
+  trustOf(id) {
+    return this.trust[id] ?? 50;
+  }
+
+  addTrust(id, n) {
+    this.trust[id] = Math.max(0, Math.min(100, this.trustOf(id) + n));
+  }
+
+  trustLabel(id) {
+    const t = this.trustOf(id);
+    return t >= 75 ? 'solid' : t >= 50 ? 'good' : t >= 30 ? 'shaky' : t >= 20 ? 'bad' : 'burned';
   }
 
   // Plugs dying and being replaced.
@@ -193,7 +265,9 @@ export class Drugs {
       const s = JSON.parse(localStorage.getItem(SAVE_KEY) || '{}');
       if (s.inv) Object.assign(this.inv, s.inv);
       if (s.homie) this.homie = s.homie;
-      if (s.debts) this.debts = s.debts;
+      if (s.debts) this.debts = s.debts.map((d) => ({ stage: d.hit ? 'hit' : 'due', luck: [], idle: 0, product: this.plug(d.plug)?.product || 'weed', ...d }));
+      if (s.trust) this.trust = s.trust;
+      if (s.basis) this.basis = s.basis;
       if (s.beef) Object.assign(this.risk.beef, s.beef);
     } catch {
       // Fresh start.
@@ -202,7 +276,7 @@ export class Drugs {
 
   save() {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ inv: this.inv, homie: this.homie, debts: this.debts, beef: this.risk.beef }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ inv: this.inv, homie: this.homie, debts: this.debts, beef: this.risk.beef, trust: this.trust, basis: this.basis }));
     } catch {
       // Storage unavailable.
     }
@@ -230,29 +304,63 @@ export class Drugs {
     const list = [];
     for (const d of this.debts) {
       const p = this.plug(d.plug);
+      const when = d.stage === 'hit' ? `${p.name} has a hit out on you. Pay up to call it off.` : d.stage === 'ext' ? `Extension: ${fmt(d.left)} left` : `${fmt(d.left)} left`;
       list.push({
-        label: `Pay ${p.name} back`, price: d.owe, detail: d.hit ? `${p.name} has a hit out on you. Pay up to call it off.` : `${fmt(d.left)} left to pay`,
-        can: true, buy: () => this.pay(d),
+        label: `Pay ${p.name} back (in person)`, price: 0, priceText: money(d.owe),
+        detail: `${when} Bring ${money(d.owe)} cash to ${p.name} on ${p.street} (you have ${money(game.cash)} on you). Sets a waypoint.`,
+        can: p.dead ? `${p.name} is dead · new plug soon` : true,
+        buy: () => {
+          game.mapView.waypoint = [p.x, p.z];
+          game.hud.toast(`Take ${money(d.owe)} to ${p.name} on ${p.street}`, '#e0b000');
+          return 'close';
+        },
+      });
+      if (!this.job) {
+        list.push({
+          label: `Ask ${p.name} for work`, price: 0, priceText: '',
+          detail: `Can't pay? Do a job for ${p.name} (a delivery or a collection) to take about 40% off what you owe. The shooters hold off while you're on it.`,
+          can: p.dead ? 'No plug to ask' : game.stars > 0 ? 'Lose the cops first' : true,
+          buy: () => {
+            this.startJob(d);
+            return 'close';
+          },
+        });
+      }
+    }
+    if (this.job) list.push({ label: 'Drop the job', price: 0, priceText: '', detail: `Give up on ${this.plug(this.job.plug).name}'s job (you still owe it all).`, can: true, buy: () => this.failJob('You dropped the job') });
+    if (this.pushAvailable()) {
+      list.push({
+        label: this.pushing ? 'Stop pushing it' : 'Push it (sell cheap)', price: 0, priceText: this.pushing ? 'ON' : '',
+        detail: this.pushing ? 'Back to normal prices.' : "The clock's running out: sell cheap to move it fast. Buyers come quicker and buy more. Never below what you paid.",
+        can: true, buy: () => {
+          this.pushing = !this.pushing;
+          game.hud.toast(this.pushing ? 'Pushing it: cheap prices, more buyers' : 'Back to normal prices');
+          if (this.pushing) this.custT = Math.min(this.custT, 3);
+        },
       });
     }
     if (this.run && this.run.stage === 'toPlug') {
       list.push({ label: 'Call off the pickup', price: 0, priceText: '', detail: `${this.plug(this.run.plug).name} won't be happy, but you don't owe anything yet`, can: true, buy: () => this.cancelRun() });
     }
-    const why = this.run ? "You're already on a run" : this.debts.length ? 'Pay what you owe first' : game.stars > 0 ? 'Lose the cops first' : true;
+    const why = this.run ? "You're already on a run" : this.debts.length ? 'Pay what you owe first' : this.job ? 'Finish the job first' : game.stars > 0 ? 'Lose the cops first' : true;
     for (const p of this.plugs) {
       const P = PRODUCTS[p.product];
-      const unit = this.unitCost(p.product);
-      const ok = p.dead ? `Dead · new plug in ${Math.ceil(p.deadT / 60)} min` : why;
-      list.push({
-        label: `${p.name} · ${P.name} · ${P.solo} ${P.units}`, price: 0, priceText: `owe ${money(P.solo * unit)}`,
-        detail: `Solo pickup on ${p.street}. Fronted at ${money(unit)} a ${P.unit}: pay ${money(P.solo * unit)} within 30 min. Check the Market app for where it sells best.`,
-        can: ok, buy: () => this.startRun(p, 'solo'),
-      });
-      list.push({
-        label: `${p.name} · gang run · ${P.gang} ${P.units}`, price: 0, priceText: `owe ${money(P.gang * unit)}`,
-        detail: `A big load: much riskier. You keep 40% to sell, your homies move the rest into the stash.`,
-        can: p.dead ? ok : this.canGangRun() ? why : `Kingpin only`, buy: () => this.startRun(p, 'gang'),
-      });
+      const cashUp = this.trustOf(p.id) < 20;
+      const terms = cashUp ? 'cash up front' : 'fronted, pay within 30 min';
+      const trust = `Trust: ${this.trustLabel(p.id)}.`;
+      for (const kind of ['solo', 'big', 'gang']) {
+        const unit = this.unitCost(p.product, kind);
+        const n = P[kind];
+        const total = n * unit;
+        const margin = Math.round((1 - unit / P.street) * 100);
+        const ok = p.dead ? `Dead · new plug in ${Math.ceil(p.deadT / 60)} min` : kind === 'gang' && !this.canGangRun() ? 'Kingpin only' : why;
+        const risk = kind === 'solo' ? 'Lowest risk.' : kind === 'big' ? 'Riskier: raids and robbers like a big load.' : 'Much riskier. You keep 40% to sell, your homies move the rest into the stash.';
+        list.push({
+          label: `${p.name} · ${LOADS[kind].label} · ${n} ${P.units}`, price: 0, priceText: cashUp ? `pay ${money(total)}` : `owe ${money(total)}`,
+          detail: `${money(unit)} a ${P.unit} (~${margin}% margin at normal prices), ${terms}. ${risk} ${trust}`,
+          can: ok, buy: () => this.startRun(p, kind),
+        });
+      }
     }
     return list;
   }
@@ -260,10 +368,10 @@ export class Drugs {
   startRun(p, kind) {
     const game = this.game;
     const P = PRODUCTS[p.product];
-    const amount = kind === 'gang' ? P.gang : P.solo;
-    // Risk: the product, the size of the load, and a gang run draws more attention.
-    const war = game.market.war || 0; // the President's war on drugs
-    const risk = Math.min(0.95, P.risk + (kind === 'gang' ? 0.25 : 0) + 0.12 * war);
+    const amount = P[kind];
+    // Risk: the product, the size of the load, and the President's war on drugs.
+    const war = game.market.war || 0;
+    const risk = Math.max(0.05, Math.min(0.95, P.risk + LOADS[kind].risk + 0.12 * war));
     let incident = null;
     if (Math.random() < risk) {
       const r = Math.random();
@@ -272,11 +380,13 @@ export class Drugs {
       if (kind === 'gang' && Math.random() < 0.35) incident = 'both';
     }
     if (CFG.TEST_INCIDENT) incident = CFG.TEST_INCIDENT === 'clean' ? null : CFG.TEST_INCIDENT; // testing
-    this.run = { plug: p.id, kind, product: p.product, amount, owe: Math.round(amount * this.unitCost(p.product)), stage: 'toPlug', incident, loadT: 0, chased: false };
+    const unit = this.unitCost(p.product, kind);
+    const cashUp = this.trustOf(p.id) < 20; // burned: no more fronts
+    this.run = { plug: p.id, kind, product: p.product, amount, unit, owe: Math.round(amount * unit), cashUp, stage: 'toPlug', incident, loadT: 0, chased: false, luck: [] };
     game.mapView.waypoint = [p.x, p.z];
     game.shops.close();
-    game.hud.text(p.name, this.say(p, 'call'));
-    game.hud.toast(`Pickup set: ${p.name} on ${p.street}`, '#e0b000');
+    game.hud.text(p.name, this.say(p, cashUp ? 'cashFirst' : 'call'));
+    game.hud.toast(`Pickup set: ${p.name} on ${p.street}${cashUp ? ` · bring ${money(this.run.owe)} cash` : ''}`, '#e0b000');
   }
 
   cancelRun() {
@@ -285,13 +395,183 @@ export class Drugs {
     this.game.hud.toast('Pickup called off');
   }
 
+  // Paid in person, cash in hand.
   pay(d) {
     const game = this.game;
     const p = this.plug(d.plug);
+    game.cash -= d.owe;
     this.debts = this.debts.filter((x) => x !== d);
-    for (const sq of this.squads) sq.called = true;
+    for (const sq of this.squads) if (sq.plug === d.plug) sq.called = true;
+    if (d.stage === 'due') this.addTrust(p.id, 8); // on time
+    if (this.job && this.job.plug === d.plug) this.endJob();
+    if (game.mapView.waypoint && dist(game.mapView.waypoint[0], game.mapView.waypoint[1], p.x, p.z) < 1) game.mapView.waypoint = null;
+    if (!this.pushAvailable()) this.pushing = false;
     game.hud.toast(`Paid ${p.name} ${money(d.owe)}. You're square.`);
-    game.hud.text(p.name, this.say(p, d.hit ? 'paidHit' : 'paid'));
+    game.hud.text(p.name, this.say(p, d.stage === 'hit' ? 'paidHit' : 'paid'));
+    game.sfx.cash?.();
+    game.save();
+    this.save();
+  }
+
+  // Something went wrong that wasn't your fault: the plug hears about it.
+  luck(what) {
+    for (const d of this.debts) if (!d.luck.includes(what)) d.luck.push(what);
+    if (this.run && !this.run.luck.includes(what)) this.run.luck.push(what);
+  }
+
+  // Late because of you? You had the money (on you or in the stash), or sat on the product.
+  fault(d) {
+    const game = this.game;
+    if (game.cash + game.shops.stash >= d.owe) return 'money';
+    if (this.inv[d.product] > 0 && (d.idle || 0) > 600) return 'sat';
+    return null;
+  }
+
+  // Selling cheap is allowed in the last quarter of the clock (or once you're late).
+  pushAvailable() {
+    return this.holding() > 0 && this.debts.some((d) => d.stage !== 'due' || d.left < DEADLINE / 4);
+  }
+
+  // How far prices drop while pushing it: 10% off at first, down to 35% off as time runs out.
+  pushFactor() {
+    let k = 1;
+    for (const d of this.debts) if (d.stage === 'due') k = Math.min(k, Math.max(0, 1 - d.left / (DEADLINE / 4)));
+    if (this.debts.some((d) => d.stage !== 'due')) k = 1;
+    return 0.9 - 0.25 * k;
+  }
+
+  // ---- Working off a debt ----
+  startJob(d) {
+    const game = this.game;
+    const p = this.plug(d.plug);
+    const [px, pz] = game.player.pos();
+    // Somewhere across town, on a sidewalk.
+    const far = game.city.blocks.filter((b) => dist(b.cx, b.cz, px, pz) > 220 && dist(b.cx, b.cz, px, pz) < 450 && b.type !== 'police');
+    const b = pick(far.length ? far : game.city.blocks);
+    const x = b.cx;
+    const z = b.minZ + 1.6;
+    const street = streetAt(x, b.minZ - 3);
+    const kind = Math.random() < 0.5 ? 'drop' : 'collect';
+    const cut = Math.max(100, Math.round((d.owe * 0.4) / 10) * 10);
+    this.job = { plug: d.plug, kind, x, z, street, cut, left: kind === 'drop' ? 240 : 300, target: null };
+    if (kind === 'collect') {
+      // Someone who owes the plug. He runs when he sees you coming.
+      const ped = game.peds.addAt(x, z);
+      ped.shopkeeper = true;
+      ped.state = 'shop';
+      ped.heading = ped.shopHeading = Math.PI;
+      ped.name = pick(['Lil Tony', 'Dre', 'Skinny', 'Pooh', 'Man-Man']);
+      this.job.target = ped;
+    }
+    d.pauseUntil = game.time + this.job.left; // the shooters hold off while you work
+    for (const sq of this.squads) if (sq.plug === d.plug) sq.called = true;
+    const what = kind === 'drop' ? `take this pack to ${street}. 4 min` : `${this.job.target.name} owe me. go get it. ${street}`;
+    game.hud.text(p.name, this.say(p, 'job', { job: what }));
+    game.hud.toast(kind === 'drop' ? `Job: deliver a package to ${street} (4 min)` : `Job: collect from ${this.job.target.name} on ${street} (5 min)`, '#e0b000');
+    game.mapView.waypoint = [x, z];
+  }
+
+  updateJob(dt, a) {
+    const j = this.job;
+    if (!j) return;
+    const game = this.game;
+    const d = this.debts.find((x) => x.plug === j.plug);
+    if (!d) return this.endJob();
+    j.left -= dt;
+    if (j.left <= 0) return this.failJob('Out of time');
+    const [px, pz] = game.player.pos();
+    const t = j.target;
+    if (j.kind === 'collect') {
+      if (!t || t.removed) return this.failJob('He got away');
+      if (t.state === 'shop' && dist(px, pz, t.x, t.z) < 12) {
+        // Sees you coming: runs.
+        t.shopkeeper = false;
+        t.scare(px, pz);
+        t.t = 25;
+        game.hud.toast(`${t.name} is running! Knock him down`, '#ffd36b');
+      }
+      if (t.state !== 'shop') game.mapView.waypoint = [t.x, t.z];
+      if (!t.standing) {
+        this.finishJob(d, t.alive ? `Got it out of ${t.name}` : `Took it off ${t.name}`);
+        return;
+      }
+      return;
+    }
+    // Delivery: walk the pack up to the spot.
+    const close = dist(px, pz, j.x, j.z);
+    if (game.player.vehicle) {
+      if (close < 18) this.prompt = 'Get out and walk the package over';
+      return;
+    }
+    if (close < 2.5) {
+      this.prompt = `Press ${game.input.label('interact')} to drop off the package`;
+      if (a.interactHeld && !game.interactWasHeld) this.finishJob(d, 'Package delivered');
+    }
+  }
+
+  finishJob(d, msg) {
+    const game = this.game;
+    const p = this.plug(d.plug);
+    const cut = Math.min(d.owe, this.job.cut);
+    d.owe -= cut;
+    this.endJob();
+    game.hud.toast(`${msg}: -${money(cut)} off what you owe`);
+    game.cred += 5;
+    if (d.owe <= 0) {
+      this.debts = this.debts.filter((x) => x !== d);
+      game.hud.text(p.name, this.say(p, 'paid'));
+    } else game.hud.text(p.name, this.say(p, 'jobDone', { cut, owe: d.owe }));
+    this.save();
+  }
+
+  failJob(msg) {
+    const j = this.job;
+    if (!j) return;
+    const game = this.game;
+    const p = this.plug(j.plug);
+    const d = this.debts.find((x) => x.plug === j.plug);
+    this.endJob();
+    if (d) {
+      d.pauseUntil = 0;
+      this.addTrust(p.id, -5);
+      game.hud.text(p.name, this.say(p, 'jobFail', { owe: d.owe }));
+    }
+    game.hud.toast(`Job failed: ${msg}`, '#ff8080');
+    this.save();
+  }
+
+  endJob() {
+    const j = this.job;
+    this.job = null;
+    if (!j) return;
+    if (j.target && !j.target.removed && j.target.state === 'shop') j.target.dispose();
+    else if (j.target) j.target.shopkeeper = false;
+    const w = this.game.mapView.waypoint;
+    if (w) this.game.mapView.waypoint = null;
+  }
+
+  // At the plug's corner with what you owe: pay up (cash in hand).
+  updatePayment(a) {
+    const game = this.game;
+    if (this.run && this.run.stage !== 'toHQ') return;
+    const [px, pz] = game.player.pos();
+    for (const d of this.debts) {
+      const p = this.plug(d.plug);
+      if (p.dead || !p.ped || !p.ped.alive) continue;
+      const dd = dist(px, pz, p.ped.x, p.ped.z);
+      if (game.player.vehicle) {
+        if (dd < 18) this.prompt = `Get out and walk up to ${p.name} to pay`;
+        continue;
+      }
+      if (dd > 2.6) continue;
+      if (game.cash < d.owe) {
+        this.prompt = `${p.name} wants ${money(d.owe)} · you've only got ${money(game.cash)} on you`;
+        continue;
+      }
+      this.prompt = `Press ${game.input.label('interact')} to pay ${p.name} ${money(d.owe)}`;
+      if (a.interactHeld && !game.interactWasHeld) this.pay(d);
+      return;
+    }
   }
 
   // ---- Updates ----
@@ -307,7 +587,10 @@ export class Drugs {
     const taxPrompt = this.risk.update(dt, a);
     if (taxPrompt) this.prompt = taxPrompt;
     this.updateRun(dt, a);
+    this.updatePayment(a);
+    this.updateJob(dt, a);
     this.updateDebts(dt);
+    if (this.pushing && !this.pushAvailable()) this.pushing = false;
     this.updateSquads(dt);
     this.updateCustomer(dt, a);
     this.updateRobbers(dt);
@@ -343,7 +626,11 @@ export class Drugs {
         return;
       }
       if (r.stage === 'toPlug') {
-        this.prompt = `Press ${game.input.label('interact')} to pick up from ${p.name}`;
+        if (r.cashUp && game.cash < r.owe) {
+          this.prompt = `${p.name} wants ${money(r.owe)} cash up front · you've got ${money(game.cash)} on you`;
+          return;
+        }
+        this.prompt = r.cashUp ? `Press ${game.input.label('interact')} to pay ${p.name} ${money(r.owe)} and pick up` : `Press ${game.input.label('interact')} to pick up from ${p.name}`;
         if (!(a.interactHeld && !game.interactWasHeld)) return;
       }
       if (r.stage === 'toPlug') {
@@ -358,16 +645,23 @@ export class Drugs {
           game.startCinematic(p.x, p.b.minZ + 1.2, 'RAID', 4.5);
           game.hud.toast('RAID! Grab the stuff and get out!', '#ff8080');
           game.storyEvent(null, p.x, p.z, `Police raid a drug spot on ${p.street}`);
+          r.luck.push('raid');
         }
       }
       r.loadT += dt;
       this.progress = { value: Math.min(1, r.loadT / LOAD_TIME), label: `Getting ${amountText(r.product, r.amount)} from ${p.name}…` };
       if (r.loadT >= LOAD_TIME) {
         r.stage = 'toHQ';
-        this.debts.push({ plug: p.id, owe: r.owe, left: DEADLINE, hit: false, nextHit: 0, warned: 0 });
         const hq = game.city.crewHome;
         game.mapView.waypoint = [hq.x, hq.z];
-        game.hud.toast(`Loaded. Get it back to the hangout. You owe ${p.name} ${money(r.owe)}.`, '#e0b000');
+        if (r.cashUp) {
+          game.cash -= r.owe; // paid cash, owe nothing
+          game.hud.toast(`Paid ${money(r.owe)} cash. Get it back to the hangout.`, '#e0b000');
+          game.save();
+        } else {
+          this.debts.push({ plug: p.id, product: r.product, owe: r.owe, left: DEADLINE, stage: 'due', nextHit: 0, warned: 0, luck: [...r.luck], idle: 0 });
+          game.hud.toast(`Loaded. Get it back to the hangout. You owe ${p.name} ${money(r.owe)} — pay in person.`, '#e0b000');
+        }
         this.save();
       }
       return;
@@ -408,6 +702,10 @@ export class Drugs {
     this.run = null;
     game.mapView.waypoint = null;
     game.market.landed(r.product, r.amount, game.city.crewHome.x, game.city.crewHome.z);
+    // What you paid per unit (selling cheap never goes below this). Mixed with what you had.
+    const had = this.inv[r.product];
+    const mine = r.kind === 'gang' ? Math.round(r.amount * 0.4) : r.amount;
+    this.basis[r.product] = had > 0 ? ((this.basis[r.product] || r.unit) * had + r.unit * mine) / (had + mine) : r.unit;
     if (r.kind === 'gang') {
       const mine = Math.round(r.amount * 0.4);
       const theirs = r.amount - mine;
@@ -443,30 +741,62 @@ export class Drugs {
     const game = this.game;
     for (const d of this.debts) {
       const p = this.plug(d.plug);
-      if (!d.hit) {
+      // Sitting on the product (holding it and not selling) counts against you.
+      d.idle = this.inv[d.product] > 0 ? (d.idle || 0) + dt : 0;
+      if (d.stage === 'due' || d.stage === 'ext') {
         d.left -= dt;
         // Texts from the plug, getting colder as time runs out.
         for (const mark of REMINDER_MARKS) {
+          if (d.stage === 'ext' && mark > 300) continue;
           if (d.left <= mark && (d.warned || 1e9) > mark) {
             d.warned = mark;
             game.hud.text(p.name, this.say(p, mark, { owe: d.owe }));
           }
         }
-        if (d.left <= 0) {
-          d.hit = true;
+        if (d.left > 0) continue;
+        if (d.stage === 'due' && this.trustOf(p.id) >= 10) {
+          // Late: one extension, with interest. Worse if it's on you.
+          if (game.market.mult(districtAt(game.player.x, game.player.z), d.product) < 0.75 && !d.luck.includes('market crashed')) d.luck.push('market crashed');
+          const f = this.fault(d);
+          d.fault = f;
+          d.owe = Math.round(d.owe * (f ? 1.5 : 1.2));
+          d.stage = 'ext';
+          d.left = EXTENSION;
+          d.warned = 0;
+          this.addTrust(p.id, f ? -25 : -12);
+          game.hud.text(p.name, this.say(p, f ? 'extFault' : 'ext', { owe: d.owe }));
+          const why = f === 'money' ? 'you had the money' : f === 'sat' ? 'you sat on the product' : d.luck.length ? `${d.luck.join(', ')} — not your fault` : 'bad luck';
+          game.hud.toast(`Late: ${p.name} gave you 10 more minutes at ${f ? '+50%' : '+20%'} (${why}). Owe ${money(d.owe)}`, '#ffd36b');
+        } else {
+          if (d.stage === 'due') game.hud.text(p.name, this.say(p, 'noExt'));
+          d.stage = 'hit';
           d.owe = Math.round(d.owe * 1.5);
           d.nextHit = 5;
+          this.addTrust(p.id, -20);
           game.hud.text(p.name, this.say(p, 'hit', { owe: d.owe }));
           game.hud.toast(`${p.name} put a hit out on you!`, '#ff8080');
-          this.save();
         }
+        this.save();
       } else {
+        if (game.time < (d.pauseUntil || 0)) continue; // fell back for now
         d.nextHit -= dt;
-        if (d.nextHit <= 0 && !this.squads.some((s) => !s.called && s.plug === d.plug) && game.wastedT <= 0) {
+        if (d.nextHit <= 0 && !this.squads.some((sq) => !sq.called && sq.plug === d.plug) && game.wastedT <= 0) {
           d.nextHit = HIT_EVERY;
           this.sendSquad(p);
         }
       }
+    }
+  }
+
+  // You just died or got busted: the plug's shooters fall back for a while.
+  breather() {
+    const game = this.game;
+    for (const d of this.debts) {
+      if (d.stage !== 'hit') continue;
+      d.pauseUntil = game.time + BREATHER;
+      d.nextHit = Math.max(d.nextHit, 5);
+      for (const sq of this.squads) if (sq.plug === d.plug) sq.called = true;
+      game.hud.text(this.plug(d.plug).name, this.say(this.plug(d.plug), 'breather'));
     }
   }
 
@@ -527,6 +857,7 @@ export class Drugs {
       const held = Object.keys(this.inv).filter((k) => this.inv[k] > 0);
       const dem = held.reduce((n, k) => n + game.market.demand[d][k], 0) / Math.max(1, held.length);
       this.custT = this.risk.loyalty(game.player.x, game.player.z)[1] * (CUSTOMER_GAP[this.tier()] / Math.min(1.8 * (CFG.MARKET_HOT ? 1.8 : 1), Math.max(0.6, dem))) * rand(0.7, 1.3) / (CFG.MARKET_HOT ? 3 : 1);
+      if (this.pushing) this.custT *= 0.4; // word gets around: cheap
       this.findCustomer();
       return;
     }
@@ -583,7 +914,7 @@ export class Drugs {
     // Offer on the table.
     c.wait += dt;
     const k = game.input.mode === 'pad';
-    const tell = c.tell ? ` · ${c.tell}` : '';
+    const tell = (c.tell ? ` · ${c.tell}` : '') + (c.pushed ? ' · pushing it' : '');
     this.prompt = `"${c.line}" — ${amountText(c.kind, c.units)} · ${money(c.price)}${tell} — ${k ? '✕' : 'E'} sell · ${k ? '○' : 'Q'} no`;
     if (a.dealYes) this.sell(c);
     else if (a.dealNo || c.wait > 10 || this.busy()) {
@@ -649,6 +980,14 @@ export class Drugs {
     c.units = Math.min(this.inv[c.kind], randInt(1, 2 + tier));
     const [loyal] = this.risk.loyalty(game.player.x, game.player.z); // rival turf: their buyers pay less
     c.price = Math.max(5, Math.round((c.units * P.street * M.mult(d, c.kind) * loyal * (1 + 0.08 * tier) * rand(0.9, 1.1)) / 5) * 5);
+    if (this.pushing) {
+      // Selling cheap: they buy more, for less (never below what you paid).
+      c.units = Math.min(this.inv[c.kind], c.units + randInt(1, 2));
+      const normal = c.units * P.street * M.mult(d, c.kind) * loyal * (1 + 0.08 * tier);
+      const floor = c.units * (this.basis[c.kind] || P.cost);
+      c.price = Math.max(Math.ceil(floor / 5) * 5, Math.round((normal * this.pushFactor()) / 5) * 5);
+      c.pushed = true;
+    }
     // Is it a setup? More likely on a big buy, less on your own turf.
     const turf = game.turfWars.turfAt(game.player.x, game.player.z);
     let uc = 0.05 + 0.015 * c.units + (c.kind === 'coke' ? 0.04 : 0);
@@ -679,6 +1018,7 @@ export class Drugs {
       this.sting(c);
     } else if (c.rob) {
       game.hud.toast(c.ped ? 'He snatched it and ran! Get it back!' : 'They grabbed it and took off!', '#ff8080');
+      this.luck('robbed');
       if (c.ped) {
         c.ped.loot = { kind: c.kind, units: c.units };
         c.ped.state = 'walk';
@@ -689,6 +1029,7 @@ export class Drugs {
       this.dropCustomer(true);
     } else {
       game.cash += c.price;
+      for (const d of this.debts) if (d.product === c.kind) d.idle = 0;
       game.market.sold(c.district, c.kind, c.units);
       this.risk.afterSale(where.x, where.z, c.price, c.units);
       game.cred += 1 + Math.floor(c.units / 3);
@@ -789,30 +1130,61 @@ export class Drugs {
     if (!dealt) this.custT = Math.min(this.custT, CFG.MARKET_HOT ? 4 : 20); // they never showed: someone else soon
   }
 
-  // Busted: the cops take everything you're holding. Wasted: whatever was in the car is gone.
+  // Busted: the cops take everything you're holding (and the load, if you're on a run).
   onBusted() {
     const had = this.holding() + (this.run && this.run.stage === 'toHQ' ? this.run.amount : 0);
     if (had) this.game.hud.news(`Police seize drugs from an arrested Green Street member`, 'info');
     this.inv = { weed: 0, pills: 0, coke: 0 };
+    this.luck('busted');
+    if (this.job) this.failJob('You got locked up');
     this.lostRun();
+    this.breather();
   }
 
-  onWasted() {
+  // Killed. Who did it decides what happens to what you had on you:
+  // - opps (a rival gang): they run your pockets — all your cash and all your product.
+  // - the plug's shooters: they take all your cash (it comes off what you owe) and the product.
+  // - the cops: they seize the product.
+  // - anything else (a crash, a fire): the product hits the ground where you went down.
+  onWasted(by, gangName) {
     this.risk.onWasted();
-    // Whatever you were holding hits the ground where you went down (grab it if you can get
-    // back before someone else does — it's gone in a minute and a half).
     const game = this.game;
     const [x, z] = game.player.pos();
-    let dropped = 0;
-    for (const [k, n] of Object.entries(this.inv)) {
-      if (n <= 0) continue;
-      game.inventory.dropDrug(x + rand(-1.2, 1.2), z + rand(-1.2, 1.2), k, n);
-      game.pickups.at(-1).t = 90;
-      dropped += n;
-      this.inv[k] = 0;
+    const held = this.holding();
+    this.luck('killed');
+    if (by === 'opps' || by === 'plug') {
+      const cash = game.cash;
+      game.cash = 0;
+      this.inv = { weed: 0, pills: 0, coke: 0 };
+      if (by === 'plug') {
+        const d = this.debts.find((q) => q.stage === 'hit') || this.debts[0];
+        if (d) gangName = `${this.plug(d.plug).name}'s shooters`;
+        if (d && cash > 0) {
+          const p = this.plug(d.plug);
+          const cut = Math.min(d.owe, cash);
+          d.owe -= cut;
+          if (d.owe <= 0) this.debts = this.debts.filter((q) => q !== d);
+          game.hud.text(p.name, d.owe > 0 ? this.say(p, 'took', { cut, owe: d.owe }) : this.say(p, 'paidHit'));
+        }
+      }
+      if (cash > 0 || held) game.hud.toast(`${gangName || 'They'} ran your pockets: ${cash > 0 ? `-${money(cash)}` : ''}${cash > 0 && held ? ' and ' : ''}${held ? 'all your product' : ''}`, '#ff8080');
+    } else if (by === 'cops') {
+      if (held) game.hud.toast('The cops seized your product', '#ff8080');
+      this.inv = { weed: 0, pills: 0, coke: 0 };
+    } else {
+      let dropped = 0;
+      for (const [k, n] of Object.entries(this.inv)) {
+        if (n <= 0) continue;
+        game.inventory.dropDrug(x + rand(-1.2, 1.2), z + rand(-1.2, 1.2), k, n);
+        game.pickups.at(-1).t = 90;
+        dropped += n;
+        this.inv[k] = 0;
+      }
+      if (dropped) game.hud.toast('Your product hit the ground where you went down', '#ff8080');
     }
-    if (dropped) game.hud.toast('Your product hit the ground where you went down', '#ff8080');
+    if (this.job) this.failJob('You went down');
     this.lostRun();
+    this.breather();
   }
 
   lostRun() {
@@ -827,7 +1199,13 @@ export class Drugs {
 
   // ---- HUD ----
   banner() {
+    const game = this.game;
     const r = this.run;
+    const j = this.job;
+    if (j && !r) {
+      const p = this.plug(j.plug);
+      return j.kind === 'drop' ? `JOB FOR ${p.name.toUpperCase()} · deliver the package to ${j.street} · ${fmt(j.left)}` : `JOB FOR ${p.name.toUpperCase()} · collect from ${j.target ? j.target.name : 'him'} on ${j.street} · ${fmt(j.left)}`;
+    }
     if (r) {
       const p = this.plug(r.plug);
       if (r.stage === 'toPlug') return `DRUG RUN · pick up ${amountText(r.product, r.amount)} from ${p.name} on ${p.street}`;
@@ -837,7 +1215,9 @@ export class Drugs {
     const d = this.debts[0];
     if (d) {
       const p = this.plug(d.plug);
-      return d.hit ? `HIT ON YOU · ${p.name}'s shooters · pay ${money(d.owe)} (phone → contacts)` : `OWE ${p.name.toUpperCase()} ${money(d.owe)} · ${fmt(d.left)} left`;
+      const push = this.pushing ? ' · PUSHING IT' : '';
+      if (d.stage === 'hit') return game.time < (d.pauseUntil || 0) ? `HIT ON YOU · shooters fell back ${fmt(d.pauseUntil - game.time)} · pay ${p.name} ${money(d.owe)} in person` : `HIT ON YOU · ${p.name}'s shooters · pay ${money(d.owe)} in person on ${p.street}`;
+      return `${d.stage === 'ext' ? 'LATE · ' : ''}OWE ${p.name.toUpperCase()} ${money(d.owe)} · ${fmt(d.left)} left · pay in person${push}`;
     }
     return '';
   }
