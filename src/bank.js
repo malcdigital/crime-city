@@ -121,6 +121,8 @@ export class Bank {
   }
 
   refreshSigns() {
+    const S = this.game.shops;
+    if (S && S.safeSign) S.safeSign.material.color.set(S.safehouse ? 0xffffff : 0x888888);
     for (const h of this.homes) {
       if (h.owned === h.signOwned) continue;
       h.signOwned = h.owned;
@@ -203,6 +205,7 @@ export class Bank {
           game.hud.text('City Bank', `Monthly account fee: ${money(fee)}. Balance ${money(this.balance)}.`);
         }
       }
+      game.property?.newDay(this.days);
       this.save();
     }
     this.lastClock = m;
@@ -263,11 +266,14 @@ export class Bank {
     for (const h of this.homes) {
       if (dist(px, pz, h.x, h.z) > 1.6) continue;
       if (!h.owned) {
-        game.prompt = `Press ${key} to buy this ${h.name.toLowerCase()} for ${money(h.price)} (a stash: no fees, open any time)`;
+        const P = game.property;
+        const price = P.price(h);
+        game.prompt = `Press ${key} to buy this ${h.name.toLowerCase()} for ${money(price)} (tax included) · tax ~${money(P.monthlyTax(h))}/mo · upkeep ${money(P.dailyUpkeep(h))}/day`;
         if (pressed) {
-          if (!this.pay(h.price)) game.hud.toast(`You need ${money(h.price)} (bank + cash)`, '#ff8080');
+          if (!this.pay(price)) game.hud.toast(`You need ${money(price)} (bank + cash)`, '#ff8080');
           else {
             h.owned = true;
+            P.bought(h, price);
             this.refreshSigns();
             game.hud.toast(`${h.name} bought. Stash money here any time.`);
             game.hud.news(`Green Street member buys a ${h.name.toLowerCase()} on ${h.street}`, 'good');
@@ -350,6 +356,29 @@ export class Bank {
       ...this.amounts(game.cash, 'Stash', put).map((it) => ({ ...it, detail: 'No fees, open any time. A stash can get robbed — more likely when a gang has beef with you.' })),
       ...this.amounts(h.stash, 'Take', take).map((it) => ({ ...it, detail: '' })),
     ];
+    const P = game.property;
+    if (h.owed > 0) {
+      list.push({ label: `Pay what you owe (${money(h.owed)})`, price: 0, priceText: '', detail: 'Back taxes and bills. Two months behind and the city seizes the property.', can: true, buy: () => P.payOwed(h) });
+    }
+    list.push({
+      label: `Sell it (${money(P.sellPrice(h))})`, price: 0, priceText: '', detail: `Market price ${money(P.price(h))}, less ${money(P.salesTax(P.price(h)))} sales tax. ${P.why(h)}. Take your stash first — it goes with the place.`, can: true,
+      buy: () => {
+        const price = P.price(h);
+        const get = P.sellPrice(h);
+        game.cash += h.stash; // you clear it out on the way
+        h.stash = 0;
+        this.balance += get; // the sale goes into the bank
+        if (h === this.safeHome) game.shops.safehouse = false;
+        else h.owned = false;
+        P.sold(h, price);
+        this.refreshSigns();
+        game.shops.close();
+        game.hud.toast(`Sold your ${h.name.toLowerCase()}: +${money(get)} to the bank`);
+        game.shops.save();
+        game.save();
+        this.save();
+      },
+    });
     if (h === this.safeHome || h.owned) {
       list.push({
         label: 'Rest (heal up and save)', price: 0, priceText: '', detail: 'Full health. The game saves.', can: true,
@@ -386,7 +415,7 @@ export class Bank {
     for (const b of this.banks) add('blip', this.open() ? '#1e8449' : '#566573', 'B', `${b.name} (${this.open() ? 'open' : `closed · ${this.hours()}`})`, b.x, b.z);
     const t = [...this.atms].sort((p, q) => dist(p.x, p.z, ...this.game.player.pos()) - dist(q.x, q.z, ...this.game.player.pos()))[0];
     if (t) add('dot', '#5dade2', '', `ATMs · ${this.atms.length} (nearest)`, t.x, t.z);
-    for (const h of this.homes) add('blip', h.owned ? '#d4ac0d' : '#7f8c8d', '⌂', h.owned ? `Your ${h.name.toLowerCase()} · stash ${money(h.stash)}` : `${h.name} for sale · ${money(h.price)}`, h.x, h.z);
+    for (const h of this.homes) add('blip', h.owned ? '#d4ac0d' : '#7f8c8d', '⌂', h.owned ? `Your ${h.name.toLowerCase()} · stash ${money(h.stash)}` : `${h.name} for sale · ${money(this.game.property.price(h))}`, h.x, h.z);
   }
 }
 

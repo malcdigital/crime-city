@@ -14,6 +14,7 @@ const APPS = [
   { id: 'news', name: 'City News', icon: 'N', color: '#e63946' },
   { id: 'missions', name: 'Missions', icon: '★', color: '#f39c12' },
   { id: 'market', name: 'Market', icon: '$', color: '#8e44ad' },
+  { id: 'property', name: 'Property', icon: '⌂', color: '#d4ac0d' },
 ];
 const money = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
 const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
@@ -113,6 +114,16 @@ export class Phone {
         act: r.district ? () => {
           game.mapView.waypoint = game.market.center(r.district);
           game.hud.toast(`Waypoint set: ${r.district}`);
+          this.close();
+        } : null,
+      }));
+    }
+    if (this.app === 'property') {
+      return game.property.rows().map((r) => ({
+        ...r,
+        act: r.x != null ? () => {
+          game.mapView.waypoint = [r.x, r.z];
+          game.hud.toast('Waypoint set');
           this.close();
         } : null,
       }));

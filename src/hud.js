@@ -240,7 +240,8 @@ export class Hud {
     const drivers = P.drivers().map(([k, w]) => `<span class="${w > 0 ? 'bad' : 'good'}">${w > 0 ? '▼' : '▲'} ${k}</span>`).join('');
     $('approval').innerHTML = `<div class="ap-top"><span>Approval</span><b style="color:${col}">${ap}% ${trend}</b><span class="ap-crime">Crime: ${P.levelName()}</span></div>`
       + `<div class="ap-bar"><div style="width:${ap}%;background:${col}"></div></div>`
-      + `<div class="ap-why">${drivers || '<span>Quiet lately</span>'}</div>`;
+      + `<div class="ap-why">${drivers || '<span>Quiet lately</span>'}</div>`
+      + (game.property ? `<div class="ap-why"><span>${game.property.summary()}</span></div>` : '');
     const T = game.turfWars;
     const box = $('crackdowns');
     box.innerHTML = Object.values(GANGS).filter((g) => !g.hidden).map((g) => {

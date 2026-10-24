@@ -21,7 +21,6 @@ const SAVE_KEY = 'crimecity.shop.v2'; // v2: the bigger map (properties reset)
 const PER_BLOCK = [100, 150, 200, 275, 375, 500];
 const PERIOD = CFG.TURF_FAST ? 2 * 60 : 10 * 60; // seconds of play between payouts
 const RAID_AFTER = 3; // uncollected payouts before a rival hits the stash
-const SAFEHOUSE_PRICE = 5000;
 
 // What the gun shop sells. Ammo amounts are rounds per purchase.
 const GUN_STOCK = [
@@ -318,11 +317,15 @@ export class Shops {
     }
     if (dist(px, pz, this.safe.x, this.safe.z) < 1.6) {
       if (!this.safehouse) {
-        game.prompt = `Press ${key} to buy this safehouse for ${money(SAFEHOUSE_PRICE)} (respawn here, rest to heal)`;
+        const P = game.property;
+        const home = game.bank.safeHome;
+        const price = P.price(home);
+        game.prompt = `Press ${key} to buy this safehouse for ${money(price)} (tax included; respawn here, stash, rest) · tax ~${money(P.monthlyTax(home))}/mo · upkeep ${money(P.dailyUpkeep(home))}/day`;
         if (pressed) {
-          if (!game.bank.pay(SAFEHOUSE_PRICE)) game.hud.toast(`You need ${money(SAFEHOUSE_PRICE)} (bank + cash)`, '#ff8080');
+          if (!game.bank.pay(price)) game.hud.toast(`You need ${money(price)} (bank + cash)`, '#ff8080');
           else {
             this.safehouse = true;
+            P.bought(home, price);
             this.safeSign.material.color.set(0xffffff);
             game.hud.toast('Safehouse bought. You respawn here now.');
             game.hud.news(`Green Street pick up a safehouse on ${streetAt(this.safe.x, this.safe.z)}`, 'good');

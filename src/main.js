@@ -21,6 +21,7 @@ import { MapView } from './mapview.js';
 import { Shops } from './shops.js';
 import { Drugs } from './drugs.js';
 import { Bank } from './bank.js';
+import { PropertyMarket } from './property.js';
 import { Market } from './market.js';
 import { President } from './president.js';
 import { Phone } from './phone.js';
@@ -129,6 +130,7 @@ class Game {
     this.shops = new Shops(this);
     this.drugs = new Drugs(this);
     this.bank = new Bank(this);
+    this.property = new PropertyMarket(this);
     this.market = new Market(this);
     this.president = new President(this);
     this.phone = new Phone(this);
@@ -290,6 +292,7 @@ class Game {
   crime(type, x, z, extra = '') {
     const c = CRIMES[type];
     this.president.crime(type, c.label);
+    this.property?.crimeType(type, x, z); // crime drags down property values there
     this.heat += c.heat;
     if (c.min && this.starsFor(this.heat) < c.min) this.heat = CFG.STAR_HEAT[c.min - 1];
     const before = this.stars;
@@ -1822,6 +1825,7 @@ class Game {
     this.turfWars.update(dt);
     this.shops.update(dt);
     this.bank.update(dt);
+    this.property.update(dt);
     for (const v of this.vehicles) {
       if (v.driver === null && !v.removed) {
         // A car you bailed out of keeps rolling until it slows down on its own.
