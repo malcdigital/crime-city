@@ -290,7 +290,8 @@ export class TrafficManager {
     const [px, pz] = player.pos();
     for (let tries = 0; tries < 20; tries++) {
       const from = pick(city.nodes);
-      if (dist(from.x, from.z, px, pz) < minDist) continue;
+      const dd = dist(from.x, from.z, px, pz);
+      if (dd < minDist || dd > Math.max(minDist + 60, 280)) continue; // around you, not across the city
       const to = pick(from.nb);
       const L = dist(from.x, from.z, to.x, to.z);
       const ux = (to.x - from.x) / L;
@@ -314,6 +315,15 @@ export class TrafficManager {
 
   update(dt) {
     for (const d of this.drivers) if (d.active) d.update(dt, this.game);
+    // Cars far away from you (and not on an errand) go; new ones turn up nearer.
+    const [px, pz] = this.game.player.pos();
+    for (const d of this.drivers) {
+      const c = d.car;
+      if (d.active && !d.route && !d.stopAt && c.driver === d && this.game.player.vehicle !== c && dist(c.x, c.z, px, pz) > 380) {
+        c.dispose();
+        d.active = false;
+      }
+    }
     this.drivers = this.drivers.filter((d) => d.active && !d.car.removed);
     if (this.drivers.length < CFG.TRAFFIC_CARS) this.spawn(110);
   }

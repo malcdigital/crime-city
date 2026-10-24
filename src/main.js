@@ -47,7 +47,7 @@ class Game {
     const sky = new THREE.Color(0x9fc3e0);
     this.scene.background = sky;
     this.scene.fog = new THREE.Fog(sky, 140, 430);
-    this.camera = new THREE.PerspectiveCamera(65, 1, 0.1, 900);
+    this.camera = new THREE.PerspectiveCamera(65, 1, 0.1, 450); // nothing past the fog
 
     this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x4a4a40, 1.1));
     this.sun = new THREE.DirectionalLight(0xfff1d6, 1.8);
@@ -164,9 +164,19 @@ class Game {
     if (this.input.mode !== 'pad') this.input.lock();
   }
 
-  // In-game clock: one real second is one game minute, starting at 9:00 PM.
+  // In-game clock: a full day is 48 real minutes (one real second is half a game minute),
+  // starting at 9:00 PM.
+  gameMinutes() {
+    return 21 * 60 + this.time * 0.5;
+  }
+
+  // Minutes past midnight right now.
+  clockMinutes() {
+    return Math.floor(this.gameMinutes()) % 1440;
+  }
+
   clockText() {
-    const m = (21 * 60 + Math.floor(this.time)) % 1440;
+    const m = this.clockMinutes();
     const h = Math.floor(m / 60);
     return `${h % 12 || 12}:${String(m % 60).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
   }
@@ -1511,10 +1521,10 @@ class Game {
 
   dirtyChance() {
     const [x, z] = this.player.pos();
-    const m = (21 * 60 + Math.floor(this.time)) % 1440;
+    const m = this.clockMinutes();
     const night = m >= 22 * 60 || m < 4 * 60;
     const d = districtAt(x, z);
-    return 0.2 + (night && (d === 'Southgate' || d === 'Harbor') ? 0.2 : night ? 0.08 : 0);
+    return 0.2 + (night && (d === 'The Projects' || d === 'The Docks') ? 0.2 : night ? 0.08 : 0);
   }
 
   startStop() {

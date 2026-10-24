@@ -1,3 +1,4 @@
+import { DISTRICTS, districtCenter } from './districts.js';
 import { drawHeli, drawSearchlight } from './heliicon.js';
 import { CFG, CRED_TIERS } from './config.js';
 import { GANGS } from './turf.js';
@@ -477,12 +478,23 @@ export class MapView {
       ctx.lineTo(sx, sy + 16);
       ctx.stroke();
     }
+    if (!heat) {
+      // District names, faint, so you can tell where you are.
+      ctx.font = `800 ${Math.round(Math.max(11, Math.min(20, this.scale * 30)))}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(255,255,255,.28)';
+      for (const d of DISTRICTS) {
+        const [sx, sy] = this.toScreen(...districtCenter(d));
+        ctx.fillText(d.toUpperCase(), sx, sy);
+      }
+    }
     if (heat) {
       const base = { weed: 40, pills: 85, coke: 190 }[this.heat];
       ctx.font = 'bold 15px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      for (const d of ['Downtown', 'Hillcrest', 'Southgate', 'Eastside', 'Harbor']) {
+      for (const d of DISTRICTS) {
         const [sx, sy] = this.toScreen(...heat.center(d));
         const t = `${d} $${Math.round(base * heat.mult(d, this.heat))} ${heat.trend(d, this.heat)}`;
         const w = ctx.measureText(t).width + 14;

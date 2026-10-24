@@ -35,11 +35,11 @@ export function buildSidewalks(city, scene) {
   const M = pts.length;
   const D = new Float32Array(M * M).fill(Infinity);
   const next = new Int16Array(M * M).fill(-1);
+  const adj = Array.from({ length: M }, () => []);
   const link = (a, b) => {
     const d = dist(pts[a].x, pts[a].z, pts[b].x, pts[b].z);
-    D[a * M + b] = D[b * M + a] = d;
-    next[a * M + b] = b;
-    next[b * M + a] = a;
+    adj[a].push([b, d]);
+    adj[b].push([a, d]);
   };
   const crossings = [];
   for (let bi = 0; bi < blocks.length; bi++) {
@@ -58,20 +58,24 @@ export function buildSidewalks(city, scene) {
       }
     }
   }
-  for (let i = 0; i < M; i++) {
-    D[i * M + i] = 0;
-    next[i * M + i] = i;
-  }
-  // Floyd-Warshall: 256 points, done once.
-  for (let k = 0; k < M; k++) {
-    for (let i = 0; i < M; i++) {
-      const dik = D[i * M + k];
-      if (dik === Infinity) continue;
-      for (let j = 0; j < M; j++) {
-        const d = dik + D[k * M + j];
-        if (d < D[i * M + j]) {
-          D[i * M + j] = d;
-          next[i * M + j] = next[i * M + k];
+  // Shortest routes from every corner (Dijkstra from each; next[] = first step on the way).
+  // Built backwards: running from the destination, next[i -> dest] is the node we came from.
+  const heap = new MinHeap();
+  for (let t = 0; t < M; t++) {
+    const row = t; // distances to t
+    D[t * M + t] = 0;
+    next[t * M + t] = t;
+    heap.clear();
+    heap.push(0, t);
+    while (heap.size) {
+      const [d, u] = heap.pop();
+      if (d > D[u * M + row]) continue;
+      for (const [v, w] of adj[u]) {
+        const nd = d + w;
+        if (nd < D[v * M + row]) {
+          D[v * M + row] = nd;
+          next[v * M + row] = u; // from v, step to u to get closer to t
+          heap.push(nd, v);
         }
       }
     }
@@ -106,6 +110,62 @@ function drawCrosswalks(scene, crossings) {
     mesh.setMatrixAt(k, dummy.matrix);
   });
   scene.add(mesh);
+}
+
+class MinHeap {
+  constructor() {
+    this.k = [];
+    this.v = [];
+  }
+
+  get size() {
+    return this.k.length;
+  }
+
+  clear() {
+    this.k.length = 0;
+    this.v.length = 0;
+  }
+
+  push(key, val) {
+    const k = this.k;
+    const v = this.v;
+    let i = k.length;
+    k.push(key);
+    v.push(val);
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (k[p] <= k[i]) break;
+      [k[p], k[i]] = [k[i], k[p]];
+      [v[p], v[i]] = [v[i], v[p]];
+      i = p;
+    }
+  }
+
+  pop() {
+    const k = this.k;
+    const v = this.v;
+    const top = [k[0], v[0]];
+    const lk = k.pop();
+    const lv = v.pop();
+    if (k.length) {
+      k[0] = lk;
+      v[0] = lv;
+      let i = 0;
+      for (;;) {
+        const l = i * 2 + 1;
+        const r = l + 1;
+        let m = i;
+        if (l < k.length && k[l] < k[m]) m = l;
+        if (r < k.length && k[r] < k[m]) m = r;
+        if (m === i) break;
+        [k[m], k[i]] = [k[i], k[m]];
+        [v[m], v[i]] = [v[i], v[m]];
+        i = m;
+      }
+    }
+    return top;
+  }
 }
 
 // Distance from a point to a block's rectangle (0 inside).

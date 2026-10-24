@@ -1,5 +1,5 @@
 // Core tuning values for the city and gameplay.
-const BLOCKS = 8;
+const BLOCKS = 14;
 const BLOCK = 64;
 const ROAD = 14;
 
@@ -20,8 +20,8 @@ export const CFG = {
   SIZE: BLOCKS * (BLOCK + ROAD),
   LANE: 3.4, // distance from road center to lane center
 
-  TRAFFIC_CARS: 30,
-  PEDS: 70,
+  TRAFFIC_CARS: 55,
+  PEDS: 100,
 
   WALK_SPEED: 4.2,
   SPRINT_SPEED: 7.5,

@@ -1,3 +1,4 @@
+import { PLACES } from './districts.js';
 import * as THREE from 'three';
 import { CFG, CRED_TIERS } from './config.js';
 import { tierOf } from './claim.js';
@@ -14,7 +15,7 @@ import { streetAt } from './city.js';
 // Out: the gun shop (guns, ammo, body armor, crew gear), the mod garage (engine, brakes,
 // armor, repair, respray) and a safehouse (respawn there, rest to heal).
 
-const SAVE_KEY = 'crimecity.shop.v1';
+const SAVE_KEY = 'crimecity.shop.v2'; // v2: the bigger map (properties reset)
 // What each block pays per payout, by your street cred tier (Nobody .. Kingpin): the more
 // respected you are, the more the block kicks up.
 const PER_BLOCK = [100, 150, 200, 275, 375, 500];
@@ -90,9 +91,9 @@ export class Shops {
     const city = game.city;
     const scene = game.scene;
     // Places.
-    this.gun = { ...storefront(city, 2, 3), name: "Iron Mike's Guns", color: '#c0392b', icon: 'A' };
-    this.garage = { ...storefront(city, 5, 4), name: "Lou's Mod Garage", color: '#16a085', icon: 'M' };
-    this.safe = { ...storefront(city, 2, 4), name: 'Safehouse', color: '#5d6d7e', icon: 'S' };
+    this.gun = { ...storefront(city, ...PLACES.gunShop), name: "Iron Mike's Guns", color: '#c0392b', icon: 'A' };
+    this.garage = { ...storefront(city, ...PLACES.garage), name: "Lou's Mod Garage", color: '#16a085', icon: 'M' };
+    this.safe = { ...storefront(city, ...PLACES.safehouse), name: 'Safehouse', color: '#5d6d7e', icon: 'S' };
     this.garage.z = this.garage.block.minZ - 3.6; // drive-in spot in the curb lane
     this.garage.r = 3.2;
     const sh = city.crewHome;

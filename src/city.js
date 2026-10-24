@@ -2,29 +2,17 @@ import * as THREE from 'three';
 import { CFG } from './config.js';
 import { mulberry32 } from './util.js';
 import { lam } from './character.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const { BLOCKS: N, BLOCK: B, ROAD: R, SIDEWALK: SW, PITCH: P, SIZE } = CFG;
 export const roadC = (k) => k * P;
 
-// Fixed special blocks, keyed by "i,j" block coordinates.
-const SPECIAL = { '1,1': 'police', '6,5': 'chop', '5,6': 'hospital', '3,4': 'park', '5,1': 'park', '2,6': 'park' };
-const STORES = {
-  '0,3': 'Corner 24/7',
-  '4,2': 'Liquor Barn',
-  '6,7': 'Gas & Go',
-  '2,0': 'Quick Mart',
-  '7,2': 'Pawn King',
-  '3,6': 'Late Nite Deli',
-};
+import { SPECIAL, STORES, PLACES, STYLES, districtOfBlock, districtAt } from './districts.js';
 
-const AVENUES = ['1st Ave', '2nd Ave', '3rd Ave', '4th Ave', '5th Ave', '6th Ave', '7th Ave', '8th Ave', '9th Ave'];
-const STREETS = ['Grove St', 'Palm St', 'Market St', 'Union St', 'King St', 'Ocean St', 'Mill St', 'Bay St', 'Pine St'];
+export { districtAt };
 
-export function districtAt(x, z) {
-  if (Math.hypot(x - SIZE / 2, z - SIZE / 2) < 150) return 'Downtown';
-  if (x < SIZE / 2) return z < SIZE / 2 ? 'Hillcrest' : 'Southgate';
-  return z < SIZE / 2 ? 'Eastside' : 'Harbor';
-}
+const AVENUES = ['1st Ave', '2nd Ave', '3rd Ave', '4th Ave', '5th Ave', '6th Ave', '7th Ave', '8th Ave', '9th Ave', '10th Ave', '11th Ave', '12th Ave', '13th Ave', '14th Ave', '15th Ave'];
+const STREETS = ['Grove St', 'Palm St', 'Market St', 'Union St', 'King St', 'Ocean St', 'Mill St', 'Bay St', 'Pine St', 'Cedar St', 'Elm St', 'Harbor St', 'Front St', 'Water St', 'Dock St'];
 
 // Name of the nearest road, for news headlines.
 export function streetAt(x, z) {
@@ -78,6 +66,35 @@ function buildingGeo(w, h, d) {
   return g;
 }
 
+// Fewer draw calls: everything static the city just built that shares a material is merged
+// into one mesh per material per 2x2-block chunk (frustum culling still works chunk by chunk).
+function mergeStatic(scene, first) {
+  const groups = new Map();
+  for (const m of scene.children.slice(first)) {
+    if (!m.isMesh || m.isInstancedMesh || Array.isArray(m.material)) continue;
+    const key = `${m.material.uuid}|${Math.floor(m.position.x / (P * 2))},${Math.floor(m.position.z / (P * 2))}|${m.castShadow}|${m.receiveShadow}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(m);
+  }
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    const geos = list.map((m) => {
+      m.updateMatrix();
+      const g = (m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone()).applyMatrix4(m.matrix);
+      for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') g.deleteAttribute(k);
+      return g;
+    });
+    const merged = mergeGeometries(geos);
+    if (!merged) continue;
+    const mesh = new THREE.Mesh(merged, list[0].material);
+    mesh.castShadow = list[0].castShadow;
+    mesh.receiveShadow = list[0].receiveShadow;
+    for (const m of list) scene.remove(m);
+    for (const g of geos) g.dispose();
+    scene.add(mesh);
+  }
+}
+
 function signTexture(text, bg, fg) {
   const c = document.createElement('canvas');
   c.width = 512;
@@ -96,6 +113,7 @@ function signTexture(text, bg, fg) {
 }
 
 export function buildCity(scene) {
+  const firstChild = scene.children.length;
   const rng = mulberry32(1337);
   const rr = (a, b) => a + rng() * (b - a);
   const colliders = []; // everything solid
@@ -159,6 +177,17 @@ export function buildCity(scene) {
   };
 
   const alleyCover = [];
+  const containers = [];
+  let deferredContainers = [];
+  // Per-district building materials (windows on all of them).
+  const matCache = {};
+  const matsFor = (d) => (matCache[d] ||= STYLES[d].colors.map((c) => new THREE.MeshLambertMaterial({ color: c, map: winTex })));
+  const roofGeo = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4);
+  roofGeo.rotateY(Math.PI / 4);
+  const roofMat = lam(0x5a4636);
+  const columnGeo = new THREE.CylinderGeometry(0.45, 0.5, 8, 10);
+  const columnMat = lam(0xeeeae0);
+  const neonMats = [0xff3fa4, 0x34e7ff, 0xb84dff, 0xffe14d].map((c) => new THREE.MeshBasicMaterial({ color: c }));
   const slabGeo = new THREE.BoxGeometry(B, 0.2, B);
   for (let i = 0; i < N; i++) {
     for (let j = 0; j < N; j++) {
@@ -170,7 +199,7 @@ export function buildCity(scene) {
       const cz = (minZ + maxZ) / 2;
       const key = `${i},${j}`;
       const type = SPECIAL[key] || (STORES[key] ? 'store' : 'normal');
-      blocks.push({ i, j, minX, maxX, minZ, maxZ, cx, cz, type });
+      blocks.push({ i, j, minX, maxX, minZ, maxZ, cx, cz, type, district: districtOfBlock(i, j) });
 
       const slab = new THREE.Mesh(slabGeo, lam(0x8d8d8a));
       slab.position.set(cx, 0.1, cz);
@@ -178,7 +207,6 @@ export function buildCity(scene) {
       scene.add(slab);
 
       const iMinX = minX + SW, iMaxX = maxX - SW, iMinZ = minZ + SW, iMaxZ = maxZ - SW;
-      const tall = Math.max(0, 1 - Math.hypot(cx - SIZE / 2, cz - SIZE / 2) / 320);
 
       if (type === 'park') {
         const lawn = new THREE.Mesh(new THREE.BoxGeometry(B - SW * 2, 0.06, B - SW * 2), lam(0x4f7a3f));
@@ -199,6 +227,20 @@ export function buildCity(scene) {
         const hMark = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.1, 0.5), lam(0xf1c40f));
         hMark.position.set(cx, h + 0.1, bz);
         scene.add(hMark);
+      } else if (type === 'cityhall') {
+        const w = 44, d = 30, h = 18;
+        const bz = cz + 4;
+        building(cx, bz, w, d, h, new THREE.MeshLambertMaterial({ color: 0xf0ece2, map: winTex }));
+        const dome = new THREE.Mesh(new THREE.SphereGeometry(9, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), lam(0xd9d2c0));
+        dome.position.set(cx, 0.2 + h, bz);
+        dome.castShadow = true;
+        scene.add(dome);
+        sign('CITY HALL', cx, 12, bz - d / 2 - 0.06, Math.PI, 14, 2.4, '#4a4a4a');
+        for (let k = -3; k <= 3; k++) {
+          const col = new THREE.Mesh(columnGeo, columnMat);
+          col.position.set(cx + k * 5, 0.2 + 4, bz - d / 2 - 0.8);
+          scene.add(col);
+        }
       } else if (type === 'hospital') {
         const w = 40, d = 24, h = 16;
         const bz = iMaxZ - d / 2 - 1;
@@ -223,10 +265,14 @@ export function buildCity(scene) {
         ring.position.set(chop.x, 0.25, chop.z);
         scene.add(ring);
       } else {
+        const district = districtOfBlock(i, j);
+        const st = STYLES[district];
+        const mats = matsFor(district);
+        const pickMat = () => mats[Math.floor(rng() * mats.length)];
+        const height = () => st.h[0] + Math.pow(rng(), 1.4) * (st.h[1] - st.h[0]);
+        const kind = type === 'store' ? 'city' : st.kind;
         const lots = [];
-        if (type === 'normal' && rng() < 0.2) {
-          lots.push({ qx: -1, qz: -1, x: cx, z: cz, w: rr(40, 52), d: rr(40, 52) });
-        } else {
+        const fourLots = () => {
           // Alley mouths between the four buildings: room for a dumpster or some crates.
           const mid = 28;
           const mouths = [
@@ -239,6 +285,52 @@ export function buildCity(scene) {
               lots.push({ qx, qz, x: iMinX + 14 + qx * 28, z: iMinZ + 14 + qz * 28, w: rr(17, 25), d: rr(17, 25) });
             }
           }
+        };
+        if (kind === 'houses') {
+          // Big houses with yards and trees.
+          const yard = new THREE.Mesh(new THREE.BoxGeometry(B - SW * 2, 0.06, B - SW * 2), lam(0x557f45));
+          yard.position.set(cx, 0.22, cz);
+          yard.receiveShadow = true;
+          scene.add(yard);
+          for (let qx = 0; qx < 3; qx++) {
+            for (let qz = 0; qz < 2; qz++) {
+              const w = rr(10, 13), d = rr(9, 12), h = height();
+              const x = iMinX + 9 + qx * 19, z = iMinZ + 10 + qz * 36;
+              building(x, z, w, d, h, pickMat());
+              const roof = new THREE.Mesh(roofGeo, roofMat);
+              roof.scale.set(w * 1.08, 2.6, d * 1.08);
+              roof.position.set(x, 0.2 + h + 1.3, z);
+              roof.castShadow = true;
+              scene.add(roof);
+            }
+          }
+          for (let t = 0; t < 4; t++) tree(rr(iMinX + 3, iMaxX - 3), cz + rr(-4, 4));
+        } else if (kind === 'civic') {
+          // One big stone government building with wide front steps.
+          const w = rr(40, 48), d = rr(28, 36), h = height();
+          building(cx, cz + 3, w, d, h, pickMat());
+          const steps = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, 0.5, 3), lam(0xd8d2c4));
+          steps.position.set(cx, 0.45, cz + 3 - d / 2 - 1.5);
+          scene.add(steps);
+          for (let k = -2; k <= 2; k++) {
+            const col = new THREE.Mesh(columnGeo, columnMat);
+            col.position.set(cx + k * (w * 0.12), 0.2 + 4, cz + 3 - d / 2 - 0.6);
+            scene.add(col);
+          }
+        } else if (kind === 'projects') {
+          // Long, low brick buildings in rows.
+          for (let r = 0; r < 3; r++) lots.push({ x: cx + rr(-2, 2), z: iMinZ + 8 + r * 20, w: rr(40, 48), d: 10 });
+        } else if (kind === 'docks') {
+          // Warehouses, and shipping containers stacked in the yard.
+          lots.push({ x: cx, z: iMinZ + 12, w: rr(42, 50), d: 20 });
+          if (rng() < 0.6) lots.push({ x: cx, z: iMaxZ - 12, w: rr(36, 46), d: 18 });
+          else for (let k = 0; k < 4; k++) containers.push([iMinX + 8 + k * 11, iMaxZ - 10, rng()]);
+        } else if (kind === 'towers' && rng() < 0.35) {
+          lots.push({ x: cx, z: cz, w: rr(30, 40), d: rr(30, 40), hMul: 1.15 });
+        } else if (kind === 'city' && type === 'normal' && rng() < 0.2) {
+          lots.push({ qx: -1, qz: -1, x: cx, z: cz, w: rr(40, 52), d: rr(40, 52) });
+        } else {
+          fourLots();
         }
         for (const lot of lots) {
           if (type === 'store' && lot.qx === 0 && lot.qz === 0) {
@@ -250,12 +342,21 @@ export function buildCity(scene) {
             stores.push({ name, x: lot.x, z: minZ + SW / 2, r: 2.8, cooldown: 0, signMesh });
             continue;
           }
-          const h = 8 + rng() * (14 + tall * 55);
-          building(lot.x, lot.z, lot.w, lot.d, h, buildingMats[Math.floor(rng() * buildingMats.length)]);
+          const h = height() * (lot.hMul || 1);
+          building(lot.x, lot.z, lot.w, lot.d, h, pickMat());
+          if (kind === 'strip') {
+            // Neon across the front.
+            const neon = new THREE.Mesh(new THREE.BoxGeometry(lot.w * 0.85, 0.35, 0.15), neonMats[Math.floor(rng() * neonMats.length)]);
+            neon.position.set(lot.x, 3.6 + rng() * 2.5, lot.z - lot.d / 2 - 0.1);
+            scene.add(neon);
+          }
         }
       }
     }
   }
+
+  // Shipping containers on the docks (low cover).
+  deferredContainers = containers;
 
   // Barriers around the edge of the city.
   const e0 = -R / 2 - 1.5;
@@ -325,9 +426,11 @@ export function buildCity(scene) {
     ctx.fillRect(0, 0, px, px);
     ctx.fillStyle = '#7d8086';
     ctx.fillRect((0 - R / 2 + o) * s, (0 - R / 2 + o) * s, (SIZE + R) * s, (SIZE + R) * s);
-    const colors = { normal: '#2f3439', store: '#2f3439', park: '#3f6b35', police: '#244a8a', chop: '#8a4a12', hospital: '#8a2a2a' };
+    const colors = { park: '#3f6b35', police: '#244a8a', chop: '#8a4a12', hospital: '#8a2a2a', cityhall: '#5a5648' };
+    // Each district a slightly different shade.
+    const shade = { 'The Heights': '#34433a', 'Financial District': '#2b3947', 'Government District': '#45443e', 'The Projects': '#3e302c', 'The Strip': '#362d42', 'The Docks': '#34373b' };
     for (const b of blocks) {
-      ctx.fillStyle = colors[b.type];
+      ctx.fillStyle = colors[b.type] || shade[b.district] || '#2f3439';
       ctx.fillRect((b.minX + o) * s, (b.minZ + o) * s, (b.maxX - b.minX) * s, (b.maxZ - b.minZ) * s);
     }
   };
@@ -345,6 +448,8 @@ export function buildCity(scene) {
     crates.push(box);
   };
 
+  const boxColors = [0xb03a2e, 0x1f618d, 0x1e8449, 0xd68910, 0x7d3c98];
+  for (const [x, z, r] of deferredContainers) addCover(x, z, 2.6, 6.2, 2.6, boxColors[Math.floor(r * boxColors.length)]);
   for (const [x, z, axis, r] of alleyCover) {
     const along = axis === 'x';
     if (r < 0.5) addCover(x, z, along ? 2.2 : 1.3, along ? 1.3 : 2.2, 1.4, 0x2e5e3a); // dumpster
@@ -354,8 +459,9 @@ export function buildCity(scene) {
     }
   }
 
-  // Rival gang hangout: the sidewalk corner of block (1,6) in Southgate.
-  const turf = blocks.find((b) => b.i === 1 && b.j === 6);
+  const blockIJ = ([i, j]) => blocks[i * N + j];
+  // Rival gang hangout: a sidewalk corner in the Projects.
+  const turf = blockIJ(PLACES.gangHome);
   const gangHome = { x: turf.maxX - 4, z: turf.minZ + 4, block: turf };
   addCover(turf.maxX - 10, turf.minZ + 2.2, 1.4, 1.4, 1.1, 0x7a5a32);
   addCover(turf.maxX - 2.2, turf.minZ + 10, 1.4, 1.4, 1.1, 0x7a5a32);
@@ -365,14 +471,15 @@ export function buildCity(scene) {
   addCover(turf.maxX + CFG.ROAD + 2.2, turf.minZ + 6, 1.4, 1.4, 1.1, 0x7a5a32);
   addCover(turf.maxX - 8, turf.minZ - CFG.ROAD - 2.2, 1.4, 1.4, 1.1, 0x7a5a32);
 
-  // Your crew's hangout: the sidewalk outside the downtown park.
-  const homePark = blocks.find((b) => b.i === 3 && b.j === 4);
+  // Your crew's hangout: the sidewalk outside the park in Midtown, next to Downtown.
+  const homePark = blockIJ(PLACES.crewHome);
   const crewHome = { x: homePark.cx + 18, z: homePark.minZ + 2.4, block: homePark };
   addCover(homePark.cx + 18, homePark.minZ + 5.6, 3, 0.8, 0.7, 0x6d4c2f); // bench
 
-  // New players start on the sidewalk outside the downtown park.
-  const park = blocks.find((b) => b.i === 3 && b.j === 4);
-  const spawn = { x: park.cx, z: park.minZ + 2, heading: Math.PI, curbZ: roadC(4) + R / 2 - 1.6 };
+  // New players start on the sidewalk outside that park.
+  const park = homePark;
+  const spawn = { x: park.cx, z: park.minZ + 2, heading: Math.PI, curbZ: roadC(PLACES.crewHome[1]) + R / 2 - 1.6 };
 
+  mergeStatic(scene, firstChild);
   return { colliders, los, crates, blocks, stores, chop, station, hospital, gangHome, crewHome, spawn, nodes, nodeAt, nearestNode, blockAt, groundY, drawMap, size: SIZE, P, N };
 }

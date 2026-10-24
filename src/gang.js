@@ -685,7 +685,7 @@ export class GangManager {
 
   anger() {
     if (!this.angry && this.game.wastedT <= 0 && this.members.some((m) => m.alive)) {
-      this.game.hud.news(`${GANG_NAME} open fire in Southgate`);
+      this.game.hud.news(`${GANG_NAME} open fire in the Projects`);
     }
     this.angry = true;
     this.angryT = 25;

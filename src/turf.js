@@ -1,3 +1,4 @@
+import { START_TURF } from './districts.js';
 import { CFG, GANG_NAME, CREW_NAME, CRED_TIERS } from './config.js';
 import { GangFighter } from './gang.js';
 import { pushCircle, segmentBlocked } from './collision.js';
@@ -41,12 +42,8 @@ export const GANGS = {
   // Not a turf gang: the plug's shooters, sent when you don't pay up.
   plug: { id: 'plug', name: "The plug's shooters", car: 0x111111, color: '#c8c8c8', shirt: 0x202020, bandana: 0x111111, reckless: 0, leader: '', hidden: true },
 };
-const START = {
-  kings: { home: '1,6', blocks: ['1,6', '0,6', '0,7', '1,7', '1,5', '0,5'] },
-  crew: { home: '3,4', blocks: ['3,4', '4,4', '3,5', '4,5', '3,3', '4,3'] },
-  vipers: { home: '6,2', blocks: ['6,2', '6,1', '7,1', '7,2', '6,3', '7,3'] },
-};
-const SAVE_KEY = 'crimecity.turf.v1';
+const START = START_TURF; // see districts.js
+const SAVE_KEY = 'crimecity.turf.v2'; // v2: the bigger map (turf reset to the preset)
 const key = (b) => `${b.i},${b.j}`;
 
 // A gang soldier: a turf guard, or a fighter in a turf war.

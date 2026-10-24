@@ -1,10 +1,11 @@
 import { CFG } from './config.js';
 import { districtAt, streetAt } from './city.js';
+import { DISTRICTS, districtCenter } from './districts.js';
 import { Soldier, GANGS } from './turf.js';
 import { dist, pick, rand, clamp } from './util.js';
 
 // The drug market: supply and demand, per district and per product.
-// - Demand: each district has its own taste (Downtown pays for coke, Southgate smokes weed…).
+// - Demand: each district has its own taste (the Financial District pays for coke, the Projects smoke weed…).
 //   Selling a lot in one place saturates it (demand drops, then slowly comes back), and now and
 //   then something shifts it (a party weekend, a clinic shutting down).
 // - Supply: citywide per product (the plugs) and local per district (the rival gangs dealing
@@ -14,13 +15,16 @@ import { dist, pick, rand, clamp } from './util.js';
 // - Price = base street price × demand / supply (kept between 0.5× and 2.2×). Plugs charge
 //   more when supply is short. Buyers come more often where demand is high.
 // Everything drifts back toward normal over several minutes of play.
-export const DISTRICTS = ['Downtown', 'Hillcrest', 'Southgate', 'Eastside', 'Harbor'];
+export { DISTRICTS };
 const BASE_DEMAND = {
-  Downtown: { weed: 1.0, pills: 1.2, coke: 1.45 },
-  Hillcrest: { weed: 1.15, pills: 1.0, coke: 1.3 },
-  Southgate: { weed: 1.35, pills: 0.9, coke: 0.8 },
-  Eastside: { weed: 1.0, pills: 1.35, coke: 0.9 },
-  Harbor: { weed: 0.85, pills: 1.15, coke: 1.2 },
+  Downtown: { weed: 1.0, pills: 1.2, coke: 1.35 },
+  'Financial District': { weed: 0.9, pills: 1.0, coke: 1.55 },
+  'Government District': { weed: 0.8, pills: 0.95, coke: 1.25 },
+  'The Heights': { weed: 1.15, pills: 1.05, coke: 1.4 },
+  Midtown: { weed: 1.1, pills: 1.1, coke: 1.0 },
+  'The Projects': { weed: 1.35, pills: 1.0, coke: 0.8 },
+  'The Strip': { weed: 1.0, pills: 1.4, coke: 1.2 },
+  'The Docks': { weed: 0.9, pills: 1.2, coke: 0.9 },
 };
 const PRODUCTS = ['weed', 'pills', 'coke'];
 const RELAX = 1 / (8 * 60); // fraction of the gap closed per second (≈8 min to settle)
@@ -38,7 +42,7 @@ let warLevel = 0;
 const base = (d, p) => BASE_DEMAND[d][p] * HOT * (1 - 0.15 * warLevel);
 const PLUG_REPLACE = CFG.TURF_FAST ? 180 : 600; // seconds until a dead plug is replaced
 const KINGPIN_BACK = CFG.TURF_FAST ? 240 : 900;
-const SAVE_KEY = 'crimecity.market.v1';
+const SAVE_KEY = 'crimecity.market.v2'; // v2: the new districts
 const NEW_PLUGS = { weed: ['Lil Smoke', 'Greeny', 'Dub'], pills: ['Script', 'Nurse', 'Benji'], coke: ['Snow', 'Rico', 'White Mike'] };
 const SHOCKS = [
   ['coke', +0.4, 'Party weekend in {d}: coke demand jumping'],
@@ -319,8 +323,7 @@ export class Market {
 
   // Middle of a district, for waypoints and map labels.
   center(d) {
-    const S = CFG.SIZE;
-    return { Downtown: [S / 2, S / 2], Hillcrest: [S * 0.2, S * 0.2], Southgate: [S * 0.2, S * 0.8], Eastside: [S * 0.8, S * 0.2], Harbor: [S * 0.8, S * 0.8] }[d];
+    return districtCenter(d);
   }
 }
 

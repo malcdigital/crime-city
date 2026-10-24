@@ -1,11 +1,48 @@
 import { clamp } from './util.js';
 
+// Spatial grid over a big list of boxes, so a check only looks at boxes nearby. Built lazily and
+// rebuilt when the list changes length (boxes added or removed). Small lists are just scanned.
+const CELL = 24;
+let stamp = 0;
+function candidates(boxes, minX, maxX, minZ, maxZ) {
+  if (boxes.length < 64) return boxes;
+  let g = boxes.grid;
+  if (!g || g.n !== boxes.length) {
+    g = { n: boxes.length, cells: new Map() };
+    for (const b of boxes) {
+      for (let i = Math.floor(b.minX / CELL); i <= Math.floor(b.maxX / CELL); i++) {
+        for (let j = Math.floor(b.minZ / CELL); j <= Math.floor(b.maxZ / CELL); j++) {
+          const k = i * 4096 + j;
+          let c = g.cells.get(k);
+          if (!c) g.cells.set(k, (c = []));
+          c.push(b);
+        }
+      }
+    }
+    Object.defineProperty(boxes, 'grid', { value: g, writable: true, configurable: true });
+  }
+  stamp++;
+  const out = [];
+  for (let i = Math.floor(minX / CELL); i <= Math.floor(maxX / CELL); i++) {
+    for (let j = Math.floor(minZ / CELL); j <= Math.floor(maxZ / CELL); j++) {
+      const c = g.cells.get(i * 4096 + j);
+      if (!c) continue;
+      for (const b of c) {
+        if (b._q === stamp) continue;
+        b._q = stamp;
+        out.push(b);
+      }
+    }
+  }
+  return out;
+}
+
 // Push a circle (x, z, r) out of a list of axis-aligned boxes {minX, maxX, minZ, maxZ}.
 export function pushCircle(x, z, r, boxes) {
   let hit = false;
   let nx = 0;
   let nz = 0;
-  for (const b of boxes) {
+  for (const b of candidates(boxes, x - r, x + r, z - r, z + r)) {
     if (x + r < b.minX || x - r > b.maxX || z + r < b.minZ || z - r > b.maxZ) continue;
     const cx = clamp(x, b.minX, b.maxX);
     const cz = clamp(z, b.minZ, b.maxZ);
@@ -40,7 +77,7 @@ export function pushCircle(x, z, r, boxes) {
 export function segmentBlocked(ax, az, bx, bz, boxes) {
   const dx = bx - ax;
   const dz = bz - az;
-  for (const b of boxes) {
+  for (const b of candidates(boxes, Math.min(ax, bx), Math.max(ax, bx), Math.min(az, bz), Math.max(az, bz))) {
     let tmin = 0;
     let tmax = 1;
     if (Math.abs(dx) < 1e-9) {
@@ -74,7 +111,7 @@ export function segmentBlockedPad(ax, az, bx, bz, boxes, pad) {
   const minZ = Math.min(az, bz) - pad, maxZ = Math.max(az, bz) + pad;
   const dx = bx - ax;
   const dz = bz - az;
-  for (const b of boxes) {
+  for (const b of candidates(boxes, minX, maxX, minZ, maxZ)) {
     if (b.maxX < minX || b.minX > maxX || b.maxZ < minZ || b.minZ > maxZ) continue;
     const x0 = b.minX - pad, x1 = b.maxX + pad, z0 = b.minZ - pad, z1 = b.maxZ + pad;
     let tmin = 0;

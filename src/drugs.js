@@ -56,9 +56,9 @@ export const LOADS = {
   gang: { label: 'Gang run', cost: { weed: 0.8, pills: 0.8, coke: 0.8 }, risk: 0.25 },
 };
 const PLUGS = [
-  { id: 'smokey', name: 'Smokey', product: 'weed', block: [0, 1] },
-  { id: 'doc', name: 'Doc', product: 'pills', block: [7, 5] },
-  { id: 'marco', name: 'Marco', product: 'coke', block: [4, 7] },
+  { id: 'smokey', name: 'Smokey', product: 'weed', block: [1, 9] }, // the Projects
+  { id: 'doc', name: 'Doc', product: 'pills', block: [11, 5] }, // the Strip
+  { id: 'marco', name: 'Marco', product: 'coke', block: [10, 12] }, // the Docks
 ];
 // Customers by cred tier (Nobody .. Kingpin): seconds between them, robbery chance, spend.
 const CUSTOMER_GAP = [90, 70, 55, 45, 35, 25];
@@ -490,7 +490,7 @@ export class Drugs {
         t.t = 25;
         game.hud.toast(`${t.name} is running! Knock him down`, '#ffd36b');
       }
-      if (t.state !== 'shop') game.mapView.waypoint = [t.x, t.z];
+      if (t.state !== 'shop' && dist(px, pz, t.x, t.z) > 25) game.mapView.waypoint = [t.x, t.z]; // follow him (not when he's right there)
       if (!t.standing) {
         this.finishJob(d, t.alive ? `Got it out of ${t.name}` : `Took it off ${t.name}`);
         return;

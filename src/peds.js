@@ -431,7 +431,8 @@ export class PedManager {
     const [px, pz] = this.game.player.pos();
     for (let tries = 0; tries < 10; tries++) {
       const b = pick(this.game.city.blocks);
-      if (dist(b.cx, b.cz, px, pz) < minDist) continue;
+      const d = dist(b.cx, b.cz, px, pz);
+      if (d < minDist || d > Math.max(minDist + 60, 230)) continue; // around you, not across the city
       this.peds.push(new Ped(this.game, b, Math.floor(Math.random() * 4)));
       return;
     }
@@ -457,6 +458,11 @@ export class PedManager {
     const [px, pz] = this.game.player.pos();
     if (this.peds.length > CFG.PEDS) {
       const far = this.peds.find((p) => dist(p.x, p.z, px, pz) > 120 && p.standing && !p.shopkeeper && p.state !== 'buyer' && !p.loot);
+      if (far) far.dispose();
+    }
+    // Way off across the city: gone (they're replaced around you).
+    {
+      const far = this.peds.find((p) => dist(p.x, p.z, px, pz) > 300 && !p.shopkeeper && !p.loot && !p.isPlug);
       if (far) far.dispose();
     }
     this.peds = this.peds.filter((p) => !p.removed);
