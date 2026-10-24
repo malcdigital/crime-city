@@ -268,7 +268,7 @@ export class Bank {
       if (!h.owned) {
         const P = game.property;
         const price = P.price(h);
-        game.prompt = `Press ${key} to buy this ${h.name.toLowerCase()} for ${money(price)} (tax included) · tax ~${money(P.monthlyTax(h))}/mo · upkeep ${money(P.dailyUpkeep(h))}/day`;
+        game.prompt = `Press ${key} to buy this ${h.name.toLowerCase()} for ${money(price)} (tax included) · tax ~${money(P.weeklyTax(h))}/wk · upkeep ${money(P.dailyUpkeep(h))}/day`;
         if (pressed) {
           if (!this.pay(price)) game.hud.toast(`You need ${money(price)} (bank + cash)`, '#ff8080');
           else {
@@ -358,7 +358,7 @@ export class Bank {
     ];
     const P = game.property;
     if (h.owed > 0) {
-      list.push({ label: `Pay what you owe (${money(h.owed)})`, price: 0, priceText: '', detail: 'Back taxes and bills. Two months behind and the city seizes the property.', can: true, buy: () => P.payOwed(h) });
+      list.push({ label: `Pay what you owe (${money(h.owed)})`, price: 0, priceText: '', detail: 'Back taxes and bills. Two weeks behind and the city seizes the property.', can: true, buy: () => P.payOwed(h) });
     }
     list.push({
       label: `Sell it (${money(P.sellPrice(h))})`, price: 0, priceText: '', detail: `Market price ${money(P.price(h))}, less ${money(P.salesTax(P.price(h)))} sales tax. ${P.why(h)}. Take your stash first — it goes with the place.`, can: true,

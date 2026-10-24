@@ -14,15 +14,16 @@ import { pick, rand } from './util.js';
 // - Prices are simple round numbers (to the nearest $500), and the 6% sales tax is already in
 //   them: a $60,000 home costs $60,000, of which $3,396 is sales tax (to the government).
 // - Selling: you get the price minus the sales tax in it.
-// - Property tax: 1% of the current value, every game month (30 game days).
+// - Property tax: 0.25% of the current value, every game week (7 game days = 5h36m of play).
 // - Upkeep (utilities, maintenance): a small charge every game day.
 // - Bills come out of the bank first, then that home's stash. Can't cover it? It's owed; still
-//   owing a month later is a strike, and on the second strike the city seizes the home (and
+//   owing a week later is a strike, and on the second strike the city seizes the home (and
 //   what's in its stash).
 // Taxes go to the city treasury (shown in the pause menu); upkeep goes to the utility companies.
 const SAVE_KEY = 'crimecity.property.v1';
 export const SALES_TAX = 0.06;
-const PROPERTY_TAX = 0.01; // of value, per month
+const PROPERTY_TAX = 0.0025; // of value, per week
+const TAX_EVERY = 7; // game days
 const UPKEEP = 0.0005; // of base price, per game day
 const CRIME_FADE = 1 / 600;
 const money = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
@@ -137,7 +138,7 @@ export class PropertyMarket {
     return p - this.salesTax(p);
   }
 
-  monthlyTax(h) {
+  weeklyTax(h) {
     return Math.round((this.price(h) * PROPERTY_TAX) / 10) * 10;
   }
 
@@ -198,7 +199,7 @@ export class PropertyMarket {
     }
   }
 
-  // A new game day (from the bank's clock): upkeep today; property tax once a month.
+  // A new game day (from the bank's clock): upkeep today; property tax once a week.
   newDay(day) {
     const game = this.game;
     let upkeep = 0;
@@ -207,9 +208,9 @@ export class PropertyMarket {
       const behind = h.owed || 0; // owed before today's bills
       upkeep += this.charge(h, this.dailyUpkeep(h), false);
       if (h.taxDay == null) h.taxDay = day;
-      if (day - h.taxDay >= 30) {
+      if (day - h.taxDay >= TAX_EVERY) {
         h.taxDay = day;
-        // Still owing from last month: a strike. Two strikes and the city takes it.
+        // Still owing from last week: a strike. Two strikes and the city takes it.
         if (behind > 0) {
           h.strikes = (h.strikes || 0) + 1;
           if (h.strikes >= 2) {
@@ -218,7 +219,7 @@ export class PropertyMarket {
           }
           game.hud.text('City Tax Office', `Your ${h.name.toLowerCase()} is behind ${money(h.owed)}. Pay it or the city takes the property.`);
         }
-        tax += this.charge(h, this.monthlyTax(h), true);
+        tax += this.charge(h, this.weeklyTax(h), true);
       }
     }
     if (tax) game.hud.text('City Tax Office', `Property tax: ${money(tax)} paid. Thank you.`);
@@ -284,11 +285,11 @@ export class PropertyMarket {
     const out = [];
     const mine = B.ownedHomes();
     if (mine.length) {
-      const tax = mine.reduce((n, h) => n + this.monthlyTax(h), 0);
+      const tax = mine.reduce((n, h) => n + this.weeklyTax(h), 0);
       const up = mine.reduce((n, h) => n + this.dailyUpkeep(h), 0);
       const owed = mine.reduce((n, h) => n + (h.owed || 0), 0);
       out.push({ head: true, label: 'Your properties', right: '' });
-      out.push({ label: `Bills: ${money(tax)} tax a month · ${money(up)} upkeep a day`, right: owed ? `owe ${money(owed)}` : '', detail: `Taken from the bank, then that home's stash. ${owed ? 'You owe money on a property: pay it at the property or the city seizes it after two missed months.' : 'All paid up.'}` });
+      out.push({ label: `Bills: ${money(tax)} tax a week · ${money(up)} upkeep a day`, right: owed ? `owe ${money(owed)}` : '', detail: `Taken from the bank, then that home's stash. ${owed ? 'You owe money on a property: pay it at the property or the city seizes it after two missed weeks.' : 'All paid up.'}` });
     }
     out.push({ head: true, label: 'Property market', right: '' });
     for (const h of this.all()) {
@@ -297,7 +298,7 @@ export class PropertyMarket {
       out.push({
         label: `${h.name} · ${this.districtOf(h)}${owned ? ' (yours)' : ''}`,
         right: `${money(p)} ${this.trend(h)}`,
-        detail: `${this.why(h)}. ${owned ? `Sells for ${money(this.sellPrice(h))}. Stash ${money(h.stash)}.` : `Includes ${money(this.salesTax(p))} sales tax.`} Property tax ~${money(this.monthlyTax(h))}/month, upkeep ${money(this.dailyUpkeep(h))}/day. ✕ sets a waypoint.`,
+        detail: `${this.why(h)}. ${owned ? `Sells for ${money(this.sellPrice(h))}. Stash ${money(h.stash)}.` : `Includes ${money(this.salesTax(p))} sales tax.`} Property tax ~${money(this.weeklyTax(h))}/week, upkeep ${money(this.dailyUpkeep(h))}/day. ✕ sets a waypoint.`,
         x: h.x,
         z: h.z,
       });

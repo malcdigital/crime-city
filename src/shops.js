@@ -320,7 +320,7 @@ export class Shops {
         const P = game.property;
         const home = game.bank.safeHome;
         const price = P.price(home);
-        game.prompt = `Press ${key} to buy this safehouse for ${money(price)} (tax included; respawn here, stash, rest) · tax ~${money(P.monthlyTax(home))}/mo · upkeep ${money(P.dailyUpkeep(home))}/day`;
+        game.prompt = `Press ${key} to buy this safehouse for ${money(price)} (tax included; respawn here, stash, rest) · tax ~${money(P.weeklyTax(home))}/wk · upkeep ${money(P.dailyUpkeep(home))}/day`;
         if (pressed) {
           if (!game.bank.pay(price)) game.hud.toast(`You need ${money(price)} (bank + cash)`, '#ff8080');
           else {
