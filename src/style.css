@@ -316,3 +316,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #econ-debug td, #econ-debug th { padding: 1px 6px 1px 0; text-align: left; vertical-align: top; }
 #econ-debug th { opacity: .6; font-weight: 600; }
 #econ-debug i { opacity: .6; }
+/* City News and Crime Reports share one story list: show the open app's stories only. */
+#phone-list[data-cat="news"] .news-item.cat-crime, #phone-list[data-cat="crime"] .news-item.cat-news { display: none; }
+#phone-list .news-item.cat-crime { border-left-color: #3b7bff; }

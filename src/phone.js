@@ -12,6 +12,7 @@ const APPS = [
   { id: 'messages', name: 'Messages', icon: '✉', color: '#34c759' },
   { id: 'contacts', name: 'Contacts', icon: '☎', color: '#2ecc71' },
   { id: 'news', name: 'City News', icon: 'N', color: '#e63946' },
+  { id: 'crime', name: 'Crime Reports', icon: '!', color: '#1f3a93' },
   { id: 'missions', name: 'Missions', icon: '★', color: '#f39c12' },
   { id: 'market', name: 'Market', icon: '$', color: '#8e44ad' },
   { id: 'property', name: 'Property', icon: '⌂', color: '#d4ac0d' },
@@ -209,7 +210,7 @@ export class Phone {
         const n = APPS.length;
         if (a.phoneLeft || a.phoneUp) this.homeSel = (this.homeSel - 1 + n) % n;
         if (a.phoneRight || a.phoneDown) this.homeSel = (this.homeSel + 1) % n;
-      } else if (this.app === 'news') {
+      } else if (this.app === 'news' || this.app === 'crime') {
         if (a.phoneUp || a.phoneDown) game.hud.moveClipSelection(a.phoneDown ? 1 : -1);
       } else {
         const n = this.rows().length;
@@ -220,7 +221,7 @@ export class Phone {
     }
     if (a.phoneOk) {
       if (!this.app) this.open(APPS[this.homeSel].id);
-      else if (this.app === 'news') {
+      else if (this.app === 'news' || this.app === 'crime') {
         const clip = game.hud.selectedClip();
         if (clip) game.clipPlayer.play(clip);
       } else this.pick();
@@ -228,7 +229,7 @@ export class Phone {
     if (a.phoneBack && !game.clipPlayer.open) this.back();
     // Live info (timers, cash) refreshes now and then.
     this.refreshT = (this.refreshT || 0) - 1;
-    if (this.refreshT <= 0 && this.app && this.app !== 'news') {
+    if (this.refreshT <= 0 && this.app && this.app !== 'news' && this.app !== 'crime') {
       this.refreshT = 20;
       this.render();
     }
@@ -240,13 +241,15 @@ export class Phone {
     const app = APPS.find((x) => x.id === this.app);
     home.style.display = app ? 'none' : '';
     head.style.display = app ? '' : 'none';
-    list.style.display = this.app === 'news' ? '' : 'none';
-    body.style.display = app && this.app !== 'news' ? '' : 'none';
-    detail.style.display = app && this.app !== 'news' ? '' : 'none';
+    const stories = this.app === 'news' || this.app === 'crime';
+    list.style.display = stories ? '' : 'none';
+    if (stories) list.dataset.cat = this.app === 'crime' ? 'crime' : 'news'; // which stories show
+    body.style.display = app && !stories ? '' : 'none';
+    detail.style.display = app && !stories ? '' : 'none';
     apps.forEach((el, i) => el.classList.toggle('sel', i === this.homeSel));
     // Badges: unread news, money owed, active jobs.
     const D = game.drugs;
-    const badges = { messages: game.hud.unreadTexts || '', contacts: D.debts.length ? '!' : '', news: game.hud.unreadNews || '', missions: D.run || game.turfWars.claim ? '1' : '' };
+    const badges = { messages: game.hud.unreadTexts || '', contacts: D.debts.length ? '!' : '', news: game.hud.unreadNews || '', crime: game.hud.unreadCrime || '', missions: D.run || game.turfWars.claim ? '1' : '' };
     const badge = APPS.map((x) => badges[x.id]);
     apps.forEach((el, i) => {
       const b = el.querySelector('.ph-badge');
@@ -257,6 +260,10 @@ export class Phone {
     head.querySelector('.ph-title').textContent = app.name;
     if (this.app === 'news') {
       game.hud.unreadNews = 0;
+      return;
+    }
+    if (this.app === 'crime') {
+      game.hud.unreadCrime = 0;
       return;
     }
     if (this.app === 'messages') game.hud.unreadTexts = 0;

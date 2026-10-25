@@ -65,6 +65,14 @@ export class MapView {
       }
       drag = null;
     });
+    // Hovering a legend row highlights its marker on the map.
+    this.el.querySelector('.bm-legend').addEventListener('mouseover', (e) => {
+      const r = e.target.closest('.lg-row');
+      this.rowHover = r && +r.dataset.i >= 0 ? +r.dataset.i : null;
+    });
+    this.el.querySelector('.bm-legend').addEventListener('mouseleave', () => {
+      this.rowHover = null;
+    });
     this.el.querySelector('.bm-legend').addEventListener('click', (e) => {
       const r = e.target.closest('.lg-row');
       if (r && +r.dataset.i >= 0) this.jumpTo(+r.dataset.i);
@@ -193,6 +201,7 @@ export class MapView {
   legend() {
     const entries = this.legendEntries();
     const pickable = entries.filter((e) => !e.head && e.x !== null);
+    this.entries = entries;
     this.legendSel = Math.min(this.legendSel ?? 0, pickable.length - 1);
     const sel = pickable[this.legendSel];
     const icon = (e) => {
@@ -541,6 +550,65 @@ export class MapView {
     }
     this.info.innerHTML = this.blockInfo(hb);
     this.legend();
+    this.drawHover(ctx);
+  }
+
+  // Hovering a marker (the mouse, or the controller's cursor) or a legend row: the marker grows
+  // and a label says what it is.
+  drawHover(ctx) {
+    const entries = (this.entries || []).filter((e) => !e.head && e.x != null);
+    let hit = null;
+    if (this.rowHover != null && this.pickable && this.pickable[this.rowHover]) hit = this.pickable[this.rowHover];
+    else {
+      const [mx, my] = this.mouse || this.toScreen(...this.cursor);
+      let best = 15;
+      for (const e of entries) {
+        const [sx, sy] = this.toScreen(e.x, e.z);
+        // Territories (big areas) only win if nothing else is there.
+        const d = Math.hypot(sx - mx, sy - my) + (e.kind === 'swatch' ? 8 : 0);
+        if (d < best) {
+          best = d;
+          hit = e;
+        }
+      }
+    }
+    this.hovered = hit;
+    if (!hit) return;
+    const [sx, sy] = this.toScreen(hit.x, hit.z);
+    const r = 17;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,.6)';
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = hit.kind === 'you' || hit.kind === 'pin' ? '#ffd23f' : hit.kind === 'heli' ? '#3b7bff' : hit.color || '#fff';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    const glyph = hit.kind === 'you' ? '▲' : hit.kind === 'heli' ? '✈' : hit.kind === 'pin' ? '★' : hit.text || '';
+    ctx.fillStyle = hit.kind === 'text' ? '#000' : '#fff';
+    ctx.font = 'bold 16px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(glyph, sx, sy + 1);
+    // The label, above the marker (kept on screen).
+    ctx.font = '600 13px Arial';
+    const w = ctx.measureText(hit.label).width + 18;
+    const bx = Math.max(8, Math.min(innerWidth - w - 8, sx - w / 2));
+    const by = sy - r - 34 < 8 ? sy + r + 8 : sy - r - 34;
+    ctx.fillStyle = 'rgba(10,12,16,.92)';
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(bx, by, w, 26, 6) : ctx.rect(bx, by, w, 26);
+    ctx.fill();
+    ctx.strokeStyle = hit.color || '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.fillText(hit.label, bx + 9, by + 13.5);
+    ctx.restore();
   }
 
   // What's on the block under the cursor.

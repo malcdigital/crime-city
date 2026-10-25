@@ -7,6 +7,16 @@ const esc = (t) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>':
 
 const $ = (id) => document.getElementById(id);
 
+// Which phone app a headline belongs in. City business first (politics, money, the market), then
+// anything about crime; everything else is City News.
+const CITY = /President|City Hall|treasury|budget|tax|election|re-elected|voted out|sworn in|steps down|Housing|home prices|Developers|transit|Factory|landlords|Flooding|investor|utility|Auditors|Internal Affairs|Lawsuit|cleared again|Welcome to Crime City|approval|\bbuys?\b|bought|for sale/i;
+const CRIME = /police|suspect|shoot|shot|kill|murder|robb|raid|arrest|crackdown|gang|turf|Kings|Vipers|Green Street|drug|seize|stolen|break-in|bribe|victim|violence|rampage|roadblock|spike|SWAT|911|officer|plug|connect|kingpin|hunting|wiped|underground|explosion|carjack|footage|sweep|dealer/i;
+export function newsCategory(text, kind) {
+  if (CITY.test(text)) return 'news';
+  if (kind === 'crime' || CRIME.test(text)) return 'crime';
+  return 'news';
+}
+
 export class Hud {
   constructor(city) {
     this.city = city;
@@ -134,22 +144,28 @@ export class Hud {
     this.toastT = 2.2;
   }
 
-  // City News headlines arrive on the player's phone.
-  news(text, kind = 'crime') {
+  // Headlines arrive on the player's phone, in one of two apps: City News (the city, politics,
+  // money) or Crime Reports (shootings, robberies, arrests, raids, gangs). cat: 'news' | 'crime'
+  // (worked out from the headline when not given).
+  news(text, kind = 'crime', cat = null) {
     const time = this.clock();
+    cat = cat || newsCategory(text, kind);
     const list = $('phone-list');
     const item = document.createElement('div');
-    item.className = `news-item ${kind === 'crime' ? '' : kind}`;
+    item.className = `news-item ${kind === 'crime' ? '' : kind} cat-${cat}`;
     item.innerHTML = `<div class="news-time">${esc(time)}</div><div>${esc(text)}</div>`;
     list.prepend(item);
-    while (list.children.length > 30) list.lastChild.remove();
+    // Keep the latest 30 of each kind.
+    const same = [...list.children].filter((el) => el.classList.contains(`cat-${cat}`));
+    for (const el of same.slice(30)) el.remove();
     item._kind = kind;
-    this.unreadNews = (this.unreadNews || 0) + 1;
+    if (cat === 'crime') this.unreadCrime = (this.unreadCrime || 0) + 1;
+    else this.unreadNews = (this.unreadNews || 0) + 1;
     if (!this.phoneOpen) {
       this.unread++;
-      $('pt-icon').textContent = 'N';
-      $('pt-icon').style.background = '';
-      $('pt-app').textContent = 'CITY NEWS';
+      $('pt-icon').textContent = cat === 'crime' ? '!' : 'N';
+      $('pt-icon').style.background = cat === 'crime' ? '#1f3a93' : '';
+      $('pt-app').textContent = cat === 'crime' ? 'CRIME REPORTS' : 'CITY NEWS';
       $('pt-time').textContent = time;
       $('pt-text').textContent = text;
       const toast = $('phone-toast');
@@ -194,8 +210,10 @@ export class Hud {
     item.style.pointerEvents = 'auto';
   }
 
+  // Stories in the list that's showing (City News or Crime Reports).
   clipItems() {
-    return [...$('phone-list').querySelectorAll('.news-item')];
+    const cat = $('phone-list').dataset.cat || 'crime';
+    return [...$('phone-list').querySelectorAll(`.news-item.cat-${cat}`)];
   }
 
   // Scroll the story list (mouse wheel / right stick while the phone is open).

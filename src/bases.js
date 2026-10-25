@@ -206,8 +206,7 @@ export class Bases {
     }
     const b = T.byKey[key];
     const name = this.nameFor(tier, b);
-    if (g !== 'crew') game.hud.news(`${GANGS[g].name} ${up ? 'move up to' : moved ? 'move to' : 'scale down to'} a ${name.toLowerCase()} on ${streetAt(b.cx, b.minZ - 3)}`, 'crime');
-    else game.hud.text(game.shops.homie(), up ? `we movin up. the spot a ${name.toLowerCase()} now` : `money tight. we back to a ${name.toLowerCase()}`);
+    if (g === 'crew') game.hud.text(game.shops.homie(), up ? `we movin up. the spot a ${name.toLowerCase()} now` : `money tight. we back to a ${name.toLowerCase()}`);
     this.save();
   }
 
@@ -353,7 +352,7 @@ export class Bases {
       const b = T.homeBlock(g);
       if (!b || T.underground(g)) continue;
       const strength = this.strength(g);
-      add('blip', GANGS[g].color, String(st.tier), `${GANGS[g].name}${g === 'crew' ? ' (you)' : ''} base: ${this.nameFor(st.tier, b)} (tier ${st.tier}, strength ${strength})${g !== 'crew' ? ` · stash ${money(st.money)}` : ''}`, st.deco ? st.deco.x : b.cx, st.deco ? st.deco.z : b.cz);
+      add('blip', GANGS[g].color, String(st.tier), `${GANGS[g].name}${g === 'crew' ? ' (you)' : ''} base: ${this.nameFor(st.tier, b)} (tier ${st.tier}, strength ${strength})${g !== 'crew' ? ` · stash ${money(st.money)}` : ''}`, st.deco ? st.deco.x + 22 : b.cx, st.deco ? st.deco.z + 8 : b.cz);
     }
   }
 
