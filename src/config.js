@@ -14,6 +14,8 @@ export const CFG = {
   // Testing switch: where you start (in the car): [x, z, heading in degrees], or null. Right now:
   // on Park Ave heading west toward the interchange on the west side of the ring.
   START_AT: [215, 486.4, 270],
+  // Testing switch: the interchange editor in the pause menu (reshape the ramps, then drive them).
+  RAMP_EDITOR: true,
 
   BLOCKS,
   BLOCK,

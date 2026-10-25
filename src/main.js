@@ -13,6 +13,7 @@ import { Props } from './props.js';
 import { Enforcement } from './enforcement.js';
 import { Travel } from './travel.js';
 import { Highway } from './highway.js';
+import { RampEditor, takeStartAt } from './rampeditor.js';
 import { Input } from './input.js';
 import { Player } from './player.js';
 import { Vehicle, resolveCarCollisions } from './vehicle.js';
@@ -86,6 +87,7 @@ class Game {
     this.scene.userData.groundY = this.city.groundY;
     this.highway = new Highway(this); // the ring and crosstown freeways (before the radar is drawn)
     this.city.highway = this.highway;
+    if (CFG.RAMP_EDITOR) this.rampEditor = new RampEditor(this); // (testing: reshape the interchange ramps)
     this.streets = new Streets(this); // traffic lights, stop signs, street lights
     this.city.streetsRef = this.streets;
     this.city.walk = buildSidewalks(this.city, this.scene); // sidewalks and crosswalks for people on foot
@@ -203,9 +205,10 @@ class Game {
     this.hud.clock = () => this.clockText();
     if (CFG.START_IN_CAR && !this.player.vehicle) {
       this.testCar = this.vehicles[0];
-      if (CFG.START_AT) {
+      const startAt = takeStartAt() || CFG.START_AT; // (just saved in the interchange editor: start there)
+      if (startAt) {
         // (testing: start at a set spot)
-        const [x, z, deg] = CFG.START_AT;
+        const [x, z, deg] = startAt;
         const v = this.testCar;
         v.x = x;
         v.z = z;
@@ -2103,6 +2106,12 @@ window.__game = game;
 game.__raycast = raycast; // handy for debugging shots from the console
 document.getElementById('play').addEventListener('click', () => game.start());
 document.getElementById('resume').addEventListener('click', () => game.setPaused(false));
+// Interchange editor (testing) in the pause menu.
+if (game.rampEditor) {
+  const b = document.getElementById('rampedit-btn');
+  b.classList.remove('hidden');
+  b.addEventListener('click', () => game.rampEditor.show());
+}
 // Graphics quality switch in the pause menu (reloads the page).
 {
   const q = document.getElementById('quality');

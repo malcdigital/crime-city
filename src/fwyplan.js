@@ -142,7 +142,9 @@ const sAtU = (local, L, u, sign = 1) => {
 function frame(cx, cz, tx, tz) {
   const rx = -tz;
   const rz = tx;
-  return (u, v) => [cx + tx * u + rx * v, cz + tz * u + rz * v];
+  const W = (u, v) => [cx + tx * u + rx * v, cz + tz * u + rz * v];
+  W.inv = (x, z) => [(x - cx) * tx + (z - cz) * tz, (x - cx) * rx + (z - cz) * rz];
+  return W;
 }
 
 export const RAMPS = [];
@@ -159,6 +161,108 @@ function addRamp(W, path, keys, info) {
   const h = profile(L, keys(local, L, (m) => L[path[m]]));
   const r = { id: rid++, pts, h, L, hw: RAMP_HW, ...info };
   RAMPS.push(r);
+  return r;
+}
+// ---- Ramp edits (from the in-game interchange editor, rampeditor.js) ----
+// Each interchange ramp can be reshaped: a list of control points in the interchange's own
+// frame (u along the freeway, v out to the side), joined by a smooth curve. Edits are saved in
+// the browser; "template" edits apply to every interchange on that freeway (ring / xt), "halves"
+// to one side of one interchange. The end that joins the freeway always stays put.
+export const EDIT_KEY = 'crimecity.rampedits.v1';
+export const EDITS = (() => {
+  try {
+    return JSON.parse(localStorage.getItem(EDIT_KEY) || 'null') || {};
+  } catch {
+    return {};
+  }
+})();
+export const HALVES = []; // one side of an interchange: { id, name, main, dir, W, x, z, ramps: { off, loop, diag } }
+// Fewer points along a polyline (Ramer-Douglas-Peucker), keeping the shape within tol meters.
+function rdp(pts, tol) {
+  if (pts.length < 3) return pts.map((p) => p.slice());
+  const [a, b] = [pts[0], pts[pts.length - 1]];
+  let best = -1;
+  let bd = tol;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = closestOnSegLocal(pts[i], a, b);
+    if (d > bd) {
+      bd = d;
+      best = i;
+    }
+  }
+  if (best < 0) return [a.slice(), b.slice()];
+  return [...rdp(pts.slice(0, best + 1), tol).slice(0, -1), ...rdp(pts.slice(best), tol)];
+}
+function closestOnSegLocal(p, a, b) {
+  const dx = b[0] - a[0];
+  const dz = b[1] - a[1];
+  const l2 = dx * dx + dz * dz || 1e-9;
+  const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / l2));
+  return Math.hypot(p[0] - a[0] - dx * t, p[1] - a[1] - dz * t);
+}
+// A smooth curve through control points (centripetal Catmull-Rom), a point every ~step m.
+export function splinePts(ctrl, step = 2) {
+  const P = ctrl;
+  const out = [P[0].slice()];
+  for (let i = 0; i + 1 < P.length; i++) {
+    const p0 = P[Math.max(0, i - 1)];
+    const p1 = P[i];
+    const p2 = P[i + 1];
+    const p3 = P[Math.min(P.length - 1, i + 2)];
+    const d = (a, b) => Math.max(1e-4, Math.sqrt(Math.hypot(b[0] - a[0], b[1] - a[1])));
+    const t0 = 0;
+    const t1 = t0 + d(p0, p1);
+    const t2 = t1 + d(p1, p2);
+    const t3 = t2 + d(p2, p3);
+    const n = Math.max(1, Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / step));
+    for (let k = 1; k <= n; k++) {
+      const t = t1 + ((t2 - t1) * k) / n;
+      const L = (a, b, ta, tb) => [0, 1].map((j) => (ta === tb ? a[j] : ((tb - t) / (tb - ta)) * a[j] + ((t - ta) / (tb - ta)) * b[j]));
+      const A1 = L(p0, p1, t0, t1);
+      const A2 = L(p1, p2, t1, t2);
+      const A3 = L(p2, p3, t2, t3);
+      const B1 = L(A1, A2, t0, t2);
+      const B2 = L(A2, A3, t1, t3);
+      out.push(L(B1, B2, t1, t2));
+    }
+  }
+  return out;
+}
+// Height along a ramp at arc length s.
+function hAt(r, s) {
+  const L = r.L;
+  if (s <= 0) return r.h[0];
+  for (let i = 1; i < L.length; i++) {
+    if (L[i] >= s) {
+      const t = (s - L[i - 1]) / (L[i] - L[i - 1] || 1);
+      return r.h[i - 1] + (r.h[i] - r.h[i - 1]) * t;
+    }
+  }
+  return r.h[r.h.length - 1];
+}
+// Add a ramp from its default path, then reshape it if it's been edited.
+function editableRamp(W, path, keys, info, half, kind) {
+  const r = addRamp(W, path, keys, info);
+  r.local = path.p.map((p) => p.slice());
+  r.defCtrl = rdp(r.local, 1.2); // (a handful of points to drag)
+  r.ctrl = r.defCtrl;
+  r.editKind = kind;
+  r.half = half.id;
+  half.ramps[kind] = r;
+  const ov = EDITS.halves?.[half.id]?.[kind] || EDITS.template?.[half.main]?.[kind];
+  if (Array.isArray(ov) && ov.length >= 2) {
+    const ctrl = ov.map((p) => [+p[0], +p[1]]);
+    // (the end that joins the freeway stays exactly where it was)
+    if (kind === 'off') ctrl[0] = r.defCtrl[0].slice();
+    else ctrl[ctrl.length - 1] = r.defCtrl[r.defCtrl.length - 1].slice();
+    const loc = splinePts(ctrl);
+    const pts = loc.map(([u, v]) => W(u, v));
+    const L = lengths(pts);
+    const T0 = r.L[r.L.length - 1];
+    const T1 = L[L.length - 1] || 1;
+    const h = L.map((sl) => hAt(r, (sl / T1) * T0));
+    Object.assign(r, { pts, h, L, local: loc, ctrl, edited: true });
+  }
   return r;
 }
 // A world direction from a local one.
@@ -183,23 +287,26 @@ function parcloHalf(W, lanes, cross, opts) {
   const H = 10; // half the cross street's width (they're all avenues, 20 m curb to curb)
   const uL = -(H + RAMP_HW + 0.6); // the loop's straight run in, just off the curb
   const name = opts.name;
+  const [hx, hz] = W(0, 0);
+  const half = { id: `${opts.main}@${Math.round(hx)},${Math.round(hz)}:${opts.dir}`, name, main: opts.main, dir: opts.dir, toward: opts.toward, W, x: hx, z: hz, H, vA, vL, ramps: {} };
+  HALVES.push(half);
 
   // Exit: taper off the right lane, decelerate, swing right and down to the cross street,
   // meeting it square at the curb.
   const off = new Path(-Ud, vL).shift(-Ud + 35, vA).line(-Ud + 40, vA).shift(-40, vOff).line(-H + 1.5, vOff);
-  addRamp(W, off, (lc, L) => [[sAtU(lc, L, -Ud + 38), DECK], [sAtU(lc, L, -42), 0]], {
+  const rOff = editableRamp(W, off, (lc, L) => [[sAtU(lc, L, -Ud + 38), DECK], [sAtU(lc, L, -42), 0]], {
     kind: 'off', main: opts.main, dir: opts.dir, laneFrom: lanes - 1, street: W(0, vOff), name,
-  });
+  }, half, 'off');
   // Loop entrance: from the cross street's curb lane heading away from the freeway, peel off
   // to the right, loop 270 degrees up to the deck, then the acceleration lane across the bridge.
   const loop = new Path(-H + 2.2, 19).line(-H + 2.2, 21).shiftV(uL, vLoop - 2).line(uL, vLoop);
   loop.mark('a').arc(uL - rL, vLoop, rL, 0, Math.PI * 1.5).mark('b');
   loop.line(165, vA);
-  addRamp(W, loop, (lc, L, at) => [[at('a') - 4, 0], [at('b'), DECK]], {
+  const rLoop = editableRamp(W, loop, (lc, L, at) => [[at('a') - 4, 0], [at('b'), DECK]], {
     kind: 'on', loop: true, main: opts.main, dir: opts.dir, laneTo: lanes - 1, street: W(0, 20), name,
     approach: dirOf(W, 0, 1), // (taken by traffic heading away from the freeway: a right turn)
     tail: { v0: vA, v1: vL }, // (the acceleration lane carries on along the freeway: see addTails)
-  });
+  }, half, 'loop');
   // Diagonal entrance: right turn off the cross street lane heading toward the freeway, up
   // alongside to join the acceleration lane.
   // (it stays out wide while it climbs, and only swings in alongside once it's level with
@@ -211,18 +318,25 @@ function parcloHalf(W, lanes, cross, opts) {
   const R = 26;
   const diag = new Path(H - 2.5, vS + 6).line(H - 2.5, vS).arc(H - 2.5 + R, vS, R, Math.PI, Math.PI * 1.5);
   diag.shift(100, vWide).line(118, vWide).shift(150, vA).line(165, vA);
-  addRamp(W, diag, (lc, L) => [[sAtU(lc, L, H + 14), 0], [sAtU(lc, L, 116), DECK]], {
+  const rDiag = editableRamp(W, diag, (lc, L) => [[sAtU(lc, L, H + 14), 0], [sAtU(lc, L, 116), DECK]], {
     kind: 'on', main: opts.main, dir: opts.dir, joinsRamp: true, street: W(0, vS + 6), name,
     approach: dirOf(W, 0, -1), // (taken by traffic heading toward the freeway: a right turn)
-  });
+  }, half, 'diag');
   // (links for traffic between the street's middle and the ramp ends, inside the street)
-  STUBS.push([W(0, vOff), W(-H + 1.5, vOff)], [W(0, 20), W(-H + 2.2, 20)], [W(0, vS + 6), W(H - 2.5, vS + 6)]);
+  const offEnd = rOff.local[rOff.local.length - 1];
+  const loopS = rLoop.local[0];
+  const diagS = rDiag.local[0];
+  STUBS.push([W(0, offEnd[1]), W(...offEnd)], [W(0, loopS[1]), W(...loopS)], [W(0, diagS[1]), W(...diagS)]);
   RAMPS[RAMPS.length - 3].stub = STUBS.length - 3;
   RAMPS[RAMPS.length - 2].stub = STUBS.length - 2;
   RAMPS[RAMPS.length - 1].stub = STUBS.length - 1;
   // Land for the ramps (no streets or buildings).
-  HOLES.push({ poly: rectLocal(W, -Ud - 8, -H, 8, vOff + 10) });
-  HOLES.push({ poly: rectLocal(W, H, 195, 8, vS + 20) }); // (room for the peel-off: side streets keep well clear)
+  // (around wherever the ramps actually run, edited or not)
+  const neg = [...rOff.local, ...rLoop.local].filter(([u]) => u < 0);
+  const pos = rDiag.local.filter(([u]) => u > 0);
+  const mx = (list, j, f) => f(...list.map((p) => p[j]));
+  HOLES.push({ poly: rectLocal(W, Math.min(-Ud - 8, mx(neg, 0, Math.min) - 8), -H, 8, Math.max(vOff + 10, mx(neg, 1, Math.max) + 10)) });
+  HOLES.push({ poly: rectLocal(W, H, Math.max(195, mx(pos, 0, Math.max) + 30), 8, Math.max(vS + 20, mx(pos, 1, Math.max) + 14)) }); // (room for the peel-off: side streets keep well clear)
   // Signs over the right-hand lanes: 200 m before the exit and where it leaves.
   const [ox, oz] = W(0, 0);
   const [tx, tz] = W(1, 0);
@@ -230,8 +344,8 @@ function parcloHalf(W, lanes, cross, opts) {
   SIGNS.push({ at: W(-Ud - 150, vL), ang, text: `EXIT ${name}`, sub: '1/8 MILE', kind: 'advance', h: DECK });
   SIGNS.push({ at: W(-Ud + 25, vA), ang, text: `EXIT ${name}`, sub: '↗', kind: 'exit', h: DECK });
   // On the cross street, at the two entrances.
-  SIGNS.push({ at: W(-H - 1.5, 14), ang: ang + Math.PI / 2, text: opts.toward, kind: 'entrance', h: 0 });
-  SIGNS.push({ at: W(H + 1.5, vS + 14), ang: ang - Math.PI / 2, text: opts.toward, kind: 'entrance', h: 0 });
+  SIGNS.push({ at: W(-H - 1.5, loopS[1] - 5), ang: ang + Math.PI / 2, text: opts.toward, kind: 'entrance', h: 0 });
+  SIGNS.push({ at: W(H + 1.5, diagS[1] + 8), ang: ang - Math.PI / 2, text: opts.toward, kind: 'entrance', h: 0 });
 }
 
 // A full service interchange at a cross street on a straight freeway piece.

@@ -4,7 +4,7 @@ Things we've decided to do later. Check here before planning new work.
 
 ## Don't forget
 - **Easter eggs around the city.** Hidden secrets to find (requested; details to plan when we get to it).
-- **Turn off the testing switches** in `src/config.js` before release: `INFINITE_AMMO`, `START_IN_CAR`, `START_AT`, `CAR_SPAWN_KEY`, `TURF_FAST`, `GANG_RUNS_ANY_RANK`, `MARKET_HOT`, `TEST_INCIDENT`, `TEST_STING`, `TEST_DIRTY_COP`.
+- **Turn off the testing switches** in `src/config.js` before release: `INFINITE_AMMO`, `START_IN_CAR`, `START_AT`, `RAMP_EDITOR`, `CAR_SPAWN_KEY`, `TURF_FAST`, `GANG_RUNS_ANY_RANK`, `MARKET_HOT`, `TEST_INCIDENT`, `TEST_STING`, `TEST_DIRTY_COP`.
 
 ## Later (agreed, not started)
 - **Multiplayer**: other players in your crew answer "Call a player for backup" (the phone row is already there), shared economy, player-owned companies.
