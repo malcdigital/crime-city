@@ -178,3 +178,5 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 2. Playable police and bounty hunter roles
 3. Businesses, territory and turf wars
 4. The report → warrant → manhunt → jury system
+
+Plans for later (including Easter eggs around the city) are in [ROADMAP.md](ROADMAP.md).
