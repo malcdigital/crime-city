@@ -9,7 +9,8 @@ import { streetAt, districtAt } from './city.js';
 import { navStep } from './nav.js';
 import { findCover } from './gang.js';
 import { Helicopter } from './heli.js';
-import { TrafficDriver } from './traffic.js';
+import { TrafficDriver, laneOff } from './traffic.js';
+import { boxCorners } from './geom.js';
 
 // A police officer on foot. Rides hidden inside the unit's car until it dismounts.
 export class Officer {
@@ -312,9 +313,10 @@ export class Officer {
     this.lookT = (this.lookT || 0) - dt;
     if (!this.invGoal || dist(this.x, this.z, this.invGoal[0], this.invGoal[1]) < 1.2 || this.lookT < -6) {
       if (this.lookT <= 0 && this.invGoal) this.lookT = rand(1.5, 3);
-      const side = Math.floor(Math.random() * 4);
-      const u = rand(4, b.maxX - b.minX - 4);
-      this.invGoal = [[b.minX + u, b.minZ - 2], [b.minX + u, b.maxZ + 2], [b.minX - 2, b.minZ + u], [b.maxX + 2, b.minZ + u]][side];
+      const sides = b.sides.filter((sd) => sd.len > 10);
+      const sd = sides.length ? sides[Math.floor(Math.random() * sides.length)] : b.frontSide;
+      const u = rand(4, Math.max(4.1, sd.len - 4));
+      this.invGoal = [sd.ax + sd.ux * u + sd.nx * 2, sd.az + sd.uz * u + sd.nz * 2];
     }
     if (this.lookT > 0) out.face = this.heading + dt * 1.5;
     else {
@@ -825,9 +827,14 @@ export class PoliceManager {
       if (dist(v.x, v.z, kx, kz) < r) out.push({ x: v.x, z: v.z, r: 2.4 });
     }
     for (const b of game.city.los) {
-      for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-        const x = (sx < 0 ? b.minX : b.maxX) + sx * 1.6;
-        const z = (sz < 0 ? b.minZ : b.maxZ) + sz * 1.6;
+      if (b.maxX < kx - r - 30 || b.minX > kx + r + 30 || b.maxZ < kz - r - 30 || b.minZ > kz + r + 30) continue;
+      const cx = (b.minX + b.maxX) / 2;
+      const cz = (b.minZ + b.maxZ) / 2;
+      for (const [x0, z0] of boxCorners(b)) {
+        // Just round the corner, diagonally out from it.
+        const L = Math.hypot(x0 - cx, z0 - cz) || 1;
+        const x = x0 + ((x0 - cx) / L) * 2.2;
+        const z = z0 + ((z0 - cz) / L) * 2.2;
         if (dist(x, z, kx, kz) < r) out.push({ x, z, r: 0 });
       }
     }
@@ -888,12 +895,14 @@ export class PoliceManager {
       spikes.setMatrixAt(k, m.matrix);
     }
     g.add(spikes);
-    g.position.set(cx, 0, cz);
-    g.rotation.y = lx ? 0 : Math.PI / 2; // long side across the road
+    // (lx, lz): the direction across the road; the strip's long side lies along it.
+    const L = Math.hypot(lx, lz) || 1;
+    lx /= L;
+    lz /= L;
+    g.position.set(cx, this.game.city.groundY(cx, cz), cz);
+    g.rotation.y = -Math.atan2(lz, lx);
     this.game.scene.add(g);
-    const hx = lx ? len / 2 : 0.35;
-    const hz = lx ? 0.35 : len / 2;
-    const strip = { x: cx, z: cz, minX: cx - hx, maxX: cx + hx, minZ: cz - hz, maxZ: cz + hz, mesh: g, t: 90 };
+    const strip = { x: cx, z: cz, lx, lz, half: len / 2, mesh: g, t: 90 };
     this.spikes.push(strip);
     return strip;
   }
@@ -913,7 +922,9 @@ export class PoliceManager {
         let popped = 0;
         v.wheels.forEach((w, i) => {
           const [wx, , wz] = v.wheelPos(i);
-          if (wx > s.minX - 0.2 && wx < s.maxX + 0.2 && wz > s.minZ - 0.2 && wz < s.maxZ + 0.2 && v.popTire(i)) popped++;
+          const u = (wx - s.x) * s.lx + (wz - s.z) * s.lz;
+          const sw = -(wx - s.x) * s.lz + (wz - s.z) * s.lx;
+          if (Math.abs(u) < s.half + 0.2 && Math.abs(sw) < 0.55 && v.popTire(i)) popped++;
         });
         if (popped) {
           game.effects.smoke(v.x, 0.5, v.z);
@@ -932,7 +943,8 @@ export class PoliceManager {
   spawnUnit(kind = 'police') {
     const { city } = this.game;
     const st = city.station;
-    const spots = [[st.x - 6, st.z], [st.x + 6, st.z], [st.x, st.z + 5]];
+    // In the yard out front: either side of the door, and a little further out.
+    const spots = [[st.x - st.ux * 6, st.z - st.uz * 6], [st.x + st.ux * 6, st.z + st.uz * 6], [st.x - st.nx * 5, st.z - st.nz * 5]];
     const spot = spots.find(([x, z]) => !this.game.vehicles.some((v) => !v.removed && dist(v.x, v.z, x, z) < 5));
     if (!spot) return false;
     const u = new PoliceUnit(this.game, spot[0], spot[1], st.heading, kind);
@@ -946,16 +958,19 @@ export class PoliceManager {
   // rush: an undercover's backup, already close by, arrives in a couple of seconds.
   raid(x, z, n = 3, rush = false) {
     const game = this.game;
-    const P = CFG.PITCH;
-    const L = CFG.LANE;
-    const lo = -CFG.ROAD / 2;
-    const hi = CFG.SIZE + CFG.ROAD / 2;
-    // The road you're on (or next to): a street runs along x, an avenue along z.
-    const roadX = Math.round(x / P) * P;
-    const roadZ = Math.round(z / P) * P;
-    const street = Math.abs(z - roadZ) <= Math.abs(x - roadX);
-    const along = street ? x : z; // position along the road
-    const at = (s, lane) => (street ? [s, roadZ + lane] : [roadX + lane, s]);
+    // The road you're on (or next to), and how far along it you are.
+    const hit = game.city.edgeAt(x, z);
+    if (!hit) return 0;
+    const e = hit.e;
+    const EL = Math.hypot(e.b.x - e.a.x, e.b.z - e.a.z) || 1;
+    const rux = (e.b.x - e.a.x) / EL;
+    const ruz = (e.b.z - e.a.z) / EL;
+    const L = e.lane || CFG.LANE;
+    const along = (hit.x - e.a.x) * rux + (hit.z - e.a.z) * ruz;
+    // A point s along the road (past its ends too: roads mostly carry on), lane meters right of it.
+    const at = (sAlong, lane) => [e.a.x + rux * sAlong - ruz * lane, e.a.z + ruz * sAlong + rux * lane];
+    const lo = -1e9;
+    const hi = 1e9;
     // Cars come in from both ends, in both lanes, and each heads for its own spot on the
     // road 10-15 m from you (clear of your car and anything else parked there).
     const plans = [[-1, L], [1, -L], [-1, -L], [1, L]];
@@ -977,7 +992,8 @@ export class PoliceManager {
       }
       if (!stage) continue;
       taken.push(stage);
-      const h = street ? (dir < 0 ? Math.PI / 2 : -Math.PI / 2) : dir < 0 ? 0 : Math.PI;
+      // Facing along the road toward you.
+      const h = Math.atan2(-dir * rux, -dir * ruz);
       const u = new PoliceUnit(game, sx, sz, h, 'police');
       u.car.speed = rush ? 24 : 16; // already flying in
       u.rush = rush;
@@ -1016,20 +1032,33 @@ export class PoliceManager {
     cands.sort((p, q) => Math.abs(p.d - 200) - Math.abs(q.d - 200));
     const free = this.units.filter((u) => !u.leaving && !u.carLost && !u.allDead && !u.roadblock && !u.blockPlan && u.mounted);
     for (const { n: best } of cands) {
-      const dx = best.x - v.x;
-      const dz = best.z - v.z;
-      const alongX = Math.abs(dx) > Math.abs(dz);
-      const ax = alongX ? Math.sign(dx) : 0;
-      const az = alongX ? 0 : Math.sign(dz);
-      if (!best.nb.some((m) => m.i !== undefined && Math.sign(m.x - best.x) === -ax && Math.sign(m.z - best.z) === -az)) continue;
+      // The street you'd come in on: the neighbor most toward you.
+      const toV = [v.x - best.x, v.z - best.z];
+      const tl = Math.hypot(...toV) || 1;
+      let arm = null;
+      let ac = 0.7;
+      for (const m of best.nb) {
+        if (!m.street) continue;
+        const ml = dist(m.x, m.z, best.x, best.z) || 1;
+        const c = ((m.x - best.x) * toV[0] + (m.z - best.z) * toV[1]) / (ml * tl);
+        if (c > ac && ml > 20) {
+          ac = c;
+          arm = m;
+        }
+      }
+      if (!arm) continue;
+      const al = dist(arm.x, arm.z, best.x, best.z);
+      // (ax, az): the way toward the junction along that street; (lx, lz): across it.
+      const ax = (best.x - arm.x) / al;
+      const az = (best.z - arm.z) / al;
       const cx = best.x - ax * 14;
       const cz = best.z - az * 14;
-      const lx = alongX ? 0 : 1;
-      const lz = alongX ? 1 : 0;
-      const heading = alongX ? 0 : Math.PI / 2;
+      const lx = -az;
+      const lz = ax;
+      const heading = Math.atan2(lx, lz);
       const playerEta = dist(v.x, v.z, cx, cz) / pSpeed;
       // Rough drive time along the grid for a cruiser.
-      const eta = (x, z) => (Math.abs(x - cx) + Math.abs(z - cz)) / 30 + 2;
+      const eta = (x, z) => (Math.hypot(x - cx, z - cz) * 1.3) / 30 + 2;
       const sources = free.map((u) => ({ u, t: eta(u.car.x, u.car.z) }));
       if (active(this) < CFG.UNITS_PER_STAR[game.stars] + 2) sources.push({ station: true, t: eta(st.x, st.z) + 2 }, { station: true, t: eta(st.x, st.z) + 4 });
       // Patrol cars already out on the streets, far from you and out of sight.
@@ -1059,7 +1088,7 @@ export class PoliceManager {
           u = this.units[this.units.length - 1];
         } else if (s.patrol) {
           const n = s.patrol;
-          const nb = n.nb.filter((m) => m.i !== undefined).reduce((a, b) => (dist(a.x, a.z, cx, cz) < dist(b.x, b.z, cx, cz) ? a : b));
+          const nb = n.nb.filter((m) => m.street).reduce((a, b) => (dist(a.x, a.z, cx, cz) < dist(b.x, b.z, cx, cz) ? a : b));
           u = new PoliceUnit(game, n.x, n.z, Math.atan2(nb.x - n.x, nb.z - n.z));
           this.units.push(u);
           game.vehicles.push(u.car);
@@ -1157,12 +1186,16 @@ export class PoliceManager {
       const from = pick(city.nodes);
       const dd = dist(from.x, from.z, px, pz);
       if (dd < 110 || dd > 260) continue;
-      const to = pick(from.nb);
+      const opts = from.nb.filter((m) => m.street && !m.rampEnd);
+      if (!opts.length) continue;
+      const to = pick(opts);
       const L = dist(from.x, from.z, to.x, to.z);
+      if (L < 30) continue;
       const ux = (to.x - from.x) / L;
       const uz = (to.z - from.z) / L;
-      const x = from.x + ux * 14 - uz * CFG.LANE;
-      const z = from.z + uz * 14 + ux * CFG.LANE;
+      const off = laneOff(from, to);
+      const x = from.x + ux * 14 - uz * off;
+      const z = from.z + uz * 14 + ux * off;
       if (game.vehicles.some((v) => !v.removed && dist(v.x, v.z, x, z) < 8)) continue;
       const u = new PoliceUnit(game, x, z, Math.atan2(ux, uz), 'police');
       u.car.siren = false;

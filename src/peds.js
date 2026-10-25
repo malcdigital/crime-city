@@ -1,9 +1,10 @@
 import { CFG } from './config.js';
+import { closestOnBox } from './geom.js';
 import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES } from './character.js';
 import { pushCircle } from './collision.js';
 import { pick, rand, dist, lerpAngle } from './util.js';
 import { navStep, escapePoint } from './nav.js';
-import { corners, CROSSINGS, sameSide, sideBlock, curbPoint } from './sidewalk.js';
+import { sameSide, sideBlock, curbPoint, walkNeighbors } from './sidewalk.js';
 import { findCover } from './gang.js';
 
 const SHIRTS = [0xe74c3c, 0x3498db, 0xf1c40f, 0x9b59b6, 0xecf0f1, 0x1abc9c, 0xe67e22, 0x34495e, 0xff7eb6, 0x95a5a6];
@@ -14,12 +15,16 @@ export class Ped {
     this.game = game;
     this.char = makeCharacter({ shirt: pick(SHIRTS), pants: pick(PANTS), skin: pick(SKIN_TONES) });
     game.scene.add(this.char.group);
-    this.block = block;
-    this.corner = corner;
     this.dir = Math.random() < 0.5 ? 1 : -1;
-    const [cx, cz] = corners(block)[corner];
-    this.x = cx;
-    this.z = cz;
+    // Where on the sidewalks: heading for walk point `pt` (see sidewalk.js), from `prev`.
+    const W = game.city.walk;
+    const ids = W.blockPts.get(block);
+    this.pt = ids ? W.pts[ids[corner % ids.length]] : W.pts[0];
+    this.prev = null;
+    this.cross = null;
+    this.block = this.pt.b;
+    this.x = this.pt.x;
+    this.z = this.pt.z;
     this.heading = 0;
     this.speed = 0;
     this.walkSpeed = rand(1.2, 1.7);
@@ -149,16 +154,22 @@ export class Ped {
   }
 
   resumeWalking() {
-    const city = this.game.city;
-    const i = Math.max(0, Math.min(CFG.BLOCKS - 1, Math.floor(this.x / CFG.PITCH)));
-    const j = Math.max(0, Math.min(CFG.BLOCKS - 1, Math.floor(this.z / CFG.PITCH)));
-    this.block = city.blocks[i * CFG.BLOCKS + j];
-    const cs = corners(this.block);
-    let best = 0;
-    cs.forEach(([x, z], k) => {
-      if (dist(x, z, this.x, this.z) < dist(cs[best][0], cs[best][1], this.x, this.z)) best = k;
-    });
-    this.corner = best;
+    // Head for the nearest sidewalk point (preferring one on the block you're on).
+    const W = this.game.city.walk;
+    const here = this.game.city.blockAt(this.x, this.z);
+    let best = null;
+    let bd = Infinity;
+    for (const p of W.pts) {
+      const d = dist(p.x, p.z, this.x, this.z) - (p.b === here ? 20 : 0);
+      if (d < bd) {
+        bd = d;
+        best = p;
+      }
+    }
+    this.pt = best;
+    this.prev = null;
+    this.cross = null;
+    this.block = best.b;
     this.state = 'walk';
   }
 
@@ -310,17 +321,14 @@ export class Ped {
       }
       if (d > 40 || game.stars === 0) this.afterFlee();
     } else {
-      const cs = corners(this.block);
-      [tx, tz] = cs[this.corner];
+      [tx, tz] = [this.pt.x, this.pt.z];
       this.hurryT = Math.max(0, (this.hurryT || 0) - dt);
       speed = this.walkSpeed * (this.hurryT > 0 ? 1.6 : 1);
       // About to cross at a traffic light: wait on the curb for the walk signal.
       const S = game.streets;
       const onCurb = game.city.blockAt(this.x, this.z);
-      if (S && onCurb && onCurb !== this.block && dist(this.x, this.z, tx, tz) < 22) {
-        const n = S.nodeNear((this.x + tx) / 2, (this.z + tz) / 2);
-        const axis = Math.abs(tx - this.x) > Math.abs(tz - this.z) ? 'EW' : 'NS';
-        if (n && !S.canWalk(n, axis)) {
+      if (S && onCurb && this.cross && onCurb !== this.pt.b && dist(this.x, this.z, tx, tz) < 40) {
+        if (!S.canWalk(this.cross.n, this.cross.axis)) {
           speed = 0;
           this.heading = lerpAngle(this.heading, Math.atan2(tx - this.x, tz - this.z), Math.min(1, dt * 4));
         }
@@ -401,30 +409,38 @@ export class Ped {
     let best = null;
     let bestD = 30;
     for (const b of this.game.city.los) {
-      const cx = Math.max(b.minX, Math.min(this.x, b.maxX));
-      const cz = Math.max(b.minZ, Math.min(this.z, b.maxZ));
-      const d = dist(this.x, this.z, cx, cz);
+      if (b.maxX < this.x - 30 || b.minX > this.x + 30 || b.maxZ < this.z - 30 || b.minZ > this.z + 30) continue;
+      const c = closestOnBox(b, this.x, this.z);
+      const d = dist(this.x, this.z, c.x, c.z);
       if (d < bestD && d > 0.01) {
         bestD = d;
-        best = [cx + ((this.x - cx) / d) * 0.6, cz + ((this.z - cz) / d) * 0.6];
+        best = [c.x + c.nx * 0.6, c.z + c.nz * 0.6];
       }
     }
     return best;
   }
 
+  // At a sidewalk point: on round the block, or (sometimes) across the street.
   arrive() {
-    if (Math.random() < 0.25) {
-      const opts = CROSSINGS[this.corner];
-      const [di, dj, nc] = pick(opts);
-      const i = this.block.i + di;
-      const j = this.block.j + dj;
-      if (i >= 0 && j >= 0 && i < CFG.BLOCKS && j < CFG.BLOCKS) {
-        this.block = this.game.city.blocks[i * CFG.BLOCKS + j];
-        this.corner = nc;
-        return;
-      }
-    }
-    this.corner = (this.corner + this.dir + 4) % 4;
+    const W = this.game.city.walk;
+    const opts = walkNeighbors(W, this.pt).filter((o) => o.p !== this.prev);
+    const along = opts.filter((o) => !o.cross);
+    const across = opts.filter((o) => o.cross);
+    let go = null;
+    if (across.length && (Math.random() < 0.25 || !along.length)) go = pick(across);
+    else if (along.length) {
+      // Keep going the same way round the block.
+      const ids = W.blockPts.get(this.pt.b);
+      const k = ids.indexOf(this.pt.id);
+      const nextId = ids[(k + this.dir + ids.length) % ids.length];
+      go = along.find((o) => o.p.id === nextId) || pick(along);
+    } else if (opts.length) go = pick(opts);
+    else go = walkNeighbors(W, this.pt)[0];
+    if (!go) return;
+    this.prev = this.pt;
+    this.pt = go.p;
+    this.cross = go.cross;
+    this.block = go.p.b;
   }
 
   dispose() {
@@ -442,12 +458,14 @@ export class PedManager {
   spawn(minDist) {
     const [px, pz] = this.game.player.pos();
     const rhythm = this.game.rhythm;
+    const W = this.game.city.walk;
     for (let tries = 0; tries < 16; tries++) {
       const b = pick(this.game.city.blocks);
+      if (!W.blockPts.has(b)) continue;
       const d = dist(b.cx, b.cz, px, pz);
       if (d < minDist || d > Math.max(minDist + 60, 230)) continue; // around you, not across the city
       if (rhythm && !rhythm.accept(b.cx, b.cz, 'p')) continue; // busier blocks get more people
-      this.peds.push(new Ped(this.game, b, Math.floor(Math.random() * 4)));
+      this.peds.push(new Ped(this.game, b, Math.floor(Math.random() * 20)));
       return;
     }
   }
@@ -463,10 +481,11 @@ export class PedManager {
 
   // Add a ped at a spot (e.g. a driver pulled out of a car).
   addAt(x, z) {
-    const b = this.game.city.blocks[0];
-    const p = new Ped(this.game, b, 0);
+    const W = this.game.city.walk;
+    const p = new Ped(this.game, W.pts[0].b, 0);
     p.x = x;
     p.z = z;
+    p.resumeWalking();
     this.peds.push(p);
     return p;
   }

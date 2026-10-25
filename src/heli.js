@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { lam } from './character.js';
-import { rayBox } from './weapons.js';
+import { rayHitBox } from './weapons.js';
 import { clamp, dist, lerp, lerpAngle, rand } from './util.js';
 
 const ALT = 34; // cruising height above the street
@@ -113,7 +113,7 @@ export class Helicopter {
     const len = Math.hypot(dx, dy, dz) || 1;
     for (const b of game.city.los) {
       if (Math.abs((b.minX + b.maxX) / 2 - (this.x + x) / 2) > 80 || Math.abs((b.minZ + b.maxZ) / 2 - (this.z + z) / 2) > 80) continue;
-      const t = rayBox(this.x, this.y - 2, this.z, dx / len, dy / len, dz / len, b.minX, 0, b.minZ, b.maxX, b.h || 30, b.maxZ);
+      const t = rayHitBox(this.x, this.y - 2, this.z, dx / len, dy / len, dz / len, b);
       if (t !== null && t < len - 1) return false;
     }
     return true;
@@ -134,7 +134,7 @@ export class Helicopter {
     const len = Math.hypot(dx, dy, dz);
     for (const b of game.city.los) {
       if (Math.abs((b.minX + b.maxX) / 2 - (this.x + px) / 2) > 80 || Math.abs((b.minZ + b.maxZ) / 2 - (this.z + pz) / 2) > 80) continue;
-      const t = rayBox(this.x, this.y - 1, this.z, dx / len, dy / len, dz / len, b.minX, 0, b.minZ, b.maxX, b.h || 30, b.maxZ);
+      const t = rayHitBox(this.x, this.y - 1, this.z, dx / len, dy / len, dz / len, b);
       if (t !== null && t < len - 0.5) return false;
     }
     return true;

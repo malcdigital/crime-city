@@ -122,6 +122,17 @@ export function rayBox(ox, oy, oz, dx, dy, dz, x0, y0, z0, x1, y1, z1) {
   return tmin;
 }
 
+// Ray against a box (plain or rotated), grown by pad on every side. Box tops: y0 + h (y0
+// defaults to 0). Returns the distance, or null.
+export function rayHitBox(ox, oy, oz, dx, dy, dz, b, pad = 0, top = b.h || 30) {
+  const y0 = b.y0 || 0;
+  if (!b.ob) return rayBox(ox, oy, oz, dx, dy, dz, b.minX - pad, y0, b.minZ - pad, b.maxX + pad, y0 + top, b.maxZ + pad);
+  const o = b.ob;
+  const ex = ox - o.cx;
+  const ez = oz - o.cz;
+  return rayBox(ex * o.c + ez * o.s, oy, -ex * o.s + ez * o.c, dx * o.c + dz * o.s, dy, -dx * o.s + dz * o.c, -o.hx - pad, y0, -o.hz - pad, o.hx + pad, y0 + top, o.hz + pad);
+}
+
 // Bullet ray test against the ground, buildings, people and cars.
 export function raycast(game, ox, oy, oz, dx, dy, dz, maxT, ignore = null, solidOnly = false) {
   let best = { t: maxT, type: 'none' };

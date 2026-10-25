@@ -26,13 +26,15 @@ const rng = mulberry(20261025);
 const rr = (a, b) => a + rng() * (b - a);
 
 // ---- Road classes: curb-to-curb width and sidewalk width ----
+// lane: from the middle of the road to the middle of the travel lane each way; rank: which
+// road has priority at a junction.
 export const ROAD_CLASS = {
-  arterial: { w: 20, sw: 5, parking: true },
-  collector: { w: 16, sw: 4, parking: true },
-  local: { w: 13, sw: 3, parking: false },
-  under: { w: 16, sw: 3, parking: false }, // under a freeway
-  hills: { w: 10, sw: 0, parking: false },
-  pier: { w: 12, sw: 0, parking: false },
+  arterial: { w: 20, sw: 5, parking: true, lane: 3.6, rank: 5 },
+  collector: { w: 16, sw: 4, parking: true, lane: 3.4, rank: 4 },
+  local: { w: 13, sw: 3, parking: false, lane: 3.0, rank: 2 },
+  under: { w: 16, sw: 3, parking: false, lane: 3.4, rank: 3 }, // under a freeway
+  hills: { w: 10, sw: 0, parking: false, lane: 2.6, rank: 2 },
+  pier: { w: 12, sw: 0, parking: false, lane: 3.0, rank: 1 },
 };
 
 const { x0: RX0, z0: RZ0, x1: RX1, z1: RZ1 } = RING;
@@ -464,6 +466,8 @@ function buildGraph() {
       const e = { id: edges.length, a: prev, b: n, cls: st.cls, name: st.name, street: st, culDeSac: !!st.culDeSac };
       e.other = (m) => (m === e.a ? e.b : e.a);
       e.w = ROAD_CLASS[st.cls].w;
+      e.lane = ROAD_CLASS[st.cls].lane;
+      e.rank = ROAD_CLASS[st.cls].rank;
       edges.push(e);
       prev.edges.push(e);
       n.edges.push(e);
@@ -474,6 +478,8 @@ function buildGraph() {
     if (!e.a.nb.includes(e.b)) e.a.nb.push(e.b);
     if (!e.b.nb.includes(e.a)) e.b.nb.push(e.a);
   }
+  // Each node: the edge toward each neighbor.
+  for (const n of nodes) n.edgeTo = new Map(n.edges.map((e) => [e.other(n), e]));
   return { nodes, edges };
 }
 
@@ -595,7 +601,7 @@ function makeBlock(f, id) {
   else if (A < 900) type = 'plaza';
   const names = f.edges.map((e) => e.name).filter(Boolean);
   return {
-    id, key: `b${id}`, face: poly, poly: curb, cx, cz, ...bb, district,
+    id, key: `b${id}`, face: poly, ring: f.poly, poly: curb, cx, cz, ...bb, district,
     zone: zone ? zone.id : (district === 'The Heights' ? 'heights' : district === 'The Docks' ? 'docks' : 'edge'),
     type, area: A, rampShare,
     edges: f.edges,

@@ -258,3 +258,51 @@ export function mulberry(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+// Closest point on a box's outline (plain or rotated: `ob`) to (x, z), and the outward normal
+// of the face it's on. Inside the box: the nearest face.
+export function closestOnBox(b, x, z) {
+  if (b.ob) {
+    const o = b.ob;
+    const ex = x - o.cx;
+    const ez = z - o.cz;
+    const u = ex * o.c + ez * o.s;
+    const v = -ex * o.s + ez * o.c;
+    const [cu, cv, nu, nv] = clampFace(u, v, o.hx, o.hz);
+    return { x: o.cx + cu * o.c - cv * o.s, z: o.cz + cu * o.s + cv * o.c, nx: nu * o.c - nv * o.s, nz: nu * o.s + nv * o.c };
+  }
+  const hx = (b.maxX - b.minX) / 2;
+  const hz = (b.maxZ - b.minZ) / 2;
+  const cx = (b.minX + b.maxX) / 2;
+  const cz = (b.minZ + b.maxZ) / 2;
+  const [cu, cv, nu, nv] = clampFace(x - cx, z - cz, hx, hz);
+  return { x: cx + cu, z: cz + cv, nx: nu, nz: nv };
+}
+function clampFace(u, v, hx, hz) {
+  const inside = Math.abs(u) <= hx && Math.abs(v) <= hz;
+  if (!inside) {
+    const cu = Math.max(-hx, Math.min(hx, u));
+    const cv = Math.max(-hz, Math.min(hz, v));
+    const du = u - cu;
+    const dv = v - cv;
+    const L = Math.hypot(du, dv) || 1;
+    // Normal: the face (or corner) direction.
+    if (Math.abs(du) > Math.abs(dv)) return [cu, cv, Math.sign(du), 0];
+    if (Math.abs(dv) > 0) return [cu, cv, 0, Math.sign(dv)];
+    return [cu, cv, du / L, dv / L];
+  }
+  // Inside: out through the nearest face.
+  const fu = hx - Math.abs(u);
+  const fv = hz - Math.abs(v);
+  if (fu < fv) return [Math.sign(u || 1) * hx, v, Math.sign(u || 1), 0];
+  return [u, Math.sign(v || 1) * hz, 0, Math.sign(v || 1)];
+}
+
+// The four corners of a box (plain or rotated).
+export function boxCorners(b) {
+  if (b.ob) {
+    const o = b.ob;
+    return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([su, sv]) => [o.cx + su * o.hx * o.c - sv * o.hz * o.s, o.cz + su * o.hx * o.s + sv * o.hz * o.c]);
+  }
+  return [[b.minX, b.minZ], [b.maxX, b.minZ], [b.maxX, b.maxZ], [b.minX, b.maxZ]];
+}

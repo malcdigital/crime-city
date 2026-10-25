@@ -180,7 +180,7 @@ export class Phone {
     if (!D.run && !D.debts.length) out.push({ label: 'Supply run', right: 'Call a plug', detail: 'Pick up product from a plug and bring it back to the hangout.', act: () => this.open('contacts') });
     if (D.holding()) out.push({ label: 'Sell product', right: D.hudLine(), detail: 'Hang around (no cops, no run going) and buyers come to you.' });
     const free = T.blocks.filter((b) => {
-      const k = `${b.i},${b.j}`;
+      const k = b.key;
       return !T.owner[k] && !T.locked(k) && !T.warOn(k) && (T.claimCooldown[k] || 0) < Date.now();
     }).sort((a, b) => dist(a.cx, a.cz, px, pz) - dist(b.cx, b.cz, px, pz));
     if (free.length && !T.claim) {
@@ -190,12 +190,12 @@ export class Phone {
       out.push({ label: 'Claim a block', right: ok ? `${Math.round(dist(b.cx, b.cz, px, pz))} m` : CRED_TIERS[need].name, off: !ok, detail: ok ? 'Nearest unclaimed block: tag it, shake it down, hold it.' : `Needs ${CRED_TIERS[need].name} street cred.`, act: ok ? way(b.cx, b.cz, 'Waypoint set: nearest unclaimed block') : null });
     }
     const rival = T.blocks.filter((b) => {
-      const k = `${b.i},${b.j}`;
+      const k = b.key;
       const g = T.owner[k];
       return g && g !== 'crew' && !T.locked(k) && T.home[g] !== k;
     }).sort((a, b) => dist(a.cx, a.cz, px, pz) - dist(b.cx, b.cz, px, pz))[0];
     if (rival) {
-      const g = T.owner[`${rival.i},${rival.j}`];
+      const g = T.owner[rival.key];
       out.push({ label: `Hit ${GANGS[g].name} turf`, right: `${Math.round(dist(rival.cx, rival.cz, px, pz))} m`, detail: 'Kill 3 of theirs on the block to start a turf war.', act: way(rival.cx, rival.cz) });
     }
     if (!out.length) out.push({ label: 'Nothing going on', right: '', detail: '' });

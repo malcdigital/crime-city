@@ -130,7 +130,7 @@ export class Market {
     for (const b of T.blocks) {
       if (districtAt(b.cx, b.cz) !== d) continue;
       n++;
-      const g = T.owner[`${b.i},${b.j}`];
+      const g = T.owner[b.key];
       if (g && g !== 'crew') rival += this.kingpinAlive(g) ? 1 : 0.3;
     }
     return n ? (rival / n) * 0.6 : 0;
@@ -236,8 +236,9 @@ export class Market {
         // Standing in the middle of their home base crowd.
         const [px, pz] = game.player.pos();
         if (dist(home.cx, home.cz, px, pz) < 90) continue; // not while you're watching
-        const x = home.cx + rand(-4, 4);
-        const z = home.minZ + 5;
+        const fp = game.city.frontPoint(home, 5);
+        const x = fp.x + fp.ux * rand(-4, 4);
+        const z = fp.z + fp.uz * rand(-4, 4);
         const s = new Soldier(game, T, x, z, g, null, 'guard');
         s.kingpin = true;
         s.health = 260;

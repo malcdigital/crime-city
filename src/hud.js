@@ -1,4 +1,5 @@
-import { MARGIN } from './hwlayout.js';
+import { fillTurf, strokeTurf, fillBlocks, strokeBlock } from './turfdraw.js';
+const MARGIN = 0; // (the map is the whole world)
 import { drawHeli, drawSearchlight } from './heliicon.js';
 import { CFG, CRED_TIERS } from './config.js';
 import { GANGS } from './turf.js';
@@ -403,7 +404,7 @@ export class Hud {
     ctx.fillRect(0, 0, 200, 200);
 
     // City background, rotated around the player.
-    const sb = 1024 / (CFG.SIZE + MARGIN * 2);
+    const sb = 1024 / (game.city.size + MARGIN * 2);
     ctx.save();
     ctx.translate(C, C);
     ctx.rotate(rot);
@@ -417,26 +418,17 @@ export class Hud {
     ctx.translate(C, C);
     ctx.rotate(rot);
     ctx.scale(k, k);
-    const half = CFG.ROAD / 2;
+    const allBlocks = game.city.blocks;
     for (const t of game.turfWars.view()) {
       const war = t.gang === 'kings' && game.gang.angry;
       ctx.globalAlpha = war ? 0.33 + 0.15 * Math.sin(performance.now() / 180) : 0.26;
       ctx.fillStyle = t.color;
-      for (const b of t.blocks) ctx.fillRect(b.minX - half - px, b.minZ - half - pz, b.maxX - b.minX + CFG.ROAD, b.maxZ - b.minZ + CFG.ROAD);
+      fillTurf(ctx, t.blocks, px, pz);
       // Border around the whole area (only the outer edges).
       ctx.globalAlpha = 0.9;
       ctx.strokeStyle = t.color;
       ctx.lineWidth = 2.2 / k;
-      const has = (i, j) => t.blocks.some((o) => o.i === i && o.j === j);
-      ctx.beginPath();
-      for (const b of t.blocks) {
-        const x0 = b.minX - half - px, x1 = b.maxX + half - px, z0 = b.minZ - half - pz, z1 = b.maxZ + half - pz;
-        if (!has(b.i - 1, b.j)) { ctx.moveTo(x0, z0); ctx.lineTo(x0, z1); }
-        if (!has(b.i + 1, b.j)) { ctx.moveTo(x1, z0); ctx.lineTo(x1, z1); }
-        if (!has(b.i, b.j - 1)) { ctx.moveTo(x0, z0); ctx.lineTo(x1, z0); }
-        if (!has(b.i, b.j + 1)) { ctx.moveTo(x0, z1); ctx.lineTo(x1, z1); }
-      }
-      ctx.stroke();
+      strokeTurf(ctx, t.blocks, allBlocks, px, pz);
     }
     // Blocks being fought over flash between the two gangs' colors.
     for (const w of game.turfWars.wars) {
@@ -444,7 +436,7 @@ export class Hud {
       const on = Math.floor(performance.now() / 300) % 2 === 0;
       ctx.globalAlpha = 0.55;
       ctx.fillStyle = on ? GANGS[w.attacker].color : w.defender ? GANGS[w.defender].color : '#ffffff';
-      ctx.fillRect(b.minX - px, b.minZ - pz, b.maxX - b.minX, b.maxZ - b.minZ);
+      fillBlocks(ctx, [b], px, pz);
     }
     ctx.globalAlpha = 1;
     ctx.restore();

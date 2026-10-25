@@ -1,9 +1,9 @@
 import { CFG } from './config.js';
 import { Vehicle } from './vehicle.js';
-import { TrafficDriver } from './traffic.js';
+import { TrafficDriver, laneOff } from './traffic.js';
 import { streetAt, districtAt } from './city.js';
 import { DISTRICTS, districtCenter } from './districts.js';
-import { sideBlock } from './sidewalk.js';
+import { closestOnSeg } from './geom.js';
 import { dist } from './util.js';
 
 // Getting around by taxi and bus (fast travel).
@@ -13,7 +13,8 @@ import { dist } from './util.js';
 // - Nobody gives you a ride while you're wanted.
 // The trip is a quick cinematic cut: you get in, the screen fades, and you're dropped off at
 // the curb. The clock moves on by however long the drive would have taken.
-const P = CFG.PITCH;
+const BLOCK = 80; // a "block" of taxi fare, in meters of driving
+const trip = (ax, az, bx, bz) => Math.hypot(bx - ax, bz - az) * 1.3; // about how far by road
 const TAXI_BASE = 20;
 const TAXI_PER_BLOCK = 1;
 const BUS_FARE = 5;
@@ -85,7 +86,7 @@ export class Travel {
     d.hold = true;
     this.hailed = car;
     const [px, pz] = game.player.pos();
-    const fare = (x, z) => TAXI_BASE + TAXI_PER_BLOCK * Math.max(1, Math.round((Math.abs(x - px) + Math.abs(z - pz)) / P));
+    const fare = (x, z) => TAXI_BASE + TAXI_PER_BLOCK * Math.max(1, Math.round(trip(px, pz, x, z) / BLOCK));
     const place = (label, x, z, detail) => {
       const f = fare(x, z);
       const close = dist(x, z, px, pz) < 60;
@@ -108,7 +109,7 @@ export class Travel {
       out.push(place('Green Street hangout', c.crewHome.x, c.crewHome.z));
       const s = game.shops;
       out.push(place(s.gun.name, s.gun.x, s.gun.z));
-      out.push(place(s.garage.name, s.garage.x, s.garage.z - 4));
+      out.push(place(s.garage.name, s.garage.x, s.garage.z));
       const bank = [...(game.bank?.banks || [])].sort((p1, p2) => dist(p1.x, p1.z, px, pz) - dist(p2.x, p2.z, px, pz))[0];
       if (bank) out.push(place(`${bank.name} (nearest bank)`, bank.x, bank.z));
       if (c.chop) out.push(place('Chop shop', c.chop.x, c.chop.z));
@@ -152,7 +153,7 @@ export class Travel {
   // Game minutes the trip takes (the clock runs 30x: a second of driving is half a minute).
   minutes(x, z, speed) {
     const [px, pz] = this.game.player.pos();
-    return Math.max(1, Math.round(((Math.abs(x - px) + Math.abs(z - pz)) / speed) * 0.5));
+    return Math.max(1, Math.round((trip(px, pz, x, z) / speed) * 0.5));
   }
 
   // ---- The ride (a quick cut scene) ----
@@ -161,7 +162,7 @@ export class Travel {
     const game = this.game;
     const [px, pz] = game.player.pos();
     const speed = kind === 'taxi' ? TAXI_SPEED : BUS_SPEED;
-    const secs = (Math.abs(x - px) + Math.abs(z - pz)) / speed;
+    const secs = trip(px, pz, x, z) / speed;
     // Where the ride starts: the hailed taxi, or a bus pulling up at the stop.
     if (kind === 'bus') car = this.spawnAt('bus', fromStop.x, fromStop.z, Math.atan2(fromStop.ux, fromStop.uz), fromStop.route.color, fromStop.from, fromStop.to);
     this.ride = { kind, x, z, fare, label, t: 0, car, stop, secs, swapped: false, out: false, from: [px, pz] };
@@ -192,29 +193,34 @@ export class Travel {
   // Where to drop you: the closest curb to the spot, with the car in the lane beside it.
   dropPoint(x, z) {
     const city = this.game.city;
-    const [b] = sideBlock(city, x, z);
-    const cx = Math.max(b.minX, Math.min(b.maxX, x));
-    const cz = Math.max(b.minZ, Math.min(b.maxZ, z));
-    const edges = [
-      [cx - b.minX, -1, 0, b.minX, cz], [b.maxX - cx, 1, 0, b.maxX, cz],
-      [cz - b.minZ, 0, -1, cx, b.minZ], [b.maxZ - cz, 0, 1, cx, b.maxZ],
-    ].sort((p1, p2) => p1[0] - p2[0]);
-    const [, nx, nz, ex, ez] = edges[0];
-    // Along the curb, keep clear of the corners.
-    const ax = nx ? ex : Math.max(b.minX + 14, Math.min(b.maxX - 14, ex));
-    const az = nz ? ez : Math.max(b.minZ + 14, Math.min(b.maxZ - 14, ez));
-    // Car: in the lane next to this curb, going the way that lane goes.
-    const ux = -nz;
-    const uz = nx;
-    const lx = ax + nx * (CFG.ROAD / 2 - CFG.LANE);
-    const lz = az + nz * (CFG.ROAD / 2 - CFG.LANE);
-    const dir = ux + uz > 0 ? 1 : -1;
-    const along = ux ? lx : lz; // position along the road
-    const fk = dir > 0 ? Math.floor(along / P) : Math.ceil(along / P);
-    const tk = fk + dir;
-    const roadK = Math.round((nx ? lx : lz) / P);
-    const node = (k) => (ux ? city.nodeAt(k, roadK) : city.nodeAt(roadK, k));
-    return { px: ax - nx * 1.2, pz: az - nz * 1.2, cx: lx, cz: lz, heading: Math.atan2(ux, uz), from: node(fk) || node(tk), to: node(tk) || node(fk) };
+    // The nearest ordinary street (not a ramp connector, pier or freeway).
+    let hit = city.edgeAt(x, z);
+    if (!hit || hit.e.street?.stub !== undefined || hit.e.cls === 'pier') {
+      const n = city.nearestNode(x, z, (q) => q.street && !q.rampEnd);
+      const e = n.edges.find((ed) => ed.cls !== 'pier' && ed.street?.stub === undefined) || n.edges[0];
+      const c = closestOnSeg(x, z, e.a.x, e.a.z, e.b.x, e.b.z);
+      hit = { e, x: c.x, z: c.z, t: c.t };
+    }
+    const e = hit.e;
+    const L = Math.hypot(e.b.x - e.a.x, e.b.z - e.a.z) || 1;
+    let ux = (e.b.x - e.a.x) / L;
+    let uz = (e.b.z - e.a.z) / L;
+    // Which curb: the side the spot is on. Keep clear of the junctions.
+    const t = L > 30 ? Math.max(14, Math.min(L - 14, hit.t * L)) : L / 2;
+    const cx = e.a.x + ux * t;
+    const cz = e.a.z + uz * t;
+    const right = (x - cx) * -uz + (z - cz) * ux > 0;
+    let from = e.a;
+    let to = e.b;
+    if (!right) {
+      [from, to] = [e.b, e.a];
+      ux = -ux;
+      uz = -uz;
+    }
+    const rx = -uz;
+    const rz = ux;
+    const lane = laneOff(from, to);
+    return { px: cx + rx * (e.w / 2 + 1.2), pz: cz + rz * (e.w / 2 + 1.2), cx: cx + rx * lane, cz: cz + rz * lane, heading: Math.atan2(ux, uz), from, to };
   }
 
   update(dt) {

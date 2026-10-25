@@ -1,9 +1,18 @@
 import { CFG } from './config.js';
-import { STOP_LINE } from './streets.js';
 import { Vehicle } from './vehicle.js';
 import { steerToward, throttleFor, StuckHelper } from './driving.js';
 import { pick, rand, dist } from './util.js';
 import { districtAt } from './districts.js';
+
+// How far right of the road's middle to drive from node a to node b: the lane for that
+// road (freeway lanes and ramps are their own center lines: 0; so are ramp connectors).
+export function laneOff(a, b) {
+  if (!a || !b || a.high || b.high) return 0;
+  const e = a.edgeTo?.get(b);
+  if (!e) return CFG.LANE;
+  if (e.street?.stub !== undefined) return 0;
+  return e.lane;
+}
 
 // An NPC driver that follows lanes and turns randomly at intersections.
 let nextId = 1;
@@ -58,7 +67,7 @@ export class TrafficDriver {
   followRoute(dt, game) {
     const c = this.car;
     const pts = this.route;
-    const off = CFG.LANE;
+    const off = this.routeLane ?? CFG.LANE;
     const aim = (k) => {
       if (k === pts.length - 1) return pts[k]; // the stop itself (already at the curb)
       const [ax, az] = pts[k - 1];
@@ -99,12 +108,13 @@ export class TrafficDriver {
     if (!S || this.hurry || this.passing) return desired;
     const n = this.to;
     const ctl = S.control.get(n);
-    if (!ctl || dn > 45) return desired;
+    if (!ctl || ctl.type === 'none' || dn > 45) return desired;
+    if (!S.mustStop(n, this.from)) return desired; // the main road: through
     const c = this.car;
-    const toLine = dn - STOP_LINE - Math.max(0, c.halfLen - 2.2); // long vehicles stop by the front bumper
+    const toLine = dn - S.stopDist(n, this.from) - Math.max(0, c.halfLen - 2.2); // long vehicles stop by the front bumper
     const v = Math.abs(c.speed);
     const stopSpeed = Math.sqrt(2 * 4.5 * Math.max(0, toLine - 0.6));
-    const axis = Math.abs(ux) > Math.abs(uz) ? 'EW' : 'NS';
+    const axis = S.axisOf(n, ux, uz);
     if (ctl.type === 'signal') {
       if (toLine < 0) return desired; // already past the line
       const ph = S.phase(n, axis);
@@ -127,7 +137,8 @@ export class TrafficDriver {
       // First in line (or waited a while), and nobody in the middle of the intersection.
       for (let i = line.length - 1; i >= 0; i--) if (!line[i].active || line[i].car.removed || line[i].to !== n) line.splice(i, 1);
       const first = line[0] === this || this.stopWait > 4;
-      const clear = !game.vehicles.some((o) => o !== c && !o.removed && Math.abs(o.x - n.x) < 7.5 && Math.abs(o.z - n.z) < 7.5);
+      const r = Math.max(6, ...ctl.arms.map((a) => a.stopAt - 3));
+      const clear = !game.vehicles.some((o) => o !== c && !o.removed && !o.high && Math.hypot(o.x - n.x, o.z - n.z) < r);
       if (this.stopWait > 0.9 && first && clear) {
         this.servedNode = n;
         this.stopWait = 0;
@@ -185,7 +196,7 @@ export class TrafficDriver {
       const p = this.passCar;
       // Something coming the other way (or stopped) in the lane we're borrowing: if we're
       // not alongside yet, give it up and tuck back in behind.
-      const L0 = CFG.LANE;
+      const L0 = laneOff(this.from, this.to) || CFG.LANE;
       const pfwd = p && !p.removed ? (p.x - c.x) * ux + (p.z - c.z) * uz : -99;
       // Measured from our own lane's center line: the other lane is around -2 lanes over.
       const lx = this.from.x - uz * L0;
@@ -226,7 +237,7 @@ export class TrafficDriver {
     if ((early || this.jamT > 1.2) && dn > 30 && this.passCooldown <= 0) {
       const blocker = early ? s.v : b;
       // Other lane clear for the next 30 m? (oncoming traffic, or anything parked there)
-      const L = CFG.LANE;
+      const L = laneOff(this.from, this.to) || CFG.LANE;
       const clear = !game.vehicles.some((o) => {
         if (o === c || o === blocker || o.removed) return false;
         const fwd = (o.x - c.x) * ux + (o.z - c.z) * uz;
@@ -376,7 +387,8 @@ export class TrafficDriver {
     this.unjam(dt, game, ux, uz, dn0);
     // One-way ramps: drive down the middle.
     const oneWay = this.from.ramp || this.to.ramp;
-    const off = oneWay ? 0 : this.passing ? -CFG.LANE : CFG.LANE;
+    const lane = laneOff(this.from, this.to);
+    const off = this.passing ? -lane : lane;
     const lx0 = this.from.x - uz * off;
     const lz0 = this.from.z + ux * off;
     const along = (c.x - lx0) * ux + (c.z - lz0) * uz;
@@ -386,15 +398,16 @@ export class TrafficDriver {
     const dn = dist(c.x, c.z, this.to.x, this.to.z);
 
     let desired = this.cruise;
-    if (this.from.high && this.to.high) desired = this.cruise * 2.1; // highway speed (about 50-60 mph)
-    if (oneWay) desired = Math.min(desired, 10); // round the loop ramps (about 22 mph)
+    if (this.from.high && this.to.high && !oneWay) desired = this.cruise * 2.4; // freeway speed (about 55-65 mph)
+    if (oneWay) desired = Math.min(desired, this.from.laneRef?.s?.ramp?.loop || this.to.laneRef?.s?.ramp?.loop ? 10 : 15); // ramps (loops: about 22 mph)
     if (dn < (oneWay ? 6 : 20) && this.next) {
       const nl = dist(this.to.x, this.to.z, this.next.x, this.next.z) || 1;
       const nux = (this.next.x - this.to.x) / nl;
       const nuz = (this.next.z - this.to.z) / nl;
       const look = oneWay ? 3 : 6;
-      tx = this.to.x - nuz * off + nux * look;
-      tz = this.to.z + nux * off + nuz * look;
+      const noff = this.passing ? -laneOff(this.to, this.next) : laneOff(this.to, this.next);
+      tx = this.to.x - nuz * noff + nux * look;
+      tz = this.to.z + nux * noff + nuz * look;
       const straight = nux * ux + nuz * uz > 0.9;
       if (!straight) desired = Math.min(desired, oneWay ? 8.5 : 6.5);
     }
@@ -451,7 +464,9 @@ function deliveryStops(d) {
   const ux = (d.to.x - d.from.x) / L;
   const uz = (d.to.z - d.from.z) / L;
   const k = L * rand(0.4, 0.62);
-  d.halt = { from: d.from, to: d.to, x: d.from.x + ux * k - uz * CFG.LANE, z: d.from.z + uz * k + ux * CFG.LANE, wait: rand(9, 16), hazard: true };
+  const off = laneOff(d.from, d.to);
+  if (!off) return;
+  d.halt = { from: d.from, to: d.to, x: d.from.x + ux * k - uz * off, z: d.from.z + uz * k + ux * off, wait: rand(9, 16), hazard: true };
 }
 
 export class TrafficManager {
@@ -469,19 +484,20 @@ export class TrafficManager {
     if (hw && Math.random() < 0.25) {
       const near = hw.nodes.filter((n) => {
         const dd = dist(n.x, n.z, px, pz);
-        return dd > minDist && dd < Math.max(minDist + 60, 280) && n.nb.some((m) => m.high);
+        return !n.ramp && dd > minDist && dd < Math.max(minDist + 60, 280) && n.nb.some((m) => m.high && !m.ramp);
       });
       if (near.length) {
         const from = pick(near);
-        const to = pick(from.nb.filter((m) => m.high));
+        const to = from.nb.find((m) => m.high && !m.ramp && m.laneRef === from.laneRef) || pick(from.nb.filter((m) => m.high));
         const L = dist(from.x, from.z, to.x, to.z) || 1;
         const ux = (to.x - from.x) / L;
         const uz = (to.z - from.z) / L;
-        const x = from.x + ux * 14 - uz * CFG.LANE;
-        const z = from.z + uz * 14 + ux * CFG.LANE;
+        const x = from.x + ux * Math.min(10, L / 2);
+        const z = from.z + uz * Math.min(10, L / 2);
         if (!this.game.vehicles.some((v) => v.high && dist(v.x, v.z, x, z) < 9)) {
           const car = new Vehicle(this.game.scene, pickCarType(x, z, rhythm ? rhythm.hour() : 12), x, z, Math.atan2(ux, uz));
           car.high = true;
+          car.y = from.hy ?? 7.5;
           car.speed = 14;
           const d = new TrafficDriver(car, from, to);
           car.driver = d;
@@ -496,12 +512,18 @@ export class TrafficManager {
       const dd = dist(from.x, from.z, px, pz);
       if (dd < minDist || dd > Math.max(minDist + 60, 280)) continue; // around you, not across the city
       if (rhythm && !rhythm.accept(from.x, from.z, 't')) continue; // busier streets get more cars
-      const to = pick(from.nb);
+      const opts = from.nb.filter((m) => m.street && !m.rampEnd);
+      if (!opts.length) continue;
+      const to = pick(opts);
+      const e = from.edgeTo?.get(to);
+      if (!e || e.cls === 'pier') continue;
       const L = dist(from.x, from.z, to.x, to.z);
+      if (L < 20) continue;
       const ux = (to.x - from.x) / L;
       const uz = (to.z - from.z) / L;
-      const x = from.x + ux * 14 - uz * CFG.LANE;
-      const z = from.z + uz * 14 + ux * CFG.LANE;
+      const off = laneOff(from, to);
+      const x = from.x + ux * 14 - uz * off;
+      const z = from.z + uz * 14 + ux * off;
       if (this.game.vehicles.some((v) => dist(v.x, v.z, x, z) < 7)) continue;
       const car = new Vehicle(this.game.scene, pickCarType(x, z, this.game.rhythm ? this.game.rhythm.hour() : 12), x, z, Math.atan2(ux, uz));
       car.speed = 6;

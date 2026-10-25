@@ -117,7 +117,7 @@ export class Bases {
     let best = cur;
     let bestTier = Math.min(tier, this.site(T.byKey[cur])[0]);
     for (const b of T.blocks) {
-      const k = `${b.i},${b.j}`;
+      const k = b.key;
       if (T.owner[k] !== g) continue;
       const t = Math.min(tier, this.site(b)[0]);
       if (t > bestTier) {
@@ -264,8 +264,8 @@ export class Bases {
     const b = T.byKey[key];
     const G = GANGS[g];
     const col = new THREE.Color(G.color);
-    const f = storefront(game.city, b.i, b.j);
-    const grp = new THREE.Group();
+    const f = storefront(game.city, b);
+    const grp = f.group(game.scene);
     const add = (geo, mat, x, y, z) => {
       const m = new THREE.Mesh(geo, mat);
       m.position.set(x, y, z);
@@ -274,8 +274,9 @@ export class Bases {
     };
     const flagMat = new THREE.MeshLambertMaterial({ color: col, side: THREE.DoubleSide });
     const poleMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
-    const x = f.x;
-    const wz = f.wallZ - 0.1;
+    // (built in the storefront's own frame: x along the wall, -z out in front)
+    const x = 0;
+    const wz = -0.1;
     // Tier 1: a flag by the door and boarded-up windows.
     add(new THREE.CylinderGeometry(0.05, 0.05, 3.2), poleMat, x - 3.5, 1.8, wz - 0.4);
     add(new THREE.PlaneGeometry(1.4, 0.9), flagMat, x - 2.8, 2.9, wz - 0.4);
@@ -297,12 +298,11 @@ export class Bases {
     }
     // Tier 4: a big flag on the roof.
     if (st.tier >= 4) {
-      add(new THREE.CylinderGeometry(0.12, 0.12, 8), poleMat, x, f.h + 4, f.wallZ + 4);
-      add(new THREE.PlaneGeometry(4, 2.4), flagMat, x + 2, f.h + 6.6, f.wallZ + 4);
+      add(new THREE.CylinderGeometry(0.12, 0.12, 8), poleMat, x, f.h + 4, 4);
+      add(new THREE.PlaneGeometry(4, 2.4), flagMat, x + 2, f.h + 6.6, 4);
     }
     grp.children.forEach((m) => (m.castShadow = true));
-    game.scene.add(grp);
-    st.deco = { group: grp, tier: st.tier, x, z: f.z, block: b };
+    st.deco = { group: grp, tier: st.tier, x: f.x, z: f.z, block: b };
   }
 
   // ---- Robbing a rival base ----
@@ -334,7 +334,7 @@ export class Bases {
         game.cash += took;
         this.robT = 0;
         game.hud.toast(`+${money(took)} from the ${GANGS[g].name} stash. Get out of there!`);
-        game.hud.news(`${GANGS[g].name} base robbed on ${streetAt(st.deco.block.cx, st.deco.block.minZ - 3)}`, 'crime');
+        game.hud.news(`${GANGS[g].name} base robbed on ${streetAt(st.deco.x, st.deco.z)}`, 'crime');
         game.crime('robbery', px, pz);
         game.cred += 40;
         if (game.drugs.risk.beef[g] !== undefined) game.drugs.risk.beef[g] += 40;

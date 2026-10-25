@@ -7,6 +7,7 @@ import { steerToward, throttleFor, StuckHelper } from './driving.js';
 import { dist, pick, rand } from './util.js';
 import { streetAt } from './city.js';
 import { SKIN_TONES } from './character.js';
+import { blockDist } from './sidewalk.js';
 import { Claim, claimTier, tierOf, makeTag } from './claim.js';
 
 // Turf wars. Rules (agreed with the designer):
@@ -43,8 +44,8 @@ export const GANGS = {
   plug: { id: 'plug', name: "The plug's shooters", car: 0x111111, color: '#c8c8c8', shirt: 0x202020, bandana: 0x111111, reckless: 0, leader: '', hidden: true },
 };
 const START = START_TURF; // see districts.js
-const SAVE_KEY = 'crimecity.turf.v2'; // v2: the bigger map (turf reset to the preset)
-const key = (b) => `${b.i},${b.j}`;
+const SAVE_KEY = 'crimecity.turf.v3'; // v3: the rebuilt city (turf reset to the preset)
+const key = (b) => b.key;
 
 // A gang soldier: a turf guard, or a fighter in a turf war.
 export class Soldier extends GangFighter {
@@ -220,9 +221,8 @@ class War {
     }
   }
 
-  onBlock(x, z, pad = CFG.ROAD / 2) {
-    const b = this.block;
-    return x > b.minX - pad && x < b.maxX + pad && z > b.minZ - pad && z < b.maxZ + pad;
+  onBlock(x, z, pad = 8) {
+    return blockDist(this.block, x, z) <= pad;
   }
 
   living(side) {
@@ -547,7 +547,7 @@ export class TurfManager {
     this.claim = null; // your claim in progress on an unclaimed block
     this.claimCooldown = {};
     this.tagMeshes = {};
-    this.blocks = game.city.blocks.filter((b) => b.type !== 'police' && b.type !== 'hospital');
+    this.blocks = game.city.blocks.filter((b) => b.type !== 'police' && b.type !== 'hospital' && b.type !== 'ramps' && b.type !== 'plaza' && b.type !== 'place' && !(b.type === 'park' && b.area > 30000));
     this.byKey = Object.fromEntries(this.blocks.map((b) => [key(b), b]));
     if (!this.load()) this.reset();
     this.rollT = 0;
@@ -587,12 +587,22 @@ export class TurfManager {
   }
 
   // Spots along one edge of a block: people on the sidewalk, cars at the curb.
+  // side: which side of the block (any number: it wraps round the block's street sides).
   edgeSpots(b, side) {
-    const W = b.maxX - b.minX;
+    const sides = b.sides.filter((sd) => sd.cls && sd.len >= 20);
+    const sd = sides.length ? sides[((side % sides.length) + sides.length) % sides.length] : b.frontSide;
+    const at = (t, inset) => [sd.ax + sd.ux * t - sd.nx * inset, sd.az + sd.uz * t - sd.nz * inset];
+    // Cars at the curb on the street side, facing the way that lane goes (curb on their right).
+    const heading = Math.atan2(-sd.nz, sd.nx);
+    const fwd = [-sd.nz, sd.nx];
+    const dir = fwd[0] * sd.ux + fwd[1] * sd.uz > 0 ? 1 : -1;
     return {
-      person: (i) => [[b.minX + 8 + i * 2.6, b.minZ + 2.2], [b.minX + 8 + i * 2.6, b.maxZ - 2.2], [b.minX + 2.2, b.minZ + 8 + i * 2.6], [b.maxX - 2.2, b.minZ + 8 + i * 2.6]][side],
-      car: (j) => [[b.minX + 10 + j * 6.5, b.minZ - 1.4, Math.PI / 2], [b.minX + 10 + j * 6.5, b.maxZ + 1.4, -Math.PI / 2], [b.minX - 1.4, b.minZ + 10 + j * 6.5, 0], [b.maxX + 1.4, b.minZ + 10 + j * 6.5, Math.PI]][side],
-      W,
+      person: (i) => at(Math.min(sd.len - 3, 8 + i * 2.6), 2.2),
+      car: (j) => {
+        const t = dir > 0 ? Math.min(sd.len - 4, 10 + j * 6.5) : Math.max(4, sd.len - 10 - j * 6.5);
+        return [...at(t, -1.4), heading];
+      },
+      W: sd.len,
     };
   }
 
@@ -827,17 +837,25 @@ export class TurfManager {
     return this.home[g] ? this.byKey[this.home[g]] : null;
   }
 
+  // The block whose turf a spot is on (out to the middle of the street).
   ownerKeyAt(x, z) {
-    const h = CFG.ROAD / 2;
+    const here = this.blockAt(x, z);
+    if (here) return key(here);
+    let best = null;
+    let bd = 8;
     for (const b of this.blocks) {
-      if (x >= b.minX - h && x <= b.maxX + h && z >= b.minZ - h && z <= b.maxZ + h) return key(b);
+      const d = blockDist(b, x, z);
+      if (d < bd) {
+        bd = d;
+        best = b;
+      }
     }
-    return null;
+    return best ? key(best) : null;
   }
 
   blockAt(x, z) {
-    for (const b of this.blocks) if (x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ) return b;
-    return null;
+    const b = this.game.city.blockAt(x, z);
+    return b && this.byKey[key(b)] ? b : null;
   }
 
   // Whose turf (gang definition) a point is on.
@@ -1108,7 +1126,7 @@ export class TurfManager {
     }
     // Calculating: unclaimed blocks near their turf, or the weakest gang's outer blocks.
     const mine = this.blocks.filter((b) => this.owner[key(b)] === g);
-    const near = (b) => (mine.length ? Math.min(...mine.map((m) => Math.abs(m.i - b.i) + Math.abs(m.j - b.j))) : 0);
+    const near = (b) => (mine.length ? Math.min(...mine.map((m) => dist(m.cx, m.cz, b.cx, b.cz))) : 0);
     const open = cands.filter((b) => !this.owner[key(b)]).sort((a, b) => near(a) - near(b));
     if (open.length && Math.random() < 0.7) return open[Math.floor(Math.random() * Math.min(3, open.length))];
     const weakest = ['kings', 'vipers', 'crew'].filter((o) => o !== g && this.count(o) > 0).sort((a, b) => strength(a) - strength(b))[0];

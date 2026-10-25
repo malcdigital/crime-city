@@ -56,9 +56,9 @@ export const LOADS = {
   gang: { label: 'Gang run', cost: { weed: 0.8, pills: 0.8, coke: 0.8 }, risk: 0.25 },
 };
 const PLUGS = [
-  { id: 'smokey', name: 'Smokey', product: 'weed', block: [1, 9] }, // the Projects
-  { id: 'doc', name: 'Doc', product: 'pills', block: [11, 5] }, // the Strip
-  { id: 'marco', name: 'Marco', product: 'coke', block: [10, 12] }, // the Docks
+  { id: 'smokey', name: 'Smokey', product: 'weed', at: [220, 600] }, // the Projects
+  { id: 'doc', name: 'Doc', product: 'pills', at: [373, 1117] }, // the Strip
+  { id: 'marco', name: 'Marco', product: 'coke', at: [1010, 1340] }, // the Docks
 ];
 // Customers by cred tier (Nobody .. Kingpin): seconds between them, robbery chance, spend.
 const CUSTOMER_GAP = [90, 70, 55, 45, 35, 25];
@@ -158,14 +158,15 @@ export class Drugs {
     const city = game.city;
     // Plugs: a guy on the corner, and a pickup spot in the curb lane in front of him.
     this.plugs = PLUGS.map((p) => {
-      const b = city.blocks.find((k) => k.i === p.block[0] && k.j === p.block[1]);
-      const x = b.cx;
-      const z = b.minZ - 3.6;
-      const plug = { ...p, b, x, z, r: 4, street: streetAt(x, z), dead: false, deadT: 0 };
+      const b = city.blocks.filter((k) => k.type === 'normal' && !k.lot).sort((m, n) => Math.hypot(m.cx - p.at[0], m.cz - p.at[1]) - Math.hypot(n.cx - p.at[0], n.cz - p.at[1]))[0];
+      const fp = city.frontPoint(b, 1.2); // where he stands, on the sidewalk out front
+      const x = fp.x + fp.nx * 4.8; // the pickup spot: in the curb lane in front of him
+      const z = fp.z + fp.nz * 4.8;
+      const plug = { ...p, b, x, z, sx: fp.x, sz: fp.z, heading: fp.heading, r: 4, street: streetAt(x, z), dead: false, deadT: 0 };
       // A ring around the plug, shown while you're doing a pickup with them.
       const ring = new THREE.Mesh(new THREE.RingGeometry(1.4, 1.8, 32), new THREE.MeshBasicMaterial({ color: 0xe0b000, transparent: true, opacity: 0.7, depthWrite: false }));
       ring.rotation.x = -Math.PI / 2;
-      ring.position.set(x, 0.26, b.minZ + 1.2); // around the plug, on the sidewalk
+      ring.position.set(fp.x, city.groundY(fp.x, fp.z) + 0.06, fp.z); // around the plug, on the sidewalk
       ring.visible = false;
       game.scene.add(ring);
       plug.ring = ring;
@@ -190,10 +191,10 @@ export class Drugs {
   // The plug himself, on his corner. He can be killed (and gets replaced after a while).
   spawnPlug(plug) {
     const game = this.game;
-    const ped = game.peds.addAt(plug.x, plug.b.minZ + 1.2);
+    const ped = game.peds.addAt(plug.sx, plug.sz);
     ped.shopkeeper = true; // stays on his corner
     ped.state = 'shop';
-    ped.heading = ped.shopHeading = Math.PI;
+    ped.heading = ped.shopHeading = plug.heading;
     ped.name = plug.name;
     ped.isPlug = true;
     plug.ped = ped;
@@ -450,9 +451,10 @@ export class Drugs {
     // Somewhere across town, on a sidewalk.
     const far = game.city.blocks.filter((b) => dist(b.cx, b.cz, px, pz) > 220 && dist(b.cx, b.cz, px, pz) < 450 && b.type !== 'police');
     const b = pick(far.length ? far : game.city.blocks);
-    const x = b.cx;
-    const z = b.minZ + 1.6;
-    const street = streetAt(x, b.minZ - 3);
+    const fp = game.city.frontPoint(b, 1.6);
+    const x = fp.x;
+    const z = fp.z;
+    const street = streetAt(x, z);
     const kind = Math.random() < 0.5 ? 'drop' : 'collect';
     const cut = Math.max(100, Math.round((d.owe * 0.4) / 10) * 10);
     this.job = { plug: d.plug, kind, x, z, street, cut, left: kind === 'drop' ? 240 : 300, target: null };
@@ -461,7 +463,7 @@ export class Drugs {
       const ped = game.peds.addAt(x, z);
       ped.shopkeeper = true;
       ped.state = 'shop';
-      ped.heading = ped.shopHeading = Math.PI;
+      ped.heading = ped.shopHeading = fp.heading;
       ped.name = pick(['Lil Tony', 'Dre', 'Skinny', 'Pooh', 'Man-Man']);
       this.job.target = ped;
     }
@@ -609,7 +611,7 @@ export class Drugs {
     const v = pl.vehicle;
     if (r.stage === 'toPlug' || r.stage === 'loading') {
       // Park up, get out, and walk up to the plug on foot.
-      const [qx, qz] = p.ped && p.ped.alive ? [p.ped.x, p.ped.z] : [p.x, p.b.minZ + 1.2];
+      const [qx, qz] = p.ped && p.ped.alive ? [p.ped.x, p.ped.z] : [p.sx, p.sz];
       const d = dist(px, pz, qx, qz);
       if (r.stage === 'loading' && d > 16) {
         // Walked (or drove) off before you had it: no product, no debt.
@@ -644,7 +646,7 @@ export class Drugs {
           game.market.raided(r.product);
           // They were waiting for this: cars come in from every side right away.
           game.police.raid(p.x, p.z, r.product === 'coke' || r.kind === 'gang' ? 4 : 3);
-          game.startCinematic(p.x, p.b.minZ + 1.2, 'RAID', 4.5);
+          game.startCinematic(p.sx, p.sz, 'RAID', 4.5);
           game.hud.toast('RAID! Grab the stuff and get out!', '#ff8080');
           game.storyEvent(null, p.x, p.z, `Police raid a drug spot on ${p.street}`);
           r.luck.push('raid');
@@ -810,7 +812,7 @@ export class Drugs {
     game.vehicles.push(car);
     const riders = [];
     for (let i = 0; i < 3; i++) {
-      const s = new Soldier(game, T, p.x + 2 + i, p.b.minZ + 1.5, 'plug', null, 'guard');
+      const s = new Soldier(game, T, p.sx + p.b.frontSide.ux * (2 + i), p.sz + p.b.frontSide.uz * (2 + i), 'plug', null, 'guard');
       s.aggroUntil = game.time + 1e6;
       s.baseHeart = s.heart = 1;
       T.soldiers.push(s);
