@@ -1798,10 +1798,13 @@ class Game {
       const v = p.vehicle;
       if (p.exitStop) {
         // Braking hard to a stop so you can get out.
-        const stopped = Math.abs(v.speed) < 0.8;
-        // About 1 g of braking: hard but believable.
-        v.update(dt, { throttle: stopped ? 0 : -Math.sign(v.speed) * (9.8 / v.type.brake), steer: a.steer * 0.3, handbrake: false }, this.city.colliders);
-        if (stopped || Math.abs(v.speed) < 0.8) {
+        // Stomp the brakes: about 2.5 g, so at low speed it's a quick, abrupt stop
+        // (30 mph stops in about half a second, 10 mph almost instantly).
+        v.update(dt, { throttle: 0, steer: a.steer * 0.3, handbrake: true }, this.city.colliders);
+        const sp = Math.abs(v.speed);
+        v.speed -= Math.sign(v.speed) * Math.min(sp, 25 * dt);
+        v.lat = (v.lat || 0) * Math.max(0, 1 - dt * 8);
+        if (Math.abs(v.speed) < 1.2) {
           v.speed = 0;
           v.lat = 0;
           p.exitStop = false;
