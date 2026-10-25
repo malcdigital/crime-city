@@ -721,6 +721,94 @@ function addLots(graph, blocks) {
   }
 }
 
+// ---- Tidy up where the district grids meet the main roads ----
+// Each district lays out its own grid, so where two meet (or a grid meets an arterial) you can
+// get a street running right alongside another, its pavement overlapping, or two streets
+// meeting a main road a few meters apart (a jog, with stop signs out in the road). So:
+// - a street that mostly runs alongside a bigger (or earlier) one is dropped;
+// - a street that ends on another a few meters from an existing junction is moved onto it,
+//   so the two make one crossing.
+function tidyStreets() {
+  const prio = (st) => (st.keep ? 10 : st.stub !== undefined ? 9 : ROAD_CLASS[st.cls].rank - (st.service ? 0.5 : 0));
+  const segsOf = (st) => st.pts.slice(1).map((q, k) => [...st.pts[k], ...q]);
+  const fixed = (st) => st.keep || st.stub !== undefined || st.loop || st.cls === 'pier';
+  // 1. Alongside another street.
+  const drop = new Set();
+  streets.forEach((S, si) => {
+    if (fixed(S)) return;
+    const wS = ROAD_CLASS[S.cls].w;
+    let total = 0;
+    let along = 0;
+    for (const [ax, az, bx, bz] of segsOf(S)) {
+      const L = dist(ax, az, bx, bz);
+      if (L < 0.5) continue;
+      const ux = (bx - ax) / L;
+      const uz = (bz - az) / L;
+      for (let d = 2; d < L; d += 4) {
+        total++;
+        const x = ax + ux * d;
+        const z = az + uz * d;
+        const hit = streets.some((T, ti) => {
+          if (T === S || drop.has(T) || prio(T) < prio(S) || (prio(T) === prio(S) && ti > si)) return false;
+          const lim = (wS + ROAD_CLASS[T.cls].w) / 2 + 4;
+          return segsOf(T).some(([cx, cz, ex, ez]) => {
+            const l2 = dist(cx, cz, ex, ez) || 1;
+            if (Math.abs(((ex - cx) / l2) * ux + ((ez - cz) / l2) * uz) < 0.94) return false; // (not parallel)
+            return closestOnSeg(x, z, cx, cz, ex, ez).d < lim;
+          });
+        });
+        if (hit) along++;
+      }
+    }
+    if (total && along / total > 0.5) drop.add(S);
+  });
+  for (let i = streets.length - 1; i >= 0; i--) if (drop.has(streets[i])) streets.splice(i, 1);
+  // 2. Ends just off an existing junction: move them onto it.
+  const TOL = 4;
+  const SHIFT = 14;
+  for (const S of streets) {
+    if (fixed(S) || S.pts.length < 2) continue;
+    for (const end of [0, S.pts.length - 1]) {
+      const [x, z] = S.pts[end];
+      // The street this end meets.
+      let host = null;
+      for (const H of streets) {
+        if (H === S) continue;
+        if (segsOf(H).some(([ax, az, bx, bz]) => closestOnSeg(x, z, ax, az, bx, bz).d < TOL)) {
+          host = H;
+          break;
+        }
+      }
+      if (!host) continue;
+      // Junctions along it: other streets crossing it or ending on it (not the ramp stubs).
+      let best = null;
+      let bd = SHIFT;
+      const consider = (px, pz) => {
+        const d = dist(x, z, px, pz);
+        if (d > 0.5 && d < bd) {
+          bd = d;
+          best = [px, pz];
+        }
+      };
+      for (const X of streets) {
+        if (X === S || X === host || (X.stub !== undefined && !S.service)) continue; // (service roads may join a ramp junction)
+        for (const [ax, az, bx, bz] of segsOf(host)) {
+          for (const [cx, cz, ex, ez] of segsOf(X)) {
+            const I = segInter(ax, az, bx, bz, cx, cz, ex, ez);
+            if (I) consider(ax + (bx - ax) * I.t, az + (bz - az) * I.t);
+          }
+          for (const q of [X.pts[0], X.pts[X.pts.length - 1]]) {
+            const c = closestOnSeg(q[0], q[1], ax, az, bx, bz);
+            if (c.d < TOL) consider(c.x, c.z);
+          }
+        }
+      }
+      if (best) S.pts[end] = best;
+    }
+  }
+}
+tidyStreets();
+
 export const STREETS = streets;
 export const GRAPH = buildGraph();
 export const BLOCKS = buildBlocks(GRAPH).filter((b) => b.area >= 60);

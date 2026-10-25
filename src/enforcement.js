@@ -1,3 +1,4 @@
+import { CFG } from './config.js';
 import { segmentBlocked } from './collision.js';
 import { dist } from './util.js';
 
@@ -35,6 +36,7 @@ export class Enforcement {
     const u = this.unit;
     if (u) return this.updateStop(dt, a, u);
     const v = game.player.vehicle;
+    if (!CFG.TRAFFIC_TICKETS) return; // (switched off in config.js)
     if (!v || game.stars > 0 || game.stop || game.wastedT > 0 || game.bustedT > 0) {
       this.prevNode = null;
       this.fastT = 0;

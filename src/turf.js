@@ -44,7 +44,7 @@ export const GANGS = {
   plug: { id: 'plug', name: "The plug's shooters", car: 0x111111, color: '#c8c8c8', shirt: 0x202020, bandana: 0x111111, reckless: 0, leader: '', hidden: true },
 };
 const START = START_TURF; // see districts.js
-const SAVE_KEY = 'crimecity.turf.v3'; // v3: the rebuilt city (turf reset to the preset)
+const SAVE_KEY = 'crimecity.turf.v4'; // v4: streets tidied (blocks renumbered: turf reset to the preset)
 const key = (b) => b.key;
 
 // A gang soldier: a turf guard, or a fighter in a turf war.

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { districtAt } from './worldplan.js';
+import { edgesNear } from './city.js';
 
 // Street furniture and the rules of the road, for intersections of any shape.
 // - Traffic lights where main roads cross, and at the busy junctions of Downtown, the
@@ -58,9 +59,17 @@ export class Streets {
       for (const a of arms) {
         a.stop = type === 'signal' || (type === 'stop' && !(through && a.rank === top));
         // The stop line: clear of the widest road crossing this one, plus the crosswalk.
+        // At an angle the crossing road's pavement reaches further along this one (out to our
+        // curb), so the line sits further back. (The straight continuation isn't a crossing.)
         let w = 0;
-        for (const b of arms) if (b !== a) w = Math.max(w, b.e.w / 2 * Math.min(1, 1.4 - Math.abs(a.ux * b.ux + a.uz * b.uz)));
-        a.stopAt = Math.max(6, w + 4.2);
+        for (const b of arms) {
+          if (b === a) continue;
+          const c = a.ux * b.ux + a.uz * b.uz;
+          if (c < -0.94) continue;
+          const sn = Math.max(0.45, Math.sqrt(Math.max(0, 1 - c * c)));
+          w = Math.max(w, (b.e.w / 2 + (a.e.w / 2) * Math.abs(c)) / sn);
+        }
+        a.stopAt = Math.min(22, Math.max(6, w + 4.2));
       }
       this.control.set(n, { type, offset: Math.floor((n.x + n.z) / 20) % CYCLE, arms });
     }
@@ -180,6 +189,43 @@ export class Streets {
     const sigHeads = [];
     const lamps = { red: [], yellow: [], green: [] };
     this.lampRefs = []; // [node, axis, color, index]
+    this.poleStats = { total: 0, moved: 0, skipped: 0 };
+    // In a roadway (any street's pavement, with a little room)?
+    const inRoad = (x, z, pad) => edgesNear(x, z, pad).length > 0 || (this.game.highway && this.game.highway.surfacesAt?.(x, z, -0.4).some((o) => o.h < 1));
+    // A point d meters out from junction n along arm a, following the street around its bends
+    // (through curve points), with the street's direction there. Null past the next junction.
+    const along = (n, a, d) => {
+      let p = n;
+      let q = a.m;
+      for (let guard = 0; guard < 12; guard++) {
+        const L = Math.hypot(q.x - p.x, q.z - p.z) || 1;
+        const ux = (q.x - p.x) / L;
+        const uz = (q.z - p.z) / L;
+        if (d <= L - (q.edges && q.edges.length > 2 ? 3 : 0)) return { x: p.x + ux * d, z: p.z + uz * d, ux, uz };
+        if (!q.edges || q.edges.length !== 2) return null; // (reached the next junction or a dead end)
+        d -= L;
+        const e = q.edges.find((e) => e.other(q) !== p);
+        p = q;
+        q = e.other(q);
+      }
+      return null;
+    };
+    const poleSpot = (n, a, w) => {
+      // Out from the stop line first; then (a short street) a bit in toward the junction.
+      const tries = [];
+      for (let k = 0; k <= 8; k++) tries.push(a.stopAt + 0.6 + k * 1.5);
+      for (let k = 1; k <= 8; k++) tries.push(a.stopAt + 0.6 - k * 1.5);
+      for (const [k, d] of tries.entries()) {
+        if (d < 4) break;
+        const pt = along(n, a, d);
+        if (!pt) continue;
+        // (traffic heads toward n, so its right is to the left of the outward direction)
+        const px = pt.x + pt.uz * (w / 2 + 0.7);
+        const pz = pt.z - pt.ux * (w / 2 + 0.7);
+        if (!inRoad(px, pz, 0.4)) return { p: [px, pz], moved: k > 0 };
+      }
+      return null;
+    };
     for (const n of this.nodes) {
       const ctl = this.control.get(n);
       if (!ctl || ctl.type === 'none') continue;
@@ -192,12 +238,23 @@ export class Streets {
         const rx = -uz;
         const rz = ux; // right of travel
         const axis = a.group === 1 ? 'EW' : 'NS';
-        const lx = n.x + a.ux * a.stopAt + rx * (w / 4);
-        const lz = n.z + a.uz * a.stopAt + rz * (w / 4);
-        lines.push([lx, gy(lx, lz) + 0.03, lz, Math.atan2(rx, rz), (w / 2 - 0.6) / 7.4, 1, 1]);
-        // Pole on the right-hand curb, facing oncoming drivers.
-        const px = n.x + a.ux * (a.stopAt + 0.6) + rx * (w / 2 + 0.7);
-        const pz = n.z + a.uz * (a.stopAt + 0.6) + rz * (w / 2 + 0.7);
+        const lp = along(n, a, a.stopAt);
+        if (lp) {
+          const lx = lp.x + lp.uz * (w / 4);
+          const lz = lp.z - lp.ux * (w / 4);
+          lines.push([lx, gy(lx, lz) + 0.03, lz, Math.atan2(lp.uz, -lp.ux), (w / 2 - 0.6) / 7.4, 1, 1]);
+        }
+        // Pole on the right-hand curb, facing oncoming drivers. It must stand clear of every
+        // road (a short block or an angled junction can put the plain spot in another street):
+        // slide it back along the curb until it's clear, or leave it out.
+        const spot = poleSpot(n, a, w);
+        this.poleStats.total++;
+        if (!spot) {
+          this.poleStats.skipped++;
+          continue;
+        }
+        if (spot.moved) this.poleStats.moved++;
+        const [px, pz] = spot.p;
         const y = gy(px, pz);
         const face = Math.atan2(a.ux, a.uz); // the face points back toward the driver
         if (ctl.type === 'stop') {

@@ -20,6 +20,9 @@ export const CFG = {
   SIZE: BLOCKS * (BLOCK + ROAD),
   LANE: 3.4, // distance from road center to lane center
 
+  // Cops pull you over for running red lights and speeding (off: drive however you like).
+  TRAFFIC_TICKETS: false,
+
   TRAFFIC_CARS: 55,
   PEDS: 100,
 
