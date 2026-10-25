@@ -16,7 +16,7 @@ import { inHole } from './fwyplan.js';
 // Each route: the junctions it goes through, in order (clockwise, so stops are on the right).
 const ROUTES = [
   { name: '1', via: [[300, 490], [900, 490], [900, 900], [300, 900]], color: 0x1f7a4d },
-  { name: '2', via: [[620, 690], [1180, 690], [1180, 900], [900, 900], [900, 690]], color: 0x2a5aa8 },
+  { name: '2', via: [[640, 690], [1180, 690], [1180, 900], [640, 900]], color: 0x2a5aa8 },
 ];
 const BUSES_PER_ROUTE = 2;
 const DWELL = 6; // seconds at each stop
