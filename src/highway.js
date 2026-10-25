@@ -340,7 +340,8 @@ export class Highway {
     const clearOfStreets = (x, z, own) => !edgesNear(x, z, 1.5).some((e) => !own.includes(e.name));
     for (const s of [this.ring, this.xt]) {
       const own = s.main === 'ring' ? ['Ring Rd'] : ['Crosstown Rd'];
-      const off = s.hw - 3.5;
+      // (on the sidewalks either side of the street underneath)
+      const off = s.main === 'ring' ? s.hw - 3.5 : s.hw - 1.5;
       let since = 99;
       for (let i = 1; i < s.pts.length; i++) {
         since += s.L[i] - s.L[i - 1];

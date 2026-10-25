@@ -161,6 +161,14 @@ class Game {
     this.shops = new Shops(this);
     this.drugs = new Drugs(this);
     this.bank = new Bank(this);
+    if (this.shops.refundSafehouse) {
+      // The city was rebuilt: the old safehouse is refunded (it's back on the market).
+      this.shops.refundSafehouse = false;
+      this.bank.balance += 5000;
+      this.bank.save();
+      this.shops.save();
+      this.cityRebuiltNote = true;
+    }
     this.property = new PropertyMarket(this);
     this.economy = new Economy(this);
     this.budget = new CityBudget(this);

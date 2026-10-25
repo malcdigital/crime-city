@@ -161,7 +161,10 @@ export class Shops {
     this.stash = s.stash || 0;
     this.unpaid = s.unpaid || 0; // payouts sitting in the stash
     this.payT = s.payT || 0;
-    this.safehouse = !!s.safehouse;
+    // (the safehouse moved with the rebuilt city: owners from before get it back on the market,
+    // once, with what it cost refunded to the bank)
+    this.safehouse = !!s.safehouse && !!s.city2;
+    this.refundSafehouse = !!s.safehouse && !s.city2;
     this.crewGuns = s.crewGuns || 0;
     this.crewVest = !!s.crewVest;
     this.game.armor = s.armor || 0;
@@ -184,7 +187,7 @@ export class Shops {
     const ar = this.game.arsenal;
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
-        stash: this.stash, unpaid: this.unpaid, payT: this.payT, safehouse: this.safehouse, crewGuns: this.crewGuns,
+        stash: this.stash, unpaid: this.unpaid, payT: this.payT, safehouse: this.safehouse, city2: true, crewGuns: this.crewGuns,
         crewVest: this.crewVest, armor: Math.round(this.game.armor), slots: ar.slots, active: ar.active, ammo: ar.ammo,
       }));
     } catch {

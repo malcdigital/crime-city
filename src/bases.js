@@ -49,7 +49,7 @@ export class Bases {
 
   load() {
     try {
-      const s = JSON.parse(localStorage.getItem('crimecity.bases.v1') || 'null');
+      const s = JSON.parse(localStorage.getItem('crimecity.bases.v2') || 'null');
       if (s) {
         for (const g of Object.keys(this.state)) if (s[g]) Object.assign(this.state[g], { tier: s[g].tier || 1, money: s[g].money ?? this.state[g].money });
         this.loaded = true;
@@ -63,7 +63,7 @@ export class Bases {
     try {
       const out = {};
       for (const [g, st] of Object.entries(this.state)) out[g] = { tier: st.tier, money: st.money };
-      localStorage.setItem('crimecity.bases.v1', JSON.stringify(out));
+      localStorage.setItem('crimecity.bases.v2', JSON.stringify(out));
     } catch {
       // Storage unavailable.
     }

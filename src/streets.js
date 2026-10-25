@@ -252,7 +252,7 @@ export class Streets {
     for (const b of city.blocks) {
       if (b.type === 'ramps' || b.type === 'place') continue;
       for (const s of b.sides) {
-        if (s.len < 14 || !s.cls) continue;
+        if (s.len < 14 || !s.cls || s.cls === 'under') continue; // (no lamp posts up into the freeway deck)
         const n = s.len > 45 ? 2 : 1;
         for (let k = 0; k < n; k++) {
           const t = n === 1 ? s.len / 2 : s.len * (k === 0 ? 0.3 : 0.7);

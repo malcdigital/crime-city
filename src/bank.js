@@ -15,7 +15,8 @@ import { dist } from './util.js';
 // - Home stashes: every home you own (and the safehouse) has one. No fees, open any time — but
 //   now and then one gets robbed (rarely at random; more when a gang has beef with you).
 // You have to go to each place in person to put money in or take it out.
-const SAVE_KEY = 'crimecity.bank.v1';
+const SAVE_KEY = 'crimecity.bank.v2'; // v2: the rebuilt city (homes moved: ownership reset once)
+const OLD_KEY = 'crimecity.bank.v1';
 const money = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
 const fmtClock = (m) => `${(Math.floor(m / 60) % 12) || 12}:${String(m % 60).padStart(2, '0')} ${m < 720 ? 'AM' : 'PM'}`;
 const ROB_EVERY = 120; // seconds between rolls for a random break-in
@@ -97,8 +98,15 @@ export class Bank {
   // ---- Save ----
   load() {
     try {
-      const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
-      if (!s) return;
+      let s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+      if (!s) {
+        // From before the rebuild: keep the money (anything stashed in a home goes to the
+        // bank), but the homes are back on the market.
+        const old = JSON.parse(localStorage.getItem(OLD_KEY) || 'null');
+        if (!old) return;
+        const stashed = Object.values(old.homes || {}).reduce((t, o) => t + (o.stash || 0), 0);
+        s = { ...old, balance: (old.balance || 0) + stashed, homes: {} };
+      }
       this.balance = s.balance || 0;
       this.atmUsed = s.atmUsed || 0;
       this.days = s.days || 0;
