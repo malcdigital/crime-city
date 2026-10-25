@@ -474,7 +474,7 @@ export class Hud {
     for (const [x, z, col, txt] of game.turfWars.claimMarks()) blip(x, z, col, txt);
     for (const [x, z, col, txt] of [...game.shops.blips(), ...game.drugs.blips()]) blip(x, z, col, txt);
     // Banks, homes and ATMs: only when they're on the radar (not pinned to the rim).
-    for (const [x, z, col, txt] of game.bank.blips()) if (inside(project(x, z))) blip(x, z, col, txt);
+    for (const [x, z, col, txt] of [...game.bank.blips(), ...game.economy.blips()]) if (inside(project(x, z))) blip(x, z, col, txt);
     for (const t of game.bank.atmSpots()) {
       const p = project(t.x, t.z);
       if (!inside(p)) continue;

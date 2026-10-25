@@ -980,7 +980,8 @@ export class Drugs {
     const P = PRODUCTS[c.kind];
     c.units = Math.min(this.inv[c.kind], randInt(1, 2 + tier));
     const [loyal] = this.risk.loyalty(game.player.x, game.player.z); // rival turf: their buyers pay less
-    c.price = Math.max(5, Math.round((c.units * P.street * M.mult(d, c.kind) * loyal * (1 + 0.08 * tier) * rand(0.9, 1.1)) / 5) * 5);
+    const spend = game.economy ? game.economy.spend(game.player.x, game.player.z) : 1; // richer neighborhoods pay more
+    c.price = Math.max(5, Math.round((c.units * P.street * M.mult(d, c.kind) * loyal * spend * (1 + 0.08 * tier) * rand(0.9, 1.1)) / 5) * 5);
     if (this.pushing) {
       // Selling cheap: they buy more, for less (never below what you paid).
       c.units = Math.min(this.inv[c.kind], c.units + randInt(1, 2));

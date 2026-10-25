@@ -119,7 +119,7 @@ export class Phone {
       }));
     }
     if (this.app === 'property') {
-      return game.property.rows().map((r) => ({
+      return [...game.property.rows(), ...game.economy.rows()].map((r) => ({
         ...r,
         act: r.x != null ? () => {
           game.mapView.waypoint = [r.x, r.z];

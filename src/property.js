@@ -125,6 +125,8 @@ export class PropertyMarket {
     const out = [];
     const dem = this.demand[d] || 1;
     out.push({ label: dem > 1.04 ? `${d} in demand` : dem < 0.96 ? `${d} out of favor` : null, k: dem });
+    const w = game.economy ? game.economy.propertyFactor(d) : 1;
+    out.push({ label: w > 1.03 ? 'neighborhood doing better' : w < 0.97 ? 'neighborhood struggling' : null, k: w });
     const c = this.crimeLevel[d] || 0;
     const ck = 1 - 0.35 * Math.min(1, c / 30);
     out.push({ label: c > 12 ? 'high crime' : c > 4 ? 'some crime' : null, k: ck });
@@ -226,9 +228,13 @@ export class PropertyMarket {
     const game = this.game;
     let upkeep = 0;
     let tax = 0;
+    const byDistrict = {}; // your upkeep, by where it was paid (it goes to the service companies)
     for (const h of game.bank.ownedHomes()) {
       const behind = h.owed || 0; // owed before today's bills
-      upkeep += this.charge(h, this.dailyUpkeep(h), false);
+      const paid = this.charge(h, this.dailyUpkeep(h), false);
+      upkeep += paid;
+      const d = this.districtOf(h);
+      byDistrict[d] = (byDistrict[d] || 0) + paid;
       if (h.taxDay == null) h.taxDay = day;
       if (day - h.taxDay >= TAX_EVERY) {
         h.taxDay = day;
@@ -246,6 +252,7 @@ export class PropertyMarket {
     }
     if (tax) game.hud.text('City Tax Office', `Property tax: ${money(tax)} paid. Thank you.`);
     if (upkeep >= 25) game.hud.toast(`Upkeep on your properties: -${money(upkeep)}`);
+    game.economy?.newDay(byDistrict);
     this.save();
   }
 

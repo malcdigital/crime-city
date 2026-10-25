@@ -118,3 +118,24 @@ export const HOMES = [
   { id: 'house', name: 'Heights house', block: [3, 1], price: 25000 },
   { id: 'penthouse', name: 'Downtown penthouse', block: [6, 7], price: 60000 },
 ];
+
+// Service companies (each gets its share of every upkeep bill in the city). Offices on these blocks:
+// whoever holds the block's turf collects protection money from them.
+export const COMPANIES = [
+  { id: 'power', name: 'Metro Power & Water', what: 'gas, power and water', share: 0.4, block: [11, 2], color: '#f1c40f' },
+  { id: 'fix', name: 'FixRight Maintenance', what: 'repairs and maintenance', share: 0.25, block: [2, 10], color: '#e67e22' },
+  { id: 'clean', name: 'SparkleClean', what: 'cleaning', share: 0.2, block: [3, 6], color: '#48c9b0' },
+  { id: 'net', name: 'CityNet', what: 'internet and phones', share: 0.15, block: [10, 7], color: '#5dade2' },
+];
+
+// How well-off each district is to begin with (people's spending, what homes are like).
+export const WEALTH_BASE = {
+  'The Heights': 1.3,
+  'Financial District': 1.4,
+  'Government District': 1.1,
+  Downtown: 1.2,
+  Midtown: 1.0,
+  'The Strip': 0.9,
+  'The Docks': 0.8,
+  'The Projects': 0.6,
+};

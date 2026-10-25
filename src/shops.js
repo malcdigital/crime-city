@@ -301,6 +301,7 @@ export class Shops {
       return true;
     }
     if (game.bank.interact(a)) return true;
+    if (game.economy.interact(a)) return true;
     if (this.stash > 0 && dist(px, pz, this.stashAt.x, this.stashAt.z) < 1.8) {
       game.prompt = `Press ${key} to grab ${money(this.stash)} from the stash`;
       if (pressed) this.collect();

@@ -22,6 +22,7 @@ import { Shops } from './shops.js';
 import { Drugs } from './drugs.js';
 import { Bank } from './bank.js';
 import { PropertyMarket } from './property.js';
+import { Economy } from './economy.js';
 import { Market } from './market.js';
 import { President } from './president.js';
 import { Phone } from './phone.js';
@@ -131,6 +132,7 @@ class Game {
     this.drugs = new Drugs(this);
     this.bank = new Bank(this);
     this.property = new PropertyMarket(this);
+    this.economy = new Economy(this);
     this.market = new Market(this);
     this.president = new President(this);
     this.phone = new Phone(this);
