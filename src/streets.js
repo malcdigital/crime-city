@@ -191,8 +191,10 @@ export class Streets {
     const lamps = { red: [], yellow: [], green: [] };
     this.lampRefs = []; // [node, axis, color, index]
     this.poleStats = { total: 0, moved: 0, skipped: 0 };
+    this.junctionPoles = new Map(); // node -> the sign and signal poles there
     // In a roadway (any street's pavement, with a little room)?
-    const inRoad = (x, z, pad) => edgesNear(x, z, pad).length > 0 || !!this.game.highway?.surfacesAt(x, z, 0.8).some((o) => o.h < 2.5);
+    // (out on the hills the roads are strips that flare a little at bends and junctions: more room)
+    const inRoad = (x, z, pad) => edgesNear(x, z, city.heightAt(x, z) > 0.05 ? pad + 1.6 : pad).length > 0 || !!this.game.highway?.surfacesAt(x, z, 0.8).some((o) => o.h < 2.5);
     // A point d meters out from junction n along arm a, following the street around its bends
     // (through curve points), with the street's direction there. Null past the next junction.
     const along = (n, a, d) => {
@@ -243,27 +245,56 @@ export class Streets {
         if (lp) {
           const lx = lp.x + lp.uz * (w / 4);
           const lz = lp.z - lp.ux * (w / 4);
-          lines.push([lx, gy(lx, lz) + 0.03, lz, Math.atan2(lp.uz, -lp.ux), (w / 2 - 0.6) / 7.4, 1, 1]);
+          lines.push([lx, city.roadY(lx, lz) + 0.01, lz, Math.atan2(lp.uz, -lp.ux), (w / 2 - 0.6) / 7.4, 1, 1]);
         }
         // Pole on the right-hand curb, facing oncoming drivers. It must stand clear of every
         // road (a short block or an angled junction can put the plain spot in another street):
         // slide it back along the curb until it's clear, or leave it out.
-        const spot = poleSpot(n, a, w);
+        // Traffic lights stand on the far side of the junction (on the right, just past the
+        // crosswalk), where a driver waiting at the line can see them; stop signs on the near
+        // side. (No road straight on, or no room: the near side.)
+        let spot = null;
+        if (ctl.type === 'signal') {
+          let b = null;
+          let bd = -0.7;
+          for (const o of ctl.arms) {
+            const d = a.ux * o.ux + a.uz * o.uz;
+            if (o !== a && d < bd) {
+              bd = d;
+              b = o;
+            }
+          }
+          for (let k = 0; b && k <= 4 && !spot; k++) {
+            const pt = along(n, b, b.stopAt + 1 + k * 1.5);
+            if (!pt) break;
+            // (leaving the junction along b: the right-hand curb)
+            const px = pt.x - pt.uz * (b.e.w / 2 + 0.7);
+            const pz = pt.z + pt.ux * (b.e.w / 2 + 0.7);
+            if (!inRoad(px, pz, 0.4)) spot = { p: [px, pz], moved: false, far: true };
+          }
+        }
+        spot ||= poleSpot(n, a, w);
         this.poleStats.total++;
         if (!spot) {
           this.poleStats.skipped++;
           continue;
         }
         if (spot.moved) this.poleStats.moved++;
-        const [px, pz] = spot.p;
+        let [px, pz] = spot.p;
+        const here = this.junctionPoles.get(n) || this.junctionPoles.set(n, []).get(n);
+        // (two lights wanting the same corner share one pole, a head facing each way)
+        const share = here.find((q) => q.type === ctl.type && Math.hypot(q.x - px, q.z - pz) < 1.8);
+        if (share) [px, pz] = [share.x, share.z];
         const y = gy(px, pz);
+        if (!share) here.push({ x: px, z: pz, y, type: ctl.type });
         const face = Math.atan2(a.ux, a.uz); // the face points back toward the driver
         if (ctl.type === 'stop') {
+          if (share) continue; // (one stop sign per corner)
           signPoles.push([px, y + 1.45, pz, 0]);
           signs.push([px, y + 2.55, pz, face]);
           city.colliders.push({ minX: px - 0.12, maxX: px + 0.12, minZ: pz - 0.12, maxZ: pz + 0.12, h: y + 2.9 });
         } else {
-          sigPoles.push([px, y + 2.3, pz, 0]);
+          if (!share) sigPoles.push([px, y + 2.3, pz, 0]);
           sigHeads.push([px, y + 4.1, pz, face]);
           const fx = Math.sin(face) * 0.24;
           const fz = Math.cos(face) * 0.24;
@@ -271,7 +302,7 @@ export class Streets {
             this.lampRefs.push([n, axis, col, lamps[col].length]);
             lamps[col].push([px + fx, y + hy, pz + fz, face]);
           });
-          city.colliders.push({ minX: px - 0.15, maxX: px + 0.15, minZ: pz - 0.15, maxZ: pz + 0.15, h: y + 4.8 });
+          if (!share) city.colliders.push({ minX: px - 0.15, maxX: px + 0.15, minZ: pz - 0.15, maxZ: pz + 0.15, h: y + 4.8 });
         }
       }
     }
@@ -298,7 +329,96 @@ export class Streets {
     this.on = { red: new THREE.Color(0xff2a1a), yellow: new THREE.Color(0xffc21a), green: new THREE.Color(0x2bff6a) };
     this.off = { red: new THREE.Color(0x3a0d0a), yellow: new THREE.Color(0x3a300a), green: new THREE.Color(0x0a3a18) };
     this.paintSignals(true);
+    this.placedPoles = [...signPoles, ...sigPoles];
+    this.buildNameSigns(place);
     this.buildStreetLights(place);
+    this.placed = { stopLines: lines, signPoles, signs, sigPoles, sigHeads }; // (for checks and tests)
+  }
+
+  // Street name signs: green blades on the corner pole at each junction (the stop sign or the
+  // traffic light), one per street, each running along the street it names.
+  buildNameSigns(place) {
+    const blades = []; // [x, y, z, dirx, dirz, name]
+    const extra = []; // pole extensions above stop signs
+    for (const [n, poles] of this.junctionPoles) {
+      const pole = poles[0];
+      if (!pole) continue;
+      const named = new Map();
+      for (const e of n.edges) {
+        const nm = e.street?.name;
+        if (!nm || e.street?.stub !== undefined) continue;
+        const prev = named.get(nm);
+        if (!prev || e.rank > prev.rank) named.set(nm, e);
+      }
+      const list = [...named.values()].sort((p, q) => q.rank - p.rank).slice(0, 2);
+      if (!list.length) continue;
+      const base = pole.type === 'stop' ? 3.05 : 2.75;
+      if (pole.type === 'stop') extra.push([pole.x, pole.y + 3.3, pole.z, 0]);
+      list.forEach((e, k) => {
+        const m = e.other(n);
+        const L = Math.hypot(m.x - n.x, m.z - n.z) || 1;
+        blades.push([pole.x, pole.y + base + k * 0.24, pole.z, (m.x - n.x) / L, (m.z - n.z) / L, e.street.name]);
+      });
+    }
+    if (!blades.length) return;
+    // One picture with every name on it.
+    const names = [...new Set(blades.map((b) => b[5]))];
+    const CW = 512;
+    const CH = 64;
+    const cols = 4;
+    const rows = Math.ceil(names.length / cols);
+    const cv = document.createElement('canvas');
+    cv.width = CW * cols;
+    cv.height = CH * rows;
+    const g = cv.getContext('2d');
+    names.forEach((nm, i) => {
+      const x = (i % cols) * CW;
+      const y = Math.floor(i / cols) * CH;
+      g.fillStyle = '#1d6b3a';
+      g.fillRect(x, y, CW, CH);
+      g.strokeStyle = '#e8f2ea';
+      g.lineWidth = 4;
+      g.strokeRect(x + 4, y + 4, CW - 8, CH - 8);
+      g.fillStyle = '#ffffff';
+      g.font = 'bold 38px Arial, sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(nm.toUpperCase(), x + CW / 2, y + CH / 2 + 2, CW - 30);
+    });
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    const pos = [];
+    const uv = [];
+    const W = 2.1;
+    const Hh = 0.27;
+    for (const [x, y, z, dx, dz, nm] of blades) {
+      const i = names.indexOf(nm);
+      const u0 = (i % cols) / cols;
+      const u1 = u0 + 1 / cols;
+      const v1 = 1 - Math.floor(i / cols) / rows;
+      const v0 = v1 - 1 / rows;
+      const ax = x - (dx * W) / 2;
+      const az = z - (dz * W) / 2;
+      const bx = x + (dx * W) / 2;
+      const bz = z + (dz * W) / 2;
+      // Front (one side) and back (the other, so it reads the right way round from there too).
+      const quad = (p, q, flip) => {
+        const [pa, pb] = flip ? [q, p] : [p, q];
+        pos.push(pa[0], y - Hh / 2, pa[1], pb[0], y - Hh / 2, pb[1], pb[0], y + Hh / 2, pb[1]);
+        pos.push(pa[0], y - Hh / 2, pa[1], pb[0], y + Hh / 2, pb[1], pa[0], y + Hh / 2, pa[1]);
+        uv.push(u0, v0, u1, v0, u1, v1, u0, v0, u1, v1, u0, v1);
+      };
+      quad([ax, az], [bx, bz], false);
+      quad([ax, az], [bx, bz], true);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.computeBoundingSphere();
+    this.scene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex })));
+    if (extra.length) place(new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.05, 0.75, 6), new THREE.MeshLambertMaterial({ color: 0x8a8f96 }), extra.length), extra);
+    this.nameBlades = blades.length;
   }
 
   // Street lights: poles on the outer edge of the sidewalks, along every side of every block.
@@ -306,6 +426,7 @@ export class Streets {
     const city = this.game.city;
     const posts = [];
     const heads = [];
+    const allPoles = [...(this.placedPoles || [])];
     const pools = [];
     for (const b of city.blocks) {
       if (b.type === 'ramps' || b.type === 'place') continue;
@@ -319,6 +440,8 @@ export class Streets {
           const x = s.ax + s.ux * t - s.nx * inset;
           const z = s.az + s.uz * t - s.nz * inset;
           if (city.blockAt(x, z) && b.lot) continue;
+          // Not right up against a sign or signal pole.
+          if (allPoles.some((q) => Math.abs(q[0] - x) < 2.2 && Math.abs(q[2] - z) < 2.2)) continue;
           // Never out in a road, on a ramp, or in the ramp land at an interchange.
           if (edgesNear(x, z, 0.3).length || inHole(x, z, 2) || this.game.highway?.surfacesAt(x, z, 0.8).some((o) => o.h < 2.5)) continue;
           const y = city.groundY(x, z);
@@ -329,6 +452,7 @@ export class Streets {
         }
       }
     }
+    this.lampPosts = posts;
     place(new THREE.InstancedMesh(new THREE.CylinderGeometry(0.08, 0.11, 6.4, 6), new THREE.MeshLambertMaterial({ color: 0x3d4247 }), posts.length), posts);
     this.lampMat = new THREE.MeshLambertMaterial({ color: 0x55595e, emissive: 0x000000 });
     place(new THREE.InstancedMesh(new THREE.BoxGeometry(0.28, 0.14, 2.3), this.lampMat, heads.length), heads);

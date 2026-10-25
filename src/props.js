@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { WEALTH_BASE } from './districts.js';
 import { mulberry32, dist } from './util.js';
 import { inHole } from './fwyplan.js';
+import { edgesNear } from './city.js';
 
 // Street props on the sidewalks:
 // - Fire hydrants (one per block). Hit one with a car and it breaks off and sprays water for
@@ -45,7 +46,10 @@ export class Props {
     for (const s of city.stores) avoid.push([s.x, s.z, 4]);
     for (const a of game.bank?.atms || []) avoid.push([a.x, a.z, 2.5]);
     for (const s of game.transit?.stops || []) avoid.push([s.sx, s.sz, 4.5]);
-    const ok = (x, z) => !avoid.some(([ax, az, r]) => dist(ax, az, x, z) < r) && !inHole(x, z, 2) && city.blockAt(x, z);
+    // (and clear of the sign, signal and street light poles, and never out in a road)
+    for (const q of game.streets?.placedPoles || []) avoid.push([q[0], q[2], 1.6]);
+    for (const q of game.streets?.lampPosts || []) avoid.push([q[0], q[2], 1.6]);
+    const ok = (x, z) => !avoid.some(([ax, az, r]) => dist(ax, az, x, z) < r) && !inHole(x, z, 2) && city.blockAt(x, z) && !edgesNear(x, z, 0.4).some((e) => e.street?.stub === undefined);
     const add = (kind, x, z, yaw) => {
       if (!ok(x, z)) return;
       const it = { kind, x, z, yaw, x0: x, z0: z, yaw0: yaw, down: false, idx: -1, y0: city.groundY(x, z), ...KINDS[kind] };

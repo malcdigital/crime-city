@@ -333,7 +333,7 @@ export function buildCity(scene) {
     for (let i = h.length - 2; i >= 0; i--) h[i] = Math.max(h[i + 1] - 0.12 * ds(i + 1), Math.min(h[i + 1] + 0.12 * ds(i + 1), h[i]));
     const w = ROAD_CLASS[st.cls].w;
     ribbons.push({ pts, h, w, st });
-    const reach = w / 2 + 9;
+    const reach = w / 2 + 13; // (flat across the road and a few meters either side, then easing into the hill)
     for (let k = 0; k + 1 < pts.length; k++) {
       const [ax, az] = pts[k];
       const [bx, bz] = pts[k + 1];
@@ -344,7 +344,7 @@ export function buildCity(scene) {
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
         const c = closestOnSeg(i * TG, j * TG, ax, az, bx, bz);
         if (c.d > reach) continue;
-        const wgt = c.d < w / 2 + 2 ? 1 : 1 - (c.d - w / 2 - 2) / (reach - w / 2 - 2);
+        const wgt = c.d < w / 2 + 4.5 ? 1 : 1 - (c.d - w / 2 - 4.5) / (reach - w / 2 - 4.5);
         const idx = j * GN + i;
         // (the nearest piece of road sets the height: on a slope, a piece further along
         // would leave the ground above or below the road)
@@ -388,6 +388,9 @@ export function buildCity(scene) {
     }
   }
   const heightAt = rawAt; // (after burning in)
+  // Where paint goes on a road: just above its surface (the paved city is at 0; roads out on
+  // the terrain are strips laid a few cm above the ground).
+  const roadY = (x, z) => (paved(x, z) ? 0.02 : heightAt(x, z) + 0.065);
 
   // ======== Lookups: blocks, ground height, nodes ========
   const BG = 2;
@@ -1184,6 +1187,7 @@ export function buildCity(scene) {
   }
 
   // ======== Road markings ========
+  let markings = null;
   {
     const dashGeo = new THREE.PlaneGeometry(0.25, 3);
     dashGeo.rotateX(-Math.PI / 2);
@@ -1195,6 +1199,7 @@ export function buildCity(scene) {
     const clear = (n, e) => {
       let m = 0;
       for (const f of n.edges) if (f !== e) m = Math.max(m, f.w / 2);
+      if (n.edges.length === 2) return 0; // (a bend, not a junction: the line carries on round it)
       return n.edges.length > 1 ? m + 4.5 : 1;
     };
     for (const e of GRAPH.edges) {
@@ -1209,7 +1214,7 @@ export function buildCity(scene) {
       for (let t = t0 + 1.5; t < t1 - 1.5; t += 6) {
         const x = e.a.x + ux * t;
         const z = e.a.z + uz * t;
-        dashes.push([x, groundY(x, z) + 0.02, z, ry]);
+        dashes.push([x, roadY(x, z), z, ry]);
       }
       if (ROAD_CLASS[e.cls].parking) {
         const off = e.w / 2 - 2.8;
@@ -1217,10 +1222,11 @@ export function buildCity(scene) {
         for (const s of [-1, 1]) {
           const x = e.a.x + ux * mid - uz * off * s;
           const z = e.a.z + uz * mid + ux * off * s;
-          lines.push([x, 0.021, z, ry, t1 - t0]);
+          lines.push([x, roadY(x, z) + 0.001, z, ry, t1 - t0]);
         }
       }
     }
+    markings = { dashes, lines };
     const dashMesh = new THREE.InstancedMesh(dashGeo, new THREE.MeshBasicMaterial({ color: 0xd9c45a }), dashes.length);
     const dummy = new THREE.Object3D();
     dashes.forEach(([x, y, z, ry], i) => {
@@ -1357,7 +1363,8 @@ export function buildCity(scene) {
 
   const city = {
     windowMats, colliders, los, crates, blocks, stores, chop, station, hospital, gangHome, crewHome, spawn,
-    nodes, edges: GRAPH.edges, nearestNode, blockAt, groundY, heightAt, drawMap, size: MAP, hilly: true,
+    get markings() { return markings; },
+    nodes, edges: GRAPH.edges, nearestNode, blockAt, groundY, heightAt, roadY, drawMap, size: MAP, hilly: true,
     storefront, frontPoint, edgeAt, streetAt, onPier,
     byKey: new Map(blocks.map((b) => [b.key, b])),
   };

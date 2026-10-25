@@ -184,7 +184,7 @@ function drawCrosswalks(scene, crossings, city) {
     for (let t = 0.9; t <= L - 0.8; t += 1.15) {
       const x = c.x0 + ((c.x1 - c.x0) * t) / L;
       const z = c.z0 + ((c.z1 - c.z0) * t) / L;
-      bars.push([x, city.groundY(x, z) + 0.025, z, ry]);
+      bars.push([x, city.roadY(x, z) + 0.005, z, ry]);
     }
   }
   const mesh = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color: 0xdedede }), Math.max(1, bars.length));
