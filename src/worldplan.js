@@ -817,4 +817,15 @@ BLOCKS.forEach((b, i) => {
   b.key = `b${i}`;
 });
 addLots(GRAPH, BLOCKS);
+// Each block's key comes from where it is (not its number in the list), so a change to the
+// streets in one part of town doesn't scramble saved turf everywhere else.
+{
+  const used = new Set();
+  for (const b of BLOCKS) {
+    let k = `b${Math.round(b.cx)}_${Math.round(b.cz)}`;
+    while (used.has(k)) k += 'x';
+    used.add(k);
+    b.key = k;
+  }
+}
 export { RING_HALF, XT_HALF };

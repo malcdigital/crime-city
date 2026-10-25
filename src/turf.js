@@ -770,7 +770,14 @@ export class TurfManager {
     try {
       const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
       if (!s || !s.owner) return false;
-      Object.assign(this, { owner: s.owner, home: s.home, lock: s.lock || {}, lost: s.lost || { kings: [], vipers: [], crew: [] }, under: s.under || {}, nextRoll: s.nextRoll || {}, crackdown: s.crackdown || {}, tags: s.tags || {} });
+      // Saved turf must still match the city (blocks change when the streets change): a
+      // gang's home that's gone means starting over; any other block that's gone is dropped.
+      const ok = (k) => !!this.byKey[k];
+      if (!s.home || Object.keys(START).some((g) => !ok(s.home[g]))) return false;
+      const keep = (o) => Object.fromEntries(Object.entries(o || {}).filter(([k]) => ok(k)));
+      const lost = {};
+      for (const [g, list] of Object.entries(s.lost || { kings: [], vipers: [], crew: [] })) lost[g] = (list || []).filter(ok);
+      Object.assign(this, { owner: keep(s.owner), home: s.home, lock: keep(s.lock), lost, under: keep(s.under), nextRoll: s.nextRoll || {}, crackdown: keep(s.crackdown), tags: keep(s.tags) });
       return true;
     } catch {
       return false;
