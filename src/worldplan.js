@@ -613,7 +613,96 @@ const norm = (dx, dz, ccw) => {
   return ccw ? [-dz / L, dx / L] : [dz / L, -dx / L];
 };
 
+// ---- Lots along the hill roads (no blocks form up there: houses face the road) ----
+// Rectangles each side of the road, set back a little, wherever they fit; plus a big lot at
+// the end of each ridge road (the quarry, the junkyard, the lookout).
+function addLots(graph, blocks) {
+  const edgesNear = (x, z, r) => graph.edges.filter((e) => closestOnSeg(x, z, e.a.x, e.a.z, e.b.x, e.b.z).d < r + e.w / 2);
+  const fits = (poly, own) => {
+    const [cx, cz] = centroid(poly);
+    for (const p of [...poly, [cx, cz]]) {
+      if (isWater(p[0], p[1]) || shoreDist(p[0], p[1]) < 6 || inHole(p[0], p[1], 4)) return false;
+      if (p[0] < 6 || p[0] > 1594 || p[1] < 6 || p[1] > 1594) return false;
+      if (ringDist(p[0], p[1]) < RING_HALF + 30 || insideRing(p[0], p[1])) return false;
+      for (const e of edgesNear(p[0], p[1], 2)) if (!own(e)) return false;
+    }
+    for (const b of blocks) {
+      if (b.maxX < Math.min(...poly.map((q) => q[0])) || b.minX > Math.max(...poly.map((q) => q[0]))) continue;
+      if (b.maxZ < Math.min(...poly.map((q) => q[1])) || b.minZ > Math.max(...poly.map((q) => q[1]))) continue;
+      if (poly.some((q) => pointInPoly(q[0], q[1], b.poly)) || b.poly.some((q) => pointInPoly(q[0], q[1], poly)) || pointInPoly(cx, cz, b.poly)) return false;
+    }
+    return true;
+  };
+  const lot = (poly, info) => {
+    const [cx, cz] = centroid(poly);
+    const bb = bbox(poly);
+    const id = blocks.length;
+    const district = districtAt(cx, cz);
+    blocks.push({
+      id, key: `b${id}`, face: poly, poly, cx, cz, ...bb, district, zone: district === 'The Heights' ? 'heights' : 'ridge',
+      type: 'normal', area: Math.abs(area(poly)), rampShare: 0, edges: [], streets: [info.street].filter(Boolean),
+      convex: true, lot: true, ...info,
+    });
+  };
+  for (const st of streets) {
+    if (st.cls !== 'hills' || /Quarry|Junkyard|Lookout/.test(st.name || '')) continue;
+    const pts = st.pts;
+    const Ls = [0];
+    for (let i = 1; i < pts.length; i++) Ls.push(Ls[i - 1] + dist(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]));
+    const L = Ls[Ls.length - 1];
+    const at = (t) => {
+      let i = 1;
+      while (i < pts.length - 1 && Ls[i] < t) i++;
+      const f = (t - Ls[i - 1]) / (Ls[i] - Ls[i - 1] || 1);
+      return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * f, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f];
+    };
+    const w = ROAD_CLASS.hills.w;
+    const n = Math.floor((L - 16) / 30);
+    // Each side: lots 26 m deep, set back 2.5 m from the road edge, about 30 m wide.
+    for (let k = 0; k < n; k++) {
+      const t0 = 8 + (k * (L - 16)) / n + 1.5;
+      const t1 = 8 + ((k + 1) * (L - 16)) / n - 1.5;
+      const A = at(t0);
+      const B = at(t1);
+      const cl = dist(A[0], A[1], B[0], B[1]) || 1;
+      const ux = (B[0] - A[0]) / cl;
+      const uz = (B[1] - A[1]) / cl;
+      // (on a curve the chord sits inside the bend: push the lot out by the sag)
+      const M = at((t0 + t1) / 2);
+      for (const side of [-1, 1]) {
+        const nx = -uz * side;
+        const nz = ux * side;
+        const sag = (M[0] - (A[0] + B[0]) / 2) * nx + (M[1] - (A[1] + B[1]) / 2) * nz;
+        const o0 = w / 2 + 2.5 + Math.max(0, sag);
+        const o1 = o0 + 26;
+        const P = (p, o) => [p[0] + nx * o, p[1] + nz * o];
+        let poly = [P(A, o0), P(B, o0), P(B, o1), P(A, o1)];
+        if (area(poly) < 0) poly = poly.reverse();
+        const own = (e) => e.street === st || e.cls === 'hills';
+        if (fits(poly, own)) lot(poly, { street: st.name, front: [P(M, w / 2 + Math.max(0, sag)), Math.atan2(-nz, -nx)] });
+      }
+    }
+  }
+  // The ends of the ridge roads.
+  for (const [name, x, z, kind] of [['Quarry Rd', 60, 180, 'quarry'], ['Junkyard Rd', 90, 1240, 'junkyard'], ['Lookout Rd', CENTRAL_X - 130, 30, 'lookout']]) {
+    const s = kind === 'lookout' ? 26 : 38;
+    let dx = 0;
+    let dz = 0;
+    if (kind === 'quarry') dz = -s - 6;
+    if (kind === 'junkyard') dx = s + 6;
+    if (kind === 'lookout') dx = -s - 6;
+    const cx = x + dx;
+    const cz = z + dz;
+    lot([[cx - s, cz - s], [cx + s, cz - s], [cx + s, cz + s], [cx - s, cz + s]], { street: name, special: kind, front: [[x, z], 0], type: 'place' });
+  }
+}
+
 export const STREETS = streets;
 export const GRAPH = buildGraph();
-export const BLOCKS = buildBlocks(GRAPH);
+export const BLOCKS = buildBlocks(GRAPH).filter((b) => b.area >= 60);
+BLOCKS.forEach((b, i) => {
+  b.id = i;
+  b.key = `b${i}`;
+});
+addLots(GRAPH, BLOCKS);
 export { RING_HALF, XT_HALF };
