@@ -203,6 +203,18 @@ class Game {
     this.hud.clock = () => this.clockText();
     if (CFG.START_IN_CAR && !this.player.vehicle) {
       this.testCar = this.vehicles[0];
+      if (CFG.START_AT) {
+        // (testing: start at a set spot)
+        const [x, z, deg] = CFG.START_AT;
+        const v = this.testCar;
+        v.x = x;
+        v.z = z;
+        v.heading = (deg * Math.PI) / 180;
+        v.speed = 0;
+        v.high = false;
+        v.y = v.groundY = this.city.groundY(x, z);
+        this.camYaw = v.heading;
+      }
       this.player.enter(this.testCar);
     }
     // Own a safehouse? You wake up there.

@@ -11,6 +11,9 @@ export const CFG = {
   // Testing switches: start in a car, and V / R3 spawns a car next to you.
   START_IN_CAR: true,
   CAR_SPAWN_KEY: true,
+  // Testing switch: where you start (in the car): [x, z, heading in degrees], or null. Right now:
+  // on Park Ave heading west toward the interchange on the west side of the ring.
+  START_AT: [215, 486.4, 270],
 
   BLOCKS,
   BLOCK,
