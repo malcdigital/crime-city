@@ -12,8 +12,8 @@ export const CFG = {
   START_IN_CAR: true,
   CAR_SPAWN_KEY: true,
   // Testing switch: where you start (in the car): [x, z, heading in degrees], or null. Right now:
-  // on Canyon Dr in the Heights, just short of the junction where it meets the link up from Park Ave.
-  START_AT: [1365, 538, 80],
+  // on Bayview Dr in the Heights, heading up into the bend where it turns into Canyon Dr.
+  START_AT: [1445.5, 672, 178],
   // Testing switch: the interchange editor in the pause menu (reshape the ramps, then drive them).
   RAMP_EDITOR: true,
 
