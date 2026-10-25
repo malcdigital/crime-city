@@ -173,13 +173,13 @@ const arcPts = (cx, cz, r, a0, a1, step = 10) => {
 };
 const onLand = (pts) => pts.filter(([x, z]) => x > RX1 + 60 && x < 1590 && z > 15 && shoreDist(x, z) > 25);
 add(onLand(arcPts(HX, HZ, 175, Math.PI * 0.62, Math.PI * 1.7)), 'hills', 'Canyon Dr');
+add(arcPts(HX, HZ, 175, Math.PI * 0.56, Math.PI * 0.62), 'hills', 'Canyon Dr'); // (on round to where Bayview Dr comes up)
 add(onLand(arcPts(HX, HZ, 105, Math.PI * 0.2, Math.PI * 1.85)), 'hills', 'Vista Loop');
 add(arcPts(HX, HZ, 42, 0, Math.PI * 2), 'hills', 'Summit Cir');
-add([[1345, PARK_Z], [HX + 175 * Math.cos(Math.PI * 0.62), HZ + 175 * Math.sin(Math.PI * 0.62)]], 'hills', 'Canyon Dr');
 // (up from Canyon Dr on the north-west side, clear of the Park Ave interchange's land)
 add([[HX + 175 * Math.cos(Math.PI * 1.3), HZ + 175 * Math.sin(Math.PI * 1.3)], [HX + 105 * Math.cos(Math.PI * 1.3), HZ + 105 * Math.sin(Math.PI * 1.3)]], 'hills', 'Summit Rd');
 add([[HX + 105 * Math.cos(Math.PI * 1.3), HZ + 105 * Math.sin(Math.PI * 1.3)], [HX + 42 * Math.cos(Math.PI * 1.3), HZ + 42 * Math.sin(Math.PI * 1.3)]], 'hills', 'Summit Rd'); // (on up to the top, in line)
-add([[1320, MARKET_Z], [1380, 860], [1420, 790], [1440, 700], [1450, 620], [HX + 175 * Math.cos(Math.PI * 0.42), HZ + 175 * Math.sin(Math.PI * 0.42)]], 'hills', 'Bayview Dr');
+add([[1320, MARKET_Z], [1380, 860], [1420, 790], [1440, 700], [1446, 630], [HX + 175 * Math.cos(Math.PI * 0.56), HZ + 175 * Math.sin(Math.PI * 0.56)]], 'hills', 'Bayview Dr');
 // The ridges: a lookout north up Central Ave, a quarry and a junkyard out west.
 add([[CENTRAL_X, 28], [CENTRAL_X - 70, 22], [CENTRAL_X - 130, 30]], 'hills', 'Lookout Rd');
 add([[20, PARK_Z], [22, 360], [30, 240], [60, 180]], 'hills', 'Quarry Rd');
