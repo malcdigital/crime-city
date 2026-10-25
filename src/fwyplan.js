@@ -161,6 +161,13 @@ function addRamp(W, path, keys, info) {
   RAMPS.push(r);
   return r;
 }
+// A world direction from a local one.
+const dirOf = (W, du, dv) => {
+  const [ax, az] = W(0, 0);
+  const [bx, bz] = W(du, dv);
+  const l = Math.hypot(bx - ax, bz - az) || 1;
+  return [(bx - ax) / l, (bz - az) / l];
+};
 const rectLocal = (W, u0, u1, v0, v1) => [W(u0, v0), W(u1, v0), W(u1, v1), W(u0, v1)];
 
 // ---- Service interchange (parclo A4), one carriageway's half ----
@@ -190,25 +197,32 @@ function parcloHalf(W, lanes, cross, opts) {
   loop.line(165, vA);
   addRamp(W, loop, (lc, L, at) => [[at('a') - 4, 0], [at('b'), DECK]], {
     kind: 'on', loop: true, main: opts.main, dir: opts.dir, laneTo: lanes - 1, street: W(0, 20), name,
+    approach: dirOf(W, 0, 1), // (taken by traffic heading away from the freeway: a right turn)
     tail: { v0: vA, v1: vL }, // (the acceleration lane carries on along the freeway: see addTails)
   });
   // Diagonal entrance: right turn off the cross street lane heading toward the freeway, up
   // alongside to join the acceleration lane.
   // (it stays out wide while it climbs, and only swings in alongside once it's level with
   // the deck: no running in underneath the edge of it)
+  // It peels off the curb lane in a smooth right-hand curve (no square turn): you veer right
+  // onto it.
   const vWide = vA + RAMP_HW * 2 + 1.2;
-  const diag = new Path(H - 1.5, vOn).line(H + 6, vOn).shift(100, vWide).line(118, vWide).shift(150, vA).line(165, vA);
-  addRamp(W, diag, (lc, L) => [[sAtU(lc, L, H + 6), 0], [sAtU(lc, L, 116), DECK]], {
-    kind: 'on', main: opts.main, dir: opts.dir, joinsRamp: true, street: W(0, vOn), name,
+  const vS = vOn + 2; // where it leaves the street (well clear of the exit opposite)
+  const R = 26;
+  const diag = new Path(H - 2.5, vS + 6).line(H - 2.5, vS).arc(H - 2.5 + R, vS, R, Math.PI, Math.PI * 1.5);
+  diag.shift(100, vWide).line(118, vWide).shift(150, vA).line(165, vA);
+  addRamp(W, diag, (lc, L) => [[sAtU(lc, L, H + 14), 0], [sAtU(lc, L, 116), DECK]], {
+    kind: 'on', main: opts.main, dir: opts.dir, joinsRamp: true, street: W(0, vS + 6), name,
+    approach: dirOf(W, 0, -1), // (taken by traffic heading toward the freeway: a right turn)
   });
   // (links for traffic between the street's middle and the ramp ends, inside the street)
-  STUBS.push([W(0, vOff), W(-H + 1.5, vOff)], [W(0, 20), W(-H + 2.2, 20)], [W(0, vOn), W(H - 1.5, vOn)]);
+  STUBS.push([W(0, vOff), W(-H + 1.5, vOff)], [W(0, 20), W(-H + 2.2, 20)], [W(0, vS + 6), W(H - 2.5, vS + 6)]);
   RAMPS[RAMPS.length - 3].stub = STUBS.length - 3;
   RAMPS[RAMPS.length - 2].stub = STUBS.length - 2;
   RAMPS[RAMPS.length - 1].stub = STUBS.length - 1;
   // Land for the ramps (no streets or buildings).
   HOLES.push({ poly: rectLocal(W, -Ud - 8, -H, 8, vOff + 10) });
-  HOLES.push({ poly: rectLocal(W, H, 195, 8, vOn + 10) });
+  HOLES.push({ poly: rectLocal(W, H, 195, 8, vS + 20) }); // (room for the peel-off: side streets keep well clear)
   // Signs over the right-hand lanes: 200 m before the exit and where it leaves.
   const [ox, oz] = W(0, 0);
   const [tx, tz] = W(1, 0);
@@ -217,7 +231,7 @@ function parcloHalf(W, lanes, cross, opts) {
   SIGNS.push({ at: W(-Ud + 25, vA), ang, text: `EXIT ${name}`, sub: '↗', kind: 'exit', h: DECK });
   // On the cross street, at the two entrances.
   SIGNS.push({ at: W(-H - 1.5, 14), ang: ang + Math.PI / 2, text: opts.toward, kind: 'entrance', h: 0 });
-  SIGNS.push({ at: W(H + 1.5, vOn + 9), ang: ang - Math.PI / 2, text: opts.toward, kind: 'entrance', h: 0 });
+  SIGNS.push({ at: W(H + 1.5, vS + 14), ang: ang - Math.PI / 2, text: opts.toward, kind: 'entrance', h: 0 });
 }
 
 // A full service interchange at a cross street on a straight freeway piece.

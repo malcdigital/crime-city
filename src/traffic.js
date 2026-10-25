@@ -38,9 +38,11 @@ export class TrafficDriver {
     const ix = this.to.x - this.from.x;
     const iz = this.to.z - this.from.z;
     const il = Math.hypot(ix, iz) || 1;
-    const opts = this.to.nb.filter((n) => n !== this.from && ((n.x - this.to.x) * ix + (n.z - this.to.z) * iz) / il > -0.5 * dist(n.x, n.z, this.to.x, this.to.z));
+    // (a freeway entrance only from the side where it's a right turn)
+    const ok = (n) => !n.approach || (ix * n.approach[0] + iz * n.approach[1]) / il > 0.5;
+    const opts = this.to.nb.filter((n) => n !== this.from && ok(n) && ((n.x - this.to.x) * ix + (n.z - this.to.z) * iz) / il > -0.5 * dist(n.x, n.z, this.to.x, this.to.z));
     if (opts.length) return pick(opts);
-    const any = this.to.nb.filter((n) => n !== this.from);
+    const any = this.to.nb.filter((n) => n !== this.from && ok(n));
     return any.length ? pick(any) : this.from;
   }
 

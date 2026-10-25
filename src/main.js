@@ -68,7 +68,7 @@ class Game {
     const sky = new THREE.Color(0x9fc3e0);
     this.scene.background = sky;
     this.scene.fog = new THREE.Fog(sky, GFX.fogNear, GFX.fogFar);
-    this.camera = new THREE.PerspectiveCamera(65, 1, 0.1, GFX.far); // nothing past the fog
+    this.camera = new THREE.PerspectiveCamera(65, 1, 0.3, GFX.far); // (near 0.3 m: sharper depth far off, no flicker where surfaces nearly touch) // nothing past the fog
 
     this.hemi = new THREE.HemisphereLight(0xdfefff, 0x4a4a40, 1.1);
     this.scene.add(this.hemi);
