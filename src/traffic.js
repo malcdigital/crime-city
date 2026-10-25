@@ -186,8 +186,9 @@ export class TrafficDriver {
 
   // Stuck behind a stopped car (a parked car in the lane, a wreck, a jam): pass it, or turn back.
   unjam(dt, game, ux, uz, dn) {
-    // No passing or turning round on a one-lane ramp: just wait.
-    if ((this.from.ramp || this.to.ramp) && !this.passing) return;
+    // No passing or turning round on the freeway or its ramps (one way: on the freeway you
+    // change lanes instead): just wait.
+    if ((this.from.high || this.to.high) && !this.passing) return;
     const c = this.car;
     const b = this.blockedBy;
     this.passCooldown = Math.max(0, (this.passCooldown || 0) - dt);
@@ -331,7 +332,8 @@ export class TrafficDriver {
       if (Math.abs(ox) > 10 || Math.abs(oz) > 10) continue;
       const fwd = ox * fx + oz * fz;
       const lat = Math.abs(ox * fz - oz * fx);
-      if (fwd > 0 && fwd < 9 && lat < 1.8) desired = 0;
+      // (Someone on the sidewalk, e.g. waiting at the curb to cross, isn't in the way.)
+      if (fwd > 0 && fwd < 9 && lat < 1.8 && !game.city.blockAt(w.x, w.z)) desired = 0;
     }
     return desired;
   }

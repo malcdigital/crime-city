@@ -272,6 +272,19 @@ export class Highway {
         if (hit) one(last, after(hit));
       }
     }
+    // A lane that ends where a ramp starts (the crosstown's ends) carries on into that ramp
+    // instead of dead-ending, and the node before stops skipping straight onto the ramp.
+    for (const ln of this.lanes) {
+      const last = ln.nodes[ln.nodes.length - 1];
+      if (ln.closed || !last || last.nb.length) continue;
+      const prev = ln.nodes[ln.nodes.length - 2];
+      for (const r of RAMPS) {
+        const f = r.lane.nodes[0];
+        if (f === last || Math.hypot(f.x - last.x, f.z - last.z) > 2) continue;
+        one(last, f);
+        if (prev) prev.nb = prev.nb.filter((m) => m !== f);
+      }
+    }
     // Every node knows the lane it's on (for lane-keeping AI and the GPS).
     for (const ln of this.lanes) for (const n of ln.nodes) n.laneRef = ln;
   }
