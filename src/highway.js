@@ -475,6 +475,34 @@ export class Highway {
         }
       }
       for (const [x0, z0, h0, x1, z1, h1, median] of s.rails) parts.rail.push(wallPiece(x0, z0, h0, x1, z1, h1, median ? 0.85 : 0.9, median ? 0.5 : T));
+      // Ramps: a solid white line along the right edge and yellow along the left, from where
+      // the ramp leaves the street (not out in the street, and not where it runs alongside the
+      // freeway or another ramp at the same height).
+      if (s.ramp) {
+        for (const [v, list] of [[s.hw - 0.45, parts.white], [-(s.hw - 0.45), parts.yellow]]) {
+          let run = [];
+          let runH = [];
+          const flush = () => {
+            if (run.length > 1) list.push(ribbon(run, runH, 0.08, 0, 0, true));
+            run = [];
+            runH = [];
+          };
+          for (let i = 0; i < s.pts.length; i++) {
+            const a = s.pts[Math.max(0, i - 1)];
+            const b = s.pts[Math.min(s.pts.length - 1, i + 1)];
+            const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+            const px = s.pts[i][0] - ((b[1] - a[1]) / l) * v;
+            const pz = s.pts[i][1] + ((b[0] - a[0]) / l) * v;
+            const h = s.h[i];
+            const clear = !edgesNear(px, pz, 0.2).length && !this.surfacesAt(px, pz, 0.6).some((o) => o.s !== s && Math.abs(o.h - h) < 1);
+            if (clear) {
+              run.push([px, pz]);
+              runH.push(topH[i] + 0.025 + 0.02);
+            } else flush();
+          }
+          flush();
+        }
+      }
       // Lane lines on the mainlines: dashed white between lanes, solid white at the edges,
       // yellow by the median.
       if (!s.ramp) {
@@ -499,9 +527,9 @@ export class Highway {
       }
     }
     const mats = {
-      deck: lam(0x8c8f94), top: lam(0x34363b), ramptop: new THREE.MeshLambertMaterial({ color: 0x36383d, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }),
+      deck: lam(0x8c8f94), top: lam(0x34363b), ramptop: new THREE.MeshLambertMaterial({ color: 0x303136, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), // (drawn in front of the street and grass it meets, same asphalt)
       rail: lam(0xc4c7cb), pillar: lam(0x7f8388),
-      yellow: new THREE.MeshBasicMaterial({ color: 0xd8b13a, side: THREE.DoubleSide }), white: new THREE.MeshBasicMaterial({ color: 0xdadada, side: THREE.DoubleSide }),
+      yellow: new THREE.MeshBasicMaterial({ color: 0xd8b13a, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }), white: new THREE.MeshBasicMaterial({ color: 0xdadada, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }),
     };
     for (const [k, list] of Object.entries(parts)) {
       if (!list.length) continue;
@@ -527,7 +555,7 @@ export class Highway {
     const y = sg.h || 0;
     const w = Math.max(5, sg.text.length * 0.42);
     const text = sg.sub ? `${sg.text}  ${sg.sub}` : sg.text;
-    const mat = new THREE.MeshBasicMaterial({ map: signTexture(text, '#1b6e3a'), side: THREE.DoubleSide });
+    const mat = new THREE.MeshBasicMaterial({ map: signTexture(text, '#1b6e3a', '#ffffff'), side: THREE.DoubleSide });
     const p = new THREE.Mesh(new THREE.PlaneGeometry(w + 3, 1.5), mat);
     const fx = -Math.cos(sg.ang);
     const fz = -Math.sin(sg.ang);
@@ -576,7 +604,7 @@ export class Highway {
     const y = city.groundY(x, z);
     const text = `${sg.text} ↗`;
     const w = text.length * 0.2 + 0.8;
-    const mat = new THREE.MeshBasicMaterial({ map: signTexture(text, '#1b6e3a'), side: THREE.DoubleSide });
+    const mat = new THREE.MeshBasicMaterial({ map: signTexture(text, '#1b6e3a', '#ffffff'), side: THREE.DoubleSide });
     const p = new THREE.Mesh(new THREE.PlaneGeometry(w, 0.65), mat);
     p.rotation.y = Math.atan2(-Math.cos(sg.ang), -Math.sin(sg.ang));
     p.position.set(x, y + 3.1, z);
