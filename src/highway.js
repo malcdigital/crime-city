@@ -457,16 +457,30 @@ export class Highway {
     const parts = { deck: [], top: [], ramptop: [], rail: [], pillar: [], yellow: [], white: [] };
     for (const s of this.surfaces) {
       const thick = s.ramp ? 0.75 : 0.9;
-      parts.deck.push(ribbon(s.pts, s.h, s.hw + 0.3, -thick, -0.02));
+      // (the concrete slab only where it's up off the ground: at street level the ramp is just
+      // road, flat on the ground - no edge, no shadow)
+      if (!s.ramp) parts.deck.push(ribbon(s.pts, s.h, s.hw + 0.3, -thick, -0.02));
+      else {
+        let a = -1;
+        for (let i = 0; i <= s.h.length; i++) {
+          const up = i < s.h.length && s.h[i] > 0.35;
+          if (up && a < 0) a = Math.max(0, i - 1);
+          if (!up && a >= 0) {
+            const b = Math.min(s.h.length, i + 1);
+            if (b - a > 1) parts.deck.push(ribbon(s.pts.slice(a, b), s.h.slice(a, b), s.hw + 0.3, -thick, -0.02));
+            a = -1;
+          }
+        }
+      }
       // (where a ramp meets the street it rides a little above the street, grass and paving,
       // so nothing covers its end)
-      const topH = s.ramp ? s.h.map((h) => h + 0.12 * Math.max(0, 1 - h / 1.2)) : s.h;
+      const topH = s.ramp ? s.h.map((h) => h + 0.02 * Math.max(0, 1 - h / 1.2)) : s.h;
       (s.ramp ? parts.ramptop : parts.top).push(ribbon(s.pts, topH, s.hw - 0.05, 0, s.ramp ? 0.025 : 0.03, true));
       if (s.ramp) {
         // The low part stands on solid ground.
         let a = -1;
         for (let i = 0; i <= s.h.length; i++) {
-          const low = i < s.h.length && s.h[i] < 3.6 && s.h[i] > 0.05;
+          const low = i < s.h.length && s.h[i] < 3.6 && s.h[i] > 0.35;
           if (low && a < 0) a = i;
           if (!low && a >= 0) {
             if (i - a > 1) parts.deck.push(ribbon(s.pts.slice(a, i), s.h.slice(a, i), s.hw + 0.3, 0, -0.77, false, true));
@@ -527,7 +541,7 @@ export class Highway {
       }
     }
     const mats = {
-      deck: lam(0x8c8f94), top: lam(0x34363b), ramptop: new THREE.MeshLambertMaterial({ color: 0x303136, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), // (drawn in front of the street and grass it meets, same asphalt)
+      deck: lam(0x8c8f94), top: lam(0x34363b), ramptop: new THREE.MeshLambertMaterial({ color: 0x2e2f33, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), // (drawn in front of the street and grass it meets, same asphalt)
       rail: lam(0xc4c7cb), pillar: lam(0x7f8388),
       yellow: new THREE.MeshBasicMaterial({ color: 0xd8b13a, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }), white: new THREE.MeshBasicMaterial({ color: 0xdadada, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }),
     };
