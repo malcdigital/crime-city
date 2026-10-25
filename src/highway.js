@@ -518,6 +518,7 @@ export class Highway {
   // A green sign facing the traffic heading `ang` (x/z direction angle). On the freeway: over
   // the lane, on a gantry post at the edge; on a street: on a pole by the curb.
   sign(scene, sg) {
+    if (!(sg.h > 1)) return this.streetSign(scene, sg);
     const [x, z] = sg.at;
     const y = sg.h || 0;
     const w = Math.max(5, sg.text.length * 0.42);
@@ -546,6 +547,40 @@ export class Highway {
       pole.position.set(x, 2, z);
     }
     scene.add(pole);
+  }
+
+  // On the street at a freeway entrance: a small green sign on a pole by the curb ("RING HWY
+  // EAST ↗"), on the ground there (hills too), and never out in a road or on a ramp.
+  streetSign(scene, sg) {
+    const city = this.game.city;
+    const clear = (x, z) => !edgesNear(x, z, 0.6).length && !this.surfacesAt(x, z, 1.2).length;
+    let [x, z] = sg.at;
+    if (!clear(x, z)) {
+      let best = null;
+      for (let r = 1.5; r <= 9 && !best; r += 1.5) {
+        for (let k = 0; k < 12; k++) {
+          const a = (k / 12) * Math.PI * 2;
+          if (clear(x + Math.cos(a) * r, z + Math.sin(a) * r)) {
+            best = [x + Math.cos(a) * r, z + Math.sin(a) * r];
+            break;
+          }
+        }
+      }
+      if (!best) return;
+      [x, z] = best;
+    }
+    const y = city.groundY(x, z);
+    const text = `${sg.text} ↗`;
+    const w = text.length * 0.2 + 0.8;
+    const mat = new THREE.MeshBasicMaterial({ map: signTexture(text, '#1b6e3a'), side: THREE.DoubleSide });
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(w, 0.65), mat);
+    p.rotation.y = Math.atan2(-Math.cos(sg.ang), -Math.sin(sg.ang));
+    p.position.set(x, y + 3.1, z);
+    scene.add(p);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 3.1, 6), lam(0x5a5f66));
+    pole.position.set(x, y + 1.55, z);
+    scene.add(pole);
+    city.colliders.push({ minX: x - 0.1, maxX: x + 0.1, minZ: z - 0.1, maxZ: z + 0.1, h: y + 3.6 });
   }
 
   drawMap(ctx, px) {

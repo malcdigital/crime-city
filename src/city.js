@@ -285,10 +285,16 @@ export function buildCity(scene) {
   docksPave.push([DOCKS_X1, RING.z1], [DOCKS_X0, RING.z1]);
   const paved = (x, z) => ringDist(x, z) < 13 + 0.001 || insideRing(x, z)
     || (x > DOCKS_X0 && x < DOCKS_X1 && z > RING.z1 - 5 && z < coastZ(x) - 1.5);
+  // (interchanges outside the ring sit on level ground, easing back into the hills around)
+  const rampLevel = (x, z) => {
+    if (!inHole(x, z, 36)) return 1;
+    for (const [pad, k] of [[0, 0], [12, 0.15], [24, 0.45]]) if (inHole(x, z, pad)) return k;
+    return 0.8;
+  };
   for (let j = 0; j < GN; j++) for (let i = 0; i < GN; i++) {
     const x = i * TG;
     const z = j * TG;
-    H[j * GN + i] = paved(x, z) ? 0 : terrain(x, z);
+    H[j * GN + i] = paved(x, z) ? 0 : terrain(x, z) * rampLevel(x, z);
   }
   const rawAt = (x, z) => {
     const fx = Math.max(0, Math.min(GN - 1.001, x / TG));
@@ -307,6 +313,7 @@ export function buildCity(scene) {
   // then burned into the grid (flat across the road, blending out over a few meters).
   const RW = new Float32Array(GN * GN); // how much a road has claimed each grid point
   const RT = new Float32Array(GN * GN);
+  const RD = new Float32Array(GN * GN).fill(Infinity); // (and how far that road is)
   const ribbons = []; // roads drawn as strips on the terrain: { pts, h, w }
   for (const st of STREETS) {
     if (st.cls === 'pier') continue;
@@ -317,7 +324,8 @@ export function buildCity(scene) {
       const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 4));
       for (let i = k ? 1 : 0; i <= n; i++) pts.push([ax + ((bx - ax) * i) / n, az + ((bz - az) * i) / n]);
     }
-    if (pts.every(([x, z]) => paved(x, z)) && !st.stub && st.stub !== 0) continue;
+    if (st.stub !== undefined) continue; // (links inside the cross street: nothing to draw)
+    if (pts.every(([x, z]) => paved(x, z))) continue;
     let h = pts.map(([x, z]) => (paved(x, z) ? 0 : rawAt(x, z)));
     for (let pass = 0; pass < 4; pass++) h = h.map((v, i) => (paved(...pts[i]) ? 0 : (h[Math.max(0, i - 2)] + h[Math.max(0, i - 1)] + v + h[Math.min(h.length - 1, i + 1)] + h[Math.min(h.length - 1, i + 2)]) / 5));
     const ds = (i) => Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
@@ -338,8 +346,11 @@ export function buildCity(scene) {
         if (c.d > reach) continue;
         const wgt = c.d < w / 2 + 2 ? 1 : 1 - (c.d - w / 2 - 2) / (reach - w / 2 - 2);
         const idx = j * GN + i;
-        if (wgt > RW[idx]) {
+        // (the nearest piece of road sets the height: on a slope, a piece further along
+        // would leave the ground above or below the road)
+        if (wgt > RW[idx] || (wgt === RW[idx] && c.d < RD[idx])) {
           RW[idx] = wgt;
+          RD[idx] = c.d;
           RT[idx] = h[k] + (h[k + 1] - h[k]) * c.t;
         }
       }
@@ -567,7 +578,7 @@ export function buildCity(scene) {
       for (let i = 0; i + 1 < r.pts.length; i++) {
         const [ax, az] = r.pts[i];
         const [bx, bz] = r.pts[i + 1];
-        if (paved(ax, az) && paved(bx, bz) && !(r.st.stub >= 0)) continue;
+        if (paved(ax, az) && paved(bx, bz)) continue;
         const [anx, anz] = side(i);
         const [bnx, bnz] = side(i + 1);
         const ya = r.h[i] + 0.04;
@@ -1187,7 +1198,7 @@ export function buildCity(scene) {
       return n.edges.length > 1 ? m + 4.5 : 1;
     };
     for (const e of GRAPH.edges) {
-      if (e.cls === 'pier' || e.culDeSac) continue;
+      if (e.cls === 'pier' || e.culDeSac || e.street?.stub !== undefined) continue;
       const L = Math.hypot(e.b.x - e.a.x, e.b.z - e.a.z);
       const ux = (e.b.x - e.a.x) / L;
       const uz = (e.b.z - e.a.z) / L;

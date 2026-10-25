@@ -228,3 +228,9 @@ Each district lays out its own street grid, so worldplan.js tidies up where they
 ## Merging and the camera under the freeway
 - Entrances: every acceleration lane runs on alongside the freeway (round the ring's corners too) for up to 150 m, then tapers into the right lane over up to 70 m; it ends before the next exit. Where the next exit is close (the ring's interchanges are ~400 m apart), it's an auxiliary lane that runs straight on into that exit: merge left anywhere along it, or stay in it to get off. AI cars can move over anywhere along these lanes too (fwyplan.js `addTails`, highway.js).
 - Under the freeway, the camera stays below the deck (it eases down just before you drive under and back up after), so the deck never blocks the view (main.js `updateCamera`, highway.js `ceilingAbove`).
+
+## Interchange entrances
+- The ramps are laid out for the real cross streets (all avenues, 20 m curb to curb): exits come down square to the curb, the loop entrances peel off the curb lane, the diagonal entrances leave from the curb. The short links between the middle of the street and each ramp end are for traffic only (inside the street, nothing drawn), so there are no paved blobs at the ramp ends.
+- Outside the ring the ground is levelled over the interchange land and eases back into the hills around it, so the ramps and the street meet at the same height.
+- Roads on the hills: the ground under a road takes its height from the nearest piece of that road (it used to take the first piece within reach, which buried downhill stretches under the grass).
+- Entrance signs are small green signs on a pole by the curb ("RING HWY EAST ↗"), on the ground there, moved clear of roads and ramps. Street lights and stop/signal poles are never placed in a road, on a ramp, or in the ramp land.

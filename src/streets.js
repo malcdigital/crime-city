@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { districtAt } from './worldplan.js';
 import { edgesNear } from './city.js';
+import { inHole } from './fwyplan.js';
 
 // Street furniture and the rules of the road, for intersections of any shape.
 // - Traffic lights where main roads cross, and at the busy junctions of Downtown, the
@@ -191,7 +192,7 @@ export class Streets {
     this.lampRefs = []; // [node, axis, color, index]
     this.poleStats = { total: 0, moved: 0, skipped: 0 };
     // In a roadway (any street's pavement, with a little room)?
-    const inRoad = (x, z, pad) => edgesNear(x, z, pad).length > 0 || (this.game.highway && this.game.highway.surfacesAt?.(x, z, -0.4).some((o) => o.h < 1));
+    const inRoad = (x, z, pad) => edgesNear(x, z, pad).length > 0 || !!this.game.highway?.surfacesAt(x, z, 0.8).some((o) => o.h < 2.5);
     // A point d meters out from junction n along arm a, following the street around its bends
     // (through curve points), with the street's direction there. Null past the next junction.
     const along = (n, a, d) => {
@@ -318,6 +319,8 @@ export class Streets {
           const x = s.ax + s.ux * t - s.nx * inset;
           const z = s.az + s.uz * t - s.nz * inset;
           if (city.blockAt(x, z) && b.lot) continue;
+          // Never out in a road, on a ramp, or in the ramp land at an interchange.
+          if (edgesNear(x, z, 0.3).length || inHole(x, z, 2) || this.game.highway?.surfacesAt(x, z, 0.8).some((o) => o.h < 2.5)) continue;
           const y = city.groundY(x, z);
           posts.push([x, y + 3.2, z, 0]);
           heads.push([x + s.nx * 1.1, y + 6.35, z + s.nz * 1.1, Math.atan2(s.nx, s.nz)]);

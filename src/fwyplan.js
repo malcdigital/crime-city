@@ -173,21 +173,23 @@ function parcloHalf(W, lanes, cross, opts) {
   const vLoop = vA + rL; // loop center's v
   const vOff = vA + 2 * rL + 9; // where the exit meets the cross street
   const vOn = 44; // where the diagonal entrance leaves the cross street
-  const S = 8; // half the cross street's width
+  const H = 10; // half the cross street's width (they're all avenues, 20 m curb to curb)
+  const uL = -(H + RAMP_HW + 0.6); // the loop's straight run in, just off the curb
   const name = opts.name;
 
-  // Exit: taper off the right lane, decelerate, swing right and down to the cross street.
-  const off = new Path(-Ud, vL).shift(-Ud + 35, vA).line(-Ud + 40, vA).shift(-38, vOff).line(-S - 8, vOff);
-  addRamp(W, off, (lc, L) => [[sAtU(lc, L, -Ud + 38), DECK], [sAtU(lc, L, -40), 0]], {
+  // Exit: taper off the right lane, decelerate, swing right and down to the cross street,
+  // meeting it square at the curb.
+  const off = new Path(-Ud, vL).shift(-Ud + 35, vA).line(-Ud + 40, vA).shift(-40, vOff).line(-H + 1.5, vOff);
+  addRamp(W, off, (lc, L) => [[sAtU(lc, L, -Ud + 38), DECK], [sAtU(lc, L, -42), 0]], {
     kind: 'off', main: opts.main, dir: opts.dir, laneFrom: lanes - 1, street: W(0, vOff), name,
   });
-  // Loop entrance: from the cross street lane heading away from the freeway, peel right,
-  // loop 270 degrees up to the deck, then the acceleration lane across the bridge.
-  const loop = new Path(-S - 1, S + 15).line(-S, vLoop - 4).line(-S, vLoop);
-  loop.mark('a').arc(-S - rL, vLoop, rL, 0, Math.PI * 1.5).mark('b');
+  // Loop entrance: from the cross street's curb lane heading away from the freeway, peel off
+  // to the right, loop 270 degrees up to the deck, then the acceleration lane across the bridge.
+  const loop = new Path(-H + 2.2, 19).line(-H + 2.2, 21).shiftV(uL, vLoop - 2).line(uL, vLoop);
+  loop.mark('a').arc(uL - rL, vLoop, rL, 0, Math.PI * 1.5).mark('b');
   loop.line(165, vA);
   addRamp(W, loop, (lc, L, at) => [[at('a') - 4, 0], [at('b'), DECK]], {
-    kind: 'on', loop: true, main: opts.main, dir: opts.dir, laneTo: lanes - 1, street: W(0, S + 4), name,
+    kind: 'on', loop: true, main: opts.main, dir: opts.dir, laneTo: lanes - 1, street: W(0, 20), name,
     tail: { v0: vA, v1: vL }, // (the acceleration lane carries on along the freeway: see addTails)
   });
   // Diagonal entrance: right turn off the cross street lane heading toward the freeway, up
@@ -195,17 +197,18 @@ function parcloHalf(W, lanes, cross, opts) {
   // (it stays out wide while it climbs, and only swings in alongside once it's level with
   // the deck: no running in underneath the edge of it)
   const vWide = vA + RAMP_HW * 2 + 1.2;
-  const diag = new Path(S + 8, vOn).shift(100, vWide).line(118, vWide).shift(150, vA).line(165, vA);
-  addRamp(W, diag, (lc, L) => [[sAtU(lc, L, S + 9), 0], [sAtU(lc, L, 116), DECK]], {
+  const diag = new Path(H - 1.5, vOn).line(H + 6, vOn).shift(100, vWide).line(118, vWide).shift(150, vA).line(165, vA);
+  addRamp(W, diag, (lc, L) => [[sAtU(lc, L, H + 6), 0], [sAtU(lc, L, 116), DECK]], {
     kind: 'on', main: opts.main, dir: opts.dir, joinsRamp: true, street: W(0, vOn), name,
   });
-  STUBS.push([W(0, vOff), W(-S - 8, vOff)], [W(0, S + 4), W(-S - 1, S + 15)], [W(0, vOn), W(S + 8, vOn)]);
+  // (links for traffic between the street's middle and the ramp ends, inside the street)
+  STUBS.push([W(0, vOff), W(-H + 1.5, vOff)], [W(0, 20), W(-H + 2.2, 20)], [W(0, vOn), W(H - 1.5, vOn)]);
   RAMPS[RAMPS.length - 3].stub = STUBS.length - 3;
   RAMPS[RAMPS.length - 2].stub = STUBS.length - 2;
   RAMPS[RAMPS.length - 1].stub = STUBS.length - 1;
   // Land for the ramps (no streets or buildings).
-  HOLES.push({ poly: rectLocal(W, -Ud - 8, -S, S, vOff + 10) });
-  HOLES.push({ poly: rectLocal(W, S, 195, S, vOn + 10) });
+  HOLES.push({ poly: rectLocal(W, -Ud - 8, -H, 8, vOff + 10) });
+  HOLES.push({ poly: rectLocal(W, H, 195, 8, vOn + 10) });
   // Signs over the right-hand lanes: 200 m before the exit and where it leaves.
   const [ox, oz] = W(0, 0);
   const [tx, tz] = W(1, 0);
@@ -213,8 +216,8 @@ function parcloHalf(W, lanes, cross, opts) {
   SIGNS.push({ at: W(-Ud - 150, vL), ang, text: `EXIT ${name}`, sub: '1/8 MILE', kind: 'advance', h: DECK });
   SIGNS.push({ at: W(-Ud + 25, vA), ang, text: `EXIT ${name}`, sub: '↗', kind: 'exit', h: DECK });
   // On the cross street, at the two entrances.
-  SIGNS.push({ at: W(-S - 3, S + 2), ang: ang + Math.PI / 2, text: opts.toward, kind: 'entrance', h: 0 });
-  SIGNS.push({ at: W(S + 4, vOn + 7), ang: ang - Math.PI / 2, text: opts.toward, kind: 'entrance', h: 0 });
+  SIGNS.push({ at: W(-H - 1.5, 14), ang: ang + Math.PI / 2, text: opts.toward, kind: 'entrance', h: 0 });
+  SIGNS.push({ at: W(H + 1.5, vOn + 9), ang: ang - Math.PI / 2, text: opts.toward, kind: 'entrance', h: 0 });
 }
 
 // A full service interchange at a cross street on a straight freeway piece.
