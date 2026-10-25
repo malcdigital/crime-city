@@ -50,6 +50,21 @@ export function edgeAt(x, z) {
   }
   return best;
 }
+// Every street edge within r of a point (plus its own half width).
+export function edgesNear(x, z, r) {
+  const i = Math.floor(x / EH);
+  const j = Math.floor(z / EH);
+  const out = [];
+  const seen = new Set();
+  for (let a = i - 1; a <= i + 1; a++) for (let b = j - 1; b <= j + 1; b++) {
+    for (const e of edgeHash.get(a * 1000 + b) || []) {
+      if (seen.has(e)) continue;
+      seen.add(e);
+      if (closestOnSeg(x, z, e.a.x, e.a.z, e.b.x, e.b.z).d < r + e.w / 2) out.push(e);
+    }
+  }
+  return out;
+}
 // Name of the nearest named road, for news headlines.
 export function streetAt(x, z) {
   const i = Math.floor(x / EH);
@@ -302,7 +317,7 @@ export function buildCity(scene) {
       const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 4));
       for (let i = k ? 1 : 0; i <= n; i++) pts.push([ax + ((bx - ax) * i) / n, az + ((bz - az) * i) / n]);
     }
-    if (pts.every(([x, z]) => paved(x, z))) continue;
+    if (pts.every(([x, z]) => paved(x, z)) && !st.stub && st.stub !== 0) continue;
     let h = pts.map(([x, z]) => (paved(x, z) ? 0 : rawAt(x, z)));
     for (let pass = 0; pass < 4; pass++) h = h.map((v, i) => (paved(...pts[i]) ? 0 : (h[Math.max(0, i - 2)] + h[Math.max(0, i - 1)] + v + h[Math.min(h.length - 1, i + 1)] + h[Math.min(h.length - 1, i + 2)]) / 5));
     const ds = (i) => Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
@@ -399,7 +414,7 @@ export function buildCity(scene) {
   const groundY = (x, z) => {
     let h = heightAt(x, z);
     const b = blockAt(x, z);
-    if (b && !b.lot) h += 0.2;
+    if (b && !b.lot && b.type !== 'ramps') h += 0.2;
     if (h < -0.3 && onPier(x, z)) h = 0;
     return h;
   };
@@ -552,7 +567,7 @@ export function buildCity(scene) {
       for (let i = 0; i + 1 < r.pts.length; i++) {
         const [ax, az] = r.pts[i];
         const [bx, bz] = r.pts[i + 1];
-        if (paved(ax, az) && paved(bx, bz)) continue;
+        if (paved(ax, az) && paved(bx, bz) && !(r.st.stub >= 0)) continue;
         const [anx, anz] = side(i);
         const [bnx, bnz] = side(i + 1);
         const ya = r.h[i] + 0.04;
@@ -835,14 +850,14 @@ export function buildCity(scene) {
   const slabs = [];
   const lawns = [];
   const plazas = [];
+  const rampLawns = []; // ramp land: grass at street level
   const frontages = new Map(); // block -> the building on its front side (for storefronts)
   for (const b of blocks) {
-    if (!b.lot) slabs.push(b.poly);
+    if (!b.lot && b.type !== 'ramps') slabs.push(b.poly);
     const lot = b.lot ? b.poly : inset(b.poly, b.sw);
     b.inner = lot;
     if (b.type === 'ramps') {
-      const l = inset(b.poly, 1.2);
-      if (l.length) lawns.push(l);
+      rampLawns.push(b.poly);
       continue;
     }
     if (b.type === 'park') {
@@ -1072,6 +1087,7 @@ export function buildCity(scene) {
   // Sidewalk slabs, lawns and plazas.
   for (const p of slabs) batch.add(slabPoly(p, 0, 0.2), sidewalkMat);
   for (const p of plazas) batch.add(flatPoly(p, 0.23), plazaMat);
+  for (const p of rampLawns) batch.add(flatPoly(p, 0.02), lawnMat);
   for (const b of blocks) if (b.lot) batch.add(flatPoly(b.poly, b.padY + 0.02), b.type === 'place' ? lam(0x6f6a5c) : yardMat);
   for (const p of lawns) {
     const b = blockAt(...centroid(p));

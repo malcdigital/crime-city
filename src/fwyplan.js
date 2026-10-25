@@ -149,6 +149,8 @@ export const RAMPS = [];
 export const HOLES = []; // land kept clear of streets and buildings: { poly: [[x, z] x4] (rectangles) }
 export const SIGNS = []; // { x, z, h, ang, text, kind }
 export const XINGS = []; // service interchanges: { x, z, name, ... }
+// Short streets joining ramp ends to the cross street: [street end, ramp end] (world points).
+export const STUBS = [];
 let rid = 0;
 function addRamp(W, path, keys, info) {
   const local = path.p;
@@ -175,13 +177,13 @@ function parcloHalf(W, lanes, cross, opts) {
   const name = opts.name;
 
   // Exit: taper off the right lane, decelerate, swing right and down to the cross street.
-  const off = new Path(-Ud, vL).shift(-Ud + 35, vA).line(-Ud + 40, vA).shift(-38, vOff).line(-S - 2, vOff);
+  const off = new Path(-Ud, vL).shift(-Ud + 35, vA).line(-Ud + 40, vA).shift(-38, vOff).line(-S - 8, vOff);
   addRamp(W, off, (lc, L) => [[sAtU(lc, L, -Ud + 38), DECK], [sAtU(lc, L, -40), 0]], {
     kind: 'off', main: opts.main, dir: opts.dir, laneFrom: lanes - 1, street: W(0, vOff), name,
   });
   // Loop entrance: from the cross street lane heading away from the freeway, peel right,
   // loop 270 degrees up to the deck, then the acceleration lane across the bridge.
-  const loop = new Path(-2.5, S + 4).shiftV(-S, vLoop - 6).line(-S, vLoop);
+  const loop = new Path(-S - 1, S + 15).line(-S, vLoop - 4).line(-S, vLoop);
   loop.mark('a').arc(-S - rL, vLoop, rL, 0, Math.PI * 1.5).mark('b');
   loop.line(150, vA).shift(175, vL);
   addRamp(W, loop, (lc, L, at) => [[at('a') - 4, 0], [at('b'), DECK]], {
@@ -189,10 +191,14 @@ function parcloHalf(W, lanes, cross, opts) {
   });
   // Diagonal entrance: right turn off the cross street lane heading toward the freeway, up
   // alongside to join the acceleration lane.
-  const diag = new Path(S + 2, vOn).line(S + 8, vOn).shift(125, vA).line(145, vA);
-  addRamp(W, diag, (lc, L) => [[sAtU(lc, L, S + 5), 0], [sAtU(lc, L, 124), DECK]], {
+  const diag = new Path(S + 8, vOn).shift(125, vA).line(145, vA);
+  addRamp(W, diag, (lc, L) => [[sAtU(lc, L, S + 9), 0], [sAtU(lc, L, 124), DECK]], {
     kind: 'on', main: opts.main, dir: opts.dir, joinsRamp: true, street: W(0, vOn), name,
   });
+  STUBS.push([W(0, vOff), W(-S - 8, vOff)], [W(0, S + 4), W(-S - 1, S + 15)], [W(0, vOn), W(S + 8, vOn)]);
+  RAMPS[RAMPS.length - 3].stub = STUBS.length - 3;
+  RAMPS[RAMPS.length - 2].stub = STUBS.length - 2;
+  RAMPS[RAMPS.length - 1].stub = STUBS.length - 1;
   // Land for the ramps (no streets or buildings).
   HOLES.push({ poly: rectLocal(W, -Ud - 8, -S, S, vOff + 10) });
   HOLES.push({ poly: rectLocal(W, S, 180, S, vOn + 10) });
@@ -276,6 +282,17 @@ function crosstownT(rot) {
   add(m4, (pts, L, at) => [[at('a'), DECK], [at('b'), LEVEL2], [sAtZ(pts, L, zB0, 1), LEVEL2], [sAtZ(pts, L, end - 30, 1), DECK]], {
     kind: 'link', from: 'ring', to: 'xt', dirFrom: -1, lane: 0,
   });
+  // Signs: on the crosstown before the split, and on the ring before each way off to it.
+  const sg = (x, z, ang, text, sub, kind) => {
+    const [px, pz] = P([x, z]);
+    SIGNS.push({ at: [px, pz], ang: rot ? ang + Math.PI : ang, text, sub, kind, h: DECK });
+  };
+  sg(nbR, end + 220, -Math.PI / 2, rot ? 'RING HWY WEST' : 'RING HWY EAST', 'RIGHT LANE ↗', 'exit');
+  sg(nbL, end + 220, -Math.PI / 2, rot ? 'RING HWY EAST' : 'RING HWY WEST', 'LEFT LANE ↖', 'exit');
+  sg(X - 380, inV(rlanes - 1), 0, rot ? 'CROSSTOWN NORTH' : 'CROSSTOWN SOUTH', '1/8 MILE', 'advance');
+  sg(X - 225, aIn, 0, rot ? 'CROSSTOWN NORTH' : 'CROSSTOWN SOUTH', '↘', 'exit');
+  sg(X + 300, outV(rlanes - 1), Math.PI, rot ? 'CROSSTOWN NORTH' : 'CROSSTOWN SOUTH', '1/8 MILE', 'advance');
+  sg(X + 145, aOut, Math.PI, rot ? 'CROSSTOWN NORTH' : 'CROSSTOWN SOUTH', '↖', 'exit');
   // Land: the curves and the legs down to the crosstown inside the ring, the loops outside.
   // (The acceleration lanes alongside the ring need none: they're up at deck height, and
   // buildings keep back from the ring anyway.)

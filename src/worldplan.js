@@ -19,7 +19,7 @@ import {
   area, bbox, centroid, clipConvex, clipSegConvex, closestOnSeg, dist, insetConvex, isConvex,
   mulberry, pointInPoly, segInter, simplify,
 } from './geom.js';
-import { HOLES, RING, RING_HALF, RING_LINE, XT, XT_HALF, inHole } from './fwyplan.js';
+import { HOLES, RING, RING_HALF, RING_LINE, STUBS, XT, XT_HALF, inHole } from './fwyplan.js';
 
 export const MAP = 1600;
 const rng = mulberry(20261025);
@@ -182,6 +182,9 @@ add([[CENTRAL_X, 28], [CENTRAL_X - 70, 22], [CENTRAL_X - 130, 30]], 'hills', 'Lo
 add([[20, PARK_Z], [22, 360], [30, 240], [60, 180]], 'hills', 'Quarry Rd');
 add([[20, MARKET_Z], [24, 1040], [40, 1160], [90, 1240]], 'hills', 'Junkyard Rd');
 
+// Short streets out to the ramp ends at the interchanges.
+for (const [k, [p, q]] of STUBS.entries()) add([p, q], 'local', null, { keep: true, stub: k });
+
 // District street grids. Each zone's own grid, clipped to the zone (so its streets meet the
 // streets around it in T-junctions) and cut where ramps need the land.
 const NAMES = {
@@ -316,7 +319,24 @@ for (const zn of ZONES) {
         pz = -pz;
       }
       const o = 2;
-      add([[ax + px * o - (ex / el) * 2, az + pz * o - (ez / el) * 2], [bx + px * o + (ex / el) * 2, bz + pz * o + (ez / el) * 2]], 'local', null, { service: true });
+      const ux = ex / el;
+      const uz = ez / el;
+      // Run each end on until it meets a street (up to 16 m).
+      const reach = (x, z, dx, dz) => {
+        let best = 16;
+        for (const st of streets) {
+          for (let k = 0; k + 1 < st.pts.length; k++) {
+            const X = segInter(x, z, x + dx * 16, z + dz * 16, ...st.pts[k], ...st.pts[k + 1]);
+            if (X && X.t * 16 < best) best = X.t * 16;
+          }
+        }
+        return best < 16 ? best : 2;
+      };
+      const A = [ax + px * o, az + pz * o];
+      const B = [bx + px * o, bz + pz * o];
+      const ra = reach(A[0], A[1], -ux, -uz);
+      const rb = reach(B[0], B[1], ux, uz);
+      add([[A[0] - ux * ra, A[1] - uz * ra], [B[0] + ux * rb, B[1] + uz * rb]], 'local', null, { service: true });
     }
   }
 }
