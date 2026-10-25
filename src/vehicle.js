@@ -719,7 +719,7 @@ export function resolveCarCollisions(cars, onHit) {
     const A = cars[a];
     for (let b = a + 1; b < cars.length; b++) {
       const Bc = cars[b];
-      if (!!A.high !== !!Bc.high) continue; // one on the highway, one underneath
+      if (!!A.high !== !!Bc.high || Math.abs((A.y || 0) - (Bc.y || 0)) > 3) continue; // one on the highway, one underneath (or on a bridge over it)
       const dx = Bc.x - A.x;
       const dz = Bc.z - A.z;
       if (dx * dx + dz * dz > 64) continue;

@@ -304,7 +304,7 @@ export class TrafficDriver {
       if (Math.abs(ox) > 26 || Math.abs(oz) > 26) continue;
       const fwd = ox * fx + oz * fz;
       const lat = Math.abs(ox * fz - oz * fx);
-      if (!!o.high !== !!c.high) continue; // one on the highway, one underneath
+      if (!!o.high !== !!c.high || Math.abs((o.y || 0) - (c.y || 0)) > 3) continue; // one on the highway, one underneath (or on a bridge over it)
       // Cars parked at the curb are beside the lane, not in it.
       if (o.parkSpot && lat > 1.7) continue;
       // A stopped car in our lane up ahead (so we can pull out early).

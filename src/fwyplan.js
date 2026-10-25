@@ -186,6 +186,15 @@ const BAKED = {
     off: { pts: [[-180, 10.25], [-118, 17.69], [-104, 27.05], [-70.1, 67.7, 10, -0.6]], street: [-69.9, 70.6] },
   },
 };
+// The crosstown's interchange gets the same design, moved 3.5 m in toward the freeway (one
+// lane fewer each way, so its right-hand lane is 3.5 m further in). The ends that join the
+// freeway are always taken from the crosstown's own ramps.
+{
+  const dv = laneV(XT.lanes - 1) - laneV(RING.lanes - 1);
+  const shift = (p) => (p.length >= 4 ? [p[0], p[1] + dv, p[2], p[3]] : [p[0], p[1] + dv]);
+  BAKED.xt = {};
+  for (const [k, d] of Object.entries(BAKED.ring)) BAKED.xt[k] = { pts: d.pts.map(shift), street: [d.street[0], d.street[1] + dv] };
+}
 export const HALVES = []; // one side of an interchange: { id, name, main, dir, W, x, z, ramps: { off, loop, diag } }
 // Fewer points along a polyline (Ramer-Douglas-Peucker), keeping the shape within tol meters.
 function rdp(pts, tol) {

@@ -688,7 +688,7 @@ export class PoliceUnit {
       const fwd = ox * fx + oz * fz;
       const lat = Math.abs(ox * fz - oz * fx);
       if (o.parkSpot && lat > 1.7) continue; // parked at the curb
-      if (!!o.high !== !!c.high) continue; // (one on the highway, one underneath)
+      if (!!o.high !== !!c.high || Math.abs((o.y || 0) - (c.y || 0)) > 3) continue; // (one on the highway, one underneath, or on a bridge over it)
       if (fwd > 0 && fwd < 18 && lat < 3) desired = Math.min(desired, Math.max(0, (fwd - 7) * 1.2));
     }
     for (const o of game.police.officers()) {
