@@ -58,10 +58,16 @@ export class TrafficDriver {
     const [ex, ez] = pts[pts.length - 1];
     const dEnd = dist(c.x, c.z, ex, ez);
     let desired = this.rk < pts.length - 2 && dist(c.x, c.z, tx, tz) < 16 ? 6.5 : 11;
-    if (this.hurry) desired *= 1.7; // backup on the way
     if (this.rk >= pts.length - 2) desired = Math.min(desired, Math.max(0, (dEnd - 1.5) * 0.7));
+    if (this.hurry) {
+      // Backup on the way: flat out, braking only as hard as it takes to make the next turn,
+      // then a hard stop right where it's going.
+      const dTurn = this.rk < pts.length - 1 ? dist(c.x, c.z, tx, tz) : Infinity;
+      desired = Math.min(c.type.max * 0.95, Math.sqrt(11 * 11 + 2 * 14 * Math.max(0, dTurn - 6)), Math.sqrt(2 * 16 * Math.max(0, dEnd - 2.5)));
+      if (dEnd < 3) desired = 0;
+    }
     desired = this.yieldTo(game, desired);
-    const ctrl = { throttle: throttleFor(c, desired), steer: dEnd < 3 ? 0 : steerToward(c, tx, tz), handbrake: desired === 0 };
+    const ctrl = { throttle: throttleFor(c, desired), steer: dEnd < 3 ? 0 : steerToward(c, tx, tz), handbrake: desired === 0 || (this.hurry && dEnd < 12 && Math.abs(c.speed) > desired + 2) };
     this.stuck.apply(dt, c, desired, ctrl);
     c.update(dt, ctrl, game.city.colliders);
   }

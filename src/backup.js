@@ -142,7 +142,7 @@ export class Backup {
         if (dist(c.goal[0], c.goal[1], px, pz) > 25 && c.t > 2) this.route(c);
         const d = dist(car.x, car.z, px, pz);
         c.stuckT = Math.abs(car.speed) < 0.6 ? c.stuckT + dt : 0;
-        if ((d < 18 && Math.abs(car.speed) < 1) || (d < 45 && c.stuckT > 3) || (c.stuckT > 8)) this.arrive(c);
+        if ((d < 18 && Math.abs(car.speed) < 1.5) || (d < 45 && c.stuckT > 3) || (c.stuckT > 8)) this.arrive(c);
         continue;
       }
       if (c.stage === 'here') {
