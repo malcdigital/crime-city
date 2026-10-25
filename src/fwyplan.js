@@ -185,14 +185,17 @@ function parcloHalf(W, lanes, cross, opts) {
   // loop 270 degrees up to the deck, then the acceleration lane across the bridge.
   const loop = new Path(-S - 1, S + 15).line(-S, vLoop - 4).line(-S, vLoop);
   loop.mark('a').arc(-S - rL, vLoop, rL, 0, Math.PI * 1.5).mark('b');
-  loop.line(150, vA).shift(175, vL);
+  loop.line(165, vA).shift(190, vL);
   addRamp(W, loop, (lc, L, at) => [[at('a') - 4, 0], [at('b'), DECK]], {
     kind: 'on', loop: true, main: opts.main, dir: opts.dir, laneTo: lanes - 1, street: W(0, S + 4), name,
   });
   // Diagonal entrance: right turn off the cross street lane heading toward the freeway, up
   // alongside to join the acceleration lane.
-  const diag = new Path(S + 8, vOn).shift(125, vA).line(145, vA);
-  addRamp(W, diag, (lc, L) => [[sAtU(lc, L, S + 9), 0], [sAtU(lc, L, 124), DECK]], {
+  // (it stays out wide while it climbs, and only swings in alongside once it's level with
+  // the deck: no running in underneath the edge of it)
+  const vWide = vA + RAMP_HW * 2 + 1.2;
+  const diag = new Path(S + 8, vOn).shift(100, vWide).line(118, vWide).shift(150, vA).line(165, vA);
+  addRamp(W, diag, (lc, L) => [[sAtU(lc, L, S + 9), 0], [sAtU(lc, L, 116), DECK]], {
     kind: 'on', main: opts.main, dir: opts.dir, joinsRamp: true, street: W(0, vOn), name,
   });
   STUBS.push([W(0, vOff), W(-S - 8, vOff)], [W(0, S + 4), W(-S - 1, S + 15)], [W(0, vOn), W(S + 8, vOn)]);
@@ -201,7 +204,7 @@ function parcloHalf(W, lanes, cross, opts) {
   RAMPS[RAMPS.length - 1].stub = STUBS.length - 1;
   // Land for the ramps (no streets or buildings).
   HOLES.push({ poly: rectLocal(W, -Ud - 8, -S, S, vOff + 10) });
-  HOLES.push({ poly: rectLocal(W, S, 180, S, vOn + 10) });
+  HOLES.push({ poly: rectLocal(W, S, 195, S, vOn + 10) });
   // Signs over the right-hand lanes: 200 m before the exit and where it leaves.
   const [ox, oz] = W(0, 0);
   const [tx, tz] = W(1, 0);

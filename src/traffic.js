@@ -399,7 +399,20 @@ export class TrafficDriver {
 
     let desired = this.cruise;
     if (this.from.high && this.to.high && !oneWay) desired = this.cruise * 2.4; // freeway speed (about 55-65 mph)
-    if (oneWay) desired = Math.min(desired, this.from.laneRef?.s?.ramp?.loop || this.to.laneRef?.s?.ramp?.loop ? 10 : 15); // ramps (loops: about 22 mph)
+    if (oneWay) {
+      // Ramps: as quick as the curve ahead allows (about 4.5 m/s² sideways), up to freeway speed.
+      desired = this.cruise * 2.1;
+      const bend = (a, b, c) => {
+        if (!a || !b || !c) return Infinity;
+        const l1 = dist(a.x, a.z, b.x, b.z) || 1;
+        const l2 = dist(b.x, b.z, c.x, c.z) || 1;
+        const cs = ((b.x - a.x) * (c.x - b.x) + (b.z - a.z) * (c.z - b.z)) / (l1 * l2);
+        const th = Math.acos(Math.max(-1, Math.min(1, cs)));
+        return th < 0.01 ? Infinity : ((l1 + l2) / 2) / th;
+      };
+      const R = Math.min(bend(this.from, this.to, this.next), bend(this.to, this.next, this.next?.nb?.[0]));
+      desired = Math.min(desired, Math.sqrt(4.5 * R));
+    }
     if (dn < (oneWay ? 6 : 20) && this.next) {
       const nl = dist(this.to.x, this.to.z, this.next.x, this.next.z) || 1;
       const nux = (this.next.x - this.to.x) / nl;

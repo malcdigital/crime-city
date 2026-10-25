@@ -162,10 +162,7 @@ export class Highway {
         return [p[0] + rx * v, p[1] + rz * v];
       });
       let hs = s.h.slice();
-      if (s.closed) {
-        pts = pts.slice(0, -1);
-        hs = hs.slice(0, -1);
-      }
+      // (a closed loop keeps its closing point, so its last stretch is part of the lane too)
       if (reverse) {
         pts.reverse();
         hs.reverse();
@@ -174,6 +171,7 @@ export class Highway {
       const nodes = [];
       let last = -Infinity;
       for (let i = 0; i < pts.length; i++) {
+        if (s.closed && L[L.length - 1] - L[i] < step * 0.5) break; // (the loop joins back up to its first node)
         if (L[i] - last >= step || i === pts.length - 1) {
           nodes.push(make(pts[i][0], pts[i][1], { hy: hs[i], s: L[i], ...info }));
           last = L[i];
@@ -278,41 +276,42 @@ export class Highway {
     const joined = (x, z, h, s) => this.surfacesAt(x, z, -0.4).some((o) => o.s !== s && Math.abs(o.h - h) < 1.2);
     for (const s of this.surfaces) {
       s.rails = [];
+      // The edge, resampled every 2 m (straights have points far apart), with heights.
+      const E = [];
+      for (let i = 1; i < s.pts.length; i++) {
+        const [ax, az] = s.pts[i - 1];
+        const [bx, bz] = s.pts[i];
+        const n = Math.max(1, Math.ceil((s.L[i] - s.L[i - 1]) / 2));
+        const L = s.L[i] - s.L[i - 1] || 1;
+        const rx = -(bz - az) / L;
+        const rz = (bx - ax) / L;
+        for (let k = i > 1 ? 1 : 0; k <= n; k++) E.push([ax + ((bx - ax) * k) / n, az + ((bz - az) * k) / n, s.h[i - 1] + ((s.h[i] - s.h[i - 1]) * k) / n, rx, rz]);
+      }
       const sides = s.ramp ? [-1, 1] : [-1, 0, 1];
       for (const side of sides) {
         const off = side * (s.hw + (side ? T / 2 : 0));
-        // Walk the edge in pieces of about SEG meters.
-        let acc = 0;
-        let start = 0;
-        for (let i = 1; i < s.pts.length; i++) {
-          acc += s.L[i] - s.L[i - 1];
-          if (acc < SEG && i < s.pts.length - 1) continue;
-          acc = 0;
-          const P = (k) => {
-            const a = s.pts[Math.max(0, k - 1)];
-            const b = s.pts[Math.min(s.pts.length - 1, k + 1)];
-            const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-            return [s.pts[k][0] - ((b[1] - a[1]) / L) * off, s.pts[k][1] + ((b[0] - a[0]) / L) * off];
-          };
-          const [x0, z0] = P(start);
-          const [x1, z1] = P(i);
-          const h0 = s.h[start];
-          const h1 = s.h[i];
-          const k0 = start;
-          start = i;
+        const per = Math.round(SEG / 2);
+        for (let k = 0; k + per < E.length + per - 1; k += per) {
+          const A = E[k];
+          const B = E[Math.min(E.length - 1, k + per)];
+          if (A === B) break;
+          const x0 = A[0] + A[3] * off;
+          const z0 = A[1] + A[4] * off;
+          const x1 = B[0] + B[3] * off;
+          const z1 = B[1] + B[4] * off;
+          const h0 = A[2];
+          const h1 = B[2];
           const hm = (h0 + h1) / 2;
           if (hm < 0.6) continue; // down at street level
-          const mx = (x0 + x1) / 2;
-          const mz = (z0 + z1) / 2;
-          if (side && joined(mx, mz, hm, s)) continue;
-          if (side === 0 && (s.main === 'xt' ? false : this.surfacesAt(mx, mz, -1).some((o) => o.s.main === 'xt'))) continue;
+          // Left out where another surface carries on at the same height (a join): checked
+          // at both ends and the middle.
+          if (side && [[x0, z0], [(x0 + x1) / 2, (z0 + z1) / 2], [x1, z1]].some(([x, z]) => joined(x, z, hm, s))) continue;
           const L = Math.hypot(x1 - x0, z1 - z0);
           if (L < 0.2) continue;
-          const box = obb(mx, mz, L / 2 + 0.1, T / 2, Math.atan2(z1 - z0, x1 - x0), 1.1, Math.min(h0, h1));
+          const box = obb((x0 + x1) / 2, (z0 + z1) / 2, L / 2 + 0.1, T / 2, Math.atan2(z1 - z0, x1 - x0), 1.1, Math.min(h0, h1));
           box.top = Math.max(h0, h1) + 1.1;
           rails.push(box);
           s.rails.push([x0, z0, h0, x1, z1, h1, side === 0]);
-          void k0;
         }
       }
     }
