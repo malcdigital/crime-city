@@ -180,8 +180,8 @@ export function sideBlock(city, x, z) {
   const inside = city.blockAt(x, z);
   if (inside) return [inside, 0];
   const P = CFG.PITCH;
-  const fi = Math.floor(x / P);
-  const fj = Math.floor(z / P);
+  const fi = Math.max(0, Math.min(N - 1, Math.floor(x / P))); // clamped: never empty, even off the map
+  const fj = Math.max(0, Math.min(N - 1, Math.floor(z / P)));
   let best = null;
   let bestD = Infinity;
   for (let i = fi - 1; i <= fi + 1; i++) {

@@ -23,9 +23,17 @@ export class MapView {
       <canvas></canvas>
       <div class="bm-info"></div>
       <div class="bm-legend"></div>
+      <div class="bm-legend-tab">Legend ▸</div>
       <div class="bm-help"></div>`;
     document.body.appendChild(this.el);
     this.canvas = this.el.querySelector('canvas');
+    // The legend can be opened and closed (L / △, or click the tab); remembered between visits.
+    try {
+      this.legendOpen = localStorage.getItem('crimecity.legend') !== 'closed';
+    } catch {
+      this.legendOpen = true;
+    }
+    this.el.querySelector('.bm-legend-tab').addEventListener('click', () => this.toggleLegend());
     this.ctx = this.canvas.getContext('2d');
     this.info = this.el.querySelector('.bm-info');
     this.open = false;
@@ -82,6 +90,7 @@ export class MapView {
     this.cursor = [px, pz]; // cursor starts on you
     this.mouse = null;
     if (game.input.locked) game.input.unlock();
+    this.applyLegend();
     this.setHelp();
     this.legendSel = 0;
     this.legendActive = false;
@@ -90,12 +99,30 @@ export class MapView {
     this.draw();
   }
 
+  toggleLegend() {
+    this.legendOpen = !this.legendOpen;
+    try {
+      localStorage.setItem('crimecity.legend', this.legendOpen ? 'open' : 'closed');
+    } catch {
+      // Storage unavailable.
+    }
+    this.applyLegend();
+    this.setHelp();
+  }
+
+  applyLegend() {
+    this.el.querySelector('.bm-legend').classList.toggle('hidden', !this.legendOpen);
+    const tab = this.el.querySelector('.bm-legend-tab');
+    tab.textContent = this.legendOpen ? 'Hide legend ▴' : 'Legend ▾';
+    tab.classList.toggle('open', this.legendOpen);
+  }
+
   setHelp() {
     const pad = this.game.input.mode === 'pad';
     const heat = this.heat ? `${this.heat} prices` : 'prices';
     this.el.querySelector('.bm-help').textContent = pad
-      ? `Left stick: move · D-pad ↑↓: go to a place · □: ${heat} · R2 / L2: zoom · ✕: waypoint · ○: close`
-      : `WASD / drag: move · ↑↓ / legend: go to a place · H: ${heat} · Wheel: zoom · Enter / click: waypoint · M / Esc: close`;
+      ? `Left stick: move · D-pad ↑↓: go to a place · △: ${this.legendOpen ? 'hide' : 'show'} legend · □: ${heat} · R2 / L2: zoom · ✕: waypoint · ○: close`
+      : `WASD / drag: move · ↑↓ / legend: go to a place · L: ${this.legendOpen ? 'hide' : 'show'} legend · H: ${heat} · Wheel: zoom · Enter / click: waypoint · M / Esc: close`;
   }
 
   hide() {
@@ -242,6 +269,7 @@ export class MapView {
     if (this.mouse && game.input.mode !== 'pad') this.cursor = this.toWorld(...this.mouse);
     // The legend: step through the places on the map; the cursor jumps to each.
     if (a.phoneUp || a.phoneDown) {
+      if (!this.legendOpen) this.toggleLegend(); // stepping through places opens it
       const n = (this.pickable || []).length;
       if (n) this.jumpTo(this.legendActive ? (this.legendSel + (a.phoneDown ? 1 : -1) + n) % n : 0);
     }
@@ -260,6 +288,7 @@ export class MapView {
       if (sy < m) this.cz -= (m - sy) / this.scale;
       if (sy > innerHeight - m) this.cz += (sy - innerHeight + m) / this.scale;
     }
+    if (a.mapLegend) this.toggleLegend();
     // □ / H: cycle the drug price heat map (off → weed → pills → coke).
     if (a.mapHeat) {
       const order = [null, 'weed', 'pills', 'coke'];

@@ -65,6 +65,10 @@ function neighbors(game, e, x, z, r) {
 export function navStep(e, finalX, finalZ, speed, dt, game, radius = 0.4) {
   // Long trips follow the streets instead of cutting through buildings.
   e.navWpT = (e.navWpT || 0) - dt;
+  if (e.navGoalX !== finalX || e.navGoalZ !== finalZ) {
+    e.navLastD = undefined; // a new goal: don't judge progress against the old one
+    e.navCheckT = 0;
+  }
   if (e.navWpT <= 0 || !e.navWp || e.navGoalX !== finalX || e.navGoalZ !== finalZ) {
     e.navWp = waypoint(game, e, finalX, finalZ);
     e.navWpT = 0.5;
@@ -231,26 +235,33 @@ export function navStep(e, finalX, finalZ, speed, dt, game, radius = 0.4) {
     }
   } else e.navStuckT = 0;
 
-  // Not getting closer to the goal over a couple of seconds: break free in an open direction.
+  // Not getting closer to the goal over a couple of seconds: break free. Only when they're
+  // really stuck (barely moved at all), toward the goal as much as possible (never a random
+  // direction, which looked like pacing back and forth), and not at all if it's just you in the
+  // way (they wait for you to move instead).
   e.navCheckT = (e.navCheckT || 0) + dt;
   if (e.navCheckT > 1.5) {
     const now = Math.hypot(finalX - e.x, finalZ - e.z);
-    if (e.navLastD !== undefined && e.navLastD - now < speed * 1.5 * 0.2 && now > 2) {
+    const movedSince = e.navCheckPos ? Math.hypot(e.x - e.navCheckPos[0], e.z - e.navCheckPos[1]) : 99;
+    const playerBlocking = pl && e !== pl && !pl.vehicle && Math.hypot(pl.x - e.x, pl.z - e.z) < 2.2;
+    if (e.navLastD !== undefined && e.navLastD - now < speed * 1.5 * 0.2 && now > 2 && movedSince < speed * 1.5 * 0.35 && !playerBlocking) {
       e.navFails = (e.navFails || 0) + 1;
-      const start = Math.random() * Math.PI * 2;
-      for (let k = 0; k < 8; k++) {
-        const h = start + (k * Math.PI) / 4;
+      const goalH = Math.atan2(finalX - e.x, finalZ - e.z);
+      const side = e.navSide || 1;
+      for (const off of [0.8, -0.8, 1.57, -1.57, 2.3, -2.3]) {
+        const h = goalH + off * side;
         const cx = Math.sin(h);
         const cz = Math.cos(h);
-        if (!segmentBlockedPad(e.x, e.z, e.x + cx * 4, e.z + cz * 4, boxes, radius * 0.75)) {
+        if (!segmentBlockedPad(e.x, e.z, e.x + cx * 3, e.z + cz * 3, boxes, radius * 0.75) && !carBlocked(cars, e.x, e.z, e.x + cx * 3, e.z + cz * 3, radius)) {
           e.navDX = cx;
           e.navDZ = cz;
-          e.navDetourT = 1.3;
+          e.navDetourT = 1.0;
           break;
         }
       }
     } else e.navFails = 0;
     e.navLastD = now;
+    e.navCheckPos = [e.x, e.z];
     e.navCheckT = 0;
   }
   return Math.atan2(ux, uz);
