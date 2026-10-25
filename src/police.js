@@ -1072,7 +1072,7 @@ export class PoliceManager {
     const wanted = !this.heli && game.stars >= CFG.HELI_STARS && this.heliCd <= 0 && game.wastedT <= 0;
     if (!wanted) this.heliEta = null;
     else if (this.heliEta == null) {
-      this.heliEta = 20 + Math.random() * 10;
+      this.heliEta = (20 + Math.random() * 10) / (game.budget ? game.budget.policeMult() : 1); // police budget
       game.hud.toast('Police are calling in air support', '#9fc3ff');
     } else this.heliEta -= dt;
     if (wanted && this.heliEta <= 0) {
@@ -1109,7 +1109,7 @@ export class PoliceManager {
 
   update(dt) {
     const game = this.game;
-    const want = CFG.UNITS_PER_STAR[game.stars];
+    const want = Math.round(CFG.UNITS_PER_STAR[game.stars] * (game.budget ? game.budget.policeMult() : 1)); // police budget
     const wantSwat = CFG.SWAT_PER_STAR[game.stars];
     const live = this.units.filter((u) => !u.leaving && !u.carLost && !u.allDead && !u.roadblock && !u.task);
     const active = live.filter((u) => u.kind !== 'swat');

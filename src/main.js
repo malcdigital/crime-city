@@ -23,6 +23,7 @@ import { Drugs } from './drugs.js';
 import { Bank } from './bank.js';
 import { PropertyMarket } from './property.js';
 import { Economy } from './economy.js';
+import { CityBudget } from './budget.js';
 import { Market } from './market.js';
 import { President } from './president.js';
 import { Phone } from './phone.js';
@@ -133,6 +134,7 @@ class Game {
     this.bank = new Bank(this);
     this.property = new PropertyMarket(this);
     this.economy = new Economy(this);
+    this.budget = new CityBudget(this);
     this.market = new Market(this);
     this.president = new President(this);
     this.phone = new Phone(this);
@@ -1531,7 +1533,7 @@ class Game {
     const m = this.clockMinutes();
     const night = m >= 22 * 60 || m < 4 * 60;
     const d = districtAt(x, z);
-    return 0.2 + (night && (d === 'The Projects' || d === 'The Docks') ? 0.2 : night ? 0.08 : 0);
+    return (0.2 + (night && (d === 'The Projects' || d === 'The Docks') ? 0.2 : night ? 0.08 : 0)) * (this.budget ? this.budget.dirtyMult() : 1); // better-paid police: fewer dirty cops
   }
 
   startStop() {

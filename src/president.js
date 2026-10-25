@@ -95,7 +95,7 @@ export class President {
 
   update(dt) {
     const game = this.game;
-    this.crimeLevel = Math.max(0, this.crimeLevel - this.crimeLevel * FADE * dt);
+    this.crimeLevel = Math.max(0, this.crimeLevel - this.crimeLevel * FADE * (game.budget ? game.budget.crimeFade() : 1) * dt); // community programs help
     for (const k of Object.keys(this.recent)) {
       this.recent[k] -= this.recent[k] * FADE * dt;
       if (Math.abs(this.recent[k]) < 0.2) delete this.recent[k];

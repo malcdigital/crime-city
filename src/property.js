@@ -56,7 +56,7 @@ export class PropertyMarket {
     this.game = game;
     this.crimeLevel = {}; // district -> crime level (fades)
     this.demand = {}; // district -> multiplier (drifts 0.8..1.25)
-    this.treasury = 0; // taxes collected by the city
+    this.treasury = 10000; // taxes collected by the city (starts with a reserve)
     this.prev = {}; // id -> value a minute ago (for trend arrows)
     for (const d of DISTRICTS) {
       this.crimeLevel[d] = 0;
@@ -73,7 +73,7 @@ export class PropertyMarket {
       if (!s) return;
       Object.assign(this.crimeLevel, s.crimeLevel || {});
       Object.assign(this.demand, s.demand || {});
-      this.treasury = s.treasury || 0;
+      this.treasury = s.treasury ?? 10000;
       for (const h of this.all()) {
         const o = s.homes?.[h.id];
         if (o) Object.assign(h, { owed: o.owed || 0, strikes: o.strikes || 0, taxDay: o.taxDay ?? null });
@@ -201,7 +201,7 @@ export class PropertyMarket {
   update(dt) {
     const game = this.game;
     for (const d of DISTRICTS) {
-      this.crimeLevel[d] -= this.crimeLevel[d] * CRIME_FADE * dt;
+      this.crimeLevel[d] -= this.crimeLevel[d] * CRIME_FADE * (game.budget ? game.budget.crimeFade() : 1) * dt;
       // Demand drifts back toward normal, slowly.
       this.demand[d] += (1 - this.demand[d]) * dt / 1800;
     }
@@ -229,6 +229,7 @@ export class PropertyMarket {
     let upkeep = 0;
     let tax = 0;
     const byDistrict = {}; // your upkeep, by where it was paid (it goes to the service companies)
+    const t0 = this.treasury;
     for (const h of game.bank.ownedHomes()) {
       const behind = h.owed || 0; // owed before today's bills
       const paid = this.charge(h, this.dailyUpkeep(h), false);
@@ -253,6 +254,7 @@ export class PropertyMarket {
     if (tax) game.hud.text('City Tax Office', `Property tax: ${money(tax)} paid. Thank you.`);
     if (upkeep >= 25) game.hud.toast(`Upkeep on your properties: -${money(upkeep)}`);
     game.economy?.newDay(byDistrict);
+    game.budget?.newDay(this.treasury - t0); // then the city spends it
     this.save();
   }
 

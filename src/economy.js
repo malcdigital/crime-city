@@ -176,7 +176,7 @@ export class Economy {
     for (const d of DISTRICTS) {
       const spendUp = Math.min(1, (playerUpkeep[d] || 0) / Math.max(1, resident[d]));
       const crime = Math.min(1, (P.crimeLevel[d] || 0) / 30);
-      const target = Math.max(0.75, Math.min(1.25, 1 + 0.15 * spendUp - 0.25 * crime));
+      const target = Math.max(0.75, Math.min(1.25, 1 + 0.15 * spendUp - 0.25 * crime + (game.budget ? game.budget.wealthBonus(d) : 0)));
       const before = this.wealth[d];
       this.wealth[d] += (target - this.wealth[d]) * 0.25;
       this.trend[d] = this.wealth[d] > before + 0.005 ? '▲' : this.wealth[d] < before - 0.005 ? '▼' : '';

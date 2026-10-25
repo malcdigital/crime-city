@@ -240,8 +240,7 @@ export class Hud {
     const drivers = P.drivers().map(([k, w]) => `<span class="${w > 0 ? 'bad' : 'good'}">${w > 0 ? '▼' : '▲'} ${k}</span>`).join('');
     $('approval').innerHTML = `<div class="ap-top"><span>Approval</span><b style="color:${col}">${ap}% ${trend}</b><span class="ap-crime">Crime: ${P.levelName()}</span></div>`
       + `<div class="ap-bar"><div style="width:${ap}%;background:${col}"></div></div>`
-      + `<div class="ap-why">${drivers || '<span>Quiet lately</span>'}</div>`
-      + (game.property ? `<div class="ap-why"><span>${game.property.summary()}</span></div>` : '');
+      + `<div class="ap-why">${drivers || '<span>Quiet lately</span>'}</div>`;
     const T = game.turfWars;
     const box = $('crackdowns');
     box.innerHTML = Object.values(GANGS).filter((g) => !g.hidden).map((g) => {
@@ -253,8 +252,12 @@ export class Hud {
     const lvl = M.war || 0;
     const W = WAR_LEVELS[lvl];
     box.innerHTML += `<button class="cd drugwar lv${lvl}"><span class="sw"></span>War on drugs<b>${W.name.toUpperCase()}</b><i>${W.detail}</i></button>`;
+    // The city budget: what the treasury pays for.
+    if (game.budget) box.innerHTML += game.budget.html();
     box.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
-      if (b.classList.contains('drugwar')) M.setWar((lvl + 1) % WAR_LEVELS.length);
+      if (b.classList.contains('budget-auto')) game.budget.toggleAuto();
+      else if (b.dataset.line) game.budget.step(b.dataset.line);
+      else if (b.classList.contains('drugwar')) M.setWar((lvl + 1) % WAR_LEVELS.length);
       else T.setCrackdown(b.dataset.g, !T.crackdown[b.dataset.g]);
       this.renderCrackdowns(game);
     }));
