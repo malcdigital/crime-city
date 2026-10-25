@@ -24,6 +24,7 @@ import { Bank } from './bank.js';
 import { PropertyMarket } from './property.js';
 import { Economy } from './economy.js';
 import { CityBudget } from './budget.js';
+import { EconDebug } from './econdebug.js';
 import { Market } from './market.js';
 import { President } from './president.js';
 import { Phone } from './phone.js';
@@ -135,6 +136,7 @@ class Game {
     this.property = new PropertyMarket(this);
     this.economy = new Economy(this);
     this.budget = new CityBudget(this);
+    this.econDebug = new EconDebug(this); // ` toggles the economy debug panel
     this.market = new Market(this);
     this.president = new President(this);
     this.phone = new Phone(this);

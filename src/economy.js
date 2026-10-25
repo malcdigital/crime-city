@@ -5,6 +5,7 @@ import { streetAt, districtAt } from './city.js';
 import { GANGS } from './turf.js';
 import { SALES_TAX } from './property.js';
 import { dist } from './util.js';
+import { TUNE } from './tuning.js';
 
 // Where upkeep money goes, so it stays in the city's economy.
 // Every game day, everyone with a home pays upkeep: you, and the city's residents (each block's
@@ -21,10 +22,11 @@ import { dist } from './util.js';
 // spending there, down with crime. Wealthier districts pay more for drugs and their homes are
 // worth more.
 const SAVE_KEY = 'crimecity.economy.v1';
-const PER_BLOCK = 45; // residents' upkeep per block per game day, at normal wealth
-const PROFIT = 0.3;
-const PROTECTION = 0.1;
-const PRICE_DAYS = 40; // a company sells for about this many days of profit
+// Numbers live in tuning.js.
+const PER_BLOCK = TUNE.residentUpkeepPerBlock;
+const PROFIT = TUNE.companyProfit;
+const PROTECTION = TUNE.protection;
+const PRICE_DAYS = TUNE.companyPriceDays;
 const money = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
 const roundPrice = (v) => {
   const step = Math.max(100, 10 ** (Math.floor(Math.log10(Math.max(1, v))) - 2));
@@ -40,6 +42,8 @@ export class Economy {
     this.trend = {};
     for (const d of DISTRICTS) this.wealth[d] = 1;
     this.gangIncome = { kings: 0, vipers: 0, crew: 0 };
+    this.crimeNorm = {}; // each district's usual crime level (wealth reacts to crime above it)
+    this.profitTaxOn = false; // the city taxes private service companies' profits
     this.blocks = {}; // district -> number of blocks
     for (const b of city.blocks) this.blocks[b.district] = (this.blocks[b.district] || 0) + 1;
 
@@ -64,6 +68,8 @@ export class Economy {
       if (!s) return;
       Object.assign(this.wealth, s.wealth || {});
       Object.assign(this.gangIncome, s.gangIncome || {});
+      Object.assign(this.crimeNorm, s.crimeNorm || {});
+      this.profitTaxOn = !!s.profitTaxOn;
       for (const c of this.companies) if (s.owned?.[c.id]) c.owned = true;
     } catch {
       // Fresh start.
@@ -74,7 +80,7 @@ export class Economy {
     try {
       const owned = {};
       for (const c of this.companies) owned[c.id] = c.owned;
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ wealth: this.wealth, gangIncome: this.gangIncome, owned }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ wealth: this.wealth, gangIncome: this.gangIncome, owned, crimeNorm: this.crimeNorm, profitTaxOn: this.profitTaxOn }));
     } catch {
       // Storage unavailable.
     }
@@ -120,7 +126,8 @@ export class Economy {
   dailyProfit(c) {
     const net = this.dailyIncome(c) / (1 + SALES_TAX);
     // No gang on the block: the owner keeps what would have gone to protection.
-    return net * PROFIT + (this.protector(c) ? 0 : net * PROTECTION);
+    const profit = net * PROFIT + (this.protector(c) ? 0 : net * PROTECTION);
+    return profit * (c.owned && this.profitTaxOn ? 1 - TUNE.profitTax : 1);
   }
 
   price(c) {
@@ -148,6 +155,14 @@ export class Economy {
     P.treasury += residentTotal - residentTotal / (1 + SALES_TAX);
     let mine = 0;
     let stash = 0;
+    // Private owners control most of the city's services: the city taxes their profits (unless
+    // a libertarian is in office).
+    const privateShare = this.companies.filter((c) => c.owned).reduce((n, c) => n + c.share, 0);
+    const taxIt = privateShare >= TUNE.privateControlShare && game.president.p.side !== 'lib' && !game.president.p.nationalize;
+    if (taxIt !== this.profitTaxOn) {
+      this.profitTaxOn = taxIt;
+      game.hud.news(taxIt ? `City Hall slaps a ${Math.round(TUNE.profitTax * 100)}% tax on private utility profits` : 'City Hall drops the tax on private utility profits', 'info');
+    }
     for (const c of this.companies) {
       const net = (total * c.share) / (1 + SALES_TAX);
       let profit = net * PROFIT;
@@ -158,6 +173,10 @@ export class Economy {
       else if (!g) profit += prot; // nobody to pay off
       c.lastProfit = Math.round(profit);
       c.lastProtection = g ? Math.round(prot) : 0;
+      if (c.owned && this.profitTaxOn) {
+        P.treasury += profit * TUNE.profitTax;
+        profit *= 1 - TUNE.profitTax;
+      }
       if (c.owned) mine += profit;
       else P.treasury += profit; // city-run
     }
@@ -175,10 +194,14 @@ export class Economy {
     // Neighborhoods: more spending lifts them, crime drags them down. Moves over a few days.
     for (const d of DISTRICTS) {
       const spendUp = Math.min(1, (playerUpkeep[d] || 0) / Math.max(1, resident[d]));
-      const crime = Math.min(1, (P.crimeLevel[d] || 0) / 30);
-      const target = Math.max(0.75, Math.min(1.25, 1 + 0.15 * spendUp - 0.25 * crime + (game.budget ? game.budget.wealthBonus(d) : 0)));
+      // Crime compared to what's usual there (so everyday crime doesn't sink every district).
+      const c = P.crimeLevel[d] || 0;
+      if (this.crimeNorm[d] == null) this.crimeNorm[d] = c;
+      const crime = Math.max(-0.5, Math.min(1, (c - this.crimeNorm[d]) / 30));
+      this.crimeNorm[d] += (c - this.crimeNorm[d]) * TUNE.crimeNormRate;
+      const target = Math.max(0.75, Math.min(1.25, 1 + TUNE.wealthSpendLift * spendUp - TUNE.wealthCrimeDrag * crime + (game.budget ? game.budget.wealthBonus(d) : 0)));
       const before = this.wealth[d];
-      this.wealth[d] += (target - this.wealth[d]) * 0.25;
+      this.wealth[d] += (target - this.wealth[d]) * TUNE.wealthMove;
       this.trend[d] = this.wealth[d] > before + 0.005 ? '▲' : this.wealth[d] < before - 0.005 ? '▼' : '';
     }
     this.save();

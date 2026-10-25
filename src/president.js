@@ -1,5 +1,6 @@
 import { personality, newLeader } from './politics.js';
 import { setTaxes } from './property.js';
+import { TUNE } from './tuning.js';
 // The President's approval rating, driven by crime.
 // - Crime level: every crime adds to it (weighted by how bad it is: a cop killed counts far
 //   more than a carjacking), and it fades over about 10 minutes of play.
@@ -27,6 +28,7 @@ export class President {
     this.reported = 60;
     this.leader = null; // { name, id } — see politics.js
     this.termStart = 0;
+    this.taxBoost = 1; // taxes raised to pay down city debt (×1 to ×1.5)
     this.load();
     if (!this.leader) this.takeOffice(newLeader(), 0, true);
     else this.applyPolicy();
@@ -46,6 +48,7 @@ export class President {
     const game = this.game;
     this.leader = leader;
     this.termStart = day;
+    this.taxBoost = 1; // a fresh start on taxes
     this.approval = Math.max(this.approval, 55);
     this.reported = Math.round(this.approval);
     const p = this.p;
@@ -72,7 +75,25 @@ export class President {
 
   // Tax rates follow whoever is in office.
   applyPolicy() {
-    setTaxes(this.p.salesTax, this.p.propertyTax);
+    setTaxes(this.p.salesTax * this.taxBoost, this.p.propertyTax * this.taxBoost);
+  }
+
+  // The city is deep in debt: raise taxes (libertarians won't — they cut instead, in the budget).
+  raiseTaxes() {
+    const p = this.p;
+    if (p.side === 'lib' || this.taxBoost >= TUNE.maxTaxBoost - 1e-6) return;
+    this.taxBoost = Math.min(TUNE.maxTaxBoost, this.taxBoost + TUNE.taxStep);
+    this.applyPolicy();
+    this.game.hud.news(`President ${this.leader.name} raises taxes ${Math.round((this.taxBoost - 1) * 100)}% to pay down the city's debt`, 'info');
+    this.save();
+  }
+
+  lowerTaxes() {
+    if (this.taxBoost <= 1) return;
+    this.taxBoost = Math.max(1, this.taxBoost - TUNE.taxStep);
+    this.applyPolicy();
+    this.game.hud.news(this.taxBoost > 1 ? `City finances recover: President trims the tax hike to ${Math.round((this.taxBoost - 1) * 100)}%` : 'City finances recover: President ends the tax hike', 'good');
+    this.save();
   }
 
   // The President's standing orders: the war on drugs and gang crackdowns (unless you've taken
@@ -121,7 +142,7 @@ export class President {
   load() {
     try {
       const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
-      if (s) Object.assign(this, { crimeLevel: s.crimeLevel || 0, approval: s.approval ?? 60, recent: s.recent || {}, reported: s.approval ?? 60, leader: s.leader || null, termStart: s.termStart || 0 });
+      if (s) Object.assign(this, { crimeLevel: s.crimeLevel || 0, approval: s.approval ?? 60, recent: s.recent || {}, reported: s.approval ?? 60, leader: s.leader || null, termStart: s.termStart || 0, taxBoost: s.taxBoost || 1 });
     } catch {
       // Fresh term.
     }
@@ -129,7 +150,7 @@ export class President {
 
   save() {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ crimeLevel: this.crimeLevel, approval: this.approval, recent: this.recent, leader: this.leader, termStart: this.termStart }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ crimeLevel: this.crimeLevel, approval: this.approval, recent: this.recent, leader: this.leader, termStart: this.termStart, taxBoost: this.taxBoost }));
     } catch {
       // Storage unavailable.
     }
@@ -166,13 +187,45 @@ export class President {
     return crackdowns + (this.game.market.war || 0);
   }
 
+  // Where approval is heading: crime, the city's finances, taxes and how the neighborhoods are
+  // doing (weights in tuning.js).
   target() {
+    const A = TUNE.approval;
+    const game = this.game;
     const c = this.crimeLevel;
-    let t = 65 - c * 0.7;
+    let t = A.base - A.crimePerPoint * Math.max(0, c - 10);
     // Being tough reads well when crime is up and heavy-handed when it's quiet.
     const tough = this.toughness();
     t += tough * (c > 30 ? 4 : c < 10 ? -4 : 1);
-    return Math.max(8, Math.min(90, t));
+    if (game.budget) t -= A.shortfall * (1 - game.budget.funded);
+    if (game.property && game.property.treasury < 0) t -= A.inDebt;
+    t -= A.taxes * (this.taxBoost - 1);
+    const E = game.economy;
+    if (E) {
+      const ds = Object.keys(E.wealth);
+      t += A.wealth * (ds.reduce((n, d) => n + E.wealth[d], 0) / ds.length - 1);
+    }
+    if (game.bank && game.bank.days - this.termStart < 2) t += A.honeymoon;
+    return Math.max(5, Math.min(95, t));
+  }
+
+  // What's moving approval right now (for the pause menu and the debug panel).
+  approvalWhy() {
+    const A = TUNE.approval;
+    const game = this.game;
+    const out = [];
+    const c = this.crimeLevel;
+    if (c > 10) out.push(['crime', -A.crimePerPoint * (c - 10)]);
+    if (game.budget && game.budget.funded < 0.98) out.push(['budget shortfall', -A.shortfall * (1 - game.budget.funded)]);
+    if (game.property && game.property.treasury < 0) out.push(['city in debt', -A.inDebt]);
+    if (this.taxBoost > 1) out.push(['tax hike', -A.taxes * (this.taxBoost - 1)]);
+    const E = game.economy;
+    if (E) {
+      const ds = Object.keys(E.wealth);
+      const w = A.wealth * (ds.reduce((n, d) => n + E.wealth[d], 0) / ds.length - 1);
+      if (Math.abs(w) > 0.5) out.push([w > 0 ? 'neighborhoods doing well' : 'neighborhoods struggling', w]);
+    }
+    return out;
   }
 
   levelName() {
@@ -195,7 +248,7 @@ export class President {
     }
     // Approval moves toward where the public is (a point every ~10 seconds at most).
     const t = this.target();
-    const step = Math.min(Math.abs(t - this.approval), dt * 0.12);
+    const step = Math.min(Math.abs(t - this.approval), dt * 0.02); // about a point every 50 s: opinion shifts over a game day
     this.approval += Math.sign(t - this.approval) * step;
     // Big moves make the news.
     const a = Math.round(this.approval);

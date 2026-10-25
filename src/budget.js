@@ -1,4 +1,5 @@
 import { WEALTH_BASE } from './districts.js';
+import { TUNE } from './tuning.js';
 
 // The city budget: the treasury (taxes and city-run company profits) pays for the city every
 // game day, the way the President wants.
@@ -11,17 +12,19 @@ import { WEALTH_BASE } from './districts.js';
 // By default the President decides each day (tough when crime is high, building when it's quiet,
 // cutting back when money is short). Set the budget yourself in the pause menu (President's
 // orders) and you're in charge until you hand it back.
-// Can't cover the day? Everything gets part of its money (and its effect), and the President's
-// approval takes a hit.
+// Short on money? The city can borrow (the treasury goes below zero, with interest) down to a
+// limit of a few days' income; past that, everything gets only part of its money (and part of its
+// effect). Deep in debt, the President raises taxes (or cuts, depending on who they are). Debt
+// and shortfalls both cost approval. All the numbers are in tuning.js.
 const SAVE_KEY = 'crimecity.budget.v1';
 const money = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
 export const LINES = {
-  police: { name: 'Police', levels: ['Cut', 'Normal', 'Boosted', 'Max'], cost: [0, 1500, 3000, 5000], mult: [0.6, 1, 1.3, 1.6] },
-  works: { name: 'Public works', levels: ['None', 'Normal', 'Big'], cost: [0, 1000, 2500], bonus: [-0.03, 0, 0.06] },
-  community: { name: 'Community programs', levels: ['None', 'Some', 'Lots'], cost: [0, 800, 2000], fade: [1, 1.3, 1.7], lift: [0, 0.03, 0.06] },
+  police: { name: 'Police', levels: ['Cut', 'Normal', 'Boosted', 'Max'], cost: TUNE.budget.police, mult: [0.6, 1, 1.3, 1.6] },
+  works: { name: 'Public works', levels: ['None', 'Normal', 'Big'], cost: TUNE.budget.works, bonus: [-0.03, 0, 0.06] },
+  community: { name: 'Community programs', levels: ['None', 'Some', 'Lots'], cost: TUNE.budget.community, fade: [1, 1.3, 1.7], lift: [0, 0.03, 0.06] },
 };
-const WAR_COST = [0, 1500, 3500];
-const CRACKDOWN_COST = 600;
+const WAR_COST = TUNE.budget.war;
+const CRACKDOWN_COST = TUNE.budget.crackdown;
 
 export class CityBudget {
   constructor(game) {
@@ -130,15 +133,16 @@ export class CityBudget {
     // Stay within what the city can afford: about today's income plus a bit of the savings.
     // Cut building first, then programs, then police (never below normal unless broke).
     const fixed = WAR_COST[game.market.war || 0] + Object.values(game.turfWars.crackdown || {}).filter(Boolean).length * CRACKDOWN_COST;
-    const afford = income * 1.05 + T * 0.15;
+    // In debt: spend a bit under income to pay it down. Saved up: spend some of the savings.
+    const afford = T < 0 ? income * 0.9 : income * 1.0 + T * 0.15;
     const total = () => LINES.police.cost[police] + LINES.works.cost[works] + LINES.community.cost[community] + fixed;
     while (total() > afford) {
       if (works > 1) works--;
       else if (community > 1) community--;
-      else if (police > (p.toughOnCrime && p.budget ? p.budget.police : 1)) police--; // tough-on-crime keeps its cops
+      else if (police > (p.toughOnCrime && p.budget && reserve > -TUNE.debtLimitDays * 0.6 ? p.budget.police : 1)) police--; // tough-on-crime keeps its cops (until the debt gets deep)
       else if (works > 0) works--;
       else if (community > 0) community--;
-      else if (police > 0 && reserve < 0.4 && !p.toughOnCrime) police--;
+      else if (police > 0 && reserve < -TUNE.debtLimitDays * 0.6) police--;
       else break;
     }
     this.setLevels(police, works, community);
@@ -160,15 +164,20 @@ export class CityBudget {
     const P = game.property;
     this.lastIncome = income;
     if (this.auto) this.decide();
+    // Interest on what the city owes.
+    if (P.treasury < 0) P.treasury += P.treasury * TUNE.debtInterest;
+    const ref = Math.max(1000, income);
+    const limit = -ref * TUNE.debtLimitDays;
     const need = this.cost();
-    const pay = Math.min(need, Math.max(0, P.treasury));
+    const pay = Math.min(need, Math.max(0, P.treasury - limit)); // borrow down to the limit
     this.funded = need > 0 ? pay / need : 1;
     P.treasury -= pay;
     this.lastSpend = pay;
-    if (this.funded < 0.98) {
-      game.president.loss(2, 'Budget shortfall');
-      game.hud.news(`City can only cover ${Math.round(this.funded * 100)}% of its budget — services cut`, 'info');
-    }
+    if (this.funded < 0.98) game.hud.news(`City hits its debt limit: only ${Math.round(this.funded * 100)}% of the budget paid — services cut`, 'info');
+    // Taxes up when the debt gets deep, back down once there's money saved.
+    const Pr = game.president;
+    if (P.treasury < -ref * TUNE.raiseTaxesAtDebtDays) Pr.raiseTaxes();
+    else if (P.treasury > ref * TUNE.lowerTaxesAtSavedDays) Pr.lowerTaxes();
     this.save();
     P.save();
   }
@@ -198,7 +207,7 @@ export class CityBudget {
       const i = this.level[k];
       return `<button class="cd budget lv${i}" data-line="${k}"><span class="sw"></span>${L.name}<b>${L.levels[i].toUpperCase()}</b><i>${money(L.cost[i])}/day</i></button>`;
     }).join('');
-    const short = this.funded < 0.98 ? ` · <span class="bad">only ${Math.round(this.funded * 100)}% funded</span>` : '';
+    const short = (this.funded < 0.98 ? ` · <span class="bad">only ${Math.round(this.funded * 100)}% funded</span>` : '') + (T < 0 ? ' · <span class="bad">in debt</span>' : '') + (game.president.taxBoost > 1.001 ? ` · taxes +${Math.round((game.president.taxBoost - 1) * 100)}%` : '');
     return `<div class="ap-why budget-head"><span>City treasury ${money(T)} · budget ${money(this.cost())}/day${short}</span></div>`
       + `<button class="cd budget-auto ${this.auto ? 'on' : ''}"><span class="sw"></span>Budget<b>${this.auto ? 'THE PRESIDENT DECIDES' : 'YOU DECIDE'}</b><i>${this.auto ? 'Budget, war on drugs and crackdowns. Click any of them to take over' : 'Click to hand the orders back to the President'}</i></button>`
       + rows;

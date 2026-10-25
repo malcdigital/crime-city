@@ -310,3 +310,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #approval .ap-who { margin-bottom: 8px; font-size: 12px; line-height: 1.35; }
 #approval .ap-who b { display: block; font-size: 13px; }
 #approval .ap-who span { opacity: .75; }
+/* Economy debug panel (`) */
+#econ-debug { position: fixed; top: 10px; left: 10px; z-index: 50; max-height: calc(100vh - 20px); overflow-y: auto; width: min(560px, calc(100vw - 20px)); background: rgba(10,14,20,.92); color: #dfe6ee; font: 11px/1.4 Menlo, Consolas, monospace; padding: 10px 12px; border-radius: 8px; pointer-events: auto; }
+#econ-debug table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+#econ-debug td, #econ-debug th { padding: 1px 6px 1px 0; text-align: left; vertical-align: top; }
+#econ-debug th { opacity: .6; font-weight: 600; }
+#econ-debug i { opacity: .6; }

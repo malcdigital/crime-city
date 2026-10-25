@@ -3,6 +3,7 @@ import { districtAt, streetAt } from './city.js';
 import { CRIME_WEIGHT } from './president.js';
 import { GANGS } from './turf.js';
 import { pick, rand } from './util.js';
+import { TUNE } from './tuning.js';
 
 // The property market: what homes are worth, and what owning one costs.
 // - Value = base price × district demand × crime × turf × the city's mood.
@@ -62,6 +63,8 @@ export class PropertyMarket {
     this.crimeLevel = {}; // district -> crime level (fades)
     this.demand = {}; // district -> multiplier (drifts 0.8..1.25)
     this.treasury = 10000; // taxes collected by the city (starts with a reserve)
+    // The citywide housing market: an index that drifts up over time, with booms and slumps.
+    this.housing = { index: 1, trend: TUNE.housing.drift };
     this.prev = {}; // id -> value a minute ago (for trend arrows)
     for (const d of DISTRICTS) {
       this.crimeLevel[d] = 0;
@@ -79,6 +82,7 @@ export class PropertyMarket {
       Object.assign(this.crimeLevel, s.crimeLevel || {});
       Object.assign(this.demand, s.demand || {});
       this.treasury = s.treasury ?? 10000;
+      if (s.housing) this.housing = s.housing;
       for (const h of this.all()) {
         const o = s.homes?.[h.id];
         if (o) Object.assign(h, { owed: o.owed || 0, strikes: o.strikes || 0, taxDay: o.taxDay ?? null });
@@ -92,7 +96,7 @@ export class PropertyMarket {
     try {
       const homes = {};
       for (const h of this.all()) homes[h.id] = { owed: h.owed || 0, strikes: h.strikes || 0, taxDay: h.taxDay ?? null };
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ crimeLevel: this.crimeLevel, demand: this.demand, treasury: this.treasury, homes }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ crimeLevel: this.crimeLevel, demand: this.demand, treasury: this.treasury, homes, housing: this.housing }));
     } catch {
       // Storage unavailable.
     }
@@ -128,6 +132,8 @@ export class PropertyMarket {
     const game = this.game;
     const d = this.districtOf(h);
     const out = [];
+    const Hs = this.housing;
+    out.push({ label: Hs.trend > 0.004 ? 'housing boom' : Hs.trend < -0.002 ? 'housing slump' : Hs.index > 1.15 ? 'prices up over time' : null, k: Hs.index });
     const dem = this.demand[d] || 1;
     out.push({ label: dem > 1.04 ? `${d} in demand` : dem < 0.96 ? `${d} out of favor` : null, k: dem });
     const w = game.economy ? game.economy.propertyFactor(d) : 1;
@@ -147,7 +153,7 @@ export class PropertyMarket {
   // Current market value (with sales tax in it), a round number.
   price(h) {
     const k = this.factors(h).reduce((m, f) => m * f.k, 1);
-    return roundPrice(this.base(h) * Math.max(0.55, Math.min(1.6, k)));
+    return roundPrice(this.base(h) * Math.max(0.5, Math.min(3, k)));
   }
 
   salesTax(price) {
@@ -234,6 +240,7 @@ export class PropertyMarket {
     let upkeep = 0;
     let tax = 0;
     game.president?.newDay(day); // elections, orders, tax rates
+    this.housingDay();
     const byDistrict = {}; // your upkeep, by where it was paid (it goes to the service companies)
     const t0 = this.treasury;
     for (const h of game.bank.ownedHomes()) {
@@ -262,6 +269,21 @@ export class PropertyMarket {
     game.economy?.newDay(byDistrict);
     game.budget?.newDay(this.treasury - t0); // then the city spends it
     this.save();
+  }
+
+  // The housing market moves a day: back toward the long-run trend, with some wobble, and now
+  // and then a boom or a slump.
+  housingDay() {
+    const T = TUNE.housing;
+    const Hs = this.housing;
+    const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) * 1.4;
+    Hs.trend += (T.drift - Hs.trend) * T.trendPull + gauss() * T.noise;
+    if (Math.random() < T.shockChance) {
+      const boom = Math.random() < 0.55;
+      Hs.trend += boom ? T.shock : -T.shock;
+      this.game.hud.news(boom ? 'Housing boom: home prices climbing across the city' : 'Housing slump: home prices falling across the city', 'info');
+    }
+    Hs.index = Math.max(T.min, Math.min(T.max, Hs.index * (1 + Hs.trend)));
   }
 
   // Take a bill out of the bank, then the home's stash; the rest is owed. Returns what was paid.
