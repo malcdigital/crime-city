@@ -712,7 +712,21 @@ export function buildCity(scene) {
 
   // ======== Building helpers ========
   // A box building: center, size, angle of its width (radians, x/z), base height.
-  const building = (cx, cz, w, d, h, mat, ang = 0, base = 0.2) => {
+  const building = (cx, cz, w, d, h, mat, ang = 0, base = null) => {
+    if (base === null) {
+      // (on a hillside: stand on the lowest ground under it, as tall as ever above the highest,
+      // so it's never half buried in the slope)
+      base = 0.2;
+      const c = Math.cos(ang);
+      const s = Math.sin(ang);
+      const hs = [[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, j]) => heightAt(cx + (c * i * w - s * j * d) / 2, cz + (s * i * w + c * j * d) / 2));
+      const lo = Math.min(...hs);
+      const hi = Math.max(...hs);
+      if (hi > 0.05) {
+        base = lo - 0.1;
+        h += hi - lo;
+      }
+    }
     const g = buildingGeo(w, h, d);
     if (mat.win) {
       const n = g.attributes.position.count;
@@ -1037,7 +1051,9 @@ export function buildCity(scene) {
           const prev = frontages.get(b);
           const dd = Math.hypot(it.cx - fs.mx, it.cz - fs.mz);
           if (!prev || (prev.dd !== undefined && dd < prev.dd)) {
-            frontages.set(b, { x: it.cx + it.nx * (it.d / 2), z: it.cz + it.nz * (it.d / 2), h: it.h, nx: it.nx, nz: it.nz, ux: it.ux, uz: it.uz, dd, w: it.w });
+            const fx = it.cx + it.nx * (it.d / 2);
+            const fz = it.cz + it.nz * (it.d / 2);
+            frontages.set(b, { x: fx, z: fz, h: it.h, nx: it.nx, nz: it.nz, ux: it.ux, uz: it.uz, dd, w: it.w, y0: heightAt(fx, fz) + 0.2 }); // (y0: the ground at the door, on a hill too)
           }
         }
       },

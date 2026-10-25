@@ -168,7 +168,7 @@ function addRamp(W, path, keys, info) {
 // frame (u along the freeway, v out to the side), joined by a smooth curve. Edits are saved in
 // the browser; "template" edits apply to every interchange on that freeway (ring / xt), "halves"
 // to one side of one interchange. The end that joins the freeway always stays put.
-export const EDIT_KEY = 'crimecity.rampedits.v1';
+export const EDIT_KEY = 'crimecity.rampedits.v2'; // (v2: the built-in design changed; older saved edits are dropped)
 export const EDITS = (() => {
   try {
     return JSON.parse(localStorage.getItem(EDIT_KEY) || 'null') || {};
@@ -183,7 +183,8 @@ const BAKED = {
   ring: {
     diag: { pts: [[6.4, 52.8, 0, -10], [26.4, 21], [120, 22.13], [144, 14.16], [165, 13.75]], street: [0, 52.8] },
     loop: { pts: [[-6.4, 27.6, 0, 10], [-31.3, 57.2, -10.2, 0.7], [-47.9, 54.38, -4.6, -2.8], [-58.2, 35.75, 1, -10], [-38.66, 13.89, 11.7, -0.5], [165, 13.75]], street: [0, 27.6] },
-    off: { pts: [[-180, 10.25], [-118, 17.69], [-104, 27.05], [-70.1, 67.7, 10, -0.6]], street: [-69.9, 70.6] },
+    // (one long, even S off the freeway and round onto the road alongside: no tight bends)
+    off: { pts: [[-180, 10.25], [-115, 38, 22, 22], [-50, 67.7, 30, 0]], street: [-49.9, 70.6] },
   },
 };
 // The crosstown's interchange gets the same design, moved 3.5 m in toward the freeway (one
