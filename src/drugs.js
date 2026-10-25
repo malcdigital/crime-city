@@ -301,7 +301,7 @@ export class Drugs {
   // ---- Phone: contacts ----
   contacts() {
     const game = this.game;
-    const list = [];
+    const list = game.backup ? [...game.backup.rows()] : []; // calling for backup comes first
     for (const d of this.debts) {
       const p = this.plug(d.plug);
       const when = d.stage === 'hit' ? `${p.name} has a hit out on you. Pay up to call it off.` : d.stage === 'ext' ? `Extension: ${fmt(d.left)} left` : `${fmt(d.left)} left`;

@@ -52,7 +52,7 @@ export class Hud {
     for (const t of CRED_TIERS) if (game.cred >= t.min) tier = t;
     this.set('cred-tier', tier.name);
     this.set('cred-value', game.cred.toLocaleString('en-US'));
-    const war = game.turfWars.banner() || game.drugs.banner();
+    const war = game.turfWars.banner() || (game.backup && game.backup.banner()) || game.drugs.banner();
     $('war').textContent = war;
     $('war').classList.toggle('hidden', !war);
     this.set('district', game.turf ? `${game.district} · ${game.turf.name} turf` : game.district);
@@ -516,6 +516,8 @@ export class Hud {
       const pulse = game.carPingT > 0 && Math.floor(performance.now() / 200) % 2 === 0;
       blip(tc.x, tc.z, pulse ? '#ffffff' : '#1e88e5', 'V');
     }
+    // Backup on the way: their car, pinned to the rim if it's off the radar.
+    if (game.backup) for (const v of game.backup.cars()) blip(v.x, v.z, '#2ecc71', 'B');
     for (const m of game.crew.following) {
       if (m.state === 'inCar' || !m.alive) continue;
       const q = project(m.x, m.z);

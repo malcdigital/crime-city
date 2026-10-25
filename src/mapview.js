@@ -436,6 +436,7 @@ export class MapView {
     const tc = game.testCar;
     if (tc && !tc.removed && !tc.exploded && game.player.vehicle !== tc) blip(tc.x, tc.z, '#1e88e5', 'V', 9);
     for (const m of game.crew.following) if (m.alive && m.state !== 'inCar') dot(m.x, m.z, 4, '#7ee081');
+    for (const v of game.backup.cars()) blip(v.x, v.z, '#2ecc71', 'B', 9);
     const flash = Math.floor(performance.now() / 250) % 2 === 0;
     for (const u of game.police.units) dot(u.car.x, u.car.z, u.kind === 'swat' ? 6 : 5, flash ? '#ff3b3b' : '#3b7bff');
     for (const r of game.turfWars.rides) {

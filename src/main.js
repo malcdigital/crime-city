@@ -26,6 +26,7 @@ import { Economy } from './economy.js';
 import { CityBudget } from './budget.js';
 import { EconDebug } from './econdebug.js';
 import { Bases } from './bases.js';
+import { Backup } from './backup.js';
 import { Market } from './market.js';
 import { President } from './president.js';
 import { Phone } from './phone.js';
@@ -139,6 +140,7 @@ class Game {
     this.budget = new CityBudget(this);
     this.econDebug = new EconDebug(this); // ` toggles the economy debug panel
     this.bases = new Bases(this);
+    this.backup = new Backup(this); // calling for backup (phone → Contacts)
     this.market = new Market(this);
     this.president = new President(this);
     this.phone = new Phone(this);
@@ -1857,6 +1859,7 @@ class Game {
     this.handleInteractions(dt, a);
     this.updateSurrender(dt, a);
     this.bases.update(dt, a);
+    this.backup.update(dt);
     this.updateStop(dt, a);
     this.updateIA(dt);
     this.updateVehicleDamage(dt);
