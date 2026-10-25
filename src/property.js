@@ -11,7 +11,7 @@ import { pick, rand } from './util.js';
 //     over ~10 minutes. High crime knocks up to 35% off.
 //   - Turf: on a rival gang's turf, 10% off; a turf war in the district, 8% off.
 //   - The city's mood: the President's approval (a happy city pays a little more).
-// - Prices are simple round numbers (to the nearest $500), and the 6% sales tax is already in
+// - Prices are simple round numbers (3 significant figures: $3,000, $25,500, $1,020,000), and the 6% sales tax is already in
 //   them: a $60,000 home costs $60,000, of which $3,396 is sales tax (to the government).
 // - Selling: you get the price minus the sales tax in it.
 // - Property tax: 0.25% of the current value, every game week (7 game days = 5h36m of play).
@@ -20,7 +20,9 @@ import { pick, rand } from './util.js';
 // - Bills come out of the bank first, then that home's stash. Can't cover it? It's owed; still
 //   owing a week later is a strike, and on the second strike the city seizes the home (and
 //   what's in its stash).
-// Taxes go to the city treasury (shown in the pause menu); upkeep goes to the utility companies.
+// Taxes go to the city treasury (shown in the pause menu). Upkeep goes to the companies that
+// provide the services, but 6% of every upkeep bill is the tax on those services: it goes to the
+// treasury too (already in the bill, like the sales tax in a price).
 const SAVE_KEY = 'crimecity.property.v1';
 export const SALES_TAX = 0.06;
 const PROPERTY_TAX = 0.0025; // of value, per week
@@ -34,6 +36,11 @@ const UPKEEP_BRACKETS = [
   [Infinity, 0.005], // above $50,000: 0.50%
 ];
 const CRIME_FADE = 1 / 600;
+// Round to 3 significant figures so prices stay simple at every size.
+const roundPrice = (v) => {
+  const step = Math.max(100, 10 ** (Math.floor(Math.log10(Math.max(1, v))) - 2));
+  return Math.max(500, Math.round(v / step) * step);
+};
 const money = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
 const EVENTS = [
   ['New transit line announced for {d}', 0.1],
@@ -133,7 +140,7 @@ export class PropertyMarket {
   // Current market value (with sales tax in it), a round number.
   price(h) {
     const k = this.factors(h).reduce((m, f) => m * f.k, 1);
-    return Math.max(500, Math.round((this.base(h) * Math.max(0.55, Math.min(1.6, k))) / 500) * 500);
+    return roundPrice(this.base(h) * Math.max(0.55, Math.min(1.6, k)));
   }
 
   salesTax(price) {
@@ -254,7 +261,7 @@ export class PropertyMarket {
     left -= fromStash;
     if (left > 0) h.owed = (h.owed || 0) + left;
     const paid = amount - left;
-    if (isTax) this.treasury += paid;
+    this.treasury += isTax ? paid : paid - paid / (1 + SALES_TAX); // the tax on services is in the upkeep bill
     B.save();
     return paid;
   }
