@@ -224,3 +224,7 @@ Plans for later (including Easter eggs around the city) are in [ROADMAP.md](ROAD
 
 ## Street layout clean-up
 Each district lays out its own street grid, so worldplan.js tidies up where they meet (`tidyStreets`): a street that mostly runs right alongside a bigger one is dropped (no overlapping pavement), and a street ending a few meters from an existing junction is moved onto it (one crossing instead of a jog). Stop signs and signal poles stand on the curb clear of every road, following the street round its bends; where there's no clear curb (two junctions very close, at the interchanges) the pole is left out.
+
+## Merging and the camera under the freeway
+- Entrances: every acceleration lane runs on alongside the freeway (round the ring's corners too) for up to 150 m, then tapers into the right lane over up to 70 m; it ends before the next exit. Where the next exit is close (the ring's interchanges are ~400 m apart), it's an auxiliary lane that runs straight on into that exit: merge left anywhere along it, or stay in it to get off. AI cars can move over anywhere along these lanes too (fwyplan.js `addTails`, highway.js).
+- Under the freeway, the camera stays below the deck (it eases down just before you drive under and back up after), so the deck never blocks the view (main.js `updateCamera`, highway.js `ceilingAbove`).

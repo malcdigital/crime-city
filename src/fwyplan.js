@@ -185,9 +185,10 @@ function parcloHalf(W, lanes, cross, opts) {
   // loop 270 degrees up to the deck, then the acceleration lane across the bridge.
   const loop = new Path(-S - 1, S + 15).line(-S, vLoop - 4).line(-S, vLoop);
   loop.mark('a').arc(-S - rL, vLoop, rL, 0, Math.PI * 1.5).mark('b');
-  loop.line(165, vA).shift(190, vL);
+  loop.line(165, vA);
   addRamp(W, loop, (lc, L, at) => [[at('a') - 4, 0], [at('b'), DECK]], {
     kind: 'on', loop: true, main: opts.main, dir: opts.dir, laneTo: lanes - 1, street: W(0, S + 4), name,
+    tail: { v0: vA, v1: vL }, // (the acceleration lane carries on along the freeway: see addTails)
   });
   // Diagonal entrance: right turn off the cross street lane heading toward the freeway, up
   // alongside to join the acceleration lane.
@@ -321,6 +322,111 @@ parclo(x1, 900, 0, 1, RING.lanes, 'ring', 'MARKET ST', 'RING HWY SOUTH', 'RING H
 parclo(XT.x, 690, 0, 1, XT.lanes, 'xt', 'MIDWAY BLVD', 'CROSSTOWN SOUTH', 'CROSSTOWN NORTH', [true, true], 170);
 crosstownT(false);
 crosstownT(true);
+addTails();
+
+// ---- Acceleration lanes ----
+// Each entrance's acceleration lane runs on alongside the freeway (following it round the
+// ring's corners) for a good long stretch, then tapers gently into the right-hand lane: room
+// to get up to speed and find a gap. It ends before the next exit starts, so traffic getting
+// on never has to cross traffic getting off.
+function addTails() {
+  const XT_LINE = [[XT.x, XT.end0], [XT.x, XT.end1]];
+  const lines = { ring: { pts: [...RING_LINE, RING_LINE[0]], closed: true }, xt: { pts: XT_LINE, closed: false } };
+  for (const ln of Object.values(lines)) ln.L = lengths(ln.pts);
+  // Point and direction (in point order) at arc length s.
+  const at = (ln, s) => {
+    const T = ln.L[ln.L.length - 1];
+    if (ln.closed) s = ((s % T) + T) % T;
+    s = Math.max(0, Math.min(T, s));
+    let i = 1;
+    while (i < ln.L.length - 1 && ln.L[i] < s) i++;
+    const [ax, az] = ln.pts[i - 1];
+    const [bx, bz] = ln.pts[i];
+    const l = ln.L[i] - ln.L[i - 1] || 1;
+    const t = (s - ln.L[i - 1]) / l;
+    return { x: ax + (bx - ax) * t, z: az + (bz - az) * t, tx: (bx - ax) / l, tz: (bz - az) / l };
+  };
+  // Arc length and side (+1: right of point order) of the nearest spot on the line.
+  const proj = (ln, x, z) => {
+    let best = null;
+    for (let i = 1; i < ln.pts.length; i++) {
+      const [ax, az] = ln.pts[i - 1];
+      const [bx, bz] = ln.pts[i];
+      const l = ln.L[i] - ln.L[i - 1] || 1;
+      let t = ((x - ax) * (bx - ax) + (z - az) * (bz - az)) / (l * l);
+      t = Math.max(0, Math.min(1, t));
+      const px = ax + (bx - ax) * t;
+      const pz = az + (bz - az) * t;
+      const d = Math.hypot(x - px, z - pz);
+      if (!best || d < best.d) {
+        const side = Math.sign(-(bz - az) * (x - ax) + (bx - ax) * (z - az)) || 1;
+        best = { s: ln.L[i - 1] + l * t, d, side };
+      }
+    }
+    return best;
+  };
+  const PAR = 150; // the acceleration lane itself, alongside
+  const TAPER = 70; // and the taper into the right lane
+  for (const r of RAMPS) {
+    if (!r.tail) continue;
+    const ln = lines[r.main];
+    const T = ln.L[ln.L.length - 1];
+    const n = r.pts.length;
+    const [ex, ez] = r.pts[n - 1];
+    const [px, pz] = r.pts[n - 2];
+    const p0 = proj(ln, ex, ez);
+    const a0 = at(ln, p0.s);
+    const sign = (ex - px) * a0.tx + (ez - pz) * a0.tz >= 0 ? 1 : -1; // travel along point order?
+    // Room: up to the next exit (or way off to the other freeway) on this carriageway.
+    let room = ln.closed ? T / 2 : sign > 0 ? T - p0.s - 20 : p0.s - 20;
+    let next = null;
+    for (const q of RAMPS) {
+      if (q === r || q.kind === 'on' || q.h[0] < DECK - 0.1) continue;
+      const pq = proj(ln, q.pts[0][0], q.pts[0][1]);
+      if (pq.d > 25 || pq.side !== p0.side) continue;
+      let ds = (pq.s - p0.s) * sign;
+      if (ln.closed) ds = ((ds % T) + T) % T;
+      const gap = ln.closed ? 30 : 5; // (the crosstown's ways off curve away: merge right up to them)
+      if (ds > 0 && ds - gap < room) {
+        room = ds - gap;
+        next = q;
+      }
+    }
+    // The next exit close by, and its deceleration lane where ours is: one auxiliary lane
+    // from the entrance right through to the exit (you merge left anywhere along it, or stay
+    // in it to take the exit).
+    let aux = null;
+    if (next && ln.closed && room < PAR + TAPER + 60) {
+      for (let i = 0; i < next.pts.length; i++) {
+        const pq = proj(ln, next.pts[i][0], next.pts[i][1]);
+        if (Math.abs(pq.d - r.tail.v0) < 0.3) {
+          let ds = (pq.s - p0.s) * sign;
+          if (ln.closed) ds = ((ds % T) + T) % T;
+          aux = ds;
+          break;
+        }
+      }
+    }
+    const taper = aux ? 0 : Math.max(35, Math.min(TAPER, room * 0.35));
+    const par = aux ? aux : Math.max(10, Math.min(PAR, room - taper));
+    const total = par + taper;
+    const step = total / Math.max(1, Math.round(total / 4));
+    for (let d = step; d <= total + 0.01; d += step) {
+      const a = at(ln, p0.s + sign * d);
+      const tx = a.tx * sign;
+      const tz = a.tz * sign;
+      // (v to the right of travel, as in the ramp's own frame)
+      const k = d <= par ? 0 : smoother((d - par) / taper);
+      const v = r.tail.v0 + (r.tail.v1 - r.tail.v0) * k;
+      r.pts.push([a.x - tz * v, a.z + tx * v]);
+      r.h.push(DECK);
+    }
+    r.aux = !!aux;
+    r.tailPar = par;
+    r.L = lengths(r.pts);
+    r.tailLen = total;
+  }
+}
 
 export function inHole(x, z, pad = 0) {
   for (const H of HOLES) {

@@ -140,6 +140,18 @@ export class Highway {
     return best;
   }
 
+  // The underside of the lowest freeway deck overhead (more than 1.5 m above y), or null:
+  // what a camera down at street level must stay under.
+  ceilingAbove(x, z, y) {
+    let best = null;
+    for (const o of this.surfacesAt(x, z, 1.5)) {
+      if (o.h <= y + 1.5) continue;
+      const under = o.h - (o.s.ramp ? 0.75 : 0.9) - 0.15;
+      if (best === null || under < best) best = under;
+    }
+    return best;
+  }
+
   // Is there freeway overhead (for things like the helicopter's view or rain)?
   overhead(x, z, y) {
     return this.surfacesAt(x, z, 0).some((o) => o.h > y + 2);
@@ -270,6 +282,42 @@ export class Highway {
       if (r.kind === 'on' || r.kind === 'link') {
         const hit = laneHit(...r.pts[r.pts.length - 1], r.lane);
         if (hit) one(last, after(hit));
+      }
+    }
+    // Acceleration lanes: move over into the right-hand lane anywhere along the way (not
+    // just at the end). An auxiliary lane (one that runs on into the next exit) works both
+    // ways: freeway traffic can move over into it to take that exit.
+    for (const r of RAMPS) {
+      if (!r.tailLen) continue;
+      const set = mains.find((st) => st[0].nodes[0].main === r.main && st[0].nodes[0].dir === r.dir);
+      if (!set) continue;
+      const right = set[set.length - 1].nodes;
+      const total = r.L[r.L.length - 1];
+      const s0 = total - r.tailLen;
+      const s1 = s0 + r.tailPar - (r.aux ? 25 : 10);
+      const near = (q) => {
+        let best = null;
+        let bd = 6;
+        for (const m of right) {
+          const d = Math.hypot(m.x - q.x, m.z - q.z);
+          if (d < bd) {
+            bd = d;
+            best = m;
+          }
+        }
+        return best;
+      };
+      const ns = r.lane.nodes;
+      for (let i = 0; i < ns.length; i++) {
+        const n = ns[i];
+        if (n.s < s0 || n.s > s1 || i % 2) continue;
+        const q = ns.find((o) => o.s >= n.s + 12);
+        if (!q) continue;
+        one(n, near(q)); // over into the freeway
+        if (r.aux) {
+          const m = near(n);
+          if (m) one(m, q); // over into the auxiliary lane
+        }
       }
     }
     // A lane that ends where a ramp starts (the crosstown's ends) carries on into that ramp

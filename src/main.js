@@ -1538,6 +1538,39 @@ class Game {
       cy = oy + ddy * k;
       cz = oz + ddz * k;
     }
+    // Under the freeway: keep the camera below the deck (it would be inside the slab, or
+    // looking at the underside). It eases down a little before you drive under, using the
+    // decks along the camera line and just ahead of you, and back up once you're clear.
+    {
+      const baseY = v ? v.y || 0 : this.player.gy();
+      let ceil = Infinity;
+      const pts = [[cx, cz], [(cx + tx) / 2, (cz + tz) / 2], [tx, tz]];
+      if (v && Math.abs(v.speed) > 2) {
+        const [fx, fz] = v.forward();
+        const ahead = Math.sign(v.speed) * Math.min(25, Math.abs(v.speed) * 1.2);
+        pts.push([tx + fx * ahead * 0.5, tz + fz * ahead * 0.5], [tx + fx * ahead, tz + fz * ahead]);
+      }
+      let hard = Infinity; // (right where the camera is: no easing, it must not go through)
+      for (const [k, [px, pz]] of pts.entries()) {
+        const c = this.highway.ceilingAbove(px, pz, baseY);
+        if (c === null) continue;
+        ceil = Math.min(ceil, c - 0.5);
+        if (k === 0) hard = c - 0.3;
+      }
+      // camTop: the highest the camera may sit; eases down toward the deck, back up after.
+      let top = this.camTop ?? Infinity;
+      if (ceil < Infinity) {
+        const want = Math.max(baseY + 1.2, ceil);
+        if (top === Infinity) top = Math.max(cy, want);
+        top = lerp(top, want, Math.min(1, dt * 5));
+      } else if (top < Infinity) {
+        top = lerp(top, cy + 0.5, Math.min(1, dt * 1.5));
+        if (top >= cy) top = Infinity;
+      }
+      this.camTop = top;
+      top = Math.max(baseY + 1.2, Math.min(top, hard));
+      if (cy > top) cy = top;
+    }
     const shake = v ? v.crash * 0.01 : 0;
     // (never under the ground, or under the freeway deck you're up on)
     const floor = Math.max(this.city.groundY(cx, cz), this.highway.floorBelow(cx, cz, ty) ?? -1e9);
