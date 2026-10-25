@@ -136,7 +136,7 @@ add([[CX, RZ0], [CX, RZ1]], 'under', 'Crosstown Rd', { keep: true });
 // Arterials (cross streets at the interchanges go on out past the ring).
 add([[20, PARK_Z], [1345, PARK_Z]], 'arterial', 'Park Ave', { keep: true });
 add([[RX0, MIDWAY_Z], [RX1, MIDWAY_Z]], 'arterial', 'Midway Blvd', { keep: true });
-add([[20, MARKET_Z], [1320, MARKET_Z]], 'arterial', 'Market St', { keep: true });
+add([[20, MARKET_Z], [1340, MARKET_Z]], 'arterial', 'Market St', { keep: true }); // (on past the ring far enough to meet the exit road there)
 export const WATERFRONT = (x) => coastZ(x) - 30;
 add([[CENTRAL_X, 28], [CENTRAL_X, WATERFRONT(CENTRAL_X)]], 'arterial', 'Central Ave', { keep: true });
 // The diagonal, from Market St up through Downtown to the Government plaza.
@@ -176,8 +176,9 @@ add(onLand(arcPts(HX, HZ, 175, Math.PI * 0.62, Math.PI * 1.7)), 'hills', 'Canyon
 add(onLand(arcPts(HX, HZ, 105, Math.PI * 0.2, Math.PI * 1.85)), 'hills', 'Vista Loop');
 add(arcPts(HX, HZ, 42, 0, Math.PI * 2), 'hills', 'Summit Cir');
 add([[1345, PARK_Z], [HX + 175 * Math.cos(Math.PI * 0.62), HZ + 175 * Math.sin(Math.PI * 0.62)]], 'hills', 'Canyon Dr');
-add([[HX + 175 * Math.cos(Math.PI * 1.1), HZ + 175 * Math.sin(Math.PI * 1.1)], [HX + 105 * Math.cos(Math.PI * 1.1), HZ + 105 * Math.sin(Math.PI * 1.1)]], 'hills', 'Summit Rd');
-add([[HX + 105, HZ], [HX + 42, HZ]], 'hills', 'Summit Rd');
+// (up from Canyon Dr on the north-west side, clear of the Park Ave interchange's land)
+add([[HX + 175 * Math.cos(Math.PI * 1.3), HZ + 175 * Math.sin(Math.PI * 1.3)], [HX + 105 * Math.cos(Math.PI * 1.3), HZ + 105 * Math.sin(Math.PI * 1.3)]], 'hills', 'Summit Rd');
+add([[HX + 105 * Math.cos(Math.PI * 1.3), HZ + 105 * Math.sin(Math.PI * 1.3)], [HX + 42 * Math.cos(Math.PI * 1.3), HZ + 42 * Math.sin(Math.PI * 1.3)]], 'hills', 'Summit Rd'); // (on up to the top, in line)
 add([[1320, MARKET_Z], [1380, 860], [1420, 790], [1440, 700], [1450, 620], [HX + 175 * Math.cos(Math.PI * 0.42), HZ + 175 * Math.sin(Math.PI * 0.42)]], 'hills', 'Bayview Dr');
 // The ridges: a lookout north up Central Ave, a quarry and a junkyard out west.
 add([[CENTRAL_X, 28], [CENTRAL_X - 70, 22], [CENTRAL_X - 130, 30]], 'hills', 'Lookout Rd');
@@ -295,7 +296,8 @@ for (const zn of ZONES) {
     if (!st.keep) continue;
     for (let k = 0; k + 1 < st.pts.length; k++) keepSegs.push([...st.pts[k], ...st.pts[k + 1]]);
   }
-  const nearKeep = (x, z) => keepSegs.some(([ax, az, bx, bz]) => closestOnSeg(x, z, ax, az, bx, bz).d < 12);
+  // (a main road already along that side closes it: no service road squeezed in beside it)
+  const nearKeep = (x, z) => keepSegs.some(([ax, az, bx, bz]) => closestOnSeg(x, z, ax, az, bx, bz).d < 20);
   for (const H of HOLES) {
     const [hx, hz] = centroid(H.poly);
     for (let i = 0; i < 4; i++) {
@@ -308,7 +310,7 @@ for (const zn of ZONES) {
       if (!city) {
         // Out of town: only the road an exit comes down onto, from the exit to the avenue.
         if (H.frontage && i === 2) add(H.frontage.map((p) => p.slice()), 'local', null, { service: true, frontage: true });
-        continue;
+        if (!(H.edgeRoad && i === 2)) continue;
       }
       // 2 m out from the edge (so the hole itself doesn't cut it away).
       const L = Math.hypot(mx - hx, mz - hz) || 1;
@@ -435,7 +437,21 @@ function buildGraph() {
           const px = end ? P.bx : P.ax;
           const pz = end ? P.bz : P.az;
           const c = closestOnSeg(px, pz, Q.ax, Q.az, Q.bx, Q.bz);
-          if (c.d < SNAP && c.t > 0.001 && c.t < 0.999) Q.cuts.push(c.t);
+          // (an end anywhere on the other street's pavement joins it)
+          const reachQ = Math.max(SNAP, ROAD_CLASS[streets[Q.si].cls].w / 2);
+          if (c.d < reachQ && c.t > 0.001 && c.t < 0.999) {
+            Q.cuts.push(c.t);
+            if (c.d >= SNAP) {
+              // Bring the end onto the street's middle, so the two meet in one junction.
+              if (end) {
+                P.bx = c.x;
+                P.bz = c.z;
+              } else {
+                P.ax = c.x;
+                P.az = c.z;
+              }
+            }
+          }
         }
       }
     }
@@ -600,8 +616,8 @@ function makeBlock(f, id) {
   }
   const rampShare = tot ? inH / tot : 0;
   let type = 'normal';
-  if (zone && zone.kind === 'park') type = 'park';
-  else if (rampShare > 0.5) type = 'ramps';
+  if (rampShare > 0.5) type = 'ramps'; // (ramp land first, even in a park district)
+  else if (zone && zone.kind === 'park') type = 'park';
   else if (A < 900) type = 'plaza';
   const names = f.edges.map((e) => e.name).filter(Boolean);
   return {

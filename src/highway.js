@@ -106,6 +106,11 @@ export class Highway {
         best = o.h;
       }
     }
+    // Right at the edge of a bridge (a nudge, a wide line): stay on it rather than drop to the
+    // road underneath - only once you're well clear of it do you come down.
+    if (best !== null && best < nearY - 2) {
+      for (const o of this.surfacesAt(x, z, 1.8)) if (Math.abs(o.h - nearY) < 1.2) return o.h;
+    }
     return best;
   }
 
@@ -311,7 +316,7 @@ export class Highway {
       const ns = r.lane.nodes;
       for (let i = 0; i < ns.length; i++) {
         const n = ns[i];
-        if (n.s < s0 || n.s > s1 || i % 2) continue;
+        if (n.s < s0 || n.s > s1) continue;
         const q = ns.find((o) => o.s >= n.s + 12);
         if (!q) continue;
         one(n, near(q)); // over into the freeway

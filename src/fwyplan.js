@@ -411,7 +411,7 @@ function parcloHalf(W, lanes, cross, opts) {
     // (where there's no city around to need the whole road: just from the exit to the avenue)
     frontage: front !== null ? [W(0, front), W(offEnd[0] - 25, front)] : null,
   });
-  HOLES.push({ poly: rectLocal(W, H, Math.max(195, mx(pos, 0, Math.max) + 30), 8, Math.max(vS + 20, mx(pos, 1, Math.max) + 14)) }); // (room for the peel-off: side streets keep well clear)
+  HOLES.push({ poly: rectLocal(W, H, Math.max(195, mx(pos, 0, Math.max) + 30), 8, Math.max(vS + 20, mx(pos, 1, Math.max) + 14)), edgeRoad: true }); // (room for the peel-off: side streets keep well clear; edgeRoad: out of town, a road along its far side picks up any road the ramp land cuts)
   // Signs over the right-hand lanes: 200 m before the exit and where it leaves.
   const [ox, oz] = W(0, 0);
   const [tx, tz] = W(1, 0);
