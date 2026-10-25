@@ -73,6 +73,9 @@ export const CRIMES = {
   drugRaid: { heat: 3, cred: 5, min: 2, label: 'Drug raid' },
   drugRaidBig: { heat: 6, cred: 10, min: 3, label: 'Drug raid' },
   drugDeal: { heat: 4, cred: 0, min: 2, label: 'Drug sale to an undercover officer' },
+  possession: { heat: 1, cred: 0, min: 1, label: 'Drug possession' },
+  fleeStop: { heat: 1.2, cred: 4, min: 1, label: 'Fleeing a traffic stop' },
+  carTheft: { heat: 0.5, cred: 2, label: 'Car theft' },
 };
 
 export const GANG_NAME = 'Southside Kings';

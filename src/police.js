@@ -5,10 +5,11 @@ import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES } from './c
 import { pushCircle, segmentBlocked } from './collision.js';
 import { steerToward, throttleFor, StuckHelper } from './driving.js';
 import { dist, pick, rand, lerpAngle } from './util.js';
-import { streetAt } from './city.js';
+import { streetAt, districtAt } from './city.js';
 import { navStep } from './nav.js';
 import { findCover } from './gang.js';
 import { Helicopter } from './heli.js';
+import { TrafficDriver } from './traffic.js';
 
 // A police officer on foot. Rides hidden inside the unit's car until it dismounts.
 export class Officer {
@@ -538,6 +539,17 @@ export class PoliceUnit {
       c.update(dt, { throttle: throttleFor(c, 0), steer: 0, handbrake: true }, game.city.colliders);
       return;
     }
+    // On patrol: drives with the traffic (and obeys the lights) until it sees trouble. Once
+    // you're wanted, a patrol car nearby joins the chase; one that catches you running a red
+    // or speeding pulls you over (enforcement.js).
+    if (this.patrol) {
+      if (game.stars > 0 && d < 260) this.joinChase();
+      else if (!this.pull) {
+        c.siren = false;
+        this.patrol.update(dt, game);
+        return;
+      }
+    }
     c.closeDoors();
 
     let tx, tz, desired;
@@ -620,6 +632,10 @@ export class PoliceUnit {
         this.dismountAll();
       }
       this.to = null;
+    } else if (this.pull) {
+      // Pulling you over: lights on, up behind your car.
+      c.siren = true;
+      [tx, tz, desired] = game.enforce.pursue(this, dt);
     } else {
       c.siren = true;
       const seesPlayer = (d < 45 && game.spots(c, 1.4, 60, false)) || (this.raid && d < 45); // a raid knows exactly where you are
@@ -668,6 +684,7 @@ export class PoliceUnit {
       if (Math.abs(ox) > 18 || Math.abs(oz) > 18) continue;
       const fwd = ox * fx + oz * fz;
       const lat = Math.abs(ox * fz - oz * fx);
+      if (o.parkSpot && lat > 1.7) continue; // parked at the curb
       if (fwd > 0 && fwd < 18 && lat < 3) desired = Math.min(desired, Math.max(0, (fwd - 7) * 1.2));
     }
     for (const o of game.police.officers()) {
@@ -730,6 +747,34 @@ export class PoliceUnit {
         if (game.story) game.story.spikes = true;
       }
     }
+  }
+
+  joinChase() {
+    this.patrol = null;
+    this.pull = null;
+    this.to = null;
+  }
+
+  // Back to patrolling after a traffic stop: pick up the street the car is on.
+  resumePatrol() {
+    const city = this.game.city;
+    const c = this.car;
+    const [fx, fz] = c.forward();
+    const n = city.nearestNode(c.x, c.z);
+    const ahead = (q) => (q.x - c.x) * fx + (q.z - c.z) * fz;
+    let from;
+    let to;
+    if (ahead(n) > 4) {
+      to = n;
+      from = [...n.nb].sort((a, b) => ahead(a) - ahead(b))[0];
+    } else {
+      from = n;
+      to = [...n.nb].sort((a, b) => ahead(b) - ahead(a))[0];
+    }
+    this.patrol = new TrafficDriver(c, from, to);
+    this.patrol.cruise = rand(9, 12);
+    this.pull = null;
+    c.siren = false;
   }
 
   // Follow the road grid toward (or away from) a point.
@@ -1092,8 +1137,44 @@ export class PoliceManager {
   }
 
   // Wanted level cleared: units drive off and despawn.
+  // Patrol cars out on the streets when nobody's wanted: about 3 around you (more Downtown and
+  // in the Government and Financial districts and on the Strip; more or fewer with the police
+  // budget). They cruise with the traffic until something happens.
+  updatePatrols(dt) {
+    const game = this.game;
+    this.patrolT = (this.patrolT ?? 1) - dt;
+    if (this.patrolT > 0 || game.stars > 0 || game.wastedT > 0) return;
+    this.patrolT = 2;
+    const [px, pz] = game.player.pos();
+    const busy = ['Downtown', 'Government District', 'Financial District', 'The Strip'].includes(districtAt(px, pz));
+    const want = Math.round((busy ? 4 : 3) * (game.budget ? game.budget.policeMult() : 1));
+    const have = this.units.filter((u) => u.patrol && !u.carLost).length;
+    if (have >= want) return;
+    const city = game.city;
+    for (let tries = 0; tries < 20; tries++) {
+      const from = pick(city.nodes);
+      const dd = dist(from.x, from.z, px, pz);
+      if (dd < 110 || dd > 260) continue;
+      const to = pick(from.nb);
+      const L = dist(from.x, from.z, to.x, to.z);
+      const ux = (to.x - from.x) / L;
+      const uz = (to.z - from.z) / L;
+      const x = from.x + ux * 14 - uz * CFG.LANE;
+      const z = from.z + uz * 14 + ux * CFG.LANE;
+      if (game.vehicles.some((v) => !v.removed && dist(v.x, v.z, x, z) < 8)) continue;
+      const u = new PoliceUnit(game, x, z, Math.atan2(ux, uz), 'police');
+      u.car.siren = false;
+      u.patrol = new TrafficDriver(u.car, from, to);
+      u.patrol.cruise = rand(9, 12);
+      u.car.speed = 6;
+      this.units.push(u);
+      game.vehicles.push(u.car);
+      return;
+    }
+  }
+
   standDown() {
-    for (const u of this.units) u.leaving = true;
+    for (const u of this.units) if (!u.patrol) u.leaving = true;
   }
 
   clearAll() {
@@ -1111,7 +1192,7 @@ export class PoliceManager {
     const game = this.game;
     const want = Math.round(CFG.UNITS_PER_STAR[game.stars] * (game.budget ? game.budget.policeMult() : 1)); // police budget
     const wantSwat = CFG.SWAT_PER_STAR[game.stars];
-    const live = this.units.filter((u) => !u.leaving && !u.carLost && !u.allDead && !u.roadblock && !u.task);
+    const live = this.units.filter((u) => !u.leaving && !u.carLost && !u.allDead && !u.roadblock && !u.task && !u.patrol);
     const active = live.filter((u) => u.kind !== 'swat');
     const swatActive = live.filter((u) => u.kind === 'swat');
     // Roadblocks when you're fleeing by car at 4+ stars.
@@ -1156,6 +1237,7 @@ export class PoliceManager {
       }
     }
     if (game.stars < 4) this.swatNews = false;
+    this.updatePatrols(dt);
     this.updateHeli(dt);
     this.updateGangDuty();
     for (const u of this.units) u.update(dt);
@@ -1175,6 +1257,7 @@ export class PoliceManager {
           u.removed = true;
         }
       } else if (u.leaving && officersHome && (d > 90 || u.leaveT > 30)) u.dispose();
+      else if (u.patrol && !u.pull && officersHome && d > 400 && game.player.vehicle !== u.car) u.dispose(); // patrols far off: replaced nearer
     }
     this.units = this.units.filter((u) => !u.removed);
   }

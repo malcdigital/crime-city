@@ -3,6 +3,7 @@ import { STOP_LINE } from './streets.js';
 import { Vehicle } from './vehicle.js';
 import { steerToward, throttleFor, StuckHelper } from './driving.js';
 import { pick, rand, dist } from './util.js';
+import { districtAt } from './districts.js';
 
 // An NPC driver that follows lanes and turns randomly at intersections.
 let nextId = 1;
@@ -19,6 +20,11 @@ export class TrafficDriver {
   }
 
   pickNext() {
+    // A bus follows its route.
+    if (this.loop) {
+      const k = this.loop.indexOf(this.to);
+      return this.loop[(k + 1) % this.loop.length];
+    }
     const opts = this.to.nb.filter((n) => n !== this.from);
     return opts.length ? pick(opts) : this.from;
   }
@@ -77,13 +83,19 @@ export class TrafficDriver {
   // Yellow: stop if there's room, otherwise go through. Stop sign: come to a full stop at the
   // line, then go in the order cars arrived, once the intersection is clear.
   obey(game, desired, ux, uz, dn, dt) {
+    const out = this.obeyRules(game, desired, ux, uz, dn, dt);
+    this.atLine = out < desired;
+    return out;
+  }
+
+  obeyRules(game, desired, ux, uz, dn, dt) {
     const S = game.streets;
     if (!S || this.hurry || this.passing) return desired;
     const n = this.to;
     const ctl = S.control.get(n);
     if (!ctl || dn > 45) return desired;
     const c = this.car;
-    const toLine = dn - STOP_LINE;
+    const toLine = dn - STOP_LINE - Math.max(0, c.halfLen - 2.2); // long vehicles stop by the front bumper
     const v = Math.abs(c.speed);
     const stopSpeed = Math.sqrt(2 * 4.5 * Math.max(0, toLine - 0.6));
     const axis = Math.abs(ux) > Math.abs(uz) ? 'EW' : 'NS';
@@ -119,6 +131,40 @@ export class TrafficDriver {
       return 0;
     }
     return Math.min(desired, stopSpeed < 0.6 ? 0 : stopSpeed);
+  }
+
+  // A planned stop partway down this street: a bus at its stop, or a delivery truck
+  // double-parked with its hazards on. halt = { from, to, x, z, wait, hazard }.
+  haltAt(dt, desired, ux, uz) {
+    const h = this.halt;
+    if (!h) return desired;
+    const c = this.car;
+    if (h.from !== this.from || h.to !== this.to || this.passing) {
+      this.halt = null;
+      c.hazard = false;
+      return desired;
+    }
+    const s = (h.x - c.x) * ux + (h.z - c.z) * uz;
+    if (s < -4) {
+      this.halt = null;
+      c.hazard = false;
+      return desired;
+    }
+    if (s > 1) return Math.min(desired, Math.sqrt(2 * 2.2 * Math.max(0, s - 0.8)));
+    if (Math.abs(c.speed) < 0.6) {
+      h.wait -= dt;
+      c.hazard = !!h.hazard;
+      if (h.onStop && !h.stopped) {
+        h.stopped = true;
+        h.onStop();
+      }
+    }
+    if (h.wait <= 0) {
+      this.halt = null;
+      c.hazard = false;
+      return desired;
+    }
+    return 0;
   }
 
   // Stuck behind a stopped car (a parked car in the lane, a wreck, a jam): pass it, or turn back.
@@ -236,6 +282,8 @@ export class TrafficDriver {
       if (Math.abs(ox) > 26 || Math.abs(oz) > 26) continue;
       const fwd = ox * fx + oz * fz;
       const lat = Math.abs(ox * fz - oz * fx);
+      // Cars parked at the curb are beside the lane, not in it.
+      if (o.parkSpot && lat > 1.7) continue;
       // A stopped car in our lane up ahead (so we can pull out early).
       if (fwd > 0 && fwd < 25 && lat < 2.6 && Math.abs(o.speed) < 1 && (!this.stoppedAhead || fwd < this.stoppedAhead.fwd)) this.stoppedAhead = { v: o, fwd };
       if (this.passing && o === this.passCar) {
@@ -282,8 +330,9 @@ export class TrafficDriver {
       return;
     }
     // Stuck for good somewhere you can't see: tow it away (traffic respawns elsewhere).
-    this.stillT = Math.abs(c.speed) < 0.4 && !this.stopAt ? (this.stillT || 0) + dt : 0;
-    if (this.stillT > 12 && game.player.vehicle !== c) {
+    // (Waiting at a red light or a stop sign isn't being stuck.)
+    this.stillT = Math.abs(c.speed) < 0.4 && !this.stopAt && !this.halt && !this.atLine ? (this.stillT || 0) + dt : 0;
+    if (this.stillT > 30 && game.player.vehicle !== c) {
       const [px, pz] = game.player.pos();
       if (dist(c.x, c.z, px, pz) > 70) {
         c.dispose();
@@ -296,6 +345,7 @@ export class TrafficDriver {
       this.from = this.to;
       this.to = this.next;
       this.next = this.pickNext();
+      if (this.onSegment) this.onSegment(this);
     }
     const L = dist(this.from.x, this.from.z, this.to.x, this.to.z) || 1;
     const ux = (this.to.x - this.from.x) / L;
@@ -324,6 +374,7 @@ export class TrafficDriver {
       if (!straight) desired = Math.min(desired, 6.5);
     }
 
+    desired = this.haltAt(dt, desired, ux, uz);
     desired = this.obey(game, desired, ux, uz, dn, dt);
     desired = this.yieldTo(game, desired);
     this.standoff(dt);
@@ -334,7 +385,49 @@ export class TrafficDriver {
   }
 }
 
-const TYPE_WEIGHTS = ['sedan', 'sedan', 'sedan', 'sedan', 'sports', 'van', 'van'];
+// What's on the road depends on where and when: taxis Downtown and on the Strip, box trucks
+// at the Docks and in working hours, sports cars in the Heights and on the Strip at night.
+const BUSY = ['Downtown', 'Financial District', 'Government District', 'Midtown', 'The Strip'];
+export function pickCarType(x, z, h) {
+  const d = districtAt(x, z);
+  const work = h >= 7 && h < 19;
+  const w = { sedan: 4, sports: 0.8, van: 1.2, taxi: 0.5, delivery: work ? 0.6 : 0.1 };
+  if (BUSY.includes(d)) w.taxi = 1.8;
+  if (d === 'The Strip' && !work) {
+    w.taxi = 2.6;
+    w.sports = 1.8;
+  }
+  if (d === 'Financial District' && work) w.delivery = 1.1;
+  if (d === 'The Docks') {
+    w.delivery = work ? 2.6 : 0.4;
+    w.van = 2;
+    w.taxi = 0.15;
+  }
+  if (d === 'The Heights') {
+    w.sports = 1.8;
+    w.taxi = 0.4;
+  }
+  if (d === 'The Projects') {
+    w.taxi = 0.3;
+    w.sports = 0.5;
+  }
+  let r = Math.random() * Object.values(w).reduce((a, b) => a + b, 0);
+  for (const [k, v] of Object.entries(w)) {
+    r -= v;
+    if (r <= 0) return k;
+  }
+  return 'sedan';
+}
+
+// Delivery trucks sometimes double-park partway down a block to drop off (hazards on).
+function deliveryStops(d) {
+  if (d.car.typeName !== 'delivery' || Math.random() > 0.3) return;
+  const L = dist(d.from.x, d.from.z, d.to.x, d.to.z) || 1;
+  const ux = (d.to.x - d.from.x) / L;
+  const uz = (d.to.z - d.from.z) / L;
+  const k = L * rand(0.4, 0.62);
+  d.halt = { from: d.from, to: d.to, x: d.from.x + ux * k - uz * CFG.LANE, z: d.from.z + uz * k + ux * CFG.LANE, wait: rand(9, 16), hazard: true };
+}
 
 export class TrafficManager {
   constructor(game) {
@@ -345,10 +438,12 @@ export class TrafficManager {
   spawn(minDist) {
     const { city, player } = this.game;
     const [px, pz] = player.pos();
-    for (let tries = 0; tries < 20; tries++) {
+    const rhythm = this.game.rhythm;
+    for (let tries = 0; tries < 30; tries++) {
       const from = pick(city.nodes);
       const dd = dist(from.x, from.z, px, pz);
       if (dd < minDist || dd > Math.max(minDist + 60, 280)) continue; // around you, not across the city
+      if (rhythm && !rhythm.accept(from.x, from.z, 't')) continue; // busier streets get more cars
       const to = pick(from.nb);
       const L = dist(from.x, from.z, to.x, to.z);
       const ux = (to.x - from.x) / L;
@@ -356,10 +451,14 @@ export class TrafficManager {
       const x = from.x + ux * 14 - uz * CFG.LANE;
       const z = from.z + uz * 14 + ux * CFG.LANE;
       if (this.game.vehicles.some((v) => dist(v.x, v.z, x, z) < 7)) continue;
-      const car = new Vehicle(this.game.scene, pick(TYPE_WEIGHTS), x, z, Math.atan2(ux, uz));
+      const car = new Vehicle(this.game.scene, pickCarType(x, z, this.game.rhythm ? this.game.rhythm.hour() : 12), x, z, Math.atan2(ux, uz));
       car.speed = 6;
       const d = new TrafficDriver(car, from, to);
       car.driver = d;
+      if (car.typeName === 'delivery') {
+        d.onSegment = deliveryStops;
+        d.cruise = rand(8, 11);
+      }
       this.drivers.push(d);
       this.game.vehicles.push(car);
       return;
@@ -367,7 +466,13 @@ export class TrafficManager {
   }
 
   init() {
-    for (let i = 0; i < CFG.TRAFFIC_CARS; i++) this.spawn(30);
+    const n = this.game.rhythm ? this.game.rhythm.traffic : CFG.TRAFFIC_CARS;
+    for (let i = 0; i < n; i++) this.spawn(30);
+  }
+
+  // Ordinary traffic (not buses, backup, buyers pulling up, etc.).
+  regular(d) {
+    return !d.bus && !d.route && !d.stopAt && !d.hurry && d.car.driver === d;
   }
 
   update(dt) {
@@ -376,12 +481,23 @@ export class TrafficManager {
     const [px, pz] = this.game.player.pos();
     for (const d of this.drivers) {
       const c = d.car;
-      if (d.active && !d.route && !d.stopAt && c.driver === d && this.game.player.vehicle !== c && dist(c.x, c.z, px, pz) > 380) {
+      if (d.active && !d.bus && !d.route && !d.stopAt && c.driver === d && this.game.player.vehicle !== c && dist(c.x, c.z, px, pz) > 380) {
         c.dispose();
         d.active = false;
       }
     }
     this.drivers = this.drivers.filter((d) => d.active && !d.car.removed);
-    if (this.drivers.length < CFG.TRAFFIC_CARS) this.spawn(110);
+    // How many cars are out depends on the time of day and the part of town (rhythm.js).
+    const want = this.game.rhythm ? this.game.rhythm.traffic : CFG.TRAFFIC_CARS;
+    const regular = this.drivers.filter((d) => this.regular(d));
+    if (regular.length < want) this.spawn(110);
+    else if (regular.length > want + 2) {
+      // Thin out: one car at a time, somewhere out in the fog.
+      const far = regular.find((d) => this.game.player.vehicle !== d.car && dist(d.car.x, d.car.z, px, pz) > 170);
+      if (far) {
+        far.car.dispose();
+        far.active = false;
+      }
+    }
   }
 }

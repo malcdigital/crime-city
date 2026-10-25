@@ -73,7 +73,8 @@ export class Hud {
 
     this.set('prompt', game.prompt || '');
     const v = game.player.vehicle;
-    this.set('speed', v ? `${Math.round(Math.abs(v.speed) * 2.23694)} mph` : '');
+    const mph = v ? Math.round(Math.abs(v.speed) * 2.23694) : 0;
+    this.set('speed', v ? `${mph} mph${mph > 45 ? ' · limit 45' : ''}` : '');
 
     const prog = $('progress');
     if (game.progress) {
@@ -539,6 +540,16 @@ export class Hud {
 
     const flash = Math.floor(performance.now() / 250) % 2 === 0;
     for (const u of game.police.units) {
+      // A patrol car just cruising: a plain blue dot, only when it's on the radar.
+      if (u.patrol && !u.car.siren) {
+        const [qx, qy] = project(u.car.x, u.car.z);
+        if (!inside([qx, qy])) continue;
+        ctx.fillStyle = '#3b7bff';
+        ctx.beginPath();
+        ctx.arc(qx, qy, 3, 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
       const [ux, uy] = rim(project(u.car.x, u.car.z), 4);
       ctx.fillStyle = flash ? '#ff3b3b' : '#3b7bff';
       ctx.beginPath();

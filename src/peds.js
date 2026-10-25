@@ -441,17 +441,24 @@ export class PedManager {
 
   spawn(minDist) {
     const [px, pz] = this.game.player.pos();
-    for (let tries = 0; tries < 10; tries++) {
+    const rhythm = this.game.rhythm;
+    for (let tries = 0; tries < 16; tries++) {
       const b = pick(this.game.city.blocks);
       const d = dist(b.cx, b.cz, px, pz);
       if (d < minDist || d > Math.max(minDist + 60, 230)) continue; // around you, not across the city
+      if (rhythm && !rhythm.accept(b.cx, b.cz, 'p')) continue; // busier blocks get more people
       this.peds.push(new Ped(this.game, b, Math.floor(Math.random() * 4)));
       return;
     }
   }
 
   init() {
-    for (let i = 0; i < CFG.PEDS; i++) this.spawn(20);
+    for (let i = 0; i < this.want(); i++) this.spawn(20);
+  }
+
+  // How many people are out near you (time of day and district: see rhythm.js).
+  want() {
+    return this.game.rhythm ? this.game.rhythm.peds : CFG.PEDS;
   }
 
   // Add a ped at a spot (e.g. a driver pulled out of a car).
@@ -468,8 +475,9 @@ export class PedManager {
     for (const p of this.peds) p.update(dt);
     // Keep the population steady: drop extras far from the player, refill when low.
     const [px, pz] = this.game.player.pos();
-    if (this.peds.length > CFG.PEDS) {
-      const far = this.peds.find((p) => dist(p.x, p.z, px, pz) > 120 && p.standing && !p.shopkeeper && p.state !== 'buyer' && !p.loot);
+    const want = this.want();
+    if (this.peds.length > want) {
+      const far = this.peds.find((p) => dist(p.x, p.z, px, pz) > (this.peds.length > want + 10 ? 75 : 120) && p.standing && !p.shopkeeper && p.state !== 'buyer' && !p.loot);
       if (far) far.dispose();
     }
     // Way off across the city: gone (they're replaced around you).
@@ -478,6 +486,6 @@ export class PedManager {
       if (far) far.dispose();
     }
     this.peds = this.peds.filter((p) => !p.removed);
-    if (this.peds.length < CFG.PEDS) this.spawn(80);
+    if (this.peds.length < want) this.spawn(80);
   }
 }

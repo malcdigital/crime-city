@@ -1,0 +1,194 @@
+import { STOP_LINE } from './streets.js';
+import { segmentBlocked } from './collision.js';
+import { dist } from './util.js';
+
+// Traffic enforcement. Run a red light or speed (over 55 in the city's 45 zone) where a patrol
+// car can see you, and it lights you up:
+// - Pull over (stop the car) and you get a ticket: $150 for a red light, $200 for speeding,
+//   paid from the bank first, then cash. Tickets go to the city treasury.
+// - Holding product? The officer may smell it and search the car: that's an arrest (which
+//   could still turn out to be a dirty cop, see main.js).
+// - Don't stop (or drive off during the stop) and it's a chase: 1 star for fleeing.
+// After a ticket the cops leave you alone for a minute.
+export const SPEED_LIMIT = 45; // mph
+const SPEEDING = 55; // mph: when they pull you over for it
+const FINES = { red: 150, speed: 200 };
+const MPH = 2.237;
+
+export class Enforcement {
+  constructor(game) {
+    this.game = game;
+    this.cool = 0;
+    this.prevNode = null;
+    this.prevApproach = 0;
+    this.fastT = 0;
+  }
+
+  // The patrol unit pulling you over, if any.
+  get unit() {
+    return this.game.police.units.find((u) => u.pull && !u.carLost && !u.allDead) || null;
+  }
+
+  update(dt, a) {
+    const game = this.game;
+    this.cool -= dt;
+    const u = this.unit;
+    if (u) return this.updateStop(dt, a, u);
+    const v = game.player.vehicle;
+    if (!v || game.stars > 0 || game.stop || game.wastedT > 0 || game.bustedT > 0) {
+      this.prevNode = null;
+      this.fastT = 0;
+      return;
+    }
+    const vio = this.redLight(v) || this.speeding(v, dt);
+    if (!vio || this.cool > 0) return;
+    const cop = this.witness(v);
+    if (cop) this.start(cop, vio);
+  }
+
+  // Crossing the stop line at a signal on red.
+  redLight(v) {
+    const S = this.game.streets;
+    const n = S.nodeNear(v.x, v.z);
+    if (!n || S.typeAt(n) !== 'signal' || Math.abs(v.speed) < 4) {
+      this.prevNode = null;
+      return null;
+    }
+    const s = Math.sign(v.speed);
+    const [fx, fz] = v.forward();
+    const mx = fx * s;
+    const mz = fz * s;
+    const ew = Math.abs(mx) > Math.abs(mz);
+    // How far before the middle of the intersection, and how far off to the side.
+    const approach = ew ? (n.x - v.x) * Math.sign(mx) : (n.z - v.z) * Math.sign(mz);
+    const side = ew ? Math.abs(n.z - v.z) : Math.abs(n.x - v.x);
+    let out = null;
+    if (this.prevNode === n && side < 7 && this.prevApproach > STOP_LINE && approach <= STOP_LINE && approach > 0) {
+      if (S.phase(n, ew ? 'EW' : 'NS') === 'red') out = { kind: 'red', label: 'ran a red light', fine: FINES.red };
+    }
+    this.prevNode = n;
+    this.prevApproach = approach;
+    return out;
+  }
+
+  speeding(v, dt) {
+    const mph = Math.abs(v.speed) * MPH;
+    this.fastT = mph > SPEEDING ? this.fastT + dt : 0;
+    if (this.fastT < 0.8) return null;
+    return { kind: 'speed', label: `were doing ${Math.round(mph)} in a ${SPEED_LIMIT}`, fine: FINES.speed };
+  }
+
+  // A patrol car close enough to see it.
+  witness(v) {
+    const game = this.game;
+    for (const u of game.police.units) {
+      if (!u.patrol || u.pull || u.carLost || u.allDead) continue;
+      const c = u.car;
+      if (dist(c.x, c.z, v.x, v.z) > 65) continue;
+      if (segmentBlocked(c.x, c.z, v.x, v.z, game.city.los)) continue;
+      return u;
+    }
+    return null;
+  }
+
+  start(u, vio) {
+    const game = this.game;
+    u.pull = { vio, stage: 'pursue', t: 0, stillT: 0 };
+    u.to = null;
+    this.fastT = 0;
+    game.hud.toast(`Police: you ${vio.label}. Pull over`, '#9fc3ff');
+  }
+
+  // Where the patrol car drives while pulling you over: up behind your car, then stopped there.
+  pursue(u, dt) {
+    const game = this.game;
+    const c = u.car;
+    const v = game.player.vehicle;
+    const [px, pz] = game.player.pos();
+    let bx = px;
+    let bz = pz;
+    if (v) {
+      const [fx, fz] = v.forward();
+      bx = v.x - fx * (v.halfLen + 5);
+      bz = v.z - fz * (v.halfLen + 5);
+    }
+    const dd = dist(c.x, c.z, bx, bz);
+    if (dd > 60 || segmentBlocked(c.x, c.z, bx, bz, game.city.los)) {
+      u.navigate(bx, bz, false, 2);
+      return [u.to.x, u.to.z, c.type.max * 0.75];
+    }
+    u.to = null;
+    if (dd < 2.5) return [bx, bz, 0];
+    const vs = v ? Math.abs(v.speed) : 0;
+    return [bx, bz, Math.min(c.type.max * 0.8, 1 + dd * 0.7 + vs)];
+  }
+
+  updateStop(dt, a, u) {
+    const game = this.game;
+    const p = u.pull;
+    p.t += dt;
+    if (game.stars > 0) {
+      u.joinChase();
+      return;
+    }
+    const v = game.player.vehicle;
+    const [px, pz] = game.player.pos();
+    const d = dist(u.car.x, u.car.z, px, pz);
+    const pad = game.input.mode === 'pad';
+    if (p.stage === 'pursue') {
+      game.prompt = `🚨 Pull over: stop your car (you ${p.vio.label})`;
+      const stopped = (!v || Math.abs(v.speed) < 1) && d < 30;
+      p.stillT = stopped ? p.stillT + dt : 0;
+      if (p.stillT > 1.2) {
+        p.stage = 'stopped';
+        p.t = 0;
+        return;
+      }
+      if (p.t > 22 || d > 120) this.flee(u);
+      return;
+    }
+    // Pulled over.
+    const fine = p.vio.fine;
+    const held = game.drugs.holding();
+    game.prompt = `Officer: "License and registration. You ${p.vio.label}." Ticket $${fine}. ${pad ? '✕' : 'E'} pay it · drive off to run`;
+    // Something in the car? A good chance he smells it.
+    if (held && !p.searched && p.t > 2.5) {
+      p.searched = true;
+      if (Math.random() < 0.35) {
+        game.hud.toast('"I smell something. Step out the car."', '#ff8080');
+        u.pull = null;
+        u.joinChase();
+        game.crime('possession', px, pz);
+        game.bust();
+        return;
+      }
+    }
+    if (p.t < 0.8) return;
+    if (v && Math.abs(v.speed) > 4 && d > 12) return this.flee(u);
+    if (!v && d > 40) return this.flee(u);
+    if (a.dealYes || p.t > 25) this.payTicket(u, fine);
+  }
+
+  payTicket(u, fine) {
+    const game = this.game;
+    const paid = game.bank.canPay(fine) ? fine : Math.min(fine, Math.max(0, game.cash));
+    if (paid === fine) game.bank.pay(fine);
+    else game.cash -= paid;
+    if (game.property) game.property.treasury += paid;
+    game.hud.toast(paid === fine ? `Ticket paid: -$${fine}` : `Ticket: paid $${paid} (all you had)`, '#9fc3ff');
+    game.president?.win?.(0.5, 'Traffic enforcement');
+    u.resumePatrol();
+    this.cool = 60;
+    game.save();
+  }
+
+  flee(u) {
+    const game = this.game;
+    const [px, pz] = game.player.pos();
+    u.pull = null;
+    u.joinChase();
+    game.crime('fleeStop', px, pz);
+    game.hud.toast('Fleeing a traffic stop', '#ff8080');
+    this.cool = 30;
+  }
+}

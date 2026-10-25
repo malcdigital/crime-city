@@ -14,14 +14,14 @@ Things we've decided to do later. Check here before planning new work.
 - **Rival gangs spend their money**: they bank cash at their bases (bases.js) but don't use it yet — recruiting, guns, starting turf wars.
 - **Your crew's base moving**: it upgrades in place at the hangout for now.
 - **Dirty-cop tells in the 3D scene**: they're text-only in the stop prompt right now.
+- **Traffic stops in the 3D scene**: the officer stays in the car for now (the stop is a prompt); have one walk up to your window.
+- **Taxis you can ride** (hail one, pay the fare) and **riding the bus**.
+- **Shooting hydrants** (they only break when hit by a car right now).
 
 ## Ideas list (realism and polish, best value first)
-1. Car lights: headlights, taillights and brake lights at night; police light bars lighting the street.
-2. Daily rhythms: rush hour, a packed Strip at night, quiet streets at 4 AM.
-3. Parked cars along the curbs; buses with bus stops, taxis, delivery vans.
-4. Street props: hydrants (they spray when hit), trash cans, benches, bus shelters; litter and graffiti in poorer districts.
+Done: car lights, daily rhythms, parked cars / buses / taxis / delivery trucks, street props (hydrants, trash cans, benches, bus shelters, litter, graffiti), traffic enforcement.
+
 5. City sounds: background hum, distant sirens, music from the Strip.
-6. Traffic enforcement: running reds or speeding in front of a cop leads to a traffic stop or a chase.
 7. Emergency services: ambulances, fire trucks, tow trucks.
 8. Weather: rain (slick roads, fewer people out), fog.
 9. Settings menu: volume, graphics quality, field of view, controls.

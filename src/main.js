@@ -4,6 +4,11 @@ import { buildCity, districtAt, streetAt } from './city.js';
 import { buildSidewalks } from './sidewalk.js';
 import { Streets } from './streets.js';
 import { DayNight } from './daynight.js';
+import { Rhythm } from './rhythm.js';
+import { Transit } from './transit.js';
+import { Parking } from './parking.js';
+import { Props } from './props.js';
+import { Enforcement } from './enforcement.js';
 import { Input } from './input.js';
 import { Player } from './player.js';
 import { Vehicle, resolveCarCollisions } from './vehicle.js';
@@ -89,6 +94,8 @@ class Game {
     this.vehicles = [];
     this.walkers = [];
     this.pickups = [];
+    this.rhythm = new Rhythm(this); // how busy the streets are by time of day and district
+    this.rhythm.update(0, true);
     this.traffic = new TrafficManager(this);
     this.peds = new PedManager(this);
     this.police = new PoliceManager(this);
@@ -146,6 +153,10 @@ class Game {
     this.econDebug = new EconDebug(this); // ` toggles the economy debug panel
     this.bases = new Bases(this);
     this.backup = new Backup(this); // calling for backup (phone → Contacts)
+    this.transit = new Transit(this); // buses, routes and bus stops
+    this.parking = new Parking(this); // cars parked along the curbs
+    this.props = new Props(this); // hydrants, trash cans, benches, litter, graffiti
+    this.enforce = new Enforcement(this); // red lights, speeding and traffic stops
     this.market = new Market(this);
     this.president = new President(this);
     this.phone = new Phone(this);
@@ -1132,6 +1143,11 @@ class Game {
     } else if ((v.typeName === 'police' || v.typeName === 'swat') && !v.exploded) {
       this.crime('stealCopCar', v.x, v.z);
     }
+    // Breaking into a parked car: sometimes the alarm goes off.
+    if (v.parkSpot && !d && Math.random() < 0.35) {
+      this.hud.toast('Car alarm!', '#ff8080');
+      this.crime('carTheft', v.x, v.z);
+    }
     v.siren = false;
     this.lockTarget = null;
     this.player.enter(v);
@@ -1866,8 +1882,13 @@ class Game {
     this.bases.update(dt, a);
     this.streets.update(dt);
     this.dayNight.update();
+    this.rhythm.update(dt);
     this.backup.update(dt);
+    this.transit.update(dt);
+    this.parking.update(dt);
+    this.props.update(dt);
     this.updateStop(dt, a);
+    this.enforce.update(dt, a);
     this.updateIA(dt);
     this.updateVehicleDamage(dt);
     this.updatePickups(dt, a);
@@ -1966,7 +1987,7 @@ class Game {
   // Remove abandoned and burnt-out cars far from the player so the city doesn't fill up.
   cleanupVehicles() {
     const [px, pz] = this.player.pos();
-    const abandoned = this.vehicles.filter((v) => v.driver === null && !v.gangCar);
+    const abandoned = this.vehicles.filter((v) => v.driver === null && !v.gangCar && !v.parkSpot);
     const far = abandoned.find((v) => dist(v.x, v.z, px, pz) > 150 && (v.exploded || abandoned.length > 10));
     if (far) far.dispose();
   }

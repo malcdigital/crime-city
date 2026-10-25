@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { setCarNight } from './vehicle.js';
 
 // Day and night, from the game clock (a full day is 48 real minutes). The sky, fog, sun and
 // ambient light follow the time of day; at night building windows glow and the street lights
@@ -45,5 +46,6 @@ export class DayNight {
     // Lit windows glow after dark.
     for (const mat of game.city.windowMats || []) mat.emissive.setRGB(1.0 * k, 0.85 * k, 0.55 * k);
     game.streets?.setNight(k);
+    setCarNight(k);
   }
 }

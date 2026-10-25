@@ -12,6 +12,12 @@ export const VTYPES = {
     colors: [0xffffff, 0x5d6d7e, 0xa04000] },
   police: { armor: 6, w: 2.0, l: 4.6, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 40, accel: 13, brake: 24, rev: 9, value: 1500, label: 'Police cruiser',
     colors: [0x151515] },
+  taxi: { armor: 5, w: 2.0, l: 4.5, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 30, accel: 9, brake: 20, rev: 8, value: 800, label: 'Taxi',
+    colors: [0xf2c200] },
+  bus: { armor: 9, w: 2.5, l: 10.5, h: 2.5, cab: null, max: 20, accel: 4.5, brake: 12, rev: 4, value: 600, label: 'Bus',
+    colors: [0x1f7a4d, 0x2a5aa8] },
+  delivery: { armor: 7, w: 2.3, l: 6.2, h: 2.4, cab: null, max: 22, accel: 6, brake: 14, rev: 6, value: 650, label: 'Box truck',
+    colors: [0xf4f4f4, 0x7b4a24, 0xd8d8d0] },
   swat: { armor: 10, w: 2.4, l: 5.4, h: 1.9, cab: null, max: 32, accel: 10, brake: 20, rev: 7, value: 2200, label: 'SWAT van',
     colors: [0x1b1f24] },
 };
@@ -26,13 +32,78 @@ const HANDLING = {
   van: { max: 1.6, slide: 0.84, peak: 0.17, bias: 0.47 },
   police: { max: 2.1, slide: 0.87, peak: 0.16, bias: 0.48 },
   swat: { max: 1.65, slide: 0.85, peak: 0.17, bias: 0.47 },
+  taxi: { max: 1.95, slide: 0.86, peak: 0.16, bias: 0.48 },
+  bus: { max: 1.3, slide: 0.82, peak: 0.18, bias: 0.47 },
+  delivery: { max: 1.45, slide: 0.83, peak: 0.17, bias: 0.47 },
 };
 
 const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 10);
 wheelGeo.rotateZ(Math.PI / 2);
 const lightGeo = new THREE.BoxGeometry(0.4, 0.18, 0.06);
-const headMat = new THREE.MeshBasicMaterial({ color: 0xfff3c4 });
-const tailMat = new THREE.MeshBasicMaterial({ color: 0xc0392b });
+// Car lights. Headlights and taillights come on after dark (setCarNight, from daynight.js);
+// brake lights show whenever a driver is on the brakes or holding the car still. At night a
+// car with someone at the wheel throws a pool of light on the road ahead (and a red glow
+// behind), and a police car with its lights going washes the street red and blue.
+const headMat = new THREE.MeshBasicMaterial({ color: 0xd9d3b8 });
+const headOffMat = new THREE.MeshBasicMaterial({ color: 0xb8b4a6 });
+const tailMat = new THREE.MeshBasicMaterial({ color: 0x6e1a15 });
+const tailOffMat = new THREE.MeshBasicMaterial({ color: 0x5a1612 }); // nobody at the wheel
+const brakeMat = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
+const amberMat = new THREE.MeshBasicMaterial({ color: 0xffa020 });
+let NIGHT = 0;
+let glowTex = null;
+let barTex = null;
+const glowMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+// Long plane under the car: a cone of warm light ahead, a faint red glow behind.
+function carGlowTexture() {
+  if (glowTex) return glowTex;
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 256;
+  const x = c.getContext('2d');
+  // Canvas top = the front of the car (the plane is rotated so +v points forward).
+  const g = x.createRadialGradient(32, 70, 4, 32, 70, 64);
+  g.addColorStop(0, 'rgba(255,240,200,1)');
+  g.addColorStop(0.5, 'rgba(255,230,180,0.45)');
+  g.addColorStop(1, 'rgba(255,230,180,0)');
+  x.save();
+  x.translate(32, 70);
+  x.scale(1, 1.6);
+  x.translate(-32, -70);
+  x.fillStyle = g;
+  x.fillRect(0, 0, 64, 256);
+  x.restore();
+  const r = x.createRadialGradient(32, 226, 2, 32, 226, 26);
+  r.addColorStop(0, 'rgba(255,40,30,0.7)');
+  r.addColorStop(1, 'rgba(255,40,30,0)');
+  x.fillStyle = r;
+  x.fillRect(0, 190, 64, 66);
+  glowTex = new THREE.CanvasTexture(c);
+  glowTex.colorSpace = THREE.SRGBColorSpace;
+  return glowTex;
+}
+function barTexture() {
+  if (barTex) return barTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const x = c.getContext('2d');
+  const g = x.createRadialGradient(32, 32, 2, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.4, 'rgba(255,255,255,0.35)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g;
+  x.fillRect(0, 0, 64, 64);
+  barTex = new THREE.CanvasTexture(c);
+  return barTex;
+}
+
+// 0 = full day, 1 = full night.
+export function setCarNight(k) {
+  NIGHT = k;
+  headMat.color.setRGB(0.85 + 0.15 * k, 0.83 + 0.15 * k, 0.72 + 0.2 * k);
+  tailMat.color.setRGB(0.43 + 0.4 * k, 0.1 + 0.03 * k, 0.08 + 0.03 * k);
+  glowMat.opacity = 0.7 * k;
+}
 
 export class Vehicle {
   constructor(scene, typeName, x, z, heading, color) {
@@ -88,6 +159,33 @@ export class Vehicle {
       glass.position.set(0, 0.35 + t.h - 0.5, t.l / 2 + 0.01);
       g.add(glass);
     }
+    if (this.typeName === 'taxi') {
+      // Roof sign and a checker band.
+      const sign = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.3, 0.35), new THREE.MeshBasicMaterial({ color: 0xfff6c0 }));
+      sign.position.set(0, 0.35 + t.h + t.cab[1] + 0.15, -0.2);
+      g.add(sign);
+      const band = new THREE.Mesh(new THREE.BoxGeometry(t.w + 0.02, 0.16, t.l * 0.6), lam(0x111111));
+      band.position.set(0, 0.35 + t.h * 0.75, 0);
+      g.add(band);
+    }
+    if (this.typeName === 'bus') {
+      // Window band down both sides, a destination sign, and a white roof.
+      const win = new THREE.Mesh(new THREE.BoxGeometry(t.w + 0.02, 0.8, t.l * 0.82), lam(0x1d2630));
+      win.position.set(0, 0.35 + t.h * 0.68, -0.2);
+      g.add(win);
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(t.w - 0.1, 0.12, t.l - 0.2), lam(0xe8e8e8));
+      roof.position.set(0, 0.35 + t.h + 0.06, 0);
+      g.add(roof);
+      const dest = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.28, 0.05), new THREE.MeshBasicMaterial({ color: 0xffb020 }));
+      dest.position.set(0, 0.35 + t.h - 0.2, t.l / 2 + 0.02);
+      g.add(dest);
+    }
+    if (this.typeName === 'delivery') {
+      // Low cab in front of the box.
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(t.w + 0.02, 0.3, t.l * 0.6), lam(this.color === 0x7b4a24 ? 0xf1c40f : 0xc0392b));
+      stripe.position.set(0, 0.35 + t.h * 0.55, -0.6);
+      g.add(stripe);
+    }
     if (this.typeName === 'swat') {
       const band = new THREE.Mesh(new THREE.BoxGeometry(t.w + 0.02, 0.35, t.l * 0.7), lam(0x2d3e58));
       band.position.set(0, 0.35 + t.h * 0.45, -0.3);
@@ -134,12 +232,16 @@ export class Vehicle {
       g.add(pivot);
       this.doors[side] = { pivot, angle: 0, target: 0, len: doorLen, closeT: 0 };
     }
+    this.heads = [];
+    this.tails = [];
     for (const sx of [-1, 1]) {
-      const hl = new THREE.Mesh(lightGeo, headMat);
+      const hl = new THREE.Mesh(lightGeo, headOffMat);
       hl.position.set(sx * (t.w / 2 - 0.35), 0.35 + t.h * 0.6, t.l / 2 + 0.01);
-      const tl = new THREE.Mesh(lightGeo, tailMat);
+      const tl = new THREE.Mesh(lightGeo, tailOffMat);
       tl.position.set(sx * (t.w / 2 - 0.35), 0.35 + t.h * 0.6, -t.l / 2 - 0.01);
       g.add(hl, tl);
+      this.heads.push(hl);
+      this.tails.push(tl);
       for (const sz of [-1, 1]) {
         const w = new THREE.Mesh(wheelGeo, lam(0x151515));
         w.rotation.order = 'YXZ';
@@ -149,6 +251,65 @@ export class Vehicle {
         w.userData.flat = false;
         g.add(w);
         this.wheels.push(w);
+      }
+    }
+  }
+
+  // Light on the road (night only) and the light bar's wash. Built once per car.
+  buildGlow() {
+    const t = this.type;
+    const len = t.l + 14;
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(t.w + 4.5, len), glowMat);
+    glow.material.map = carGlowTexture();
+    glow.rotation.x = -Math.PI / 2;
+    // The texture's front cone sits about 70/256 of the way down from the top.
+    glow.position.set(0, 0.07, len / 2 - len * (70 / 256) + t.l / 2 + 2.5);
+    glow.renderOrder = 1;
+    glow.visible = false;
+    this.group.add(glow);
+    this.glow = glow;
+    if (this.lightR) {
+      this.barMat = new THREE.MeshBasicMaterial({ map: barTexture(), color: 0xff2020, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+      const bar = new THREE.Mesh(new THREE.PlaneGeometry(18, 18), this.barMat);
+      bar.rotation.x = -Math.PI / 2;
+      bar.position.y = 0.08;
+      bar.renderOrder = 1;
+      bar.visible = false;
+      this.group.add(bar);
+      this.bar = bar;
+    }
+  }
+
+  // Lights: on when someone is at the wheel (headlights only after dark).
+  updateLights(dt = 0) {
+    if (this.exploded) {
+      if (this.glow) this.glow.visible = false;
+      if (this.bar) this.bar.visible = false;
+      return;
+    }
+    const on = !!this.driver && !this.exploded && !this.wrecked;
+    const head = on && NIGHT > 0.15;
+    if (head !== this.headOn) {
+      this.headOn = head;
+      for (const m of this.heads) m.material = head ? headMat : headOffMat;
+    }
+    // Hazards blink amber; otherwise brake lights.
+    this.blinkT = (this.blinkT || 0) + dt;
+    const tail = this.hazard ? (Math.floor(this.blinkT * 1.6) % 2 === 0 ? amberMat : tailMat) : !on ? tailOffMat : this.braking ? brakeMat : tailMat;
+    if (tail !== this.tailNow) {
+      this.tailNow = tail;
+      for (const m of this.tails) m.material = tail;
+    }
+    if (!this.glow && (head || this.siren)) this.buildGlow();
+    if (this.glow) this.glow.visible = head;
+    if (this.bar) {
+      const lit = this.siren && !this.exploded;
+      this.bar.visible = lit;
+      if (lit) {
+        const red = Math.floor(this.sirenT * 3) % 2 === 0;
+        this.barMat.color.setHex(red ? 0xff2020 : 0x2a50ff);
+        this.barMat.opacity = 0.18 + 0.5 * NIGHT;
+        this.bar.position.x = red ? -1.2 : 1.2;
       }
     }
   }
@@ -192,10 +353,20 @@ export class Vehicle {
   circles() {
     const [fx, fz] = this.forward();
     const o = this.halfLen - this.radius;
-    return [
-      [this.x + fx * o, this.z + fz * o],
-      [this.x - fx * o, this.z - fz * o],
-    ];
+    // Long vehicles (buses, trucks) get more circles so there's no gap in the middle.
+    const n = Math.max(2, Math.ceil(this.halfLen / this.radius));
+    if (n === 2) {
+      return [
+        [this.x + fx * o, this.z + fz * o],
+        [this.x - fx * o, this.z - fz * o],
+      ];
+    }
+    const out = [];
+    for (let k = 0; k < n; k++) {
+      const t = -o + (2 * o * k) / (n - 1);
+      out.push([this.x + fx * t, this.z + fz * t]);
+    }
+    return out;
   }
 
   // ctrl: { throttle: -1..1, steer: -1..1 (positive = right), handbrake: bool }
@@ -266,6 +437,7 @@ export class Vehicle {
     let s = this.speed;
     const s0 = s;
     const thr = ctrl.throttle || 0;
+    this.braking = !!ctrl.handbrake || (s0 > 0.5 && thr < -0.05) || (s0 < -0.5 && thr > 0.05) || (Math.abs(s0) <= 0.5 && Math.abs(thr) < 0.05);
     // Flat tires: lower top speed and acceleration.
     const flats = this.flatCount;
     const eng = this.mods ? this.mods.engine : 0; // mod garage engine level
@@ -508,6 +680,7 @@ export class Vehicle {
       this.lightR.color.setHex(this.siren ? (on ? 0xff2020 : 0x550000) : 0x550000);
       this.lightB.color.setHex(this.siren ? (on ? 0x000055 : 0x2050ff) : 0x000055);
     }
+    this.updateLights(dt);
     this.crash = Math.max(0, this.crash - dt * 20);
   }
 
@@ -533,6 +706,9 @@ export function resolveCarCollisions(cars, onHit) {
           const d = Math.hypot(ddx, ddz);
           const min = A.radius + Bc.radius;
           if (d >= min || d < 1e-6) continue;
+          // Traffic brushing past a car parked at the curb: let it by (lanes are tight).
+          const npc = (q) => q.driver && q.driver !== 'player';
+          if (min - d < 0.35 && ((A.parkSpot && npc(Bc)) || (Bc.parkSpot && npc(A)))) continue;
           // Measure the impact before anything slows down.
           const rel = Math.abs(A.speed - Bc.speed);
           // Parked roadblock cars are heavy: whatever hits them does most of the moving.
