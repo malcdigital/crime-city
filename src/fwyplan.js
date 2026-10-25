@@ -176,6 +176,16 @@ export const EDITS = (() => {
     return {};
   }
 })();
+// The ring interchanges' ramps as designed in the editor (the built-in shape; saved edits in
+// the browser go on top). The exit ends merging into a road alongside the freeway (its
+// "street" point), which runs on to the avenue.
+const BAKED = {
+  ring: {
+    diag: { pts: [[6.4, 52.8, 0, -10], [26.4, 21], [120, 22.13], [144, 14.16], [165, 13.75]], street: [0, 52.8] },
+    loop: { pts: [[-6.4, 27.6, 0, 10], [-31.3, 57.2, -10.2, 0.7], [-47.9, 54.38, -4.6, -2.8], [-58.2, 35.75, 1, -10], [-38.66, 13.89, 11.7, -0.5], [165, 13.75]], street: [0, 27.6] },
+    off: { pts: [[-180, 10.25], [-118, 17.69], [-104, 27.05], [-70.1, 67.7, 10, -0.6]], street: [-69.9, 70.6] },
+  },
+};
 export const HALVES = []; // one side of an interchange: { id, name, main, dir, W, x, z, ramps: { off, loop, diag } }
 // Fewer points along a polyline (Ramer-Douglas-Peucker), keeping the shape within tol meters.
 function rdp(pts, tol) {
@@ -272,7 +282,10 @@ function editableRamp(W, path, keys, info, half, kind) {
   r.editKind = kind;
   r.half = half.id;
   half.ramps[kind] = r;
-  const ov = EDITS.halves?.[half.id]?.[kind] || EDITS.template?.[half.main]?.[kind];
+  // (the built-in design is the starting shape; RESET in the editor goes back to it)
+  const baked = BAKED[half.main]?.[kind];
+  if (baked) r.defCtrl = baked.pts.map((p) => p.slice());
+  const ov = EDITS.halves?.[half.id]?.[kind] || EDITS.template?.[half.main]?.[kind] || baked;
   const ovPts = editPts(ov);
   if (Array.isArray(ovPts) && ovPts.length >= 2) {
     const ctrl = ovPts.map((p) => p.map(Number));
@@ -360,7 +373,17 @@ function parcloHalf(W, lanes, cross, opts) {
   const offEnd = rOff.local[rOff.local.length - 1];
   const loopS = rLoop.local[0];
   const diagS = rDiag.local[0];
-  const streetOf = (r, end) => (r.streetLocal ? W(...r.streetLocal) : W(0, end[1]));
+  // (a ramp snapped onto a street: link it with the street a little way along, the way
+  // traffic goes - behind an entrance, ahead of an exit - so the link is never too short to
+  // be a link)
+  const streetOf = (r, end) => {
+    if (!r.streetLocal) return W(0, end[1]);
+    const c = r.kind === 'off' ? r.ctrl[r.ctrl.length - 1] : r.ctrl[0];
+    const t = c.length >= 4 ? [c[2], c[3]] : [0, 0];
+    const l = Math.hypot(t[0], t[1]) || 1;
+    const k = (r.kind === 'off' ? 8 : -8) / l;
+    return W(r.streetLocal[0] + t[0] * k, r.streetLocal[1] + t[1] * k);
+  };
   STUBS.push([streetOf(rOff, offEnd), W(...offEnd)], [streetOf(rLoop, loopS), W(...loopS)], [streetOf(rDiag, diagS), W(...diagS)]);
   RAMPS[RAMPS.length - 3].stub = STUBS.length - 3;
   RAMPS[RAMPS.length - 2].stub = STUBS.length - 2;
@@ -370,7 +393,15 @@ function parcloHalf(W, lanes, cross, opts) {
   const neg = [...rOff.local, ...rLoop.local].filter(([u]) => u < 0);
   const pos = rDiag.local.filter(([u]) => u > 0);
   const mx = (list, j, f) => f(...list.map((p) => p[j]));
-  HOLES.push({ poly: rectLocal(W, Math.min(-Ud - 8, mx(neg, 0, Math.min) - 8), -H, 8, Math.max(vOff + 10, mx(neg, 1, Math.max) + 10)) });
+  // (an exit that ends on a road alongside the freeway: that road runs along the far edge of
+  // this land, 2 m out, all the way to the avenue)
+  const front = rOff.streetLocal && Math.abs(rOff.streetLocal[0]) > H + 2 ? rOff.streetLocal[1] : null;
+  const vFar = front !== null ? front - 2 : Math.max(vOff + 10, mx(neg, 1, Math.max) + 10);
+  HOLES.push({
+    poly: rectLocal(W, Math.min(-Ud - 8, mx(neg, 0, Math.min) - 8), -H, 8, vFar),
+    // (where there's no city around to need the whole road: just from the exit to the avenue)
+    frontage: front !== null ? [W(0, front), W(offEnd[0] - 25, front)] : null,
+  });
   HOLES.push({ poly: rectLocal(W, H, Math.max(195, mx(pos, 0, Math.max) + 30), 8, Math.max(vS + 20, mx(pos, 1, Math.max) + 14)) }); // (room for the peel-off: side streets keep well clear)
   // Signs over the right-hand lanes: 200 m before the exit and where it leaves.
   const [ox, oz] = W(0, 0);

@@ -305,7 +305,11 @@ for (const zn of ZONES) {
       const mz = (az + bz) / 2;
       if (nearKeep(mx, mz)) continue;
       const city = (insideRing(mx, mz) && ringDist(mx, mz) > 12) || (mz > RZ1 + 12 && mx > 130 && mx < RX1 - 10 && !isWater(mx, mz));
-      if (!city) continue;
+      if (!city) {
+        // Out of town: only the road an exit comes down onto, from the exit to the avenue.
+        if (H.frontage && i === 2) add(H.frontage.map((p) => p.slice()), 'local', null, { service: true, frontage: true });
+        continue;
+      }
       // 2 m out from the edge (so the hole itself doesn't cut it away).
       const L = Math.hypot(mx - hx, mz - hz) || 1;
       const nx = (mx - hx) / L;
@@ -338,7 +342,7 @@ for (const zn of ZONES) {
       const B = [bx + px * o, bz + pz * o];
       const ra = reach(A[0], A[1], -ux, -uz);
       const rb = reach(B[0], B[1], ux, uz);
-      add([[A[0] - ux * ra, A[1] - uz * ra], [B[0] + ux * rb, B[1] + uz * rb]], 'local', null, { service: true });
+      add([[A[0] - ux * ra, A[1] - uz * ra], [B[0] + ux * rb, B[1] + uz * rb]], 'local', null, { service: true, frontage: !!(H.frontage && i === 2) });
     }
   }
 }
@@ -731,7 +735,7 @@ function addLots(graph, blocks) {
 function tidyStreets() {
   const prio = (st) => (st.keep ? 10 : st.stub !== undefined ? 9 : ROAD_CLASS[st.cls].rank - (st.service ? 0.5 : 0));
   const segsOf = (st) => st.pts.slice(1).map((q, k) => [...st.pts[k], ...q]);
-  const fixed = (st) => st.keep || st.stub !== undefined || st.loop || st.cls === 'pier';
+  const fixed = (st) => st.keep || st.stub !== undefined || st.loop || st.cls === 'pier' || st.frontage; // (an exit's road: the exit joins it where it is)
   // 1. Alongside another street.
   const drop = new Set();
   streets.forEach((S, si) => {
