@@ -15,7 +15,8 @@ import { pick, rand } from './util.js';
 //   them: a $60,000 home costs $60,000, of which $3,396 is sales tax (to the government).
 // - Selling: you get the price minus the sales tax in it.
 // - Property tax: 0.25% of the current value, every game week (7 game days = 5h36m of play).
-// - Upkeep (utilities, maintenance): a small charge every game day.
+// - Upkeep (utilities, maintenance): every game day, progressive on the current value
+//   (0.10% of the first $5k, 0.20% up to $20k, 0.35% up to $50k, 0.50% above).
 // - Bills come out of the bank first, then that home's stash. Can't cover it? It's owed; still
 //   owing a week later is a strike, and on the second strike the city seizes the home (and
 //   what's in its stash).
@@ -24,7 +25,14 @@ const SAVE_KEY = 'crimecity.property.v1';
 export const SALES_TAX = 0.06;
 const PROPERTY_TAX = 0.0025; // of value, per week
 const TAX_EVERY = 7; // game days
-const UPKEEP = 0.0005; // of base price, per game day
+// Upkeep per game day, progressive like tax brackets: each slice of the current value pays its
+// own rate, so pricier places cost more to keep, without jumps at the bracket lines.
+const UPKEEP_BRACKETS = [
+  [5000, 0.001], // first $5,000: 0.10% a day
+  [20000, 0.002], // $5,000-$20,000: 0.20%
+  [50000, 0.0035], // $20,000-$50,000: 0.35%
+  [Infinity, 0.005], // above $50,000: 0.50%
+];
 const CRIME_FADE = 1 / 600;
 const money = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
 const EVENTS = [
@@ -143,7 +151,14 @@ export class PropertyMarket {
   }
 
   dailyUpkeep(h) {
-    return Math.max(5, Math.round((this.base(h) * UPKEEP) / 5) * 5);
+    const v = this.price(h);
+    let total = 0;
+    let lo = 0;
+    for (const [hi, rate] of UPKEEP_BRACKETS) {
+      if (v > lo) total += (Math.min(v, hi) - lo) * rate;
+      lo = hi;
+    }
+    return Math.max(1, Math.round(total));
   }
 
   trend(h) {
