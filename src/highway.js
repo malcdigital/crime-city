@@ -457,7 +457,10 @@ export class Highway {
     for (const s of this.surfaces) {
       const thick = s.ramp ? 0.75 : 0.9;
       parts.deck.push(ribbon(s.pts, s.h, s.hw + 0.3, -thick, -0.02));
-      (s.ramp ? parts.ramptop : parts.top).push(ribbon(s.pts, s.h, s.hw - 0.05, 0, s.ramp ? 0.025 : 0.03, true));
+      // (where a ramp meets the street it rides a little above the street, grass and paving,
+      // so nothing covers its end)
+      const topH = s.ramp ? s.h.map((h) => h + 0.07 * Math.max(0, 1 - h / 0.6)) : s.h;
+      (s.ramp ? parts.ramptop : parts.top).push(ribbon(s.pts, topH, s.hw - 0.05, 0, s.ramp ? 0.025 : 0.03, true));
       if (s.ramp) {
         // The low part stands on solid ground.
         let a = -1;

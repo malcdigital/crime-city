@@ -54,7 +54,7 @@ export class Rhythm {
 
   hour() {
     const m = this.game.clockMinutes();
-    return Number.isFinite(m) ? m / 60 : 21; // (before the clock starts: the game opens at 9 PM)
+    return Number.isFinite(m) ? m / 60 : 9; // (before the clock starts: the game opens at 9 AM)
   }
 
   // How busy a spot is right now (1 = a normal day). kind: 't' traffic, 'p' people.

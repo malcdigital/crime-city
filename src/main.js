@@ -228,9 +228,9 @@ class Game {
   }
 
   // In-game clock: a full day is 48 real minutes (one real second is half a game minute),
-  // starting at 9:00 PM.
+  // starting at 9:00 AM.
   gameMinutes() {
-    return 21 * 60 + this.time * 0.5;
+    return 9 * 60 + this.time * 0.5;
   }
 
   // Minutes past midnight right now.

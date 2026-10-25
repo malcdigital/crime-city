@@ -288,7 +288,7 @@ export function buildCity(scene) {
   // (interchanges outside the ring sit on level ground, easing back into the hills around)
   const rampLevel = (x, z) => {
     if (!inHole(x, z, 36)) return 1;
-    for (const [pad, k] of [[0, 0], [12, 0.15], [24, 0.45]]) if (inHole(x, z, pad)) return k;
+    for (const [pad, k] of [[16, 0], [24, 0.3], [30, 0.55]]) if (inHole(x, z, pad)) return k;
     return 0.8;
   };
   for (let j = 0; j < GN; j++) for (let i = 0; i < GN; i++) {

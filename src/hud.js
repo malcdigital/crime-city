@@ -33,7 +33,7 @@ export class Hud {
     this.phoneOpen = false;
     this.unread = 0;
     this.phoneToastT = 0;
-    this.clock = () => '9:00 PM';
+    this.clock = () => '9:00 AM';
     this.last = {};
   }
 
