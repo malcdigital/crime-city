@@ -12,8 +12,8 @@ export const CFG = {
   START_IN_CAR: true,
   CAR_SPAWN_KEY: true,
   // Testing switch: where you start (in the car): [x, z, heading in degrees], or null. Right now:
-  // on Park Ave heading west toward the interchange on the west side of the ring.
-  START_AT: [215, 486.4, 270],
+  // on Midway Blvd heading west toward the crosstown interchange.
+  START_AT: [615, 686.4, 270],
   // Testing switch: the interchange editor in the pause menu (reshape the ramps, then drive them).
   RAMP_EDITOR: true,
 
