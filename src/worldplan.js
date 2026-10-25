@@ -616,6 +616,9 @@ function makeBlock(f, id) {
 
 // Inset for odd shapes: move each corner in along its bisector.
 function insetLoose(poly, half) {
+  // Each side moved in by its own street's half width (so it lands right on that street's
+  // curb), and each corner where two moved sides meet (a miter, capped where the sides are
+  // nearly parallel).
   const n = poly.length;
   const ccw = area(poly) > 0;
   const out = [];
@@ -625,14 +628,34 @@ function insetLoose(poly, half) {
     const r = poly[(i + 1) % n];
     const n1 = norm(q[0] - p[0], q[1] - p[1], ccw);
     const n2 = norm(r[0] - q[0], r[1] - q[1], ccw);
-    const d = (half[(i + n - 1) % n] + half[i]) / 2;
-    let bx = n1[0] + n2[0];
-    let bz = n1[1] + n2[1];
-    const bl = Math.hypot(bx, bz) || 1;
-    bx /= bl;
-    bz /= bl;
-    const cosHalf = Math.max(0.35, bx * n1[0] + bz * n1[1]);
-    out.push([q[0] + (bx * d) / cosHalf, q[1] + (bz * d) / cosHalf]);
+    const d1 = half[(i + n - 1) % n];
+    const d2 = half[i];
+    // Side 1: through p + n1 d1 along (q - p); side 2: through q + n2 d2 along (r - q).
+    const ax = p[0] + n1[0] * d1;
+    const az = p[1] + n1[1] * d1;
+    const ux = q[0] - p[0];
+    const uz = q[1] - p[1];
+    const bx = q[0] + n2[0] * d2;
+    const bz = q[1] + n2[1] * d2;
+    const vx = r[0] - q[0];
+    const vz = r[1] - q[1];
+    const den = ux * vz - uz * vx;
+    let pt = null;
+    if (Math.abs(den) > 1e-6 * Math.hypot(ux, uz) * Math.hypot(vx, vz)) {
+      const t = ((bx - ax) * vz - (bz - az) * vx) / den;
+      pt = [ax + ux * t, az + uz * t];
+      // (a very sharp corner would throw the point far out: cap it)
+      const lim = 3 * Math.max(d1, d2);
+      if (Math.hypot(pt[0] - q[0], pt[1] - q[1]) > lim) pt = null;
+    }
+    if (!pt) {
+      const d = (d1 + d2) / 2;
+      let mx = n1[0] + n2[0];
+      let mz = n1[1] + n2[1];
+      const ml = Math.hypot(mx, mz) || 1;
+      pt = [q[0] + (mx / ml) * d, q[1] + (mz / ml) * d];
+    }
+    out.push(pt);
   }
   return Math.abs(area(out)) > 50 && area(out) * area(poly) > 0 ? out : [];
 }
