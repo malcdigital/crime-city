@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#0b1426" />
     <title>Crime City</title>
     <link rel="stylesheet" href="./src/style.css" />
   </head>
@@ -105,6 +108,14 @@
           <div id="approval"></div>
           <div id="crackdowns"></div>
         </div>
+        <div class="touch-help">
+          <b>Touch controls</b>
+          <div>Left thumb: joystick (move · steer, gas and brake) · push it all the way to sprint</div>
+          <div>Right thumb: drag to look (drag off FIRE to aim while shooting) · AIM toggles aiming</div>
+          <div>USE lights up when there's something to do · △ get in or out · tap GUN to swap, hold it for your inventory</div>
+          <div>Top: pause · 📱 phone · MAP · CAR (test car). Prompts show the button to press.</div>
+        </div>
+        <button id="quality" class="quality"></button>
         <button id="resume">RESUME</button>
       </div>
     </div>
@@ -142,6 +153,8 @@
         <p class="note" id="pad-note">Plug in or pair a PS5 controller and press any button, then ✕ to play.</p>
       </div>
     </div>
+
+    <div id="rotate"><div>↻</div>Turn your phone sideways to play</div>
 
     <script type="module" src="./src/main.js"></script>
   </body>

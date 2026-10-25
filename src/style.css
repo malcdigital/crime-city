@@ -319,3 +319,149 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 /* City News and Crime Reports share one story list: show the open app's stories only. */
 #phone-list[data-cat="news"] .news-item.cat-crime, #phone-list[data-cat="crime"] .news-item.cat-news { display: none; }
 #phone-list .news-item.cat-crime { border-left-color: #3b7bff; }
+
+/* ---- Touch controls (touch.js) ---- */
+#touch { position: fixed; inset: 0; z-index: 50; pointer-events: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none; }
+#touch .tz { position: absolute; pointer-events: auto; touch-action: none; }
+#touch .tz-left { left: 0; top: 26%; bottom: 0; width: 42%; }
+#touch .tz-right { right: 0; top: 18%; bottom: 0; width: 58%; }
+#touch[data-ctx="none"] .tz, #touch[data-ctx="phone"] .tz, #touch[data-ctx="menu"] .tz, #touch[data-ctx="strip"] .tz-left { display: none; }
+#touch[data-ctx="map"] .tz { display: none; } /* the map itself takes drags, pinches and taps */
+#bigmap canvas { touch-action: none; }
+#touch .stick { position: absolute; width: 124px; height: 124px; margin: -62px 0 0 -62px; border-radius: 50%; background: rgba(255,255,255,.1); border: 2px solid rgba(255,255,255,.35); pointer-events: none; }
+#touch .knob { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; border-radius: 50%; background: rgba(255,255,255,.55); box-shadow: 0 2px 8px rgba(0,0,0,.4); transform: translate(-50%, -50%); }
+#touch .tb { position: absolute; pointer-events: auto; touch-action: none; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 50px; height: 50px; border-radius: 50%; background: rgba(15,18,26,.5); border: 2px solid rgba(255,255,255,.4); color: #fff; font-weight: 900; font-size: 20px; line-height: 1; text-shadow: 0 1px 2px #000; }
+#touch .tb.on { background: rgba(255,255,255,.45); border-color: #fff; }
+#touch .tb .th { font-size: 9px; font-weight: 700; letter-spacing: .04em; opacity: .85; margin-top: 2px; text-transform: uppercase; }
+#touch .tb .th:empty { display: none; }
+#touch .tb.txt .tl { font-size: 11px; letter-spacing: .04em; text-align: center; }
+#touch .tb.big { width: 80px; height: 80px; font-size: 16px; }
+#touch .tb.mid { width: 60px; height: 60px; font-size: 14px; }
+#touch .tb.red { background: rgba(190,40,40,.5); }
+#touch .tb.pill { width: 88px; height: 42px; border-radius: 21px; font-size: 15px; opacity: .55; }
+#touch .tb.pill.hot { opacity: 1; background: rgba(255,210,63,.85); color: #111; text-shadow: none; border-color: #fff; animation: usepulse .8s ease-in-out infinite alternate; }
+@keyframes usepulse { to { transform: scale(1.08); } }
+#touch .tb.pedal { width: 72px; height: 104px; border-radius: 16px; font-size: 13px; }
+#touch .tb.green { background: rgba(40,150,70,.5); }
+#touch .tb.dp { width: 48px; height: 48px; border-radius: 12px; font-size: 16px; }
+#touch .tb.top { width: 44px; height: 36px; border-radius: 10px; font-size: 15px; }
+#touch .tb.top.txt .tl { font-size: 11px; }
+#touch .tb.test { border-style: dashed; }
+
+/* On foot (right thumb) */
+#touch .tb-fire { right: 22px; bottom: 26px; }
+#touch .tb-aim { right: 116px; bottom: 14px; }
+#touch .tb-reload { right: 130px; bottom: 86px; }
+#touch .tb-cross { right: 104px; bottom: 148px; }
+#touch .tb-circle { right: 34px; bottom: 120px; }
+#touch .tb-tri { right: 26px; bottom: 186px; }
+#touch .tb-crouch { right: 192px; bottom: 30px; }
+#touch .tb-weapon { right: 196px; bottom: 98px; width: 58px; }
+#touch .tb-use { right: 92px; bottom: 214px; }
+/* Driving */
+#touch .tb-gas { right: 22px; bottom: 22px; }
+#touch .tb-brake { right: 108px; bottom: 22px; }
+#touch .tb-hand { right: 110px; bottom: 140px; }
+#touch[data-ctx="car"] .tb-cross { right: 196px; bottom: 22px; }
+#touch[data-ctx="car"] .tb-circle { right: 196px; bottom: 84px; }
+#touch[data-ctx="car"] .tb-tri { right: 30px; bottom: 140px; }
+#touch[data-ctx="car"] .tb-use { right: 22px; bottom: 206px; }
+/* D-pad (phone, menus, inventory strip) on the left */
+#touch .tb-up { left: 76px; bottom: 120px; }
+#touch .tb-down { left: 76px; bottom: 20px; }
+#touch .tb-left { left: 24px; bottom: 70px; }
+#touch .tb-right { left: 128px; bottom: 70px; }
+#touch[data-ctx="phone"] .tb-cross, #touch[data-ctx="menu"] .tb-cross, #touch[data-ctx="strip"] .tb-cross { left: 196px; right: auto; bottom: 96px; }
+#touch[data-ctx="phone"] .tb-circle, #touch[data-ctx="menu"] .tb-circle { left: 196px; right: auto; bottom: 30px; }
+#touch[data-ctx="strip"] .tb-reload { left: 196px; right: auto; bottom: 30px; }
+#touch[data-ctx="strip"] .tb-weapon { left: auto; right: 22px; bottom: 26px; }
+#touch[data-ctx="menu"] .tb-up, #touch[data-ctx="menu"] .tb-down, #touch[data-ctx="menu"] .tb-left, #touch[data-ctx="menu"] .tb-right, #touch[data-ctx="menu"] .tb-cross, #touch[data-ctx="menu"] .tb-circle { z-index: 2; }
+/* Map */
+#touch[data-ctx="map"] .tb-up { left: auto; right: 22px; bottom: 214px; }
+#touch[data-ctx="map"] .tb-down { left: auto; right: 22px; bottom: 160px; }
+#touch .tb-zin { right: 22px; bottom: 88px; }
+#touch .tb-zout { right: 22px; bottom: 20px; }
+#touch[data-ctx="map"] .tb-cross { right: 96px; bottom: 20px; }
+#touch[data-ctx="map"] .tb-circle { right: 96px; bottom: 82px; }
+#touch[data-ctx="map"] .tb-tri { right: 160px; bottom: 20px; }
+#touch .tb-heat { right: 160px; bottom: 82px; }
+/* Top row */
+#touch .tb-pause { left: 50%; top: 6px; margin-left: -102px; }
+#touch .tb-phone { left: 50%; top: 6px; margin-left: -52px; }
+#touch .tb-map { left: 50%; top: 6px; margin-left: -2px; width: 52px; }
+#touch .tb-spawn { left: 50%; top: 6px; margin-left: 56px; width: 48px; }
+#touch[data-ctx="phone"] .tb-phone { left: auto; right: 270px; top: 10px; margin: 0; }
+
+/* Touch: things that only make sense with a mouse or keyboard */
+body.touch #mouse-hint, body.touch #phone-hint, body.touch .controls, body.touch .control-tables { display: none !important; }
+.touch-help { display: none; margin-top: 12px; font-size: 13px; line-height: 1.5; }
+.touch-help b { color: #ffd23f; }
+body.touch .touch-help { display: block; }
+.quality { width: 100%; margin-top: 12px; padding: 10px; font-size: 14px; font-weight: 700; background: #1d2433; color: #fff; border: 1px solid #2f3a50; border-radius: 6px; cursor: pointer; }
+body.touch #shop .shop-row { padding: 12px 18px; }
+body.touch #phone-body .ph-row { padding: 11px 8px; }
+#rotate { display: none; }
+@media (orientation: portrait) {
+  body.touch #rotate { display: flex; position: fixed; inset: 0; z-index: 100; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #0b1426; font-size: 18px; font-weight: 700; text-align: center; padding: 24px; }
+  body.touch #rotate div { font-size: 64px; animation: spin 2s ease-in-out infinite; }
+}
+@keyframes spin { 50% { transform: rotate(90deg); } }
+
+/* ---- Small landscape screens (phones) ---- */
+@media (max-height: 520px) {
+  #top-left { top: 8px; left: 124px; }
+  #role { font-size: 10px; letter-spacing: 1px; }
+  #cred { font-size: 11px; margin-top: 1px; }
+  #district { font-size: 10px; }
+  #crew { margin-top: 4px; gap: 2px; }
+  .crew-row { font-size: 10px; padding: 1px 5px; grid-template-columns: 48px 36px auto; }
+  #top-right { top: 6px; right: 10px; }
+  #cash { font-size: 20px; }
+  #bank-line { font-size: 10px; }
+  #stars { font-size: 17px; letter-spacing: 1px; }
+  #weapon { font-size: 11px; margin-top: 2px; }
+  #product { font-size: 10px; }
+  #minimap { left: 8px !important; top: 8px; bottom: auto !important; width: 108px; height: 108px; }
+  #health { left: 12px !important; top: 122px; bottom: auto; width: 54px !important; height: 5px; }
+  #armor { left: 70px; top: 122px; bottom: auto; width: 44px; height: 5px; }
+  #prompt { bottom: 8px; font-size: 13px; max-width: 46vw; text-align: center; padding: 6px 10px; }
+  #progress { bottom: 52px; width: 200px; }
+  #toast { top: 24%; font-size: 18px; }
+  #speed { right: auto; left: 50%; transform: translateX(-50%); bottom: auto; top: 46px; font-size: 15px; }
+  #phone-toast { right: auto; left: 124px; top: 74px; bottom: auto; width: 230px; padding: 6px 9px; border-radius: 10px; }
+  #pt-text { font-size: 11px; }
+  .pt-head { font-size: 9px; }
+  #phone { right: 8px; bottom: 8px; top: 8px; height: auto; width: 250px; border-radius: 22px; padding: 6px; }
+  #war { top: 48px; font-size: 11px; padding: 4px 10px; }
+  #strip { top: 52px !important; bottom: auto; transform: translateX(-50%) scale(.8); transform-origin: top center; }
+  #news { top: 70px; width: 200px; }
+  .busted-title, .wasted-title { font-size: 54px; }
+  #busted-detail, #wasted-detail { font-size: 14px; }
+  .intro-card { padding: 14px 18px; max-height: calc(100vh - 16px); }
+  .intro-card h1 { font-size: 30px; }
+  .sub { margin-bottom: 8px; }
+  .roles { grid-template-columns: repeat(6, 1fr); gap: 4px; margin-bottom: 8px; }
+  .role { font-size: 10px; padding: 4px; }
+  .role span { font-size: 9px; }
+  .goal { font-size: 12px; line-height: 1.35; margin: 6px 0; }
+  #play { padding: 10px; font-size: 18px; }
+  #shop .shop-box { max-height: calc(100vh - 16px); }
+  #shop { padding: 8px; justify-content: flex-end; padding-right: 24px; }
+  body.touch #shop { justify-content: center; padding-left: 270px; padding-right: 12px; }
+  #shop .shop-head { padding: 8px 14px; }
+  #shop .shop-title { font-size: 16px; }
+  #shop .shop-detail, #shop .shop-help { padding: 6px 14px; font-size: 11px; }
+  #bigmap .bm-info { font-size: 11px; padding: 6px 9px; min-width: 0; max-width: 40vw; top: auto; bottom: 8px; left: 50%; transform: translateX(-50%); }
+  #bigmap .bm-help { display: none; }
+  #bigmap .bm-legend { width: 220px; font-size: 11px; top: 44px; left: 8px; right: auto; bottom: auto; max-height: calc(100vh - 52px); }
+  #bigmap .bm-legend-tab, #bigmap .bm-legend-tab.open { top: 8px; left: 8px; right: auto; }
+  #clip .clip-box { width: min(560px, 80vw); }
+  /* Pause menu: resume and the graphics switch first, the rest scrolls below. */
+  #pause .intro-card { display: flex; flex-direction: column; }
+  #pause h2 { font-size: 20px; margin-bottom: 6px; }
+  #resume { order: -1; margin: 0 0 8px; padding: 10px; }
+  #quality { order: -1; margin: 0 0 10px; padding: 8px; }
+  #pause h2 { order: -2; }
+  #president h3 { font-size: 12px; }
+}

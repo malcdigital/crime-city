@@ -129,7 +129,7 @@ export class Hud {
     }
     const key = game.input.label('phone');
     this.set('phone-hint', this.phoneOpen ? '' : this.unread ? `${key}  Phone · ${this.unread} new` : `${key}  Phone`);
-    this.set('phone-foot', game.input.mode === 'pad' ? 'D-pad move · ✕ open · ○ back · Create: put away' : 'Arrows move · Enter open · Backspace back · T: put away');
+    this.set('phone-foot', game.input.touchMode ? 'Tap to choose, tap again to open · ○ back · 📱 put away' : game.input.mode === 'pad' ? 'D-pad move · ✕ open · ○ back · Create: put away' : 'Arrows move · Enter open · Backspace back · T: put away');
     if (this.toastT > 0) {
       this.toastT -= dt;
       if (this.toastT <= 0) $('toast').classList.remove('show');

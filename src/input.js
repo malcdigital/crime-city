@@ -10,19 +10,20 @@ const DEAD = 0.18;
 const deadzone = (v) => (Math.abs(v) < DEAD ? 0 : (v - Math.sign(v) * DEAD) / (1 - DEAD));
 
 // Button names shown in prompts, for keyboard and controller.
+// (Third: the touch buttons on a phone.)
 const LABELS = {
-  enter: ['F', '△'],
-  interact: ['E', 'D-pad ↑'],
-  fire: ['Left-click', 'R2'],
-  aim: ['Right-click', 'L2'],
-  melee: ['J', '○'],
-  reload: ['R', '□'],
-  sprint: ['Shift', '✕'],
-  play: ['Click PLAY', 'Press ✕'],
-  phone: ['T', 'D-pad →'],
-  crouch: ['C', 'L3'],
-  map: ['M', 'Touchpad'],
-  contacts: ['R', '□'],
+  enter: ['F', '△', '△'],
+  interact: ['E', 'D-pad ↑', 'USE'],
+  fire: ['Left-click', 'R2', 'FIRE'],
+  aim: ['Right-click', 'L2', 'AIM'],
+  melee: ['J', '○', '○'],
+  reload: ['R', '□', '□'],
+  sprint: ['Shift', '✕', 'push the stick all the way'],
+  play: ['Click PLAY', 'Press ✕', 'Tap PLAY'],
+  phone: ['T', 'D-pad →', '📱'],
+  crouch: ['C', 'L3', 'DUCK'],
+  map: ['M', 'Touchpad', 'MAP'],
+  contacts: ['R', '□', '□'],
 };
 
 // Keyboard, mouse and gamepad input, merged into one set of actions per frame.
@@ -118,16 +119,31 @@ export class Input {
         if (!pad || g.mapping === 'standard') pad = g;
       }
     }
+    this.realPad = pad;
+    if (pad && (pad.buttons.some((b) => b.pressed) || pad.axes.some((a) => Math.abs(a) > 0.35))) this.padActiveT = performance.now();
+    // Touch controls act as a controller (touch.js): used when touched more recently than a
+    // real controller.
+    this.touchMode = false;
+    const t = this.touch;
+    if (t && t.enabled && (!pad || t.lastT > (this.padActiveT || 0))) {
+      pad = t.pad();
+      this.touchMode = t.recent;
+      const [dx, dy] = t.takeLook();
+      this.mdx += dx;
+      this.mdy += dy;
+      if (t.recent) this.mode = 'pad';
+    }
     this.pad = pad;
     this.padNow = pad ? pad.buttons.map((b) => b.pressed || b.value > 0.5) : [];
-    if (pad) {
+    if (pad && !this.touchMode) {
       const active = this.padNow.some((b) => b) || pad.axes.some((a) => Math.abs(a) > 0.35);
       if (active) this.mode = 'pad';
     }
   }
 
+  // A real controller (not the touch controls).
   get padConnected() {
-    return !!this.pad;
+    return !!this.realPad;
   }
 
   down(code) {
@@ -155,7 +171,7 @@ export class Input {
   }
 
   label(action) {
-    return LABELS[action][this.mode === 'pad' ? 1 : 0];
+    return LABELS[action][this.touchMode ? 2 : this.mode === 'pad' ? 1 : 0];
   }
 
   actions(dt) {
@@ -163,7 +179,7 @@ export class Input {
     const a = {};
     a.moveX = clamp((k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0) + this.axis(0), -1, 1);
     a.moveY = clamp((k('KeyW') || k('ArrowUp') ? 1 : 0) - (k('KeyS') || k('ArrowDown') ? 1 : 0) - this.axis(1), -1, 1);
-    a.sprint = k('ShiftLeft') || k('ShiftRight') || this.btn(PAD.CROSS);
+    a.sprint = k('ShiftLeft') || k('ShiftRight') || this.btn(PAD.CROSS) || !!(this.touchMode && this.touch.sprint);
     a.crouch = this.hit('KeyC') || this.btnHit(PAD.L3);
     a.lookX = -this.mdx * 0.0025 + (k('ArrowLeft') ? dt * 2.2 : 0) - (k('ArrowRight') ? dt * 2.2 : 0) - this.axis(2) * dt * 3.2;
     a.lookY = this.mdy * 0.0025 + this.axis(3) * dt * 2.0;

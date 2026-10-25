@@ -110,6 +110,19 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 
 - Dialogue voice: homies, plugs and street buyers talk in African American Vernacular English, written from research (kept outside the repo) — grammar over respelling, light slang, coded product talk, short calm threats; each plug has their own voice (Smokey laid back, Doc clipped and cold, Marco an older OG), homies text warm, buyers sound anxious, and undercover cops sometimes give themselves away by naming the drug like a cop would. Lines live in `VOICES` / `ASKS` in src/drugs.js and the homie texts in src/shops.js. No slurs and no real-gang vocabulary
 
+## Playing on a phone
+
+Open the game link on your phone and turn it sideways. Touch controls switch on at the first touch (src/touch.js); they work like a virtual PS5 controller, so every prompt, menu and the phone work the same way.
+- Left thumb: a joystick that appears wherever you touch the left side. On foot it moves you (push it all the way out to sprint); in a car it steers, and up/down is gas/brake.
+- Right thumb: drag anywhere on the right side to look around. Drag off FIRE to aim while shooting. AIM is a toggle (tap on, tap off) and gets the controller's aim assist.
+- On foot: FIRE, AIM, ✕ (yes / sprint), ○ (punch / no), □ reload, △ get in a car, DUCK, GUN (tap to swap weapons, hold for the inventory strip, tap again to close it) and USE, which lights up yellow when there's something to do.
+- Driving: GAS, BRAKE, HAND BRAKE, △ exit, ✕ / ○ for prompts (tickets, deals), USE.
+- Top row: pause, 📱 phone, MAP, CAR (test car while that testing switch is on).
+- Phone, shop menus and the inventory strip: a D-pad plus ✕ / ○ on the left. Rows can be tapped too: the first tap selects (so you can read the details), the second buys or opens.
+- Map: drag to pan (when zoomed in), pinch to zoom, tap to drop a waypoint; buttons for zoom, legend, heat map and close.
+- Phones get "Phone" graphics automatically (src/quality.js): lower render resolution, no antialiasing, cheaper and shorter shadows, a shorter view distance (fog closes in sooner), 60% of the people, 70% of the traffic and fewer parked cars drawn far away. Switch between Phone and Full in the pause menu (saved), or add `?quality=phone` / `?quality=full` to the address. `?touch` forces the touch controls on.
+- The HUD, phone, shops, map, pause menu and title screen are laid out for small landscape screens; in portrait you're asked to turn the phone. Android goes full screen when you tap PLAY (on iPhone, use Share → Add to Home Screen for full screen).
+
 ## Controls
 
 | Action | Keyboard / mouse | PS5 controller |
@@ -163,6 +176,8 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | `src/transit.js` | Bus routes, bus shelters, buses stopping and passengers |
 | `src/parking.js` | Cars parked along the curbs (instanced stand-ins that turn into real cars up close) |
 | `src/props.js` | Hydrants (and their spray), trash cans, benches, litter and graffiti |
+| `src/touch.js` | Touch controls for phones (a virtual controller: joystick, look drag, context buttons) |
+| `src/quality.js` | Graphics quality (Phone / Full), picked automatically |
 | `src/enforcement.js` | Red lights, speeding, traffic stops and tickets |
 | `src/sidewalk.js` | Sidewalk/crosswalk walking graph (routes for people on foot) and the crosswalk stripes |
 | `src/heliicon.js` | The helicopter icon and searchlight on the radar and map |

@@ -16,6 +16,7 @@ Things we've decided to do later. Check here before planning new work.
 - **Dirty-cop tells in the 3D scene**: they're text-only in the stop prompt right now.
 - **Traffic stops in the 3D scene**: the officer stays in the car for now (the stop is a prompt); have one walk up to your window.
 - **Taxis you can ride** (hail one, pay the fare) and **riding the bus**.
+- **Touch controls on a real phone**: tested only in a simulated phone browser so far; tune button sizes, look speed and the joystick after real play. Possible extras: button layout editor, gyro aiming, haptics.
 - **Shooting hydrants** (they only break when hit by a car right now).
 
 ## Ideas list (realism and polish, best value first)
@@ -24,7 +25,7 @@ Done: car lights, daily rhythms, parked cars / buses / taxis / delivery trucks, 
 5. City sounds: background hum, distant sirens, music from the Strip.
 7. Emergency services: ambulances, fire trucks, tow trucks.
 8. Weather: rain (slick roads, fewer people out), fog.
-9. Settings menu: volume, graphics quality, field of view, controls.
+9. Settings menu: volume, graphics quality (a Phone/Full switch is in the pause menu now), field of view, controls.
 10. One save/load system with an autosave indicator.
 11. Onboarding: short tutorial missions.
 12. Automated tests: turn the headless test scripts into a suite that runs on every change.

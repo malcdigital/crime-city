@@ -53,6 +53,12 @@ export class Phone {
     body.addEventListener('click', (e) => {
       const r = e.target.closest('.ph-row');
       if (!r) return;
+      // On a touchscreen, the first tap picks the row (so you can read it), the second does it.
+      if (this.game.input.touchMode && this.rowSel !== +r.dataset.i) {
+        this.rowSel = +r.dataset.i;
+        this.render();
+        return;
+      }
       this.rowSel = +r.dataset.i;
       this.pick();
     });

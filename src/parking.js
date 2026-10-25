@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CFG } from './config.js';
 import { Vehicle, VTYPES } from './vehicle.js';
 import { mulberry32, dist } from './util.js';
+import { GFX } from './quality.js';
 
 // Cars parked along the curbs. Most streets have some, more in the residential parts of town
 // (the Heights, Midtown, the Projects, the Strip) and few in the business districts and at
@@ -15,7 +16,7 @@ const R = CFG.ROAD;
 const CURB = R / 2 - 1.15; // car center: just inside the curb
 const MATERIAL = 28;
 const RELEASE = 45;
-const SHOW = 250; // stand-ins are drawn this far out
+const SHOW = GFX.parkedShow; // stand-ins are drawn this far out (less on phones)
 const DENSITY = {
   Downtown: 0.35,
   'Financial District': 0.2,

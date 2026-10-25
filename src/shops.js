@@ -359,6 +359,8 @@ export class Shops {
     el.addEventListener('click', (e) => {
       const row = e.target.closest('.shop-row');
       if (row && this.menu) {
+        // Touchscreen: first tap selects (read the details), second tap buys.
+        if (this.game.input.touchMode && this.menu.i !== +row.dataset.i) return this.select(+row.dataset.i);
         this.select(+row.dataset.i);
         this.buy();
       } else if (e.target === el) this.close();
@@ -370,7 +372,7 @@ export class Shops {
     this.menu = { kind, i: 0 };
     if (game.input.locked) game.input.unlock();
     this.el.classList.remove('hidden');
-    this.el.querySelector('.shop-help').textContent = game.input.mode === 'pad' ? 'D-pad ↑↓: choose · ✕: buy · ○: leave' : '↑↓ / W S: choose · Enter / click: buy · Esc: leave';
+    this.el.querySelector('.shop-help').textContent = game.input.touchMode ? 'Tap to choose, tap again to buy · ○: leave' : game.input.mode === 'pad' ? 'D-pad ↑↓: choose · ✕: buy · ○: leave' : '↑↓ / W S: choose · Enter / click: buy · Esc: leave';
     this.render();
   }
 

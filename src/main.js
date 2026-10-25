@@ -5,6 +5,8 @@ import { buildSidewalks } from './sidewalk.js';
 import { Streets } from './streets.js';
 import { DayNight } from './daynight.js';
 import { Rhythm } from './rhythm.js';
+import { TouchControls } from './touch.js';
+import { GFX, PHONE, QUALITY, setQuality } from './quality.js';
 import { Transit } from './transit.js';
 import { Parking } from './parking.js';
 import { Props } from './props.js';
@@ -53,24 +55,27 @@ const tmpV = new THREE.Vector3();
 class Game {
   constructor() {
     const canvas = document.getElementById('game');
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    // Graphics quality: phones get lighter settings (quality.js).
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: GFX.antialias });
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, GFX.pixelRatio));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = GFX.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    CFG.PEDS = Math.round(CFG.PEDS * GFX.crowd);
+    CFG.TRAFFIC_CARS = Math.round(CFG.TRAFFIC_CARS * GFX.traffic);
     this.scene = new THREE.Scene();
     const sky = new THREE.Color(0x9fc3e0);
     this.scene.background = sky;
-    this.scene.fog = new THREE.Fog(sky, 140, 430);
-    this.camera = new THREE.PerspectiveCamera(65, 1, 0.1, 450); // nothing past the fog
+    this.scene.fog = new THREE.Fog(sky, GFX.fogNear, GFX.fogFar);
+    this.camera = new THREE.PerspectiveCamera(65, 1, 0.1, GFX.far); // nothing past the fog
 
     this.hemi = new THREE.HemisphereLight(0xdfefff, 0x4a4a40, 1.1);
     this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight(0xfff1d6, 1.8);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(GFX.shadowMap, GFX.shadowMap);
     const sc = this.sun.shadow.camera;
-    sc.left = sc.bottom = -90;
-    sc.right = sc.top = 90;
+    sc.left = sc.bottom = -GFX.shadowRange;
+    sc.right = sc.top = GFX.shadowRange;
     sc.near = 10;
     sc.far = 320;
     this.scene.add(this.sun, this.sun.target);
@@ -80,6 +85,8 @@ class Game {
     this.streets = new Streets(this); // traffic lights, stop signs, street lights
     this.dayNight = new DayNight(this);
     this.input = new Input(canvas);
+    // Touch controls (phones and tablets): a virtual controller, on at the first touch.
+    this.input.touch = new TouchControls(this.input, { spawnButton: CFG.CAR_SPAWN_KEY, force: new URLSearchParams(location.search).has('touch') });
     this.hud = new Hud(this.city);
     this.mapView = new MapView(this);
     this.gpsLine = new GpsLine(THREE, this.scene);
@@ -191,7 +198,17 @@ class Game {
     }
     this.hud.news('Welcome to Crime City. Stay out of trouble.', 'info');
     this.sfx.unlock();
-    if (this.input.mode !== 'pad') this.input.lock();
+    if (this.input.touch.enabled) {
+      // Phone: go full screen and sideways where the browser allows it (Android; iPhone
+      // Safari doesn't, so add the page to the home screen there for full screen).
+      try {
+        const el = document.documentElement;
+        const p = el.requestFullscreen?.({ navigationUI: 'hide' });
+        if (p && p.then) p.then(() => screen.orientation?.lock?.('landscape').catch(() => {})).catch(() => {});
+      } catch {
+        // (not allowed here)
+      }
+    } else if (this.input.mode !== 'pad') this.input.lock();
   }
 
   // In-game clock: a full day is 48 real minutes (one real second is half a game minute),
@@ -215,7 +232,7 @@ class Game {
     this.paused = p;
     this.hud.pause(p, this);
     if (p) this.input.unlock();
-    else if (this.input.mode !== 'pad') this.input.lock();
+    else if (this.input.mode !== 'pad' && !this.input.touch.enabled) this.input.lock();
   }
 
   resize() {
@@ -1689,10 +1706,13 @@ class Game {
   frame(now) {
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
+    this.input.touch.update(this);
     this.input.poll();
     const a = this.input.actions(dt);
     if (!this.started) {
-      document.getElementById('pad-note').textContent = this.input.padConnected
+      document.getElementById('pad-note').textContent = this.input.touch.enabled && !this.input.padConnected
+        ? 'Touch controls on. Turn your phone sideways and tap PLAY.'
+        : this.input.padConnected
         ? 'Controller connected. Press ✕ to play.'
         : this.input.padBlocked
           ? 'This page blocks controllers. Run the game locally (npm run dev) to use a PS5 controller.'
@@ -1998,6 +2018,13 @@ window.__game = game;
 game.__raycast = raycast; // handy for debugging shots from the console
 document.getElementById('play').addEventListener('click', () => game.start());
 document.getElementById('resume').addEventListener('click', () => game.setPaused(false));
+// Graphics quality switch in the pause menu (reloads the page).
+{
+  const q = document.getElementById('quality');
+  const show = () => { q.textContent = `Graphics: ${QUALITY === 'phone' ? 'Phone (faster)' : 'Full'} · tap to switch`; };
+  show();
+  q.addEventListener('click', () => setQuality(QUALITY === 'phone' ? 'full' : 'phone'));
+}
 document.getElementById('game').addEventListener('click', () => {
   game.sfx.unlock();
   if (game.started && !game.paused && !game.input.locked) game.input.lock();

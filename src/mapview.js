@@ -41,6 +41,7 @@ export class MapView {
     // Mouse: drag to pan, wheel to zoom, click to set a waypoint.
     let drag = null;
     this.canvas.addEventListener('mousedown', (e) => {
+      if (this.game.input.touchMode) return; // (touch has its own handling below)
       drag = { x: e.clientX, y: e.clientY, moved: false };
     });
     addEventListener('mousemove', (e) => {
@@ -77,6 +78,44 @@ export class MapView {
       const r = e.target.closest('.lg-row');
       if (r && +r.dataset.i >= 0) this.jumpTo(+r.dataset.i);
     });
+    // Touch: drag with one finger to pan, pinch with two to zoom, tap to set a waypoint.
+    const fingers = new Map();
+    let tapStart = null;
+    let pinch = 0;
+    this.canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch') return;
+      fingers.set(e.pointerId, [e.clientX, e.clientY]);
+      tapStart = fingers.size === 1 ? { x: e.clientX, y: e.clientY, t: e.timeStamp } : null;
+      pinch = 0;
+    });
+    this.canvas.addEventListener('pointermove', (e) => {
+      const f = fingers.get(e.pointerId);
+      if (!f || !this.open) return;
+      if (fingers.size === 1) {
+        this.cx -= (e.clientX - f[0]) / this.scale;
+        this.cz -= (e.clientY - f[1]) / this.scale;
+        fingers.set(e.pointerId, [e.clientX, e.clientY]);
+      } else if (fingers.size === 2) {
+        fingers.set(e.pointerId, [e.clientX, e.clientY]);
+        const [a, b] = [...fingers.values()];
+        const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+        if (pinch) this.zoomAt(d / pinch, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+        pinch = d;
+      }
+    });
+    const lift = (e) => {
+      if (!fingers.has(e.pointerId)) return;
+      fingers.delete(e.pointerId);
+      pinch = 0;
+      if (tapStart && this.open && Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y) < 10 && e.timeStamp - tapStart.t < 450) {
+        const [x, z] = this.toWorld(e.clientX, e.clientY);
+        this.cursor = [x, z];
+        this.toggleWaypoint(x, z);
+      }
+      tapStart = null;
+    };
+    this.canvas.addEventListener('pointerup', lift);
+    this.canvas.addEventListener('pointercancel', lift);
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       this.zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY);
