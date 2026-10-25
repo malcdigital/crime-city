@@ -379,6 +379,7 @@ export class Drugs {
       incident = r < raidW ? 'raid' : 'chase';
       if (kind === 'gang' && Math.random() < 0.35) incident = 'both';
     }
+    if (p.product === 'weed' && game.president?.p.legalWeed && incident === 'raid') incident = null; // legal: no weed raids
     if (CFG.TEST_INCIDENT) incident = CFG.TEST_INCIDENT === 'clean' ? null : CFG.TEST_INCIDENT; // testing
     const unit = this.unitCost(p.product, kind);
     const cashUp = this.trustOf(p.id) < 20; // burned: no more fronts
@@ -980,7 +981,8 @@ export class Drugs {
     const P = PRODUCTS[c.kind];
     c.units = Math.min(this.inv[c.kind], randInt(1, 2 + tier));
     const [loyal] = this.risk.loyalty(game.player.x, game.player.z); // rival turf: their buyers pay less
-    const spend = game.economy ? game.economy.spend(game.player.x, game.player.z) : 1; // richer neighborhoods pay more
+    const spend = (game.economy ? game.economy.spend(game.player.x, game.player.z) : 1) // richer neighborhoods pay more
+      * (c.kind === 'weed' && game.president?.p.legalWeed ? 0.7 : 1); // legal weed shops undercut the street
     c.price = Math.max(5, Math.round((c.units * P.street * M.mult(d, c.kind) * loyal * spend * (1 + 0.08 * tier) * rand(0.9, 1.1)) / 5) * 5);
     if (this.pushing) {
       // Selling cheap: they buy more, for less (never below what you paid).
@@ -995,6 +997,8 @@ export class Drugs {
     let uc = 0.05 + 0.015 * c.units + (c.kind === 'coke' ? 0.04 : 0);
     if (turf && turf.id === 'crew') uc *= 0.6;
     uc *= 1 + 0.75 * (game.market.war || 0); // more undercover cops in a war on drugs
+    const legal = c.kind === 'weed' && game.president?.p.legalWeed; // Free City: weed is legal
+    if (legal) uc = 0;
     c.undercover = Math.random() < uc;
     if (CFG.TEST_STING && !this.testStung) {
       c.undercover = true; // testing: this one's a cop

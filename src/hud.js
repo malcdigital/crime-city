@@ -238,7 +238,8 @@ export class Hud {
     const trend = t > ap + 1 ? '▲' : t < ap - 1 ? '▼' : '';
     const col = ap >= 55 ? '#4cd964' : ap >= 40 ? '#ffcc00' : '#ff3b30';
     const drivers = P.drivers().map(([k, w]) => `<span class="${w > 0 ? 'bad' : 'good'}">${w > 0 ? '▼' : '▲'} ${k}</span>`).join('');
-    $('approval').innerHTML = `<div class="ap-top"><span>Approval</span><b style="color:${col}">${ap}% ${trend}</b><span class="ap-crime">Crime: ${P.levelName()}</span></div>`
+    $('approval').innerHTML = (P.leader ? `<div class="ap-who"><b>${P.title()}</b><span>${P.p.blurb}</span></div>` : '')
+      + `<div class="ap-top"><span>Approval</span><b style="color:${col}">${ap}% ${trend}</b><span class="ap-crime">Crime: ${P.levelName()}</span></div>`
       + `<div class="ap-bar"><div style="width:${ap}%;background:${col}"></div></div>`
       + `<div class="ap-why">${drivers || '<span>Quiet lately</span>'}</div>`;
     const T = game.turfWars;
@@ -257,8 +258,14 @@ export class Hud {
     box.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
       if (b.classList.contains('budget-auto')) game.budget.toggleAuto();
       else if (b.dataset.line) game.budget.step(b.dataset.line);
-      else if (b.classList.contains('drugwar')) M.setWar((lvl + 1) % WAR_LEVELS.length);
-      else T.setCrackdown(b.dataset.g, !T.crackdown[b.dataset.g]);
+      else if (b.classList.contains('drugwar')) {
+        M.setWar((lvl + 1) % WAR_LEVELS.length);
+        if (game.budget) game.budget.auto = false; // you've taken over the orders
+      }
+      else {
+        T.setCrackdown(b.dataset.g, !T.crackdown[b.dataset.g]);
+        if (game.budget) game.budget.auto = false;
+      }
       this.renderCrackdowns(game);
     }));
   }

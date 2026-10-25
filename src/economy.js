@@ -203,6 +203,9 @@ export class Economy {
     const g = this.protector(c);
     const prot = g ? `${GANGS[g].name} collect protection here (10%).` : 'No gang on this block: no protection to pay.';
     const info = `${c.name} gets ${Math.round(c.share * 100)}% of everyone's upkeep (${c.what}). Profit about ${money(this.dailyProfit(c))} a game day. ${prot}`;
+    if (!c.owned && game.president?.p.nationalize) {
+      return [{ label: `${c.name} is city property`, price: 0, priceText: '', detail: `${info} Not for sale under the People's Republic.`, can: 'Not for sale', buy: () => {} }];
+    }
     if (!c.owned) {
       const price = this.price(c);
       return [{

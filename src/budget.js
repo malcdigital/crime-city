@@ -70,12 +70,19 @@ export class CityBudget {
 
   // ---- Effects other systems ask for ----
   policeMult() {
-    return this.scaled(LINES.police.mult[this.level.police]);
+    let m = this.scaled(LINES.police.mult[this.level.police]);
+    // A curfew (the Iron Fist): even more cops after dark.
+    const P = this.game.president;
+    if (P && P.p.curfew) {
+      const t = this.game.clockMinutes();
+      if (t >= 22 * 60 || t < 6 * 60) m *= 1.3;
+    }
+    return m;
   }
 
   // Better-paid police: fewer dirty cops.
   dirtyMult() {
-    return Math.max(0.5, 1.4 - 0.4 * this.policeMult());
+    return Math.max(0.5, 1.4 - 0.4 * this.policeMult()) * (this.game.president?.p.dirtyMult || 1); // the Boss: cops on the take
   }
 
   crimeFade() {
@@ -99,8 +106,19 @@ export class CityBudget {
     let police = crime > 60 ? 3 : crime > 35 ? 2 : 1;
     let works = crime < 15 ? 2 : 1;
     let community = crime > 35 ? 2 : 1;
-    // Money short: cut back, building first.
+    // The President's leanings (politics.js): their own priorities, and maybe tougher on crime.
+    const p = P.p;
+    if (p.budget) {
+      ({ police, works, community } = p.budget);
+      if (p.toughOnCrime && crime > 35) police = Math.min(3, police + 1);
+    }
     const reserve = T / income; // days of income in the bank
+    // Extremes spend what they want, money or not.
+    if (!p.frugal) {
+      this.setLevels(police, works, community);
+      return;
+    }
+    // Money short: cut back, building first.
     if (reserve < 1) {
       works = Math.min(works, 1);
       community = Math.min(community, 1);
@@ -117,12 +135,17 @@ export class CityBudget {
     while (total() > afford) {
       if (works > 1) works--;
       else if (community > 1) community--;
-      else if (police > 1) police--;
+      else if (police > (p.toughOnCrime && p.budget ? p.budget.police : 1)) police--; // tough-on-crime keeps its cops
       else if (works > 0) works--;
       else if (community > 0) community--;
-      else if (police > 0 && reserve < 0.4) police--;
+      else if (police > 0 && reserve < 0.4 && !p.toughOnCrime) police--;
       else break;
     }
+    this.setLevels(police, works, community);
+  }
+
+  setLevels(police, works, community) {
+    const game = this.game;
     const changed = police !== this.level.police || works !== this.level.works || community !== this.level.community;
     this.level = { police, works, community };
     if (changed) {
@@ -160,7 +183,10 @@ export class CityBudget {
 
   toggleAuto() {
     this.auto = !this.auto;
-    if (this.auto) this.decide();
+    if (this.auto) {
+      this.decide();
+      this.game.president.orders();
+    }
     this.save();
   }
 
@@ -174,7 +200,7 @@ export class CityBudget {
     }).join('');
     const short = this.funded < 0.98 ? ` · <span class="bad">only ${Math.round(this.funded * 100)}% funded</span>` : '';
     return `<div class="ap-why budget-head"><span>City treasury ${money(T)} · budget ${money(this.cost())}/day${short}</span></div>`
-      + `<button class="cd budget-auto ${this.auto ? 'on' : ''}"><span class="sw"></span>Budget<b>${this.auto ? 'THE PRESIDENT DECIDES' : 'YOU DECIDE'}</b><i>${this.auto ? 'Click a line to take over' : 'Click to hand it back'}</i></button>`
+      + `<button class="cd budget-auto ${this.auto ? 'on' : ''}"><span class="sw"></span>Budget<b>${this.auto ? 'THE PRESIDENT DECIDES' : 'YOU DECIDE'}</b><i>${this.auto ? 'Budget, war on drugs and crackdowns. Click any of them to take over' : 'Click to hand the orders back to the President'}</i></button>`
       + rows;
   }
 }

@@ -1,3 +1,5 @@
+import { personality, newLeader } from './politics.js';
+import { setTaxes } from './property.js';
 // The President's approval rating, driven by crime.
 // - Crime level: every crime adds to it (weighted by how bad it is: a cop killed counts far
 //   more than a carjacking), and it fades over about 10 minutes of play.
@@ -7,6 +9,7 @@
 //   up) and heavy-handed when the city is quiet (approval down).
 // City News reports big moves, and the pause menu shows the rating and what's driving it.
 const SAVE_KEY = 'crimecity.president.v1';
+const TERM = 7; // game days in a term (one game week, 5 h 36 min of play)
 const FADE = 1 / 600; // crime level fades with a ~10 minute time constant
 export const CRIME_WEIGHT = {
   assault: 1, hitAndRun: 1.5, carjack: 1.5, assaultCop: 3, runOverCop: 4, stealCopCar: 2,
@@ -22,13 +25,103 @@ export class President {
     this.approval = 60;
     this.recent = {}; // what's been driving it: label -> weight (fades too)
     this.reported = 60;
+    this.leader = null; // { name, id } — see politics.js
+    this.termStart = 0;
     this.load();
+    if (!this.leader) this.takeOffice(newLeader(), 0, true);
+    else this.applyPolicy();
+  }
+
+  // ---- Who's in office ----
+  get p() {
+    return personality(this.leader?.id);
+  }
+
+  title() {
+    const p = this.p;
+    return `President ${this.leader.name} · ${p.party} (${p.leaning}${p.extreme ? ', extreme' : ''}) · ${p.title}`;
+  }
+
+  takeOffice(leader, day, quiet = false) {
+    const game = this.game;
+    this.leader = leader;
+    this.termStart = day;
+    this.approval = Math.max(this.approval, 55);
+    this.reported = Math.round(this.approval);
+    const p = this.p;
+    this.applyPolicy();
+    if (!quiet) {
+      game.hud.news(`${leader.name} (${p.party}) sworn in as President: ${p.blurb}`, p.extreme ? 'crime' : 'info');
+    }
+    // A People's Republic buys out the private service companies (at market price).
+    if (p.nationalize && game.economy) {
+      for (const c of game.economy.companies) {
+        if (!c.owned) continue;
+        const get = game.economy.sellPrice(c);
+        c.owned = false;
+        game.bank.balance += get;
+        game.hud.text('City Hall', `${c.name} is now city property. ${get.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} has been paid into your account.`);
+      }
+      game.economy.save();
+      game.bank.save();
+    }
+    if (game.budget) game.budget.auto = true; // a new President sets their own orders
+    this.orders();
+    this.save();
+  }
+
+  // Tax rates follow whoever is in office.
+  applyPolicy() {
+    setTaxes(this.p.salesTax, this.p.propertyTax);
+  }
+
+  // The President's standing orders: the war on drugs and gang crackdowns (unless you've taken
+  // the orders over in the pause menu).
+  orders() {
+    const game = this.game;
+    if (game.budget && !game.budget.auto) return;
+    const p = this.p;
+    const high = this.crimeLevel > 35;
+    const war = high ? p.warHigh : p.war;
+    if (game.market && (game.market.war || 0) !== war) game.market.setWar(war);
+    const T = game.turfWars;
+    if (!T) return;
+    const gangs = ['kings', 'vipers', 'crew'];
+    let want = [];
+    if (p.crackdown === 'all') want = gangs;
+    else if (p.crackdown === 'worst' && high) want = [['kings', 'vipers'].sort((a, b) => T.count(b) - T.count(a))[0]];
+    for (const g of gangs) T.setCrackdown(g, want.includes(g));
+  }
+
+  // A new game day: an election at the end of each term (a game week); then today's orders.
+  newDay(day) {
+    const game = this.game;
+    if (day - this.termStart >= TERM) {
+      const ap = Math.round(this.approval);
+      if (ap >= 50) {
+        this.termStart = day;
+        game.hud.news(`${this.leader.name} re-elected with ${ap}% approval`, 'good');
+      } else {
+        const old = this.leader.name;
+        const next = newLeader(this.p.side);
+        game.hud.news(`${old} voted out (${ap}% approval)`, 'info');
+        this.takeOffice(next, day);
+      }
+    }
+    this.orders();
+    // The Boss skims off the top.
+    if (this.p.skim && game.property) {
+      const take = Math.round(game.property.treasury * this.p.skim);
+      game.property.treasury -= take;
+      if (take > 500 && Math.random() < 0.3) game.hud.news(`Auditors can't account for $${take.toLocaleString('en-US')} in city funds`, 'info');
+    }
+    this.save();
   }
 
   load() {
     try {
       const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
-      if (s) Object.assign(this, { crimeLevel: s.crimeLevel || 0, approval: s.approval ?? 60, recent: s.recent || {}, reported: s.approval ?? 60 });
+      if (s) Object.assign(this, { crimeLevel: s.crimeLevel || 0, approval: s.approval ?? 60, recent: s.recent || {}, reported: s.approval ?? 60, leader: s.leader || null, termStart: s.termStart || 0 });
     } catch {
       // Fresh term.
     }
@@ -36,7 +129,7 @@ export class President {
 
   save() {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ crimeLevel: this.crimeLevel, approval: this.approval, recent: this.recent }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ crimeLevel: this.crimeLevel, approval: this.approval, recent: this.recent, leader: this.leader, termStart: this.termStart }));
     } catch {
       // Storage unavailable.
     }

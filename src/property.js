@@ -24,8 +24,13 @@ import { pick, rand } from './util.js';
 // provide the services, but 6% of every upkeep bill is the tax on those services: it goes to the
 // treasury too (already in the bill, like the sales tax in a price).
 const SAVE_KEY = 'crimecity.property.v1';
-export const SALES_TAX = 0.06;
-const PROPERTY_TAX = 0.0025; // of value, per week
+// Tax rates are set by the President in office (see politics.js).
+export let SALES_TAX = 0.06;
+let PROPERTY_TAX = 0.0025; // of value, per week
+export function setTaxes(sales, property) {
+  SALES_TAX = sales;
+  PROPERTY_TAX = property;
+}
 const TAX_EVERY = 7; // game days
 // Upkeep per game day, progressive like tax brackets: each slice of the current value pays its
 // own rate, so pricier places cost more to keep, without jumps at the bracket lines.
@@ -228,6 +233,7 @@ export class PropertyMarket {
     const game = this.game;
     let upkeep = 0;
     let tax = 0;
+    game.president?.newDay(day); // elections, orders, tax rates
     const byDistrict = {}; // your upkeep, by where it was paid (it goes to the service companies)
     const t0 = this.treasury;
     for (const h of game.bank.ownedHomes()) {
