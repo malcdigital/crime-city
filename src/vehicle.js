@@ -54,8 +54,8 @@ let NIGHT = 0;
 let glowTex = null;
 let barTex = null;
 const glowMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
-// A headlight beam on the road: narrow at the lamp, fanning out wide down the road and fading
-// out at the far end (canvas bottom = the lamp, top = the far end).
+// A headlight beam on the road: about as wide as the lamp where it starts, spreading into a
+// soft cone straight ahead and fading out a couple of car lengths on (canvas bottom = the lamp, top = the far end).
 function carGlowTexture() {
   if (glowTex) return glowTex;
   const W = 128;
@@ -67,11 +67,11 @@ function carGlowTexture() {
   const img = x.createImageData(W, H);
   for (let py = 0; py < H; py++) {
     const f = 1 - py / (H - 1); // 0 at the lamp, 1 at the far end
-    const hw = 5 + f * (W / 2 - 6); // half-width in pixels
-    const along = Math.min(1, f * 14) * Math.pow(1 - f, 0.45); // quick fade-in, long fade-out
+    const hw = 14 + f * (W / 2 - 15); // half-width in pixels (starts about as wide as the lamp)
+    const along = Math.min(1, f * 10) * Math.pow(1 - f, 1.6); // brightest just ahead of the lamp, gone by the far end
     for (let px = 0; px < W; px++) {
       const d = Math.abs(px - W / 2 + 0.5) / hw;
-      const across = d >= 1 ? 0 : 1 - d * d * d * d; // fairly even across, soft edges
+      const across = d >= 1 ? 0 : Math.pow(1 - d * d, 1.5); // soft edges
       const k = (py * W + px) * 4;
       img.data[k] = 255;
       img.data[k + 1] = 244;
@@ -84,9 +84,9 @@ function carGlowTexture() {
   glowTex.colorSpace = THREE.SRGBColorSpace;
   return glowTex;
 }
-const BEAM_LEN = 24; // meters down the road
-const BEAM_W = 9; // meters wide at the far end
-const BEAM_TOE = 0.06; // each beam angles in a little, so the two cross ahead of the car
+const BEAM_LEN = 10; // meters down the road
+const BEAM_W = 4; // meters wide at the far end
+const BEAM_TOE = -0.04; // straight ahead, splaying out a touch
 let beamGeo = null;
 function beamGeometry() {
   if (beamGeo) return beamGeo;
@@ -116,7 +116,7 @@ export function setCarNight(k) {
   NIGHT = k;
   headMat.color.setRGB(0.85 + 0.15 * k, 0.83 + 0.15 * k, 0.72 + 0.2 * k);
   tailMat.color.setRGB(0.43 + 0.4 * k, 0.1 + 0.03 * k, 0.08 + 0.03 * k);
-  glowMat.opacity = 0.42 * k;
+  glowMat.opacity = 0.75 * k;
 }
 
 export class Vehicle {
@@ -272,13 +272,13 @@ export class Vehicle {
   // Light on the road (night only) and the light bar's wash. Built once per car.
   buildGlow() {
     const t = this.type;
-    // Two beams, one from each headlight, angled in so they cross ahead of the car.
+    // Two beams, one from each headlight, straight ahead.
     const glow = new THREE.Group();
     if (!glowMat.map) glowMat.map = carGlowTexture();
     for (const sx of [-1, 1]) {
       const beam = new THREE.Mesh(beamGeometry(), glowMat);
       beam.position.set(sx * (t.w / 2 - 0.35), 0.07, t.l / 2 + 0.05);
-      beam.rotation.y = -sx * BEAM_TOE; // local +x is the car's left: aim each beam across
+      beam.rotation.y = -sx * BEAM_TOE; // local +x is the car's left
       beam.renderOrder = 1;
       glow.add(beam);
     }
