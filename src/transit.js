@@ -6,6 +6,7 @@ import { TrafficDriver } from './traffic.js';
 import { lam } from './character.js';
 import { signTexture } from './shops.js';
 import { dist, rand, randInt } from './util.js';
+import { reserved } from './hwlayout.js';
 
 // City buses. Two routes loop around the middle of the city; each has a bus shelter every
 // few blocks (on the right-hand curb). Buses run all day, stop at each shelter for a few
@@ -50,7 +51,7 @@ export class Transit {
         const sx = mx + px * SHELTER_OFF;
         const sz = mz + pz * SHELTER_OFF;
         const blk = city.blockAt(sx, sz);
-        if (!blk || (blk.type !== 'normal' && blk.type !== 'park')) return;
+        if (!blk || (blk.type !== 'normal' && blk.type !== 'park') || reserved(sx, sz, 3)) return;
         const stop = {
           route, from, to, ux, uz, px, pz,
           x: mx + px * CFG.LANE, z: mz + pz * CFG.LANE, // where the bus stops

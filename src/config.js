@@ -1,7 +1,7 @@
 // Core tuning values for the city and gameplay.
 const BLOCKS = 14;
 const BLOCK = 64;
-const ROAD = 14;
+const ROAD = 16; // two lanes plus a parking shoulder each side
 
 export const CFG = {
   // Testing switch: guns never run out of ammo. Set to false for normal play.

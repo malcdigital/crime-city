@@ -52,9 +52,9 @@ const brakeMat = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
 const amberMat = new THREE.MeshBasicMaterial({ color: 0xffa020 });
 let NIGHT = 0;
 // Guard rails for cars up on the highway (highway.js).
-let HIGHWAY_BOXES = null;
-export function setHighwayBoxes(b) {
-  HIGHWAY_BOXES = b;
+let HIGHWAY = null;
+export function setHighwayBoxes(hw) {
+  HIGHWAY = hw;
 }
 let glowTex = null;
 let barTex = null;
@@ -455,7 +455,7 @@ export class Vehicle {
 
   update(dt, ctrl, boxes) {
     if (this.wrecked) ctrl = { throttle: 0, steer: 0, handbrake: true };
-    if (this.high && HIGHWAY_BOXES) boxes = HIGHWAY_BOXES; // up on the highway: only the rails
+    if (this.high && HIGHWAY) boxes = HIGHWAY.boxesFor(this.y || 0); // up on the highway: only the rails
     const t = this.type;
     let s = this.speed;
     const s0 = s;

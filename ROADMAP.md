@@ -15,7 +15,7 @@ Things we've decided to do later. Check here before planning new work.
 - **Your crew's base moving**: it upgrades in place at the hangout for now.
 - **Dirty-cop tells in the 3D scene**: they're text-only in the stop prompt right now.
 - **Traffic stops in the 3D scene**: the officer stays in the car for now (the stop is a prompt); have one walk up to your window.
-- **Highways, more**: highway exits into new areas if the map grows; nobody but you walks on the highway, and police stay in their cars up there.
+- **Highways, more**: highways out to new areas if the map grows past the ring; nobody but you walks on the highway, and police stay in their cars up there; AI cars only use the ramps when their random route takes them there (they don't plan highway trips yet).
 - **Touch controls on a real phone**: tested only in a simulated phone browser so far; tune button sizes, look speed and the joystick after real play. Possible extras: button layout editor, gyro aiming, haptics.
 - **Shooting hydrants** (they only break when hit by a car right now).
 

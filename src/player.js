@@ -320,12 +320,14 @@ export class Player {
   // Up on the highway (walking on it, after getting out of a car there): its rails and height.
   boxes() {
     const hw = this.game.highway;
-    return this.high && hw ? hw.colliders : this.game.city.colliders;
+    return this.high && hw ? hw.boxesFor(this.gy()) : this.game.city.colliders;
   }
 
   gy() {
     const hw = this.game.highway;
-    return this.high && hw ? hw.heightAt(this.x, this.z) ?? 0 : this.game.city.groundY(this.x, this.z);
+    if (!(this.high && hw)) return this.game.city.groundY(this.x, this.z);
+    this.hy = hw.heightAt(this.x, this.z, this.hy ?? 8) ?? 0;
+    return this.hy;
   }
 
   sync() {
@@ -364,6 +366,7 @@ export class Player {
     this.x = v.x - rx * 1.7;
     this.z = v.z - rz * 1.7;
     this.high = !!v.high;
+    this.hy = v.y;
     const r = pushCircle(this.x, this.z, 0.4, this.boxes());
     this.x = r.x;
     this.z = r.z;
@@ -520,6 +523,7 @@ export class Player {
     this.z = v.z - fx * 1.9;
     this.heading = v.heading;
     this.high = !!v.high;
+    this.hy = v.y;
     v.driver = null;
     v.openDoor(-1, 0.9);
     this.vehicle = null;

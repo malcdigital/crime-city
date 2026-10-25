@@ -8,6 +8,7 @@ const { BLOCKS: N, BLOCK: B, ROAD: R, SIDEWALK: SW, PITCH: P, SIZE } = CFG;
 export const roadC = (k) => k * P;
 
 import { SPECIAL, STORES, PLACES, STYLES, districtOfBlock, districtAt } from './districts.js';
+import { RAMPS, MARGIN, RAMP_HW, overlapsReserved, reserved } from './hwlayout.js';
 
 export { districtAt };
 
@@ -162,10 +163,11 @@ export function buildCity(scene) {
   scene.add(asphalt);
   const grass = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), lam(0x3d5a3a));
   grass.rotation.x = -Math.PI / 2;
-  grass.position.set(SIZE / 2, -0.6, SIZE / 2); // well below the asphalt so it never shows through
+  grass.position.set(SIZE / 2, -0.05, SIZE / 2); // just below the asphalt (the ring's ramps stand on it)
   scene.add(grass);
 
   const building = (cx, cz, w, d, h, mat) => {
+    if (overlapsReserved(cx - w / 2, cx + w / 2, cz - d / 2, cz + d / 2)) return null; // a highway ramp goes here
     const mesh = new THREE.Mesh(buildingGeo(w, h, d), mat);
     mesh.position.set(cx, 0.2 + h / 2, cz);
     mesh.castShadow = true;
@@ -189,6 +191,7 @@ export function buildCity(scene) {
   const trunkGeo = new THREE.CylinderGeometry(0.25, 0.35, 3, 6);
   const crownGeo = new THREE.IcosahedronGeometry(2.2, 0);
   const tree = (x, z) => {
+    if (reserved(x, z, 2)) return;
     const t = new THREE.Mesh(trunkGeo, lam(0x5b3a1e));
     t.position.set(x, 1.7, z);
     t.castShadow = true;
@@ -320,7 +323,7 @@ export function buildCity(scene) {
             for (let qz = 0; qz < 2; qz++) {
               const w = rr(10, 13), d = rr(9, 12), h = height();
               const x = iMinX + 9 + qx * 19, z = iMinZ + 10 + qz * 36;
-              building(x, z, w, d, h, pickMat());
+              if (!building(x, z, w, d, h, pickMat())) continue;
               const roof = new THREE.Mesh(roofGeo, roofMat);
               roof.scale.set(w * 1.08, 2.6, d * 1.08);
               roof.position.set(x, 0.2 + h + 1.3, z);
@@ -367,7 +370,7 @@ export function buildCity(scene) {
             continue;
           }
           const h = height() * (lot.hMul || 1);
-          building(lot.x, lot.z, lot.w, lot.d, h, pickMat());
+          if (!building(lot.x, lot.z, lot.w, lot.d, h, pickMat())) continue;
           if (kind === 'strip') {
             // Neon across the front.
             const neon = new THREE.Mesh(new THREE.BoxGeometry(lot.w * 0.85, 0.35, 0.15), neonMats[Math.floor(rng() * neonMats.length)]);
@@ -382,21 +385,37 @@ export function buildCity(scene) {
   // Shipping containers on the docks (low cover).
   deferredContainers = containers;
 
-  // Barriers around the edge of the city.
+  // Barriers around the edge of the city, with gaps where the ring highway's loop ramps
+  // leave the edge roads.
   const e0 = -R / 2 - 1.5;
   const e1 = SIZE + R / 2 + 1.5;
-  const span = SIZE + R + 4;
   const barrierMat = lam(0xb0b0b0);
-  for (const [x, z, w, d] of [
-    [e0, SIZE / 2, 1, span],
-    [e1, SIZE / 2, 1, span],
-    [SIZE / 2, e0, span, 1],
-    [SIZE / 2, e1, span, 1],
-  ]) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, 1.2, d), barrierMat);
-    m.position.set(x, 0.6, z);
-    scene.add(m);
-    colliders.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
+  const gates = { n: [], s: [], w: [], e: [] };
+  for (const r of RAMPS) {
+    if (!r.ring) continue;
+    const [x, z] = r.kind === 'on' ? r.pts[0] : r.pts[r.pts.length - 1]; // where it meets the road
+    const side = r.line.axis === 'x' ? (r.line.c === 0 ? 'n' : 's') : (r.line.c === 0 ? 'w' : 'e');
+    const a = r.line.axis === 'x' ? x : z;
+    gates[side].push([a - RAMP_HW - 0.8, a + RAMP_HW + 0.8]);
+  }
+  for (const [side, fixed, horiz] of [['n', e0, true], ['s', e1, true], ['w', e0, false], ['e', e1, false]]) {
+    const g = gates[side].sort((p, q) => p[0] - q[0]);
+    let from = e0 - 0.5;
+    const pieces = [];
+    for (const [a, b] of g) {
+      if (a > from) pieces.push([from, a]);
+      from = b;
+    }
+    pieces.push([from, e1 + 0.5]);
+    for (const [a, b] of pieces) {
+      const len = b - a;
+      const mid = (a + b) / 2;
+      const [x, z, w, d] = horiz ? [mid, fixed, len, 1] : [fixed, mid, 1, len];
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 1.2, d), barrierMat);
+      m.position.set(x, 0.6, z);
+      scene.add(m);
+      colliders.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
+    }
   }
 
   // Dashed yellow center lines.
@@ -421,6 +440,37 @@ export function buildCity(scene) {
   });
   scene.add(dashMesh);
 
+  // Parking shoulders: a solid white line each side, between the travel lane and the
+  // shoulder where cars park.
+  const shoulder = R / 2 - 2.8;
+  const edgeGeo = new THREE.PlaneGeometry(0.16, 1);
+  edgeGeo.rotateX(-Math.PI / 2);
+  const edges = [];
+  for (let k = 0; k <= N; k++) {
+    for (let j = 0; j < N; j++) {
+      const t0 = roadC(j) + R / 2 + 5;
+      const t1 = roadC(j + 1) - R / 2 - 5;
+      const len = t1 - t0;
+      const mid = (t0 + t1) / 2;
+      for (const s of [-1, 1]) {
+        // (none on the outside of the edge roads: no curb out there)
+        if (!((k === 0 && s < 0) || (k === N && s > 0))) {
+          edges.push([roadC(k) + s * shoulder, mid, 0, len]);
+          edges.push([mid, roadC(k) + s * shoulder, Math.PI / 2, len]);
+        }
+      }
+    }
+  }
+  const edgeMesh = new THREE.InstancedMesh(edgeGeo, new THREE.MeshBasicMaterial({ color: 0xd8d8d8 }), edges.length);
+  edges.forEach(([x, z, ry, len], idx) => {
+    dummy.position.set(x, 0.021, z);
+    dummy.rotation.set(0, ry, 0);
+    dummy.scale.set(1, 1, len);
+    dummy.updateMatrix();
+    edgeMesh.setMatrixAt(idx, dummy.matrix);
+  });
+  scene.add(edgeMesh);
+
   // Road graph: intersections and their neighbors.
   const nodes = [];
   for (let i = 0; i <= N; i++) for (let j = 0; j <= N; j++) nodes.push({ i, j, x: roadC(i), z: roadC(j), nb: [] });
@@ -444,8 +494,8 @@ export function buildCity(scene) {
 
   // Static minimap background.
   const drawMap = (ctx, px) => {
-    const s = px / (SIZE + R * 2);
-    const o = R;
+    const s = px / (SIZE + MARGIN * 2);
+    const o = MARGIN;
     ctx.fillStyle = '#26402a';
     ctx.fillRect(0, 0, px, px);
     ctx.fillStyle = '#7d8086';
@@ -462,6 +512,7 @@ export function buildCity(scene) {
   // Low cover (crates, dumpsters, benches): blocks bullets below its height.
   const crates = [];
   const addCover = (x, z, w, d, h, color) => {
+    if (reserved(x, z, Math.max(w, d) / 2)) return;
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), lam(color));
     m.position.set(x, 0.2 + h / 2, z);
     m.castShadow = true;

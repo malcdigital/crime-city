@@ -25,8 +25,14 @@ export class TrafficDriver {
       const k = this.loop.indexOf(this.to);
       return this.loop[(k + 1) % this.loop.length];
     }
-    const opts = this.to.nb.filter((n) => n !== this.from);
-    return opts.length ? pick(opts) : this.from;
+    // Any way but back (and no U-turns where a ramp joins the highway).
+    const ix = this.to.x - this.from.x;
+    const iz = this.to.z - this.from.z;
+    const il = Math.hypot(ix, iz) || 1;
+    const opts = this.to.nb.filter((n) => n !== this.from && ((n.x - this.to.x) * ix + (n.z - this.to.z) * iz) / il > -0.5 * dist(n.x, n.z, this.to.x, this.to.z));
+    if (opts.length) return pick(opts);
+    const any = this.to.nb.filter((n) => n !== this.from);
+    return any.length ? pick(any) : this.from;
   }
 
   // Drive a set route (points along the streets) and stop at the end, e.g. a buyer pulling
@@ -169,6 +175,8 @@ export class TrafficDriver {
 
   // Stuck behind a stopped car (a parked car in the lane, a wreck, a jam): pass it, or turn back.
   unjam(dt, game, ux, uz, dn) {
+    // No passing or turning round on a one-lane ramp: just wait.
+    if ((this.from.ramp || this.to.ramp) && !this.passing) return;
     const c = this.car;
     const b = this.blockedBy;
     this.passCooldown = Math.max(0, (this.passCooldown || 0) - dt);
@@ -366,25 +374,29 @@ export class TrafficDriver {
     // Jammed behind a stopped car: pass it in the other lane when that's clear, or turn
     // around and take another way if it stays stuck.
     this.unjam(dt, game, ux, uz, dn0);
-    const off = this.passing ? -CFG.LANE : CFG.LANE;
+    // One-way ramps: drive down the middle.
+    const oneWay = this.from.ramp || this.to.ramp;
+    const off = oneWay ? 0 : this.passing ? -CFG.LANE : CFG.LANE;
     const lx0 = this.from.x - uz * off;
     const lz0 = this.from.z + ux * off;
     const along = (c.x - lx0) * ux + (c.z - lz0) * uz;
-    const ahead = Math.min(L, along + (this.passing ? 7 : 10)); // pull out sharper when passing
+    const ahead = Math.min(L, along + (oneWay ? 4 : this.passing ? 7 : 10)); // pull out sharper when passing; tight on ramps
     let tx = lx0 + ux * ahead;
     let tz = lz0 + uz * ahead;
     const dn = dist(c.x, c.z, this.to.x, this.to.z);
 
     let desired = this.cruise;
     if (this.from.high && this.to.high) desired = this.cruise * 2.1; // highway speed (about 50-60 mph)
-    if (dn < 20 && this.next) {
+    if (oneWay) desired = Math.min(desired, 10); // round the loop ramps (about 22 mph)
+    if (dn < (oneWay ? 6 : 20) && this.next) {
       const nl = dist(this.to.x, this.to.z, this.next.x, this.next.z) || 1;
       const nux = (this.next.x - this.to.x) / nl;
       const nuz = (this.next.z - this.to.z) / nl;
-      tx = this.to.x - nuz * off + nux * 6;
-      tz = this.to.z + nux * off + nuz * 6;
+      const look = oneWay ? 3 : 6;
+      tx = this.to.x - nuz * off + nux * look;
+      tz = this.to.z + nux * off + nuz * look;
       const straight = nux * ux + nuz * uz > 0.9;
-      if (!straight) desired = Math.min(desired, 6.5);
+      if (!straight) desired = Math.min(desired, oneWay ? 8.5 : 6.5);
     }
 
     desired = this.haltAt(dt, desired, ux, uz);

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CFG } from './config.js';
 import { districtOfBlock } from './districts.js';
+import { reserved } from './hwlayout.js';
 
 // Street furniture and the rules of the road.
 // - Traffic lights at the busy intersections (Downtown, the Financial and Government districts,
@@ -18,7 +19,7 @@ const GREEN = 10;
 const YELLOW = 2.5;
 const ALLRED = 1;
 const CYCLE = 2 * (GREEN + YELLOW + ALLRED);
-const STOP_AT = 11.2; // stop line: this far from the middle of the intersection
+const STOP_AT = R / 2 + 4.2; // stop line: this far from the middle of the intersection (just before the crosswalk)
 const ARMS = [[0, -1], [1, 0], [0, 1], [-1, 0]]; // north, east, south, west (direction out of the node)
 
 export class Streets {
@@ -178,6 +179,7 @@ export class Streets {
           [b.minX + t, b.minZ + 0.5, 0, -1], [b.minX + t, b.maxZ - 0.5, 0, 1],
           [b.minX + 0.5, b.minZ + t, -1, 0], [b.maxX - 0.5, b.minZ + t, 1, 0],
         ]) {
+          if (reserved(x, z, 3)) continue; // a highway ramp here
           posts.push([x, 0.2 + 3.2, z, 0]);
           heads.push([x + ax * 1.1, 0.2 + 6.35, z + az * 1.1, Math.atan2(ax, az)]);
           pools.push([x + ax * 1.6, 0.04, z + az * 1.6, 0]);

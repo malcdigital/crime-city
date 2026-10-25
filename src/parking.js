@@ -3,6 +3,7 @@ import { CFG } from './config.js';
 import { Vehicle, VTYPES } from './vehicle.js';
 import { mulberry32, dist } from './util.js';
 import { GFX } from './quality.js';
+import { reserved, RAMPS } from './hwlayout.js';
 
 // Cars parked along the curbs. Most streets have some, more in the residential parts of town
 // (the Heights, Midtown, the Projects, the Strip) and few in the business districts and at
@@ -13,7 +14,7 @@ import { GFX } from './quality.js';
 // moved or wrecked leaves an empty space that fills again later.
 const P = CFG.PITCH;
 const R = CFG.ROAD;
-const CURB = R / 2 - 1.15; // car center: just inside the curb
+const CURB = R / 2 - 1.4; // car center: in the parking shoulder, just inside the curb
 const MATERIAL = 28;
 const RELEASE = 45;
 const SHOW = GFX.parkedShow; // stand-ins are drawn this far out (less on phones)
@@ -47,7 +48,7 @@ export class Parking {
     for (const s of game.transit?.stops || []) avoid.push([s.x, s.z]);
     for (const a of city.nodes) {
       for (const b of a.nb) {
-        if (b.high || b.i < a.i || b.j < a.j) continue; // each street once (not up the highway ramps)
+        if (b.high || b.ramp || b.i === undefined || b.i < a.i || b.j < a.j) continue; // each street once (not the highway ramps)
         const L = dist(a.x, a.z, b.x, b.z);
         const ux = (b.x - a.x) / L;
         const uz = (b.z - a.z) / L;
@@ -64,6 +65,7 @@ export class Parking {
             const x = a.x + ux * t + px * CURB;
             const z = a.z + uz * t + pz * CURB;
             if (avoid.some(([qx, qz]) => dist(qx, qz, x, z) < 14)) continue;
+            if (reserved(x, z) || RAMPS.some((r) => dist(r.street[0], r.street[1], x, z) < 12)) continue; // ramp entrances
             const r = rng();
             const posh = blk.district === 'The Heights' || blk.district === 'Financial District';
             const busy = ['Downtown', 'The Strip', 'Midtown'].includes(blk.district);

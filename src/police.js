@@ -1021,7 +1021,7 @@ export class PoliceManager {
       const alongX = Math.abs(dx) > Math.abs(dz);
       const ax = alongX ? Math.sign(dx) : 0;
       const az = alongX ? 0 : Math.sign(dz);
-      if (!best.nb.some((m) => !m.high && Math.sign(m.x - best.x) === -ax && Math.sign(m.z - best.z) === -az)) continue;
+      if (!best.nb.some((m) => m.i !== undefined && Math.sign(m.x - best.x) === -ax && Math.sign(m.z - best.z) === -az)) continue;
       const cx = best.x - ax * 14;
       const cz = best.z - az * 14;
       const lx = alongX ? 0 : 1;
@@ -1059,7 +1059,7 @@ export class PoliceManager {
           u = this.units[this.units.length - 1];
         } else if (s.patrol) {
           const n = s.patrol;
-          const nb = n.nb.reduce((a, b) => (dist(a.x, a.z, cx, cz) < dist(b.x, b.z, cx, cz) ? a : b));
+          const nb = n.nb.filter((m) => m.i !== undefined).reduce((a, b) => (dist(a.x, a.z, cx, cz) < dist(b.x, b.z, cx, cz) ? a : b));
           u = new PoliceUnit(game, n.x, n.z, Math.atan2(nb.x - n.x, nb.z - n.z));
           this.units.push(u);
           game.vehicles.push(u.car);

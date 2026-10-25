@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { WEALTH_BASE } from './districts.js';
 import { mulberry32, dist } from './util.js';
+import { reserved } from './hwlayout.js';
 
 // Street props on the sidewalks:
 // - Fire hydrants (one per block). Hit one with a car and it breaks off and sprays water for
@@ -44,7 +45,7 @@ export class Props {
     for (const s of city.stores) avoid.push([s.x, s.z, 4]);
     for (const a of game.bank?.atms || []) avoid.push([a.x, a.z, 2.5]);
     for (const s of game.transit?.stops || []) avoid.push([s.sx, s.sz, 4.5]);
-    const ok = (x, z) => !avoid.some(([ax, az, r]) => dist(ax, az, x, z) < r);
+    const ok = (x, z) => !avoid.some(([ax, az, r]) => dist(ax, az, x, z) < r) && !reserved(x, z, 2);
     const add = (kind, x, z, yaw) => {
       if (!ok(x, z)) return;
       const it = { kind, x, z, yaw, x0: x, z0: z, yaw0: yaw, down: false, idx: -1, ...KINDS[kind] };

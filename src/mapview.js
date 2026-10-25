@@ -1,3 +1,4 @@
+import { MARGIN } from './hwlayout.js';
 import { DISTRICTS, districtCenter } from './districts.js';
 import { drawHeli, drawSearchlight } from './heliicon.js';
 import { CFG, CRED_TIERS } from './config.js';
@@ -123,7 +124,7 @@ export class MapView {
   }
 
   fit() {
-    return Math.min(innerWidth, innerHeight) * 0.9 / (CFG.SIZE + CFG.ROAD * 2);
+    return Math.min(innerWidth, innerHeight) * 0.9 / (CFG.SIZE + MARGIN * 2);
   }
 
   show() {
@@ -280,8 +281,8 @@ export class MapView {
 
   // Keep the city centered on screen when it fits; when zoomed in, don't scroll past its edges.
   clampView() {
-    const lo = -CFG.ROAD;
-    const hi = CFG.SIZE + CFG.ROAD;
+    const lo = -MARGIN;
+    const hi = CFG.SIZE + MARGIN;
     const mid = (lo + hi) / 2;
     const fitAxis = (c, screen) => {
       const half = screen / 2 / this.scale;
@@ -311,7 +312,7 @@ export class MapView {
   toggleWaypoint(x, z) {
     const w = this.waypoint;
     if (w && dist(w[0], w[1], x, z) < 20 / Math.max(0.5, this.scale)) this.waypoint = null;
-    else this.waypoint = [clamp(x, -CFG.ROAD, CFG.SIZE + CFG.ROAD), clamp(z, -CFG.ROAD, CFG.SIZE + CFG.ROAD)];
+    else this.waypoint = [clamp(x, -MARGIN, CFG.SIZE + MARGIN), clamp(z, -MARGIN, CFG.SIZE + MARGIN)];
   }
 
   update(dt, a) {
@@ -330,8 +331,8 @@ export class MapView {
       this.mouse = null;
       this.legendActive = false;
       const sp = 520 / this.scale; // screen pixels per second, in world units
-      this.cursor[0] = clamp(this.cursor[0] + mx * sp * dt, -CFG.ROAD, CFG.SIZE + CFG.ROAD);
-      this.cursor[1] = clamp(this.cursor[1] + my * sp * dt, -CFG.ROAD, CFG.SIZE + CFG.ROAD);
+      this.cursor[0] = clamp(this.cursor[0] + mx * sp * dt, -MARGIN, CFG.SIZE + MARGIN);
+      this.cursor[1] = clamp(this.cursor[1] + my * sp * dt, -MARGIN, CFG.SIZE + MARGIN);
       const [sx, sy] = this.toScreen(...this.cursor);
       const m = 120;
       if (sx < m) this.cx -= (m - sx) / this.scale;
@@ -371,8 +372,8 @@ export class MapView {
     ctx.translate(-this.cx, -this.cz);
     // City background (same picture as the minimap).
     const bg = game.hud.mapBg;
-    const span = CFG.SIZE + CFG.ROAD * 2;
-    ctx.drawImage(bg, -CFG.ROAD, -CFG.ROAD, span, span);
+    const span = CFG.SIZE + MARGIN * 2;
+    ctx.drawImage(bg, -MARGIN, -MARGIN, span, span);
     // Turf.
     const half = CFG.ROAD / 2;
     for (const t of game.turfWars.view()) {

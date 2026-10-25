@@ -1,3 +1,4 @@
+import { MARGIN } from './hwlayout.js';
 import { drawHeli, drawSearchlight } from './heliicon.js';
 import { CFG, CRED_TIERS } from './config.js';
 import { GANGS } from './turf.js';
@@ -402,12 +403,12 @@ export class Hud {
     ctx.fillRect(0, 0, 200, 200);
 
     // City background, rotated around the player.
-    const sb = 1024 / (CFG.SIZE + CFG.ROAD * 2);
+    const sb = 1024 / (CFG.SIZE + MARGIN * 2);
     ctx.save();
     ctx.translate(C, C);
     ctx.rotate(rot);
     ctx.scale(k / sb, k / sb);
-    ctx.drawImage(this.mapBg, -(px + CFG.ROAD) * sb, -(pz + CFG.ROAD) * sb);
+    ctx.drawImage(this.mapBg, -(px + MARGIN) * sb, -(pz + MARGIN) * sb);
     ctx.restore();
 
     // Gang territories, tinted in each gang's color (the streets around their blocks too).
