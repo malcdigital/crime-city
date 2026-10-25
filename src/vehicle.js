@@ -54,33 +54,47 @@ let NIGHT = 0;
 let glowTex = null;
 let barTex = null;
 const glowMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
-// Long plane under the car: a cone of warm light ahead, a faint red glow behind.
+// A headlight beam on the road: narrow at the lamp, fanning out wide down the road and fading
+// out at the far end (canvas bottom = the lamp, top = the far end).
 function carGlowTexture() {
   if (glowTex) return glowTex;
+  const W = 128;
+  const H = 256;
   const c = document.createElement('canvas');
-  c.width = 64;
-  c.height = 256;
+  c.width = W;
+  c.height = H;
   const x = c.getContext('2d');
-  // Canvas top = the front of the car (the plane is rotated so +v points forward).
-  const g = x.createRadialGradient(32, 70, 4, 32, 70, 64);
-  g.addColorStop(0, 'rgba(255,240,200,1)');
-  g.addColorStop(0.5, 'rgba(255,230,180,0.45)');
-  g.addColorStop(1, 'rgba(255,230,180,0)');
-  x.save();
-  x.translate(32, 70);
-  x.scale(1, 1.6);
-  x.translate(-32, -70);
-  x.fillStyle = g;
-  x.fillRect(0, 0, 64, 256);
-  x.restore();
-  const r = x.createRadialGradient(32, 226, 2, 32, 226, 26);
-  r.addColorStop(0, 'rgba(255,40,30,0.7)');
-  r.addColorStop(1, 'rgba(255,40,30,0)');
-  x.fillStyle = r;
-  x.fillRect(0, 190, 64, 66);
+  const img = x.createImageData(W, H);
+  for (let py = 0; py < H; py++) {
+    const f = 1 - py / (H - 1); // 0 at the lamp, 1 at the far end
+    const hw = 5 + f * (W / 2 - 6); // half-width in pixels
+    const along = Math.min(1, f * 14) * Math.pow(1 - f, 0.45); // quick fade-in, long fade-out
+    for (let px = 0; px < W; px++) {
+      const d = Math.abs(px - W / 2 + 0.5) / hw;
+      const across = d >= 1 ? 0 : 1 - d * d * d * d; // fairly even across, soft edges
+      const k = (py * W + px) * 4;
+      img.data[k] = 255;
+      img.data[k + 1] = 244;
+      img.data[k + 2] = 214;
+      img.data[k + 3] = Math.round(255 * along * across);
+    }
+  }
+  x.putImageData(img, 0, 0);
   glowTex = new THREE.CanvasTexture(c);
   glowTex.colorSpace = THREE.SRGBColorSpace;
   return glowTex;
+}
+const BEAM_LEN = 24; // meters down the road
+const BEAM_W = 9; // meters wide at the far end
+const BEAM_TOE = 0.06; // each beam angles in a little, so the two cross ahead of the car
+let beamGeo = null;
+function beamGeometry() {
+  if (beamGeo) return beamGeo;
+  beamGeo = new THREE.PlaneGeometry(BEAM_W, BEAM_LEN);
+  beamGeo.rotateX(-Math.PI / 2);
+  beamGeo.rotateY(Math.PI); // texture top (the far end) points forward, facing up
+  beamGeo.translate(0, 0, BEAM_LEN / 2); // the lamp end at the origin
+  return beamGeo;
 }
 function barTexture() {
   if (barTex) return barTex;
@@ -102,7 +116,7 @@ export function setCarNight(k) {
   NIGHT = k;
   headMat.color.setRGB(0.85 + 0.15 * k, 0.83 + 0.15 * k, 0.72 + 0.2 * k);
   tailMat.color.setRGB(0.43 + 0.4 * k, 0.1 + 0.03 * k, 0.08 + 0.03 * k);
-  glowMat.opacity = 0.7 * k;
+  glowMat.opacity = 0.42 * k;
 }
 
 export class Vehicle {
@@ -258,13 +272,16 @@ export class Vehicle {
   // Light on the road (night only) and the light bar's wash. Built once per car.
   buildGlow() {
     const t = this.type;
-    const len = t.l + 14;
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(t.w + 4.5, len), glowMat);
-    glow.material.map = carGlowTexture();
-    glow.rotation.x = -Math.PI / 2;
-    // The texture's front cone sits about 70/256 of the way down from the top.
-    glow.position.set(0, 0.07, len / 2 - len * (70 / 256) + t.l / 2 + 2.5);
-    glow.renderOrder = 1;
+    // Two beams, one from each headlight, angled in so they cross ahead of the car.
+    const glow = new THREE.Group();
+    if (!glowMat.map) glowMat.map = carGlowTexture();
+    for (const sx of [-1, 1]) {
+      const beam = new THREE.Mesh(beamGeometry(), glowMat);
+      beam.position.set(sx * (t.w / 2 - 0.35), 0.07, t.l / 2 + 0.05);
+      beam.rotation.y = -sx * BEAM_TOE; // local +x is the car's left: aim each beam across
+      beam.renderOrder = 1;
+      glow.add(beam);
+    }
     glow.visible = false;
     this.group.add(glow);
     this.glow = glow;
