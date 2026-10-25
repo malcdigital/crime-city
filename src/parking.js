@@ -3,7 +3,7 @@ import { CFG } from './config.js';
 import { Vehicle, VTYPES } from './vehicle.js';
 import { mulberry32, dist } from './util.js';
 import { GFX } from './quality.js';
-import { reserved, RAMPS } from './hwlayout.js';
+import { STUBS, inHole } from './fwyplan.js';
 
 // Cars parked along the curbs. Most streets have some, more in the residential parts of town
 // (the Heights, Midtown, the Projects, the Strip) and few in the business districts and at
@@ -12,9 +12,6 @@ import { reserved, RAMPS } from './hwlayout.js';
 // MATERIAL meters of you each one turns into a real car you can hit, push, shoot or steal.
 // Once you're well away again an untouched one goes back to being a stand-in; one that got
 // moved or wrecked leaves an empty space that fills again later.
-const P = CFG.PITCH;
-const R = CFG.ROAD;
-const CURB = R / 2 - 1.4; // car center: in the parking shoulder, just inside the curb
 const MATERIAL = 28;
 const RELEASE = 45;
 const SHOW = GFX.parkedShow; // stand-ins are drawn this far out (less on phones)
@@ -46,34 +43,36 @@ export class Parking {
     const avoid = [city.spawn, city.station, city.hospital, city.chop, city.gangHome, city.crewHome]
       .filter(Boolean).map((p) => [p.x, p.z]);
     for (const s of game.transit?.stops || []) avoid.push([s.x, s.z]);
-    for (const a of city.nodes) {
-      for (const b of a.nb) {
-        if (b.high || b.ramp || b.i === undefined || b.i < a.i || b.j < a.j) continue; // each street once (not the highway ramps)
-        const L = dist(a.x, a.z, b.x, b.z);
-        const ux = (b.x - a.x) / L;
-        const uz = (b.z - a.z) / L;
-        for (const side of [1, -1]) {
-          const px = -uz * side;
-          const pz = ux * side;
-          const blk = city.blockAt((a.x + b.x) / 2 + px * 9, (a.z + b.z) / 2 + pz * 9);
-          if (!blk) continue; // the outside of the edge roads
-          const dens = (blk.type === 'park' ? 0.3 : DENSITY[blk.district] ?? 0.3);
-          // Cars on the right-hand side face the way that lane goes.
-          const heading = side === 1 ? Math.atan2(ux, uz) : Math.atan2(-ux, -uz);
-          for (let t = 20; t <= L - 20; t += 6.6) {
-            if (rng() > dens) continue;
-            const x = a.x + ux * t + px * CURB;
-            const z = a.z + uz * t + pz * CURB;
-            if (avoid.some(([qx, qz]) => dist(qx, qz, x, z) < 14)) continue;
-            if (reserved(x, z) || RAMPS.some((r) => dist(r.street[0], r.street[1], x, z) < 12)) continue; // ramp entrances
-            const r = rng();
-            const posh = blk.district === 'The Heights' || blk.district === 'Financial District';
-            const busy = ['Downtown', 'The Strip', 'Midtown'].includes(blk.district);
-            const type = r < (posh ? 0.3 : 0.1) ? 'sports' : r < (posh ? 0.4 : 0.25) ? 'van' : busy && r > 0.93 ? 'taxi' : 'sedan';
-            const cols = VTYPES[type].colors;
-            const color = cols[Math.floor(rng() * cols.length)];
-            this.spots.push({ x, z, heading, type, color, car: null, gone: -1, idx: -1 });
-          }
+    for (const s of STUBS) avoid.push(s[0]);
+    for (const e of city.edges) {
+      if (!e.street || !['arterial', 'collector'].includes(e.cls)) continue;
+      const { a, b } = e;
+      const L = dist(a.x, a.z, b.x, b.z);
+      if (L < 40) continue;
+      const ux = (b.x - a.x) / L;
+      const uz = (b.z - a.z) / L;
+      const curb = e.w / 2 - 1.4; // car center: in the parking shoulder, just inside the curb
+      for (const side of [1, -1]) {
+        const px = -uz * side;
+        const pz = ux * side;
+        const blk = city.blockAt((a.x + b.x) / 2 + px * (e.w / 2 + 3), (a.z + b.z) / 2 + pz * (e.w / 2 + 3));
+        if (!blk || blk.type === 'ramps' || blk.lot) continue;
+        const dens = (blk.type === 'park' ? 0.3 : DENSITY[blk.district] ?? 0.3);
+        // Cars on the right-hand side face the way that lane goes.
+        const heading = side === 1 ? Math.atan2(ux, uz) : Math.atan2(-ux, -uz);
+        for (let t = 20; t <= L - 20; t += 6.6) {
+          if (rng() > dens) continue;
+          const x = a.x + ux * t + px * curb;
+          const z = a.z + uz * t + pz * curb;
+          if (avoid.some(([qx, qz]) => dist(qx, qz, x, z) < 14)) continue;
+          if (inHole(x, z, 4)) continue;
+          const r = rng();
+          const posh = blk.district === 'The Heights' || blk.district === 'Financial District';
+          const busy = ['Downtown', 'The Strip', 'Midtown'].includes(blk.district);
+          const type = r < (posh ? 0.3 : 0.1) ? 'sports' : r < (posh ? 0.4 : 0.25) ? 'van' : busy && r > 0.93 ? 'taxi' : 'sedan';
+          const cols = VTYPES[type].colors;
+          const color = cols[Math.floor(rng() * cols.length)];
+          this.spots.push({ x, z, heading, type, color, car: null, gone: -1, idx: -1 });
         }
       }
     }

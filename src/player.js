@@ -54,11 +54,16 @@ export class Player {
     const game = this.game;
     const out = [];
     const near = (b) => Math.abs((b.minX + b.maxX) / 2 - this.x) < 60 && Math.abs((b.minZ + b.maxZ) / 2 - this.z) < 60;
+    // (rotated boxes: frame x axis = (c, -s), z axis = (s, c), as for vehicles)
+    const frame = (b) => (b.ob
+      ? { ox: b.ob.cx, oz: b.ob.cz, c: b.ob.c, s: -b.ob.s, hx: b.ob.hx, hz: b.ob.hz }
+      : { ox: (b.minX + b.maxX) / 2, oz: (b.minZ + b.maxZ) / 2, c: 1, s: 0, hx: (b.maxX - b.minX) / 2, hz: (b.maxZ - b.minZ) / 2 });
     for (const b of game.city.los) {
-      if (near(b)) out.push({ ref: b, low: false, frame: () => ({ ox: (b.minX + b.maxX) / 2, oz: (b.minZ + b.maxZ) / 2, c: 1, s: 0, hx: (b.maxX - b.minX) / 2, hz: (b.maxZ - b.minZ) / 2 }) });
+      if (near(b)) out.push({ ref: b, low: false, frame: () => frame(b) });
     }
     for (const b of game.city.crates) {
-      if (near(b)) out.push({ ref: b, low: b.h < 1.8, frame: () => ({ ox: b.x, oz: b.z, c: 1, s: 0, hx: (b.maxX - b.minX) / 2, hz: (b.maxZ - b.minZ) / 2 }) });
+      // (crate tops are heights above sea level: low cover if under 1.8 m off the ground)
+      if (near(b)) out.push({ ref: b, low: b.h - game.city.groundY(b.x, b.z) < 1.8, frame: () => frame(b) });
     }
     for (const v of game.vehicles) {
       if (v.removed || Math.abs(v.x - this.x) > 8 || Math.abs(v.z - this.z) > 8) continue;

@@ -1,6 +1,6 @@
 import { CFG } from './config.js';
 import { Vehicle } from './vehicle.js';
-import { TrafficDriver } from './traffic.js';
+import { TrafficDriver, laneOff } from './traffic.js';
 import { CrewMember, GANG_GUNS } from './gang.js';
 import { GANGS } from './turf.js';
 import { tierOf } from './claim.js';
@@ -73,6 +73,7 @@ export class Backup {
     // Set off from a street corner a couple of blocks away, toward your hangout if possible.
     const home = game.city.crewHome;
     const nodes = game.city.nodes.filter((q) => {
+      if (q.rampEnd || q.edges.length < 3) return false; // a proper street corner
       const d = dist(q.x, q.z, px, pz);
       return d > 80 && d < 190;
     }).sort((p, q) => Math.abs(dist(p.x, p.z, px, pz) - 130) + dist(p.x, p.z, home.x, home.z) * 0.15 - (Math.abs(dist(q.x, q.z, px, pz) - 130) + dist(q.x, q.z, home.x, home.z) * 0.15));
@@ -87,9 +88,10 @@ export class Backup {
     const L = dist(from.x, from.z, nxt[0], nxt[1]) || 1;
     const ux = (nxt[0] - from.x) / L;
     const uz = (nxt[1] - from.z) / L;
-    const to = [...from.nb].sort((p1, p2) => ((p2.x - from.x) * ux + (p2.z - from.z) * uz) - ((p1.x - from.x) * ux + (p1.z - from.z) * uz))[0] || from.nb[0];
-    const x = from.x + ux * 9 - uz * CFG.LANE;
-    const z = from.z + uz * 9 + ux * CFG.LANE;
+    const to = [...from.nb].filter((m) => m.street).sort((p1, p2) => ((p2.x - from.x) * ux + (p2.z - from.z) * uz) - ((p1.x - from.x) * ux + (p1.z - from.z) * uz))[0] || from.nb[0];
+    const off = laneOff(from, to);
+    const x = from.x + ux * 9 - uz * off;
+    const z = from.z + uz * 9 + ux * off;
     const car = new Vehicle(game.scene, n > 3 ? 'van' : 'sedan', x, z, Math.atan2(ux, uz), GANGS.crew.car);
     car.isCrew = true;
     const driver = new TrafficDriver(car, from, to);

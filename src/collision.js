@@ -44,6 +44,46 @@ export function pushCircle(x, z, r, boxes) {
   let nz = 0;
   for (const b of candidates(boxes, x - r, x + r, z - r, z + r)) {
     if (x + r < b.minX || x - r > b.maxX || z + r < b.minZ || z - r > b.maxZ) continue;
+    if (b.ob) {
+      // A rotated box: work in its own frame.
+      const o = b.ob;
+      const ex = x - o.cx;
+      const ez = z - o.cz;
+      let u = ex * o.c + ez * o.s;
+      let v = -ex * o.s + ez * o.c;
+      const cu = clamp(u, -o.hx, o.hx);
+      const cv = clamp(v, -o.hz, o.hz);
+      let du = u - cu;
+      let dv = v - cv;
+      const dd = du * du + dv * dv;
+      if (dd >= r * r) continue;
+      hit = true;
+      if (dd < 1e-8) {
+        const l = u + o.hx, rr = o.hx - u, t = v + o.hz, bt = o.hz - v;
+        const m = Math.min(l, rr, t, bt);
+        let nu = 0;
+        let nv = 0;
+        if (m === l) { u = -o.hx - r; nu = -1; }
+        else if (m === rr) { u = o.hx + r; nu = 1; }
+        else if (m === t) { v = -o.hz - r; nv = -1; }
+        else { v = o.hz + r; nv = 1; }
+        x = o.cx + u * o.c - v * o.s;
+        z = o.cz + u * o.s + v * o.c;
+        nx += nu * o.c - nv * o.s;
+        nz += nu * o.s + nv * o.c;
+        continue;
+      }
+      const d = Math.sqrt(dd);
+      du /= d;
+      dv /= d;
+      u += du * (r - d);
+      v += dv * (r - d);
+      x = o.cx + u * o.c - v * o.s;
+      z = o.cz + u * o.s + v * o.c;
+      nx += du * o.c - dv * o.s;
+      nz += du * o.s + dv * o.c;
+      continue;
+    }
     const cx = clamp(x, b.minX, b.maxX);
     const cz = clamp(z, b.minZ, b.maxZ);
     let dx = x - cx;
@@ -73,34 +113,48 @@ export function pushCircle(x, z, r, boxes) {
   return { x, z, hit, nx: nx / nl, nz: nz / nl };
 }
 
-// True if the line from a to b passes through any box (used for line of sight).
-export function segmentBlocked(ax, az, bx, bz, boxes) {
+// Does the segment (ax, az)-(bx, bz) cross the box [x0,x1] x [z0,z1]?
+function slab(ax, az, bx, bz, x0, x1, z0, z1) {
   const dx = bx - ax;
   const dz = bz - az;
+  let tmin = 0;
+  let tmax = 1;
+  if (Math.abs(dx) < 1e-9) {
+    if (ax < x0 || ax > x1) return false;
+  } else {
+    let t1 = (x0 - ax) / dx;
+    let t2 = (x1 - ax) / dx;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return false;
+  }
+  if (Math.abs(dz) < 1e-9) {
+    if (az < z0 || az > z1) return false;
+  } else {
+    let t1 = (z0 - az) / dz;
+    let t2 = (z1 - az) / dz;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return false;
+  }
+  return true;
+}
+
+// The same for a box that may be rotated (pad: grow it by this much).
+function crosses(b, ax, az, bx, bz, pad = 0) {
+  if (!b.ob) return slab(ax, az, bx, bz, b.minX - pad, b.maxX + pad, b.minZ - pad, b.maxZ + pad);
+  const o = b.ob;
+  const lu = (x, z) => (x - o.cx) * o.c + (z - o.cz) * o.s;
+  const lv = (x, z) => -(x - o.cx) * o.s + (z - o.cz) * o.c;
+  return slab(lu(ax, az), lv(ax, az), lu(bx, bz), lv(bx, bz), -o.hx - pad, o.hx + pad, -o.hz - pad, o.hz + pad);
+}
+
+// True if the line from a to b passes through any box (used for line of sight).
+export function segmentBlocked(ax, az, bx, bz, boxes) {
   for (const b of candidates(boxes, Math.min(ax, bx), Math.max(ax, bx), Math.min(az, bz), Math.max(az, bz))) {
-    let tmin = 0;
-    let tmax = 1;
-    if (Math.abs(dx) < 1e-9) {
-      if (ax < b.minX || ax > b.maxX) continue;
-    } else {
-      let t1 = (b.minX - ax) / dx;
-      let t2 = (b.maxX - ax) / dx;
-      if (t1 > t2) [t1, t2] = [t2, t1];
-      tmin = Math.max(tmin, t1);
-      tmax = Math.min(tmax, t2);
-      if (tmin > tmax) continue;
-    }
-    if (Math.abs(dz) < 1e-9) {
-      if (az < b.minZ || az > b.maxZ) continue;
-    } else {
-      let t1 = (b.minZ - az) / dz;
-      let t2 = (b.maxZ - az) / dz;
-      if (t1 > t2) [t1, t2] = [t2, t1];
-      tmin = Math.max(tmin, t1);
-      tmax = Math.min(tmax, t2);
-      if (tmin > tmax) continue;
-    }
-    return true;
+    if (crosses(b, ax, az, bx, bz)) return true;
   }
   return false;
 }
@@ -109,34 +163,11 @@ export function segmentBlocked(ax, az, bx, bz, boxes) {
 export function segmentBlockedPad(ax, az, bx, bz, boxes, pad) {
   const minX = Math.min(ax, bx) - pad, maxX = Math.max(ax, bx) + pad;
   const minZ = Math.min(az, bz) - pad, maxZ = Math.max(az, bz) + pad;
-  const dx = bx - ax;
-  const dz = bz - az;
   for (const b of candidates(boxes, minX, maxX, minZ, maxZ)) {
     if (b.maxX < minX || b.minX > maxX || b.maxZ < minZ || b.minZ > maxZ) continue;
-    const x0 = b.minX - pad, x1 = b.maxX + pad, z0 = b.minZ - pad, z1 = b.maxZ + pad;
-    let tmin = 0;
-    let tmax = 1;
-    if (Math.abs(dx) < 1e-9) {
-      if (ax < x0 || ax > x1) continue;
-    } else {
-      let t1 = (x0 - ax) / dx;
-      let t2 = (x1 - ax) / dx;
-      if (t1 > t2) [t1, t2] = [t2, t1];
-      tmin = Math.max(tmin, t1);
-      tmax = Math.min(tmax, t2);
-      if (tmin > tmax) continue;
-    }
-    if (Math.abs(dz) < 1e-9) {
-      if (az < z0 || az > z1) continue;
-    } else {
-      let t1 = (z0 - az) / dz;
-      let t2 = (z1 - az) / dz;
-      if (t1 > t2) [t1, t2] = [t2, t1];
-      tmin = Math.max(tmin, t1);
-      tmax = Math.min(tmax, t2);
-      if (tmin > tmax) continue;
-    }
-    return true;
+    if (crosses(b, ax, az, bx, bz, pad)) return true;
   }
   return false;
 }
+
+export { candidates };

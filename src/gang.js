@@ -48,13 +48,25 @@ export function findCover(game, self, threat) {
     const cx = (b.minX + b.maxX) / 2;
     const cz = (b.minZ + b.maxZ) / 2;
     if (dist(cx, cz, self.x, self.z) > 45) continue;
+    // The box's own axes (rotated buildings too).
+    const ux = b.ob ? b.ob.c : 1;
+    const uz = b.ob ? b.ob.s : 0;
+    const vx = -uz;
+    const vz = ux;
+    const hx = b.ob ? b.ob.hx : (b.maxX - b.minX) / 2;
+    const hz = b.ob ? b.ob.hz : (b.maxZ - b.minZ) / 2;
+    const ox = b.ob ? b.ob.cx : cx;
+    const oz = b.ob ? b.ob.cz : cz;
     for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-      const x = (sx < 0 ? b.minX : b.maxX) + sx * 0.9;
-      const z = (sz < 0 ? b.minZ : b.maxZ) + sz * 0.9;
+      // Just off the corner, diagonally out.
+      const ex = sx * (hx + 0.9);
+      const ez = sz * (hz + 0.9);
+      const x = ox + ux * ex + vx * ez;
+      const z = oz + uz * ex + vz * ez;
       // Hidden: the line from the threat passes through this building.
-      if (!segmentBlocked(threat.x, threat.z, x - sx * 0.6, z - sz * 0.6, [b])) continue;
+      if (!segmentBlocked(threat.x, threat.z, x - (ux * sx + vx * sz) * 0.6, z - (uz * sx + vz * sz) * 0.6, [b])) continue;
       // Peek: step out along one wall until the threat is visible.
-      for (const [px, pz] of [[x + sx * 1.8, z], [x, z + sz * 1.8]]) {
+      for (const [px, pz] of [[x + ux * sx * 1.8, z + uz * sx * 1.8], [x + vx * sz * 1.8, z + vz * sz * 1.8]]) {
         if (!segmentBlocked(threat.x, threat.z, px, pz, city.los)) {
           consider({ x, z, peekX: px, peekZ: pz, low: false });
           break;
@@ -659,14 +671,11 @@ export class CrewMember extends GangFighter {
   }
 }
 
-const RIVAL_SPOTS = (b) => [
-  [b.maxX - 2, b.minZ + 2],
-  [b.maxX - 6, b.minZ + 2],
-  [b.maxX - 12, b.minZ + 2],
-  [b.maxX - 2, b.minZ + 6],
-  [b.maxX - 2, b.minZ + 13],
-  [b.maxX - 2, b.minZ + 21],
-];
+// The Kings' corner (city.gangHome): spots back along the front sidewalk, and round the corner.
+const RIVAL_SPOTS = (h) => {
+  const sd = h.block.frontSide;
+  return [[0, 0], [4, 0], [10, 0], [0, 4], [0, 11], [0, 19]].map(([a, d]) => [h.x - sd.ux * a - sd.nx * d, h.z - sd.uz * a - sd.nz * d]);
+};
 
 export class GangManager {
   constructor(game) {
@@ -680,7 +689,7 @@ export class GangManager {
   }
 
   spawn() {
-    for (const [x, z] of RIVAL_SPOTS(this.home.block)) this.members.push(new RivalMember(this.game, x, z));
+    for (const [x, z] of RIVAL_SPOTS(this.home)) this.members.push(new RivalMember(this.game, x, z));
   }
 
   anger() {
@@ -701,7 +710,7 @@ export class GangManager {
   holdsHome() {
     const t = this.game.turfWars;
     const b = this.home.block;
-    return !t || t.owner[`${b.i},${b.j}`] === 'kings';
+    return !t || t.owner[b.key] === 'kings';
   }
 
   // A member went down: nearby friends lose nerve.
@@ -755,10 +764,12 @@ export class CrewManager {
   }
 
   addHomie() {
-    const b = this.home.block;
+    const h = this.home;
     const used = this.members.filter((m) => !m.recruited && m.alive).length;
-    const x = this.home.x - 6 + used * 3.2;
-    const z = b.minZ + (used % 2 ? 1.4 : 2.8);
+    const along = -6 + used * 3.2;
+    const inset = (used % 2 ? 1.4 : 2.8) - 2.4; // (the hangout spot is 2.4 m in from the curb)
+    const x = h.x + h.ux * along - h.nx * inset;
+    const z = h.z + h.uz * along - h.nz * inset;
     const name = this.names.length ? this.names.splice(Math.floor(Math.random() * this.names.length), 1)[0] : 'Homie';
     const m = new CrewMember(this.game, x, z, name);
     this.members.push(m);

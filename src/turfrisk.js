@@ -189,7 +189,7 @@ export class TurfRisk {
     if (S.stash > 300) return S.raid(g);
     const busy = T.wars.some((w) => w.state === 'active' && (w.attacker === 'crew' || w.defender === 'crew'));
     const blocks = T.blocks.filter((b) => {
-      const k = `${b.i},${b.j}`;
+      const k = b.key;
       return T.owner[k] === 'crew' && T.home.crew !== k && !T.locked(k);
     });
     if (!busy && blocks.length && !T.underground(g)) T.startWar(pick(blocks), g, 'crew', false);

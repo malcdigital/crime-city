@@ -1,81 +1,129 @@
-import { CFG } from './config.js';
 import { dist } from './util.js';
 
-// GPS: the shortest drive along the street grid from one point to another, preferring
-// fewer turns. Returns a list of [x, z] points (start, corners, end).
-const TURN = 40; // a turn "costs" this many meters, so the route sticks to long straights
+// GPS: the quickest drive from one point to another over the road network (streets, ramps
+// and freeways; one-way where they are), preferring fewer turns and the freeway for long
+// trips. Returns a list of [x, z] points (start, the road, end); route.ys holds the height of
+// each point (so the line can follow the freeway decks).
+const TURN = 25; // a turn "costs" this many meters, so the route sticks to long straights
 
-// The nearest point on a road, and the two intersections at either end of that stretch.
+// The nearest street, its ends, and where on it.
 function snap(city, x, z) {
-  const P = CFG.PITCH;
-  const N = city.N;
-  const cl = (v) => Math.max(0, Math.min(N * P, v));
-  const i = Math.max(0, Math.min(N, Math.round(x / P)));
-  const j = Math.max(0, Math.min(N, Math.round(z / P)));
-  const onV = [i * P, cl(z)]; // on an avenue (runs along z)
-  const onH = [cl(x), j * P]; // on a street (runs along x)
-  if (dist(x, z, ...onV) <= dist(x, z, ...onH)) {
-    const j0 = Math.min(N - 1, Math.floor(onV[1] / P));
-    return { p: onV, ends: [city.nodeAt(i, j0), city.nodeAt(i, j0 + 1)] };
+  const hit = city.edgeAt(x, z);
+  if (!hit) {
+    const n = city.nearestNode(x, z, (q) => q.street);
+    return { p: [n.x, n.z], ends: [n] };
   }
-  const i0 = Math.min(N - 1, Math.floor(onH[0] / P));
-  return { p: onH, ends: [city.nodeAt(i0, j), city.nodeAt(i0 + 1, j)] };
+  return { p: [hit.x, hit.z], ends: [hit.e.a, hit.e.b], e: hit.e };
 }
 
-const dirOf = (ax, az, bx, bz) => (Math.abs(bx - ax) > Math.abs(bz - az) ? (bx > ax ? 0 : 1) : bz > az ? 2 : 3);
-
-export function gpsRoute(city, fx, fz, tx, tz) {
-  const a = snap(city, fx, fz);
-  const b = snap(city, tx, tz);
-  // Same stretch of road: straight there.
-  if (a.ends.every((n) => b.ends.includes(n))) return [[fx, fz], a.p, b.p, [tx, tz]];
-  // Dijkstra over (intersection, heading) so turns can cost extra.
-  const best = new Map();
-  const prev = new Map();
-  const open = [];
-  const push = (n, d, cost, from) => {
-    const k = n.i * 100 + n.j + d * 10000;
-    if (best.has(k) && best.get(k) <= cost) return;
-    best.set(k, cost);
-    prev.set(k, from);
-    open.push({ n, d, cost, k });
-  };
-  for (const n of a.ends) push(n, dirOf(...a.p, n.x, n.z), dist(...a.p, n.x, n.z), null);
-  let done = null;
-  let doneCost = Infinity;
-  while (open.length) {
-    let bi = 0;
-    for (let q = 1; q < open.length; q++) if (open[q].cost < open[bi].cost) bi = q;
-    const cur = open.splice(bi, 1)[0];
-    if (cur.cost > best.get(cur.k) || cur.cost >= doneCost) continue;
-    if (b.ends.includes(cur.n)) {
-      const d = dirOf(cur.n.x, cur.n.z, ...b.p);
-      const c = cur.cost + dist(cur.n.x, cur.n.z, ...b.p) + (d === cur.d ? 0 : TURN);
-      if (c < doneCost) {
-        doneCost = c;
-        done = cur.k;
+// opts.high: starting up on the freeway (the route starts on the lane you're in).
+export function gpsRoute(city, fx, fz, tx, tz, opts = {}) {
+  const hw = city.highway;
+  let a = snap(city, fx, fz);
+  if (opts.high && hw) {
+    // The nearest freeway node ahead of you (any lane, any ramp).
+    let best = null;
+    let bd = 30;
+    for (const n of hw.nodes) {
+      const d = dist(n.x, n.z, fx, fz);
+      if (d < bd && (!opts.fwd || (n.x - fx) * opts.fwd[0] + (n.z - fz) * opts.fwd[1] > 0)) {
+        bd = d;
+        best = n;
       }
     }
-    for (const m of cur.n.nb) {
-      const d = dirOf(cur.n.x, cur.n.z, m.x, m.z);
-      if (d === (cur.d ^ 1)) continue; // no U-turns mid-route
-      push(m, d, cur.cost + CFG.PITCH + (d === cur.d ? 0 : TURN), cur.k);
+    if (best) a = { p: [fx, fz], ends: [best] };
+  }
+  const b = snap(city, tx, tz);
+  // Same stretch of road: straight there.
+  if (a.e && a.e === b.e) return withHeights(city, [[fx, fz], a.p, b.p, [tx, tz]]);
+  const goal = new Set(b.ends);
+  const best = new Map();
+  const prev = new Map();
+  const heap = [];
+  const push = (n, g, from) => {
+    if (best.has(n) && best.get(n) <= g) return;
+    best.set(n, g);
+    prev.set(n, from);
+    const f = g + dist(n.x, n.z, ...b.p) * 0.75;
+    heap.push([f, g, n]);
+    let i = heap.length - 1;
+    while (i > 0) {
+      const q = (i - 1) >> 1;
+      if (heap[q][0] <= heap[i][0]) break;
+      [heap[q], heap[i]] = [heap[i], heap[q]];
+      i = q;
+    }
+  };
+  const pop = () => {
+    const top = heap[0];
+    const last = heap.pop();
+    if (heap.length) {
+      heap[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = i * 2 + 1;
+        const r = l + 1;
+        let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break;
+        [heap[m], heap[i]] = [heap[i], heap[m]];
+        i = m;
+      }
+    }
+    return top;
+  };
+  for (const n of a.ends) push(n, dist(...a.p, n.x, n.z), null);
+  let done = null;
+  let doneCost = Infinity;
+  let guard = 0;
+  while (heap.length && guard++ < 60000) {
+    const [, g, n] = pop();
+    if (g > best.get(n) || g >= doneCost) continue;
+    if (goal.has(n)) {
+      const c = g + dist(n.x, n.z, ...b.p);
+      if (c < doneCost) {
+        doneCost = c;
+        done = n;
+      }
+    }
+    const p = prev.get(n);
+    for (const m of n.nb) {
+      if (m === p) continue; // no U-turns mid-route
+      let cost = dist(n.x, n.z, m.x, m.z);
+      // Freeways are quicker (cost by time, roughly), ramps a bit slower than streets.
+      if (n.high && m.high) cost *= n.ramp || m.ramp ? 0.75 : 0.42;
+      if (p) {
+        const ax = n.x - p.x;
+        const az = n.z - p.z;
+        const bx = m.x - n.x;
+        const bz = m.z - n.z;
+        const c = (ax * bx + az * bz) / ((Math.hypot(ax, az) * Math.hypot(bx, bz)) || 1);
+        if (c < 0.7) cost += TURN;
+      }
+      push(m, g + cost, n);
     }
   }
-  if (done === null) return [[fx, fz], [tx, tz]];
+  if (!done) return withHeights(city, [[fx, fz], [tx, tz]]);
   const nodes = [];
-  for (let k = done; k !== null; k = prev.get(k)) {
-    const id = k % 10000;
-    nodes.unshift(city.nodeAt(Math.floor(id / 100), id % 100));
-  }
+  for (let n = done; n; n = prev.get(n)) nodes.unshift(n);
   const pts = [[fx, fz], a.p, ...nodes.map((n) => [n.x, n.z]), b.p, [tx, tz]];
-  // Drop points in the middle of a straight line.
-  return pts.filter((p, k) => {
-    if (k <= 1 || k >= pts.length - 2) return true; // ends, and where they join the road
+  const ys = [null, null, ...nodes.map((n) => (n.high ? n.hy : null)), null, null];
+  // Drop points in the middle of a straight line (at the same height).
+  const keep = pts.map((p, k) => {
+    if (k <= 1 || k >= pts.length - 2) return true;
     const [p0, p1] = [pts[k - 1], pts[k + 1]];
     const cross = (p[0] - p0[0]) * (p1[1] - p[1]) - (p[1] - p0[1]) * (p1[0] - p[0]);
-    return Math.abs(cross) > 1e-3;
+    return Math.abs(cross) > 1e-3 || (ys[k] ?? 0) !== (ys[k - 1] ?? 0);
   });
+  const out = pts.filter((_, k) => keep[k]);
+  out.ys = ys.filter((_, k) => keep[k]).map((y, k) => (y ?? city.groundY(...out[k])));
+  return out;
+}
+
+function withHeights(city, pts) {
+  pts.ys = pts.map((p) => city.groundY(...p));
+  return pts;
 }
 
 // Total length of a route, in meters.
@@ -133,9 +181,10 @@ export class GpsLine {
       this.beam.material.opacity = 0.28 + 0.1 * Math.sin(performance.now() / 300);
     }
     const road = pts && pts.length > 2 ? pts.slice(1, -1) : null;
+    const ys = pts && pts.ys ? pts.ys.slice(1, -1) : null;
     this.mesh.visible = !!road;
     if (!road) return;
-    const key = road.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join('|');
+    const key = road.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join('|') + (ys ? ys.join(',') : '');
     if (key === this.key) return;
     this.key = key;
     const pos = [];
@@ -143,8 +192,10 @@ export class GpsLine {
     const idx = [];
     // Measure from the end, so the chevrons don't jump as the start moves with you.
     let u = -routeLength(road);
-    const y = 0.15; // floats just above the road
     for (let k = 1; k < road.length; k++) {
+      // (floats just above the road; follows the decks up on the freeway)
+      const ya = (ys ? ys[k - 1] : 0) + 0.15;
+      const yb = (ys ? ys[k] : 0) + 0.15;
       const [ax, az] = road[k - 1];
       const [bx, bz] = road[k];
       const len = Math.hypot(bx - ax, bz - az);
@@ -161,7 +212,7 @@ export class GpsLine {
       const u0 = (u + s0) / TILE;
       const u1 = (u + len + W / 2) / TILE;
       const i = pos.length / 3;
-      pos.push(sx + nx, y, sz + nz, sx - nx, y, sz - nz, ex + nx, y, ez + nz, ex - nx, y, ez - nz);
+      pos.push(sx + nx, ya, sz + nz, sx - nx, ya, sz - nz, ex + nx, yb, ez + nz, ex - nx, yb, ez - nz);
       uv.push(u0, 1, u0, 0, u1, 1, u1, 0);
       idx.push(i, i + 2, i + 1, i + 1, i + 2, i + 3);
       u += len;
@@ -173,4 +224,33 @@ export class GpsLine {
     this.mesh.geometry.dispose();
     this.mesh.geometry = geo;
   }
+}
+
+// Shortest path between two street nodes along the streets only (no freeway, no ramp
+// connectors): a list of nodes. filter(n) can rule out more nodes.
+export function nodePath(a, b, filter = null) {
+  const best = new Map([[a, 0]]);
+  const prev = new Map();
+  const open = [[0, a]];
+  while (open.length) {
+    let bi = 0;
+    for (let q = 1; q < open.length; q++) if (open[q][0] < open[bi][0]) bi = q;
+    const [g, n] = open.splice(bi, 1)[0];
+    if (g > best.get(n)) continue;
+    if (n === b) break;
+    for (const m of n.nb) {
+      if (!m.street || m.rampEnd || (filter && !filter(m))) continue;
+      const e = n.edgeTo?.get(m);
+      if (!e || e.street?.stub !== undefined || e.cls === 'pier' || e.cls === 'hills') continue;
+      const c = g + dist(n.x, n.z, m.x, m.z) * (e.rank >= 4 ? 0.8 : 1.15);
+      if (best.has(m) && best.get(m) <= c) continue;
+      best.set(m, c);
+      prev.set(m, n);
+      open.push([c, m]);
+    }
+  }
+  if (!best.has(b)) return null;
+  const out = [];
+  for (let n = b; n; n = prev.get(n)) out.unshift(n);
+  return out;
 }

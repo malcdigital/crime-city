@@ -48,16 +48,16 @@ export class Economy {
     for (const b of city.blocks) this.blocks[b.district] = (this.blocks[b.district] || 0) + 1;
 
     this.companies = COMPANIES.map((c) => {
-      const f = storefront(city, ...c.block);
+      const f = storefront(city, c.block);
       const sign = new THREE.Mesh(new THREE.PlaneGeometry(10, 1.8), new THREE.MeshBasicMaterial({ map: signTexture(c.name.toUpperCase(), '#1c2833', c.color) }));
-      sign.position.set(f.x, Math.min(f.h - 1, 5.2), f.wallZ - 0.07);
+      sign.position.set(0, Math.min(f.h - 1, 5.2), -0.07);
       sign.rotation.y = Math.PI;
-      scene.add(sign);
+      f.group(scene).add(sign);
       const ring = new THREE.Mesh(new THREE.RingGeometry(0.98, 1.2, 32), new THREE.MeshBasicMaterial({ color: c.color, transparent: true, opacity: 0.7, depthWrite: false }));
       ring.rotation.x = -Math.PI / 2;
       ring.position.set(f.x, city.groundY(f.x, f.z) + 0.05, f.z);
       scene.add(ring);
-      return { ...c, x: f.x, z: f.z, blockRef: f.block, street: streetAt(f.x, f.z), district: districtOfBlock(...c.block), owned: false, lastProfit: 0, lastProtection: 0 };
+      return { ...c, x: f.x, z: f.z, blockRef: f.block, street: streetAt(f.x, f.z), district: c.block.district, owned: false, lastProfit: 0, lastProtection: 0 };
     });
     this.load();
   }

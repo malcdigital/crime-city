@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { CFG, CRED_TIERS } from './config.js';
 import { dist, rand } from './util.js';
 import { streetAt } from './city.js';
+import { pushCircle } from './collision.js';
+import { pointInPoly } from './geom.js';
+import { blockDist } from './sidewalk.js';
 
 // Claiming an unclaimed block for Green Street. It has to be earned, in three steps:
 // 1. Tag it: spray Green Street tags on three walls around the block.
@@ -73,7 +76,7 @@ export function makeTag(scene, x, z, nx, nz) {
     new THREE.PlaneGeometry(3.2, 2),
     new THREE.MeshBasicMaterial({ map: tagTexture(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
   );
-  m.position.set(x + nx * 0.04, 1.7, z + nz * 0.04);
+  m.position.set(x + nx * 0.04, (scene.userData.groundY ? scene.userData.groundY(x + nx, z + nz) : 0.2) + 1.5, z + nz * 0.04);
   m.rotation.y = Math.atan2(nx, nz);
   scene.add(m);
   return m;
@@ -82,26 +85,30 @@ export function makeTag(scene, x, z, nx, nz) {
 // Points on building walls around a block that face open ground you can stand on.
 function wallSpots(game, b) {
   const solid = game.city.colliders;
-  const blocked = (x, z) => solid.some((c) => x > c.minX - 0.45 && x < c.maxX + 0.45 && z > c.minZ - 0.45 && z < c.maxZ + 0.45);
+  const blocked = (x, z) => {
+    const r = pushCircle(x, z, 0.45, solid);
+    return Math.hypot(r.x - x, r.z - z) > 0.05;
+  };
   const spots = [];
-  for (const w of game.city.los) {
-    const cx = (w.minX + w.maxX) / 2;
-    const cz = (w.minZ + w.maxZ) / 2;
-    if (cx < b.minX || cx > b.maxX || cz < b.minZ || cz > b.maxZ) continue;
-    if (w.maxX - w.minX < 4 || w.maxZ - w.minZ < 4) continue; // walls, not posts
+  for (const w of b.buildings || []) {
+    if (!w.w || !w.d || w.w < 4 || w.d < 4) continue;
+    const ux = Math.cos(w.ang);
+    const uz = Math.sin(w.ang);
+    const vx = -uz;
+    const vz = ux;
     const faces = [
-      [w.minX, cz, -1, 0, w.maxZ - w.minZ],
-      [w.maxX, cz, 1, 0, w.maxZ - w.minZ],
-      [cx, w.minZ, 0, -1, w.maxX - w.minX],
-      [cx, w.maxZ, 0, 1, w.maxX - w.minX],
+      [ux, uz, w.w / 2, w.d, vx, vz],
+      [-ux, -uz, w.w / 2, w.d, vx, vz],
+      [vx, vz, w.d / 2, w.w, ux, uz],
+      [-vx, -vz, w.d / 2, w.w, ux, uz],
     ];
-    for (const [fx, fz, nx, nz, len] of faces) {
+    for (const [nx, nz, half, len, ax, az] of faces) {
       for (const off of [-len / 4, len / 4]) {
-        const x = fx + nz * off;
-        const z = fz + nx * off;
+        const x = w.cx + nx * half + ax * off;
+        const z = w.cz + nz * half + az * off;
         const sx = x + nx * 1.1;
         const sz = z + nz * 1.1;
-        if (sx < b.minX || sx > b.maxX || sz < b.minZ || sz > b.maxZ) continue;
+        if (!pointInPoly(sx, sz, b.poly)) continue;
         if (blocked(sx, sz)) continue;
         spots.push({ x, z, nx, nz, sx, sz });
       }
@@ -146,7 +153,7 @@ export class Claim {
     this.mgr = mgr;
     this.game = mgr.game;
     this.block = block;
-    this.key = `${block.i},${block.j}`;
+    this.key = block.key;
     this.street = streetAt(block.cx, block.cz);
     this.stage = 'tag';
     this.t = 0;
@@ -156,13 +163,10 @@ export class Claim {
     const spots = wallSpots(this.game, block);
     const edge = (side) => {
       // Fallback: the sidewalk edge (no building wall there).
-      const [x, z, nx, nz] = [
-        [block.cx, block.minZ + 3, 0, -1],
-        [block.maxX - 3, block.cz, 1, 0],
-        [block.cx, block.maxZ - 3, 0, 1],
-        [block.minX + 3, block.cz, -1, 0],
-      ][side];
-      return { x, z, nx, nz, sx: x + nx, sz: z + nz };
+      const sd = block.sides[side % block.sides.length];
+      const x = sd.mx - sd.nx * 3;
+      const z = sd.mz - sd.nz * 3;
+      return { x, z, nx: sd.nx, nz: sd.nz, sx: x + sd.nx, sz: z + sd.nz };
     };
     let tags = spread(spots, TAGS);
     for (let s = 0; tags.length < TAGS; s++) tags.push(edge(s));
@@ -250,9 +254,8 @@ export class Claim {
     return out;
   }
 
-  onBlock(x, z, pad = CFG.ROAD / 2) {
-    const b = this.block;
-    return x > b.minX - pad && x < b.maxX + pad && z > b.minZ - pad && z < b.maxZ + pad;
+  onBlock(x, z, pad = 8) {
+    return blockDist(this.block, x, z) <= pad;
   }
 
   update(dt) {

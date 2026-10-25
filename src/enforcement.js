@@ -1,4 +1,3 @@
-import { STOP_LINE } from './streets.js';
 import { segmentBlocked } from './collision.js';
 import { dist } from './util.js';
 
@@ -59,13 +58,17 @@ export class Enforcement {
     const [fx, fz] = v.forward();
     const mx = fx * s;
     const mz = fz * s;
-    const ew = Math.abs(mx) > Math.abs(mz);
-    // How far before the middle of the intersection, and how far off to the side.
-    const approach = ew ? (n.x - v.x) * Math.sign(mx) : (n.z - v.z) * Math.sign(mz);
-    const side = ew ? Math.abs(n.z - v.z) : Math.abs(n.x - v.x);
+    // The arm you're coming in along, and how far you are before the middle and off to the side.
+    const arm = S.armFrom(n, { x: v.x, z: v.z });
+    if (!arm || !arm.stop || -(arm.ux * mx + arm.uz * mz) < 0.7) {
+      this.prevNode = null;
+      return null;
+    }
+    const approach = (v.x - n.x) * arm.ux + (v.z - n.z) * arm.uz;
+    const side = Math.abs(-(v.x - n.x) * arm.uz + (v.z - n.z) * arm.ux);
     let out = null;
-    if (this.prevNode === n && side < 7 && this.prevApproach > STOP_LINE && approach <= STOP_LINE && approach > 0) {
-      if (S.phase(n, ew ? 'EW' : 'NS') === 'red') out = { kind: 'red', label: 'ran a red light', fine: FINES.red };
+    if (this.prevNode === n && side < arm.e.w / 2 + 1 && this.prevApproach > arm.stopAt && approach <= arm.stopAt && approach > 0) {
+      if (S.phase(n, arm.group === 1 ? 'EW' : 'NS') === 'red') out = { kind: 'red', label: 'ran a red light', fine: FINES.red };
     }
     this.prevNode = n;
     this.prevApproach = approach;

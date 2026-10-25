@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { WEALTH_BASE } from './districts.js';
 import { mulberry32, dist } from './util.js';
-import { reserved } from './hwlayout.js';
+import { inHole } from './fwyplan.js';
 
 // Street props on the sidewalks:
 // - Fire hydrants (one per block). Hit one with a car and it breaks off and sprays water for
@@ -45,10 +45,10 @@ export class Props {
     for (const s of city.stores) avoid.push([s.x, s.z, 4]);
     for (const a of game.bank?.atms || []) avoid.push([a.x, a.z, 2.5]);
     for (const s of game.transit?.stops || []) avoid.push([s.sx, s.sz, 4.5]);
-    const ok = (x, z) => !avoid.some(([ax, az, r]) => dist(ax, az, x, z) < r) && !reserved(x, z, 2);
+    const ok = (x, z) => !avoid.some(([ax, az, r]) => dist(ax, az, x, z) < r) && !inHole(x, z, 2) && city.blockAt(x, z);
     const add = (kind, x, z, yaw) => {
       if (!ok(x, z)) return;
-      const it = { kind, x, z, yaw, x0: x, z0: z, yaw0: yaw, down: false, idx: -1, ...KINDS[kind] };
+      const it = { kind, x, z, yaw, x0: x, z0: z, yaw0: yaw, down: false, idx: -1, y0: city.groundY(x, z), ...KINDS[kind] };
       it.idx = this.items.filter((q) => q.kind === kind).length;
       this.items.push(it);
       const key = this.key(x, z);
@@ -57,33 +57,29 @@ export class Props {
     };
     for (const b of city.blocks) {
       if (b.type === 'police' || b.type === 'cityhall' || b.type === 'hospital' || b.type === 'chop') continue;
-      const W = b.maxX - b.minX;
-      // Each side: a point along it (t from the corner) at `inset` meters in from the curb,
-      // and the yaw that faces the road.
-      const sides = [
-        (t, inset) => [b.minX + t, b.minZ + inset, Math.PI],
-        (t, inset) => [b.minX + t, b.maxZ - inset, 0],
-        (t, inset) => [b.minX + inset, b.minZ + t, -Math.PI / 2],
-        (t, inset) => [b.maxX - inset, b.minZ + t, Math.PI / 2],
-      ];
+      if (b.lot || b.type === 'ramps' || b.type === 'place' || b.type === 'plaza') continue;
+      // Each side along a street: a point along it (t from its start) at `inset` meters in from
+      // the curb, and the yaw that faces the road.
+      const sides = b.sides.filter((sd) => sd.cls && sd.len > 16).map((sd) => [(t, inset) => [sd.ax + sd.ux * t - sd.nx * inset, sd.az + sd.uz * t - sd.nz * inset, Math.atan2(sd.nx, sd.nz)], sd.len]);
+      if (!sides.length) continue;
       const d = b.district;
       const busy = ['Downtown', 'Financial District', 'Government District', 'The Strip', 'Midtown'].includes(d);
       // One hydrant per block.
       {
-        const s = sides[Math.floor(rng() * 4)];
+        const [s, W] = sides[Math.floor(rng() * sides.length)];
         const t = rng() < 0.5 ? 12 : W - 12;
         add('hydrant', ...s(t, 0.6));
       }
       // Trash cans by the corners.
-      for (const s of sides) {
+      for (const [s, W] of sides) {
         if (!busy && rng() > 0.35) continue;
         const t = rng() < 0.5 ? 7 : W - 7;
         add('trash', ...s(t, 0.6));
       }
       // Benches mid-block, facing the street.
       const benches = b.type === 'park' ? 1 : d === 'Midtown' || d === 'Downtown' || d === 'The Heights' ? 0.4 : 0;
-      for (const s of sides) {
-        if (rng() > benches) continue;
+      for (const [s, W] of sides) {
+        if (rng() > benches || W < 26) continue;
         const t = rng() < 0.5 ? W * 0.43 : W * 0.57;
         add('bench', ...s(t, 0.8));
       }
@@ -146,7 +142,7 @@ export class Props {
     e.set(it.tilt || 0, it.yaw, it.tiltZ || 0, 'YXZ');
     q.setFromEuler(e);
     const s = it.broken ? 0.35 : 1;
-    m4.compose(new THREE.Vector3(it.x, 0.2 + (it.lift || 0), it.z), q, new THREE.Vector3(1, s, 1));
+    m4.compose(new THREE.Vector3(it.x, (it.y0 ?? 0.2) + (it.lift || 0), it.z), q, new THREE.Vector3(1, s, 1));
     for (const mesh of this.meshes[it.kind]) {
       mesh.setMatrixAt(it.idx, m4);
       mesh.instanceMatrix.needsUpdate = true;
@@ -158,19 +154,18 @@ export class Props {
     const city = this.game.city;
     const spots = [];
     for (const b of city.blocks) {
+      if (b.lot || b.type === 'ramps' || b.type === 'place') continue;
       const wealth = WEALTH_BASE[b.district] ?? 1;
-      const n = Math.round(Math.max(0, 1.12 - wealth) * 70);
+      const sides = b.sides.filter((sd) => sd.cls && sd.len > 8);
+      if (!sides.length) continue;
+      const n = Math.round(Math.max(0, 1.12 - wealth) * 70 * Math.min(1.5, b.area / 4000));
       for (let k = 0; k < n; k++) {
         // On the sidewalk or in the gutter just off the curb.
-        const side = Math.floor(rng() * 4);
-        const along = 3 + rng() * (b.maxX - b.minX - 6);
+        const sd = sides[Math.floor(rng() * sides.length)];
+        const along = 3 + rng() * (sd.len - 6);
         const inset = rng() < 0.45 ? -0.2 - rng() * 1.1 : 0.2 + rng() * 3.6;
         const y = inset > 0 ? 0.205 : 0.015;
-        const [x, z] = [
-          [b.minX + along, b.minZ + inset], [b.minX + along, b.maxZ - inset],
-          [b.minX + inset, b.minZ + along], [b.maxX - inset, b.minZ + along],
-        ][side];
-        spots.push([x, y, z, rng() * Math.PI * 2, rng()]);
+        spots.push([sd.ax + sd.ux * along - sd.nx * inset, y, sd.az + sd.uz * along - sd.nz * inset, rng() * Math.PI * 2, rng()]);
       }
     }
     if (!spots.length) return;
@@ -200,24 +195,20 @@ export class Props {
     for (const b of city.blocks) {
       const chance = CHANCE[b.district] || 0;
       if (!chance || b.type !== 'normal') continue;
-      // The buildings standing on this block.
-      const blds = city.los.filter((o) => o.minX >= b.minX && o.maxX <= b.maxX && o.minZ >= b.minZ && o.maxZ <= b.maxZ && (o.h || 0) > 3.5);
-      for (const o of blds) {
+      // The buildings standing on this block: tag the face toward the street.
+      for (const o of b.buildings || []) {
+        if (!o.w || (o.h || 0) < 3.5 || o.nx === undefined) continue;
         if (rng() > chance) continue;
-        // The face closest to a street.
-        const faces = [
-          [o.minZ - b.minZ, (o.minX + o.maxX) / 2, o.minZ - 0.03, Math.PI, o.maxX - o.minX],
-          [b.maxZ - o.maxZ, (o.minX + o.maxX) / 2, o.maxZ + 0.03, 0, o.maxX - o.minX],
-          [o.minX - b.minX, o.minX - 0.03, (o.minZ + o.maxZ) / 2, -Math.PI / 2, o.maxZ - o.minZ],
-          [b.maxX - o.maxX, o.maxX + 0.03, (o.minZ + o.maxZ) / 2, Math.PI / 2, o.maxZ - o.minZ],
-        ].sort((p, q) => p[0] - q[0]);
-        const [, x, z, yaw, span] = faces[0];
+        const span = o.w;
         if (span < 5) continue;
         const w = Math.min(span - 1, 3.2 + rng() * 2.5);
         const along = (rng() - 0.5) * (span - w - 0.5);
+        const yaw = Math.atan2(o.nx, o.nz);
+        const ux = Math.cos(o.ang);
+        const uz = Math.sin(o.ang);
         const geo = new THREE.PlaneGeometry(w, w * 0.45);
         geo.rotateY(yaw);
-        geo.translate(x + Math.cos(yaw) * along, 0.2 + 1.1 + rng() * 0.8, z - Math.sin(yaw) * along);
+        geo.translate(o.cx + o.nx * (o.d / 2 + 0.03) + ux * along, 0.2 + 1.1 + rng() * 0.8, o.cz + o.nz * (o.d / 2 + 0.03) + uz * along);
         byTex[Math.floor(rng() * tags.length)].push(geo);
       }
     }

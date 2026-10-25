@@ -1,6 +1,8 @@
 import { pushCircle, segmentBlockedPad } from './collision.js';
 import { dist } from './util.js';
 import { sidewalkWaypoint, sidewalkEscape } from './sidewalk.js';
+import { closestOnSeg } from './geom.js';
+import { edgesNear } from './city.js';
 
 // Civilians (e.sidewalk) keep to the sidewalks and crosswalks unless e.jaywalk is set.
 const onSidewalks = (game, e) => e.sidewalk && !e.jaywalk && e.state !== 'hide' && game.city.walk;
@@ -309,19 +311,15 @@ export function waypoint(game, e, gx, gz) {
   };
   const b = city.blockAt(e.x, e.z);
   if (b) {
-    // On a sidewalk: step out onto the road on whichever side leads toward the goal.
-    const pad = 3;
-    consider(b.minX - pad, e.z);
-    consider(b.maxX + pad, e.z);
-    consider(e.x, b.minZ - pad);
-    consider(e.x, b.maxZ + pad);
+    // On a block: step out onto the road on whichever side leads toward the goal.
+    for (const sd of b.sides || []) {
+      const c = closestOnSeg(e.x, e.z, sd.ax, sd.az, sd.bx, sd.bz);
+      consider(c.x + sd.nx * 3, c.z + sd.nz * 3);
+    }
   } else {
-    // On a road: head to an intersection on this road.
-    const P = city.P;
-    const onX = Math.abs(e.x - Math.round(e.x / P) * P) < 9; // on a north-south road
-    const onZ = Math.abs(e.z - Math.round(e.z / P) * P) < 9; // on an east-west road
-    for (const n of city.nodes) {
-      if ((onX && Math.abs(n.x - e.x) < 9) || (onZ && Math.abs(n.z - e.z) < 9)) {
+    // On a road: head to a junction along it.
+    for (const ed of edgesNear(e.x, e.z, 3)) {
+      for (const n of [ed.a, ed.b]) {
         if (Math.hypot(n.x - e.x, n.z - e.z) < 1) continue;
         consider(n.x, n.z);
       }

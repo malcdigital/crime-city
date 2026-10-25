@@ -122,24 +122,64 @@ export function rayBox(ox, oy, oz, dx, dy, dz, x0, y0, z0, x1, y1, z1) {
   return tmin;
 }
 
+// Ray against a box (plain or rotated), grown by pad on every side. Box tops: y0 + h (y0
+// defaults to 0). Returns the distance, or null.
+export function rayHitBox(ox, oy, oz, dx, dy, dz, b, pad = 0, top = b.h || 30) {
+  const y0 = b.y0 || 0;
+  if (!b.ob) return rayBox(ox, oy, oz, dx, dy, dz, b.minX - pad, y0, b.minZ - pad, b.maxX + pad, y0 + top, b.maxZ + pad);
+  const o = b.ob;
+  const ex = ox - o.cx;
+  const ez = oz - o.cz;
+  return rayBox(ex * o.c + ez * o.s, oy, -ex * o.s + ez * o.c, dx * o.c + dz * o.s, dy, -dx * o.s + dz * o.c, -o.hx - pad, y0, -o.hz - pad, o.hx + pad, y0 + top, o.hz + pad);
+}
+
 // Bullet ray test against the ground, buildings, people and cars.
 export function raycast(game, ox, oy, oz, dx, dy, dz, maxT, ignore = null, solidOnly = false) {
   let best = { t: maxT, type: 'none' };
-  if (dy < -1e-4) {
-    const t = -oy / dy;
-    if (t > 0 && t < best.t) best = { t, type: 'ground' };
+  // The ground (hills too): step along the ray until it goes under the surface.
+  if (dy < -1e-4 || game.city.hilly) {
+    const step = 1.5;
+    let prev = oy - game.city.groundY(ox, oz);
+    for (let t = step; t < best.t; t += step) {
+      const x = ox + dx * t;
+      const z = oz + dz * t;
+      const h = oy + dy * t - game.city.groundY(x, z);
+      if (h < 0) {
+        best = { t: t - step * (h / (h - prev)), type: 'ground' };
+        break;
+      }
+      prev = h;
+      if (!game.city.hilly && t > -oy / dy + step) break;
+    }
   }
+  // Buildings and cover (rotated ones in their own frame).
+  const boxHit = (b, top) => {
+    const y0 = b.y0 || 0;
+    if (!b.ob) return rayBox(ox, oy, oz, dx, dy, dz, b.minX, y0, b.minZ, b.maxX, y0 + top, b.maxZ);
+    const o = b.ob;
+    const ex = ox - o.cx;
+    const ez = oz - o.cz;
+    return rayBox(ex * o.c + ez * o.s, oy, -ex * o.s + ez * o.c, dx * o.c + dz * o.s, dy, -dx * o.s + dz * o.c, -o.hx, y0, -o.hz, o.hx, y0 + top, o.hz);
+  };
+  const near = (b) => {
+    const cx = (b.minX + b.maxX) / 2 - ox;
+    const cz = (b.minZ + b.maxZ) / 2 - oz;
+    const r = Math.max(b.maxX - b.minX, b.maxZ - b.minZ);
+    return cx * cx + cz * cz < (best.t + r) * (best.t + r);
+  };
   for (const b of game.city.los) {
-    const t = rayBox(ox, oy, oz, dx, dy, dz, b.minX, 0, b.minZ, b.maxX, b.h || 30, b.maxZ);
+    if (!near(b)) continue;
+    const t = boxHit(b, b.h || 30);
     if (t !== null && t < best.t) best = { t, type: 'world' };
   }
   for (const b of game.city.crates) {
-    const t = rayBox(ox, oy, oz, dx, dy, dz, b.minX, 0, b.minZ, b.maxX, b.h, b.maxZ);
+    if (!near(b)) continue;
+    const t = boxHit(b, b.h);
     if (t !== null && t < best.t) best = { t, type: 'world' };
   }
   for (const c of solidOnly ? [] : game.characters()) {
     if (c === ignore || !c.alive) continue;
-    const y = game.city.groundY(c.x, c.z);
+    const y = c.high && c.gy ? c.gy() : game.city.groundY(c.x, c.z);
     const top = !c.standing ? y + 0.5 : c.crouched ? y + 1.1 : y + 1.95;
     const r = c.standing ? 0.33 : 0.9;
     const t = rayBox(ox, oy, oz, dx, dy, dz, c.x - r, y, c.z - r, c.x + r, top, c.z + r);
@@ -150,8 +190,9 @@ export function raycast(game, ox, oy, oz, dx, dy, dz, maxT, ignore = null, solid
   }
   for (const v of game.vehicles) {
     if (v === ignore || v.removed || !v.doors) continue;
+    const vy = v.y || 0;
     for (const b of v.doorBoxes()) {
-      const t = rayBox(ox, oy, oz, dx, dy, dz, b.minX, 0.45, b.minZ, b.maxX, b.h, b.maxZ);
+      const t = rayBox(ox, oy, oz, dx, dy, dz, b.minX, vy + 0.45, b.minZ, b.maxX, vy + b.h, b.maxZ);
       if (t !== null && t < best.t) best = { t, type: 'car', target: v };
     }
   }
@@ -167,7 +208,7 @@ export function raycast(game, ox, oy, oz, dx, dy, dz, maxT, ignore = null, solid
     const loz = ex * s + ez * c;
     const ldx = dx * c - dz * s;
     const ldz = dx * s + dz * c;
-    const t = rayBox(lox, oy, loz, ldx, dy, ldz, -v.type.w / 2, 0.2, -v.type.l / 2, v.type.w / 2, 1.9, v.type.l / 2);
+    const t = rayBox(lox, oy, loz, ldx, dy, ldz, -v.type.w / 2, (v.y || 0) + 0.2, -v.type.l / 2, v.type.w / 2, (v.y || 0) + 1.9, v.type.l / 2);
     if (t !== null && t < best.t) best = { t, type: 'car', target: v };
   }
   // The police helicopter.

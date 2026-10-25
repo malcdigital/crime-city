@@ -1,4 +1,5 @@
-import { MARGIN } from './hwlayout.js';
+import { fillTurf, strokeTurf, fillBlocks, strokeBlock } from './turfdraw.js';
+const MARGIN = 0; // (the map is the whole world)
 import { DISTRICTS, districtCenter } from './districts.js';
 import { drawHeli, drawSearchlight } from './heliicon.js';
 import { CFG, CRED_TIERS } from './config.js';
@@ -124,7 +125,7 @@ export class MapView {
   }
 
   fit() {
-    return Math.min(innerWidth, innerHeight) * 0.9 / (CFG.SIZE + MARGIN * 2);
+    return Math.min(innerWidth, innerHeight) * 0.9 / (1600 + MARGIN * 2);
   }
 
   show() {
@@ -132,8 +133,8 @@ export class MapView {
     this.open = true;
     this.el.classList.remove('hidden');
     const [px, pz] = game.player.pos();
-    this.cx = CFG.SIZE / 2;
-    this.cz = CFG.SIZE / 2;
+    this.cx = 1600 / 2;
+    this.cz = 1600 / 2;
     this.scale = this.fit();
     this.cursor = [px, pz]; // cursor starts on you
     this.mouse = null;
@@ -202,7 +203,7 @@ export class MapView {
       if (hb) add('swatch', t.color, '', `${name} · ${n} block${n === 1 ? '' : 's'}`, hb.cx, hb.cz);
       else add('swatch', t.color, '', `${name} · underground`, null, null);
     }
-    const free = T.blocks.filter((b) => !T.owner[`${b.i},${b.j}`]).sort((a, b) => dist(a.cx, a.cz, px, pz) - dist(b.cx, b.cz, px, pz));
+    const free = T.blocks.filter((b) => !T.owner[b.key]).sort((a, b) => dist(a.cx, a.cz, px, pz) - dist(b.cx, b.cz, px, pz));
     if (free.length) add('swatch', '#555', '', `Unclaimed · ${free.length} blocks (nearest)`, free[0].cx, free[0].cz);
     for (const w of T.wars) if (w.state === 'active') add('swatch', '#ff4d4d', '', `Turf war · ${w.street}`, w.block.cx, w.block.cz);
     head('Places');
@@ -282,7 +283,7 @@ export class MapView {
   // Keep the city centered on screen when it fits; when zoomed in, don't scroll past its edges.
   clampView() {
     const lo = -MARGIN;
-    const hi = CFG.SIZE + MARGIN;
+    const hi = 1600 + MARGIN;
     const mid = (lo + hi) / 2;
     const fitAxis = (c, screen) => {
       const half = screen / 2 / this.scale;
@@ -312,7 +313,7 @@ export class MapView {
   toggleWaypoint(x, z) {
     const w = this.waypoint;
     if (w && dist(w[0], w[1], x, z) < 20 / Math.max(0.5, this.scale)) this.waypoint = null;
-    else this.waypoint = [clamp(x, -MARGIN, CFG.SIZE + MARGIN), clamp(z, -MARGIN, CFG.SIZE + MARGIN)];
+    else this.waypoint = [clamp(x, -MARGIN, 1600 + MARGIN), clamp(z, -MARGIN, 1600 + MARGIN)];
   }
 
   update(dt, a) {
@@ -331,8 +332,8 @@ export class MapView {
       this.mouse = null;
       this.legendActive = false;
       const sp = 520 / this.scale; // screen pixels per second, in world units
-      this.cursor[0] = clamp(this.cursor[0] + mx * sp * dt, -MARGIN, CFG.SIZE + MARGIN);
-      this.cursor[1] = clamp(this.cursor[1] + my * sp * dt, -MARGIN, CFG.SIZE + MARGIN);
+      this.cursor[0] = clamp(this.cursor[0] + mx * sp * dt, -MARGIN, 1600 + MARGIN);
+      this.cursor[1] = clamp(this.cursor[1] + my * sp * dt, -MARGIN, 1600 + MARGIN);
       const [sx, sy] = this.toScreen(...this.cursor);
       const m = 120;
       if (sx < m) this.cx -= (m - sx) / this.scale;
@@ -372,34 +373,24 @@ export class MapView {
     ctx.translate(-this.cx, -this.cz);
     // City background (same picture as the minimap).
     const bg = game.hud.mapBg;
-    const span = CFG.SIZE + MARGIN * 2;
+    const span = 1600 + MARGIN * 2;
     ctx.drawImage(bg, -MARGIN, -MARGIN, span, span);
     // Turf.
-    const half = CFG.ROAD / 2;
     for (const t of game.turfWars.view()) {
       ctx.globalAlpha = 0.33;
       ctx.fillStyle = t.color;
-      for (const b of t.blocks) ctx.fillRect(b.minX - half, b.minZ - half, b.maxX - b.minX + CFG.ROAD, b.maxZ - b.minZ + CFG.ROAD);
+      fillTurf(ctx, t.blocks);
       ctx.globalAlpha = 0.95;
       ctx.strokeStyle = t.color;
       ctx.lineWidth = 2.5 / s;
-      const has = (i, j) => t.blocks.some((o) => o.i === i && o.j === j);
-      ctx.beginPath();
-      for (const b of t.blocks) {
-        const x0 = b.minX - half, x1 = b.maxX + half, z0 = b.minZ - half, z1 = b.maxZ + half;
-        if (!has(b.i - 1, b.j)) { ctx.moveTo(x0, z0); ctx.lineTo(x0, z1); }
-        if (!has(b.i + 1, b.j)) { ctx.moveTo(x1, z0); ctx.lineTo(x1, z1); }
-        if (!has(b.i, b.j - 1)) { ctx.moveTo(x0, z0); ctx.lineTo(x1, z0); }
-        if (!has(b.i, b.j + 1)) { ctx.moveTo(x0, z1); ctx.lineTo(x1, z1); }
-      }
-      ctx.stroke();
+      strokeTurf(ctx, t.blocks, game.city.blocks);
     }
     ctx.globalAlpha = 0.55;
     for (const w of game.turfWars.wars) {
       const b = w.block;
       const def = w.defender || w.responder;
       ctx.fillStyle = Math.floor(performance.now() / 300) % 2 ? GANGS[w.attacker].color : def ? GANGS[def].color : '#fff';
-      ctx.fillRect(b.minX, b.minZ, b.maxX - b.minX, b.maxZ - b.minZ);
+      fillBlocks(ctx, [b]);
     }
     ctx.globalAlpha = 1;
     // Drug price heat (cycle with □ / H): blue = cheap there, red = sells high.
@@ -409,7 +400,7 @@ export class MapView {
         const m = heat.mult(districtAt(b.cx, b.cz), this.heat);
         const k = clamp((m - 0.6) / 1.1, 0, 1);
         ctx.fillStyle = `hsla(${Math.round(220 - k * 220)}, 90%, 50%, 0.62)`;
-        ctx.fillRect(b.minX, b.minZ, b.maxX - b.minX, b.maxZ - b.minZ);
+        fillBlocks(ctx, [b]);
       }
     }
     // Hovered block outline.
@@ -418,7 +409,7 @@ export class MapView {
       ctx.strokeStyle = '#fff';
       ctx.lineWidth = 2 / s;
       ctx.setLineDash([6 / s, 4 / s]);
-      ctx.strokeRect(hb.minX, hb.minZ, hb.maxX - hb.minX, hb.maxZ - hb.minZ);
+      strokeBlock(ctx, hb);
       ctx.setLineDash([]);
     }
     // Police search area.
@@ -658,7 +649,7 @@ export class MapView {
     const T = this.game.turfWars;
     const lines = [`<b>${streetAt(x, z)}</b> · ${districtAt(x, z)}`];
     if (b) {
-      const k = `${b.i},${b.j}`;
+      const k = b.key;
       const g = T.owner[k];
       const w = T.warOn(k);
       if (g) lines.push(`<span style="color:${GANGS[g].color}">${GANGS[g].name}</span> turf${T.home[g] === k ? ' · <b>home block</b>' : ''}`);

@@ -15,7 +15,8 @@ import { dist } from './util.js';
 // - Home stashes: every home you own (and the safehouse) has one. No fees, open any time — but
 //   now and then one gets robbed (rarely at random; more when a gang has beef with you).
 // You have to go to each place in person to put money in or take it out.
-const SAVE_KEY = 'crimecity.bank.v1';
+const SAVE_KEY = 'crimecity.bank.v2'; // v2: the rebuilt city (homes moved: ownership reset once)
+const OLD_KEY = 'crimecity.bank.v1';
 const money = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
 const fmtClock = (m) => `${(Math.floor(m / 60) % 12) || 12}:${String(m % 60).padStart(2, '0')} ${m < 720 ? 'AM' : 'PM'}`;
 const ROB_EVERY = 120; // seconds between rolls for a random break-in
@@ -33,11 +34,12 @@ export class Bank {
     this.lastClock = null;
     this.robT = ROB_EVERY;
 
-    const sign = (text, x, y, z, w, h, bg) => {
+    // A sign over a storefront's door (f: from storefront()).
+    const sign = (f, text, y, w, h, bg) => {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: signTexture(text, bg, '#fff') }));
-      m.position.set(x, y, z);
+      m.position.set(0, y, -0.07);
       m.rotation.y = Math.PI;
-      scene.add(m);
+      f.group(scene).add(m);
       return m;
     };
     const ring = (x, z, color) => {
@@ -49,9 +51,9 @@ export class Bank {
     };
 
     // Bank branches.
-    this.banks = BANKS.map(([i, j, name]) => {
-      const f = storefront(city, i, j);
-      sign(name.toUpperCase(), f.x, Math.min(f.h - 1, 5), f.wallZ - 0.07, 10, 1.8, '#145a32');
+    this.banks = BANKS.map(({ block, name }) => {
+      const f = storefront(city, block);
+      sign(f, name.toUpperCase(), Math.min(f.h - 1, 5), 10, 1.8, '#145a32');
       ring(f.x, f.z, 0x27ae60);
       return { name, x: f.x, z: f.z, street: streetAt(f.x, f.z) };
     });
@@ -60,26 +62,32 @@ export class Bank {
     const atmGeo = new THREE.BoxGeometry(0.8, 1.7, 0.55);
     const atmMat = new THREE.MeshLambertMaterial({ color: 0x2c3e50 });
     const screenMat = new THREE.MeshBasicMaterial({ color: 0x5dade2 });
-    this.atms = ATMS.map(([i, j]) => {
-      const b = city.blocks[i * CFG.BLOCKS + j];
-      const x = b.maxX - 6;
-      const z = b.minZ + 0.9;
+    this.atms = ATMS.map((b) => {
+      // On the front sidewalk, 6 m from its end, against the inside of the sidewalk.
+      const sd = b.frontSide;
+      const inset = Math.max(1.2, (b.sw || 3) - 0.9);
+      const t = Math.max(3, sd.len - 6);
+      const x = sd.ax + sd.ux * t - sd.nx * inset;
+      const z = sd.az + sd.uz * t - sd.nz * inset;
+      const y = city.groundY(x, z);
+      const yaw = Math.atan2(sd.nx, sd.nz); // screen faces the street
       const m = new THREE.Mesh(atmGeo, atmMat);
-      m.position.set(x, 0.2 + 0.85, z);
+      m.position.set(x, y + 0.85, z);
+      m.rotation.y = yaw;
       m.castShadow = true;
       scene.add(m);
       const s = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.35), screenMat);
-      s.position.set(x, 0.2 + 1.3, z - 0.28);
-      s.rotation.y = Math.PI;
+      s.position.set(x + sd.nx * 0.28, y + 1.3, z + sd.nz * 0.28);
+      s.rotation.y = yaw;
       scene.add(s);
-      city.colliders.push({ minX: x - 0.4, maxX: x + 0.4, minZ: z - 0.28, maxZ: z + 0.28 });
-      return { x, z: z - 1.1 };
+      city.colliders.push({ minX: x - 0.4, maxX: x + 0.4, minZ: z - 0.4, maxZ: z + 0.4, h: y + 1.7 });
+      return { x: x + sd.nx * 1.1, z: z + sd.nz * 1.1 };
     });
 
     // Homes for sale. The safehouse (from the shops) counts as a home too.
     this.homes = HOMES.map((h) => {
-      const f = storefront(city, ...h.block);
-      const s = sign('FOR SALE', f.x, Math.min(f.h - 1, 4.2), f.wallZ - 0.07, 6, 1.4, '#7f8c8d');
+      const f = storefront(city, h.block);
+      const s = sign(f, 'FOR SALE', Math.min(f.h - 1, 4.2), 6, 1.4, '#7f8c8d');
       ring(f.x, f.z, 0xf5b041);
       return { ...h, x: f.x, z: f.z, owned: false, stash: 0, sign: s, district: districtAt(f.x, f.z), street: streetAt(f.x, f.z) };
     });
@@ -90,8 +98,15 @@ export class Bank {
   // ---- Save ----
   load() {
     try {
-      const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
-      if (!s) return;
+      let s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+      if (!s) {
+        // From before the rebuild: keep the money (anything stashed in a home goes to the
+        // bank), but the homes are back on the market.
+        const old = JSON.parse(localStorage.getItem(OLD_KEY) || 'null');
+        if (!old) return;
+        const stashed = Object.values(old.homes || {}).reduce((t, o) => t + (o.stash || 0), 0);
+        s = { ...old, balance: (old.balance || 0) + stashed, homes: {} };
+      }
       this.balance = s.balance || 0;
       this.atmUsed = s.atmUsed || 0;
       this.days = s.days || 0;

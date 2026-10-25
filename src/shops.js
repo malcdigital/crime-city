@@ -48,20 +48,25 @@ const PAINTS = [0x1c1c1c, 0xf2f2f2, 0xb71c1c, 0x0d47a1, 0x1b5e20, 0xf9a825, 0x4a
 
 const money = (n) => `$${n.toLocaleString('en-US')}`;
 
-// A storefront on the north face of a block: the building wall nearest the street there.
-export function storefront(city, i, j) {
-  const b = city.blocks.find((k) => k.i === i && k.j === j);
-  let best = null;
-  for (const w of city.los) {
-    const cx = (w.minX + w.maxX) / 2;
-    const cz = (w.minZ + w.maxZ) / 2;
-    if (cx < b.minX || cx > b.maxX || cz < b.minZ || cz > b.maxZ) continue;
-    if (w.maxX - w.minX < 6) continue;
-    if (!best || w.minZ < best.minZ - 0.1 || (Math.abs(w.minZ - best.minZ) < 0.1 && Math.abs(cx - b.cx) < Math.abs((best.minX + best.maxX) / 2 - b.cx))) best = w;
-  }
-  const x = best ? (best.minX + best.maxX) / 2 : b.cx;
-  const wallZ = best ? best.minZ : b.minZ + 6;
-  return { block: b, x, wallZ, z: wallZ - 1.6, h: best ? best.h : 6 };
+// A block's storefront: the wall of the building facing its front street (city.storefront),
+// plus a local frame for decorating it: frame(lx, lz) is a point lx along the wall (to the
+// right as you face it) and -lz out in front of it; group() is a Group placed and turned the
+// same way (so things built facing -z, the old north-facing way, face the street).
+export function storefront(city, b) {
+  const f = city.storefront(b);
+  const th = Math.atan2(-f.nx, -f.nz);
+  const c = Math.cos(th);
+  const s = Math.sin(th);
+  const y0 = (f.y0 ?? 0.2) - 0.2;
+  const frame = (lx, lz) => [f.wallX + lx * c + lz * s, f.wallZ - lx * s + lz * c];
+  const group = (scene) => {
+    const g = new THREE.Group();
+    g.position.set(f.wallX, y0, f.wallZ);
+    g.rotation.y = th;
+    scene.add(g);
+    return g;
+  };
+  return { ...f, block: b, frame, group, y0, rot: th };
 }
 
 export function signTexture(text, bg, fg) {
@@ -90,23 +95,30 @@ export class Shops {
     const city = game.city;
     const scene = game.scene;
     // Places.
-    this.gun = { ...storefront(city, ...PLACES.gunShop), name: "Iron Mike's Guns", color: '#c0392b', icon: 'A' };
-    this.garage = { ...storefront(city, ...PLACES.garage), name: "Lou's Mod Garage", color: '#16a085', icon: 'M' };
-    this.safe = { ...storefront(city, ...PLACES.safehouse), name: 'Safehouse', color: '#5d6d7e', icon: 'S' };
-    this.garage.z = this.garage.block.minZ - 3.6; // drive-in spot in the curb lane
+    this.gun = { ...storefront(city, PLACES.gunShop), name: "Iron Mike's Guns", color: '#c0392b', icon: 'A' };
+    this.garage = { ...storefront(city, PLACES.garage), name: "Lou's Mod Garage", color: '#16a085', icon: 'M' };
+    this.safe = { ...storefront(city, PLACES.safehouse), name: 'Safehouse', color: '#5d6d7e', icon: 'S' };
+    {
+      // The garage's drive-in spot: in the curb lane out front.
+      const fs = this.garage.block.frontSide;
+      const t = Math.max(6, Math.min(fs.len - 6, (this.garage.wallX - fs.ax) * fs.ux + (this.garage.wallZ - fs.az) * fs.uz));
+      this.garage.x = fs.ax + fs.ux * t + fs.nx * 2.4;
+      this.garage.z = fs.az + fs.uz * t + fs.nz * 2.4;
+    }
     this.garage.r = 3.2;
     const sh = city.crewHome;
-    this.stashAt = { x: sh.x + 1.1, z: sh.z + 3.2 }; // the duffel bag on the bench
+    this.stashAt = { x: sh.x + sh.ux * 1.1 - sh.nx * 3.2, z: sh.z + sh.uz * 1.1 - sh.nz * 3.2 }; // the duffel bag on the bench
     // Shop signs and doors.
     const front = (p, text, bg) => {
+      const g = p.group(scene);
       const sign = new THREE.Mesh(new THREE.PlaneGeometry(9, 1.7), new THREE.MeshBasicMaterial({ map: signTexture(text, bg, '#fff') }));
-      sign.position.set(p.x, Math.min(p.h - 1, 4.4), p.wallZ - 0.07);
+      sign.position.set(0, Math.min(p.h - 1, 4.4), -0.07);
       sign.rotation.y = Math.PI;
-      scene.add(sign);
+      g.add(sign);
       const door = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 3), new THREE.MeshLambertMaterial({ color: 0x2a2a2a }));
-      door.position.set(p.x, 1.7, p.wallZ - 0.06);
+      door.position.set(0, 1.7, -0.06);
       door.rotation.y = Math.PI;
-      scene.add(door);
+      g.add(door);
       return sign;
     };
     front(this.gun, "IRON MIKE'S GUNS", '#8e1b10');
@@ -129,7 +141,8 @@ export class Shops {
     const strap = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.03, 6, 12, Math.PI), new THREE.MeshLambertMaterial({ color: 0x27ae60 }));
     strap.position.y = 0.18;
     bag.add(strap);
-    bag.position.set(this.stashAt.x, 0.2 + 0.7 + 0.22, this.stashAt.z);
+    bag.position.set(this.stashAt.x, city.groundY(this.stashAt.x, this.stashAt.z) + 0.7 + 0.22, this.stashAt.z);
+    bag.rotation.y = Math.atan2(sh.ux, sh.uz) + Math.PI / 2;
     scene.add(bag);
     this.bag = bag;
     this.menu = null;
@@ -148,7 +161,10 @@ export class Shops {
     this.stash = s.stash || 0;
     this.unpaid = s.unpaid || 0; // payouts sitting in the stash
     this.payT = s.payT || 0;
-    this.safehouse = !!s.safehouse;
+    // (the safehouse moved with the rebuilt city: owners from before get it back on the market,
+    // once, with what it cost refunded to the bank)
+    this.safehouse = !!s.safehouse && !!s.city2;
+    this.refundSafehouse = !!s.safehouse && !s.city2;
     this.crewGuns = s.crewGuns || 0;
     this.crewVest = !!s.crewVest;
     this.game.armor = s.armor || 0;
@@ -171,7 +187,7 @@ export class Shops {
     const ar = this.game.arsenal;
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
-        stash: this.stash, unpaid: this.unpaid, payT: this.payT, safehouse: this.safehouse, crewGuns: this.crewGuns,
+        stash: this.stash, unpaid: this.unpaid, payT: this.payT, safehouse: this.safehouse, city2: true, crewGuns: this.crewGuns,
         crewVest: this.crewVest, armor: Math.round(this.game.armor), slots: ar.slots, active: ar.active, ammo: ar.ammo,
       }));
     } catch {

@@ -25,7 +25,7 @@ import { Effects } from './effects.js';
 import { Sfx } from './audio.js';
 import { AirCam, ClipPlayer } from './aircam.js';
 import { TurfManager, GANGS } from './turf.js';
-import { Arsenal, WEAPONS, raycast, rayBox } from './weapons.js';
+import { Arsenal, WEAPONS, raycast, rayBox, rayHitBox } from './weapons.js';
 import { lam } from './character.js';
 import { segmentBlocked } from './collision.js';
 import { MapView } from './mapview.js';
@@ -83,9 +83,12 @@ class Game {
     this.scene.add(this.sun, this.sun.target);
 
     this.city = buildCity(this.scene);
-    this.city.walk = buildSidewalks(this.city, this.scene); // sidewalks and crosswalks for people on foot
-    this.highway = new Highway(this); // elevated ring and crosstown highways (before the radar is drawn)
+    this.scene.userData.groundY = this.city.groundY;
+    this.highway = new Highway(this); // the ring and crosstown freeways (before the radar is drawn)
+    this.city.highway = this.highway;
     this.streets = new Streets(this); // traffic lights, stop signs, street lights
+    this.city.streetsRef = this.streets;
+    this.city.walk = buildSidewalks(this.city, this.scene); // sidewalks and crosswalks for people on foot
     this.dayNight = new DayNight(this);
     this.input = new Input(canvas);
     // Touch controls (phones and tablets): a virtual controller, on at the first touch.
@@ -111,8 +114,9 @@ class Game {
     this.police = new PoliceManager(this);
 
     // Parked cars at the curb near the start point.
-    this.vehicles.push(new Vehicle(this.scene, 'sports', sp.x + 8, sp.curbZ, Math.PI / 2));
-    this.vehicles.push(new Vehicle(this.scene, 'sedan', sp.x - 8, sp.curbZ, Math.PI / 2));
+    const [c1, c2] = sp.cars;
+    this.vehicles.push(new Vehicle(this.scene, 'sports', c1[0], c1[1], c1[2]));
+    this.vehicles.push(new Vehicle(this.scene, 'sedan', c2[0], c2[1], c2[2]));
 
     this.traffic.init();
     this.peds.init();
@@ -157,6 +161,14 @@ class Game {
     this.shops = new Shops(this);
     this.drugs = new Drugs(this);
     this.bank = new Bank(this);
+    if (this.shops.refundSafehouse) {
+      // The city was rebuilt: the old safehouse is refunded (it's back on the market).
+      this.shops.refundSafehouse = false;
+      this.bank.balance += 5000;
+      this.bank.save();
+      this.shops.save();
+      this.cityRebuiltNote = true;
+    }
     this.property = new PropertyMarket(this);
     this.economy = new Economy(this);
     this.budget = new CityBudget(this);
@@ -817,7 +829,7 @@ class Game {
     this.scareNearby(shooter.x, shooter.z, 40, true);
     this.effects.impact(tx, wy, tz);
     if (hit && v.popTire(i)) {
-      this.effects.smoke(wx, 0.5, wz);
+      this.effects.smoke(wx, (v?.y || 0) + 0.5, wz);
       if (v.driver === 'player') this.hud.toast(v.flatCount >= 2 ? 'Tires shot out!' : 'Tire shot out!', '#ff8080');
     }
   }
@@ -902,7 +914,7 @@ class Game {
             this.peds.addAt(v.x + fz * 2.2, v.z - fx * 2.2).scare(v.x, v.z);
           }
         }
-        if (Math.random() < dt * 25) this.effects.fire(v.x, 1.3, v.z);
+        if (Math.random() < dt * 25) this.effects.fire(v.x, (v.y || 0) + 1.3, v.z);
         v.burnT -= dt;
         if (v.burnT <= 0) this.explode(v);
       }
@@ -911,7 +923,7 @@ class Game {
 
   dropAmmo(x, z, weapon, amount) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.35, 0.4), lam(weapon === 'smg' ? 0x4b5320 : 0x5d4037));
-    mesh.position.set(x, 0.6, z);
+    mesh.position.set(x, this.city.groundY(x, z) + 0.4, z);
     this.scene.add(mesh);
     this.pickups.push({ x, z, weapon, amount, mesh, t: 60 });
   }
@@ -922,7 +934,7 @@ class Game {
     const wad = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.14, 0.24), lam(0x2e8b3a));
     const band = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.15, 0.25), lam(0xf2e9b8));
     g.add(wad, band);
-    g.position.set(x, 0.5, z);
+    g.position.set(x, this.city.groundY(x, z) + 0.3, z);
     this.scene.add(g);
     this.pickups.push({ x, z, cash: amount, mesh: g, t: 90 });
   }
@@ -1471,13 +1483,13 @@ class Game {
       }
       tx = v.x;
       tz = v.z;
-      ty = 1.6 + (v.high ? v.y || 0 : 0); // (up on the highway)
+      ty = 1.6 + (v.y || 0); // (on the hills or up on the freeway too)
       distBack = 9.5 + Math.abs(v.speed) * 0.08;
       height = 2.2;
     } else {
       tx = this.player.x;
       tz = this.player.z;
-      ty = (this.player.lowProfile ? 1.15 : 1.7) + (this.player.high ? this.player.gy() : 0);
+      ty = (this.player.lowProfile ? 1.15 : 1.7) + this.player.gy();
       distBack = down ? 7 : 5.5;
       height = 1.2;
       // In cover: a wider view so you can see around you.
@@ -1498,7 +1510,7 @@ class Game {
     // Looking up: instead of sinking into the ground, the camera tucks in close behind your
     // head so you can still aim steeply upward (e.g. at the helicopter).
     if (this.camPitch < 0) {
-      const room = ty + height - 0.5;
+      const room = ty + height - 0.5 - (v ? v.y || 0 : this.player.gy());
       distBack = Math.min(distBack, room / Math.max(0.01, -Math.sin(this.camPitch)));
       distBack = Math.max(distBack, 1.2);
     }
@@ -1515,7 +1527,7 @@ class Game {
     let free = len;
     for (const b of this.city.los) {
       if (Math.abs((b.minX + b.maxX) / 2 - ox) > 60 || Math.abs((b.minZ + b.maxZ) / 2 - oz) > 60) continue;
-      const t = rayBox(ox, oy, oz, ddx / len, ddy / len, ddz / len, b.minX - 0.25, 0, b.minZ - 0.25, b.maxX + 0.25, b.h || 30, b.maxZ + 0.25);
+      const t = rayHitBox(ox, oy, oz, ddx / len, ddy / len, ddz / len, b, 0.25);
       if (t !== null && t < free) free = t;
     }
     const want = Math.max(0.8, free - 0.1);
@@ -1527,7 +1539,9 @@ class Game {
       cz = oz + ddz * k;
     }
     const shake = v ? v.crash * 0.01 : 0;
-    this.camera.position.set(cx + rand(-shake, shake), Math.max(0.6, cy), cz + rand(-shake, shake));
+    // (never under the ground, or under the freeway deck you're up on)
+    const floor = Math.max(this.city.groundY(cx, cz), this.highway.floorBelow(cx, cz, ty) ?? -1e9);
+    this.camera.position.set(cx + rand(-shake, shake), Math.max(floor + 0.6, cy), cz + rand(-shake, shake));
     this.camera.lookAt(tx + rx * shoulder, ty + 0.6, tz + rz * shoulder);
     if (Math.abs(this.camera.fov - fov) > 0.1) {
       this.camera.fov = lerp(this.camera.fov, fov, Math.min(1, dt * 10));
@@ -1536,7 +1550,7 @@ class Game {
 
     // Keep the sun's shadow box around the player.
     this.sun.position.set(tx + 60, 120, tz + 40);
-    this.sun.target.position.set(tx, 0, tz);
+    this.sun.target.position.set(tx, ty, tz);
     if (this.cine) this.cineCamera(dt);
     if (this.travel.active) this.travel.camera(); // riding a taxi or bus: the cut scene's shots
   }
@@ -1667,12 +1681,20 @@ class Game {
     const [px, pz] = this.player.pos();
     // End up across the street from the spot, looking at it with the road running left to
     // right, so you can see cars come in from both ends. Never more than half a lap.
-    const P = CFG.PITCH;
-    const roadX = Math.round(x / P) * P; // nearest avenue
-    const roadZ = Math.round(z / P) * P; // nearest street
-    const end = Math.abs(z - roadZ) <= Math.abs(x - roadX)
-      ? (roadZ < z ? Math.PI : 0) // on a street: camera out over the road
-      : (roadX < x ? -Math.PI / 2 : Math.PI / 2); // on an avenue
+    // The nearest road: end up out over it (on the far side from the spot).
+    let end = Math.atan2(px - x, pz - z);
+    const hit = this.city.edgeAt(x, z);
+    if (hit) {
+      let dx = hit.x - x;
+      let dz = hit.z - z;
+      if (Math.hypot(dx, dz) < 1) {
+        // Right on the road: off to one side of it.
+        const e = hit.e;
+        dx = -(e.b.z - e.a.z);
+        dz = e.b.x - e.a.x;
+      }
+      end = Math.atan2(dx, dz);
+    }
     const a0 = Math.atan2(px - x, pz - z);
     this.cine = { x, z, t: 0, dur, a0, sweep: wrapAngle(end - a0) };
     const el = document.getElementById('cine');
@@ -1705,9 +1727,10 @@ class Game {
     const ang = c.a0 + ease * c.sweep;
     // Swing around and up into a high, wide shot over the street.
     const r = 14 - 4 * ease;
-    const y = 6 + 22 * ease;
+    const gy = this.city.groundY(c.x, c.z);
+    const y = gy + 6 + 22 * ease;
     this.camera.position.set(c.x + Math.sin(ang) * r, y, c.z + Math.cos(ang) * r);
-    this.camera.lookAt(c.x, 0.5, c.z);
+    this.camera.lookAt(c.x, gy + 0.5, c.z);
     const fov = 65 + 20 * ease;
     if (Math.abs(this.camera.fov - fov) > 0.1) {
       this.camera.fov = fov;
