@@ -506,6 +506,7 @@ export class PoliceUnit {
 
   // Everyone out: two per side, the second pair from the back doors.
   dismountAll() {
+    if (this.car.high) return; // not up on the highway: they stay in the car
     this.officers.forEach((o, k) => o.dismount(k % 2 === 0 ? -1 : 1, k >= 2 ? 1.8 : 0));
   }
 
@@ -685,6 +686,7 @@ export class PoliceUnit {
       const fwd = ox * fx + oz * fz;
       const lat = Math.abs(ox * fz - oz * fx);
       if (o.parkSpot && lat > 1.7) continue; // parked at the curb
+      if (!!o.high !== !!c.high) continue; // (one on the highway, one underneath)
       if (fwd > 0 && fwd < 18 && lat < 3) desired = Math.min(desired, Math.max(0, (fwd - 7) * 1.2));
     }
     for (const o of game.police.officers()) {
@@ -1019,7 +1021,7 @@ export class PoliceManager {
       const alongX = Math.abs(dx) > Math.abs(dz);
       const ax = alongX ? Math.sign(dx) : 0;
       const az = alongX ? 0 : Math.sign(dz);
-      if (!best.nb.some((m) => Math.sign(m.x - best.x) === -ax && Math.sign(m.z - best.z) === -az)) continue;
+      if (!best.nb.some((m) => !m.high && Math.sign(m.x - best.x) === -ax && Math.sign(m.z - best.z) === -az)) continue;
       const cx = best.x - ax * 14;
       const cz = best.z - az * 14;
       const lx = alongX ? 0 : 1;
@@ -1198,7 +1200,7 @@ export class PoliceManager {
     // Roadblocks when you're fleeing by car at 4+ stars.
     this.blockT = (this.blockT ?? 6) - dt;
     const pv = game.player.vehicle;
-    if (game.stars >= 4 && pv && Math.abs(pv.speed) > 6 && this.blockT <= 0 && this.plans.length < 2 && game.wastedT <= 0) {
+    if (game.stars >= 4 && pv && !pv.high && Math.abs(pv.speed) > 6 && this.blockT <= 0 && this.plans.length < 2 && game.wastedT <= 0) {
       this.blockT = this.planRoadblock() ? 15 : 2;
     }
     // Called off: you got past or away before it was set up, or it's served its purpose.

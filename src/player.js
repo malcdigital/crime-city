@@ -170,7 +170,7 @@ export class Player {
     const ox = this.x, oz = this.z;
     this.x = lerp(this.x, gx, k);
     this.z = lerp(this.z, gz, k);
-    const r = pushCircle(this.x, this.z, 0.38, this.game.city.colliders);
+    const r = pushCircle(this.x, this.z, 0.38, this.boxes());
     if (Math.hypot(r.x - this.x, r.z - this.z) > 0.6) {
       this.cover = null;
       return false;
@@ -268,7 +268,7 @@ export class Player {
     this.x += this.moveX * this.speed * dt;
     this.z += this.moveZ * this.speed * dt;
 
-    const r = pushCircle(this.x, this.z, 0.4, game.city.colliders);
+    const r = pushCircle(this.x, this.z, 0.4, this.boxes());
     this.x = r.x;
     this.z = r.z;
     // Don't walk through cars.
@@ -317,8 +317,19 @@ export class Player {
     this.sync();
   }
 
+  // Up on the highway (walking on it, after getting out of a car there): its rails and height.
+  boxes() {
+    const hw = this.game.highway;
+    return this.high && hw ? hw.colliders : this.game.city.colliders;
+  }
+
+  gy() {
+    const hw = this.game.highway;
+    return this.high && hw ? hw.heightAt(this.x, this.z) ?? 0 : this.game.city.groundY(this.x, this.z);
+  }
+
   sync() {
-    const y = this.game.city.groundY(this.x, this.z);
+    const y = this.gy();
     const down = this.char.group.rotation.x !== 0;
     this.char.group.position.set(this.x, down ? y + 0.2 : y + (this.vehicle ? 0 : this.poseY), this.z);
     this.char.group.rotation.y = this.heading;
@@ -352,7 +363,8 @@ export class Player {
     const mph = Math.hypot(vx, vz) * 2.237;
     this.x = v.x - rx * 1.7;
     this.z = v.z - rz * 1.7;
-    const r = pushCircle(this.x, this.z, 0.4, game.city.colliders);
+    this.high = !!v.high;
+    const r = pushCircle(this.x, this.z, 0.4, this.boxes());
     this.x = r.x;
     this.z = r.z;
     v.driver = null;
@@ -389,7 +401,7 @@ export class Player {
       this.z += this.rollVz * dt;
       this.diveVy -= 9.8 * dt;
       this.diveY += this.diveVy * dt;
-      const r = pushCircle(this.x, this.z, 0.4, game.city.colliders);
+      const r = pushCircle(this.x, this.z, 0.4, this.boxes());
       this.x = r.x;
       this.z = r.z;
       this.rollHeading = Math.atan2(this.rollVx, this.rollVz) || this.heading;
@@ -413,7 +425,7 @@ export class Player {
       this.x += this.rollVx * dt;
       this.z += this.rollVz * dt;
       // Walls: thump into them, bounce off a little, and get hurt if it's hard.
-      const r = pushCircle(this.x, this.z, 0.4, game.city.colliders);
+      const r = pushCircle(this.x, this.z, 0.4, this.boxes());
       if (r.hit) {
         const vn = this.rollVx * r.nx + this.rollVz * r.nz;
         if (vn < 0) {
@@ -444,7 +456,7 @@ export class Player {
         // Face down with the head toward where you dove (left of the car's travel). Switch to
         // standing-frame coordinates: feet behind the body's middle.
         this.upHeading = (this.rollHeading || this.heading) + Math.PI / 2;
-        const r = pushCircle(this.x - Math.sin(this.upHeading) * 0.95, this.z - Math.cos(this.upHeading) * 0.95, 0.4, game.city.colliders);
+        const r = pushCircle(this.x - Math.sin(this.upHeading) * 0.95, this.z - Math.cos(this.upHeading) * 0.95, 0.4, this.boxes());
         this.x = r.x;
         this.z = r.z;
       }
@@ -459,7 +471,7 @@ export class Player {
     const drop = crouchPose(c, bend);
     c.armL.rotation.x = c.armR.rotation.x = -0.4 - 1.1 * e; // hands planted, then down
     c.group.rotation.set(lean, this.upHeading, 0, 'YXZ');
-    const gy = game.city.groundY(this.x, this.z);
+    const gy = this.gy();
     c.group.position.set(this.x, gy + 0.12 * Math.sin(lean) + drop * Math.cos(lean), this.z);
     if (this.getUpT <= 0) {
       this.getUpT = 0;
@@ -482,7 +494,7 @@ export class Player {
     // Arms stretched out past the head in the dive; tucked in while rolling.
     this.char.armL.rotation.x = this.char.armR.rotation.x = diving ? -2.9 : -0.4;
     _c.set(0, 0.95, 0).applyEuler(_e);
-    const center = this.game.city.groundY(this.x, this.z) + Math.max(radius, 0.95 * Math.cos(side));
+    const center = this.gy() + Math.max(radius, 0.95 * Math.cos(side));
     g.position.set(this.x - _c.x, center - _c.y, this.z - _c.z);
   }
 
@@ -507,12 +519,13 @@ export class Player {
     this.x = v.x + fz * 1.9;
     this.z = v.z - fx * 1.9;
     this.heading = v.heading;
+    this.high = !!v.high;
     v.driver = null;
     v.openDoor(-1, 0.9);
     this.vehicle = null;
     this.speed = 0;
     this.char.group.visible = true;
-    const r = pushCircle(this.x, this.z, 0.4, this.game.city.colliders);
+    const r = pushCircle(this.x, this.z, 0.4, this.boxes());
     this.x = r.x;
     this.z = r.z;
     this.sync();

@@ -282,6 +282,7 @@ export class TrafficDriver {
       if (Math.abs(ox) > 26 || Math.abs(oz) > 26) continue;
       const fwd = ox * fx + oz * fz;
       const lat = Math.abs(ox * fz - oz * fx);
+      if (!!o.high !== !!c.high) continue; // one on the highway, one underneath
       // Cars parked at the curb are beside the lane, not in it.
       if (o.parkSpot && lat > 1.7) continue;
       // A stopped car in our lane up ahead (so we can pull out early).
@@ -305,6 +306,7 @@ export class TrafficDriver {
     }
     desired = worst;
     for (const w of game.walkers) {
+      if (!!w.high !== !!c.high) continue;
       const ox = w.x - c.x;
       const oz = w.z - c.z;
       if (Math.abs(ox) > 10 || Math.abs(oz) > 10) continue;
@@ -317,6 +319,16 @@ export class TrafficDriver {
 
   update(dt, game) {
     const c = this.car;
+    // Told to wait here (a hailed taxi, a bus at the curb): brake and stay put.
+    if (this.hold && this.holdUntil && game.time > this.holdUntil) {
+      this.hold = false;
+      this.holdUntil = 0;
+      this.stopAt = null;
+    }
+    if (this.hold) {
+      c.update(dt, { throttle: throttleFor(c, 0), steer: 0, handbrake: true }, game.city.colliders);
+      return;
+    }
     // Backing off out of a standoff.
     if (this.backT > 0) {
       this.backT -= dt;
@@ -364,6 +376,7 @@ export class TrafficDriver {
     const dn = dist(c.x, c.z, this.to.x, this.to.z);
 
     let desired = this.cruise;
+    if (this.from.high && this.to.high) desired = this.cruise * 2.1; // highway speed (about 50-60 mph)
     if (dn < 20 && this.next) {
       const nl = dist(this.to.x, this.to.z, this.next.x, this.next.z) || 1;
       const nux = (this.next.x - this.to.x) / nl;
@@ -439,6 +452,33 @@ export class TrafficManager {
     const { city, player } = this.game;
     const [px, pz] = player.pos();
     const rhythm = this.game.rhythm;
+    // About one new car in four goes on the highway (when there's highway near you).
+    const hw = this.game.highway;
+    if (hw && Math.random() < 0.25) {
+      const near = hw.nodes.filter((n) => {
+        const dd = dist(n.x, n.z, px, pz);
+        return dd > minDist && dd < Math.max(minDist + 60, 280) && n.nb.some((m) => m.high);
+      });
+      if (near.length) {
+        const from = pick(near);
+        const to = pick(from.nb.filter((m) => m.high));
+        const L = dist(from.x, from.z, to.x, to.z) || 1;
+        const ux = (to.x - from.x) / L;
+        const uz = (to.z - from.z) / L;
+        const x = from.x + ux * 14 - uz * CFG.LANE;
+        const z = from.z + uz * 14 + ux * CFG.LANE;
+        if (!this.game.vehicles.some((v) => v.high && dist(v.x, v.z, x, z) < 9)) {
+          const car = new Vehicle(this.game.scene, pickCarType(x, z, rhythm ? rhythm.hour() : 12), x, z, Math.atan2(ux, uz));
+          car.high = true;
+          car.speed = 14;
+          const d = new TrafficDriver(car, from, to);
+          car.driver = d;
+          this.drivers.push(d);
+          this.game.vehicles.push(car);
+          return;
+        }
+      }
+    }
     for (let tries = 0; tries < 30; tries++) {
       const from = pick(city.nodes);
       const dd = dist(from.x, from.z, px, pz);

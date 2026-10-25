@@ -47,7 +47,7 @@ export class Parking {
     for (const s of game.transit?.stops || []) avoid.push([s.x, s.z]);
     for (const a of city.nodes) {
       for (const b of a.nb) {
-        if (b.i < a.i || b.j < a.j) continue; // each street once
+        if (b.high || b.i < a.i || b.j < a.j) continue; // each street once (not up the highway ramps)
         const L = dist(a.x, a.z, b.x, b.z);
         const ux = (b.x - a.x) / L;
         const uz = (b.z - a.z) / L;

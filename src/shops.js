@@ -378,11 +378,15 @@ export class Shops {
 
   close() {
     this.menu = null;
+    const cb = this.onClose;
+    this.onClose = null;
+    if (cb) cb();
     this.el.classList.add('hidden');
   }
 
   // A menu with its own items (e.g. phone contacts).
   openCustom(title, items) {
+    this.onClose = null;
     this.open('custom');
     this.menu.title = title;
     this.menu.custom = items;

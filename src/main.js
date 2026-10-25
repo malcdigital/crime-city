@@ -11,6 +11,8 @@ import { Transit } from './transit.js';
 import { Parking } from './parking.js';
 import { Props } from './props.js';
 import { Enforcement } from './enforcement.js';
+import { Travel } from './travel.js';
+import { Highway } from './highway.js';
 import { Input } from './input.js';
 import { Player } from './player.js';
 import { Vehicle, resolveCarCollisions } from './vehicle.js';
@@ -82,6 +84,7 @@ class Game {
 
     this.city = buildCity(this.scene);
     this.city.walk = buildSidewalks(this.city, this.scene); // sidewalks and crosswalks for people on foot
+    this.highway = new Highway(this); // elevated ring and crosstown highways (before the radar is drawn)
     this.streets = new Streets(this); // traffic lights, stop signs, street lights
     this.dayNight = new DayNight(this);
     this.input = new Input(canvas);
@@ -164,6 +167,7 @@ class Game {
     this.parking = new Parking(this); // cars parked along the curbs
     this.props = new Props(this); // hydrants, trash cans, benches, litter, graffiti
     this.enforce = new Enforcement(this); // red lights, speeding and traffic stops
+    this.travel = new Travel(this); // taxis and buses (fast travel)
     this.market = new Market(this);
     this.president = new President(this);
     this.phone = new Phone(this);
@@ -220,6 +224,13 @@ class Game {
   // Minutes past midnight right now.
   clockMinutes() {
     return Math.floor(this.gameMinutes()) % 1440;
+  }
+
+  // "Tue 9:42 PM · Day 3": the saved day count (bank.js counts days played; day 1 is a Monday).
+  clockLong() {
+    const day = (this.bank?.days || 0) + 1;
+    const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][(day - 1) % 7];
+    return `${wd} ${this.clockText()} · Day ${day}`;
   }
 
   clockText() {
@@ -525,7 +536,7 @@ class Game {
     const m = p.muzzle(this.arsenal.current().id);
     if (m) return [m.x, m.y, m.z];
     const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
-    return [p.x + fx * 0.9 - fz * 0.37, this.city.groundY(p.x, p.z) + 1.5, p.z + fz * 0.9 + fx * 0.37];
+    return [p.x + fx * 0.9 - fz * 0.37, p.gy() + 1.5, p.z + fz * 0.9 + fx * 0.37];
   }
 
   // Where a locked-on shot goes: torso by default, head after a flick up on the right stick.
@@ -699,7 +710,7 @@ class Game {
       }
     }
     const hit = Math.random() < p;
-    const ty = this.city.groundY(px, pz) + (pv ? 1.0 : this.player.lowProfile ? 0.85 : 1.3);
+    const ty = (pv ? this.highway.groundFor(pv) : this.player.gy()) + (pv ? 1.0 : this.player.lowProfile ? 0.85 : 1.3);
     const miss = hit ? 0 : 1.6;
     const tx = px + (Math.random() - 0.5) * miss * 2;
     const tz = pz + (Math.random() - 0.5) * miss * 2;
@@ -719,7 +730,7 @@ class Game {
   // Where on the player an NPC aims (chest, lower when crouched).
   playerTargetPoint() {
     const [px, pz] = this.player.pos();
-    const y = this.city.groundY(px, pz) + (this.player.vehicle ? 1.0 : this.player.lowProfile ? 0.85 : 1.3);
+    const y = (this.player.vehicle ? this.highway.groundFor(this.player.vehicle) : this.player.gy()) + (this.player.vehicle ? 1.0 : this.player.lowProfile ? 0.85 : 1.3);
     return [px, y, pz];
   }
 
@@ -1268,7 +1279,7 @@ class Game {
     for (const v of this.vehicles) {
       if (Math.abs(v.speed) < 4) continue;
       for (const t of this.characters()) {
-        if (!t.standing) continue;
+        if (!t.standing || !!t.high !== !!v.high) continue; // (one up on the highway)
         if (Math.abs(t.x - v.x) > 4 || Math.abs(t.z - v.z) > 4) continue;
         let hit = false;
         for (const [cx, cz] of v.circles()) if (dist(cx, cz, t.x, t.z) < v.radius + 0.35) hit = true;
@@ -1399,6 +1410,8 @@ class Game {
       this.robbing = null;
     } else if (this.crewInteraction(a)) {
       this.robbing = null;
+    } else if (this.travel.interact(a)) {
+      this.robbing = null; // hail a taxi, take the bus
     } else if (this.turfWars.interact(a, dt)) {
       this.robbing = null;
     } else {
@@ -1458,13 +1471,13 @@ class Game {
       }
       tx = v.x;
       tz = v.z;
-      ty = 1.6;
+      ty = 1.6 + (v.high ? v.y || 0 : 0); // (up on the highway)
       distBack = 9.5 + Math.abs(v.speed) * 0.08;
       height = 2.2;
     } else {
       tx = this.player.x;
       tz = this.player.z;
-      ty = this.player.lowProfile ? 1.15 : 1.7;
+      ty = (this.player.lowProfile ? 1.15 : 1.7) + (this.player.high ? this.player.gy() : 0);
       distBack = down ? 7 : 5.5;
       height = 1.2;
       // In cover: a wider view so you can see around you.
@@ -1525,6 +1538,7 @@ class Game {
     this.sun.position.set(tx + 60, 120, tz + 40);
     this.sun.target.position.set(tx, 0, tz);
     if (this.cine) this.cineCamera(dt);
+    if (this.travel.active) this.travel.camera(); // riding a taxi or bus: the cut scene's shots
   }
 
   // Police holding you at gunpoint: they won't fire for a while unless you shoot. Stand
@@ -1740,7 +1754,7 @@ class Game {
 
   update(dt, a) {
     this.time += dt;
-    if (this.cine || this.stop) {
+    if (this.cine || this.stop || this.travel.active) {
       // Watching a cinematic (or stopped by a cop): hands off the controls (the car brakes).
       a.moveX = a.moveY = a.throttle = a.steer = 0;
       a.fire = a.firePressed = a.aim = a.aimPressed = a.melee = a.enter = a.sprint = a.crouch = false;
@@ -1892,9 +1906,11 @@ class Game {
     }
     resolveCarCollisions(this.vehicles.filter((v) => !v.removed));
     for (const v of this.vehicles) {
-      v.groundY = this.city.groundY(v.x, v.z);
+      this.highway.updateLayer(v); // up a ramp onto the highway, or back down
+      v.groundY = this.highway.groundFor(v);
       v.sync(dt);
     }
+    if (!this.player.vehicle) this.highway.updateLayer(this.player); // walking up or down a ramp
     this.peds.update(dt);
     this.checkRunOver();
     this.handleInteractions(dt, a);
@@ -1909,6 +1925,7 @@ class Game {
     this.props.update(dt);
     this.updateStop(dt, a);
     this.enforce.update(dt, a);
+    this.travel.update(dt);
     this.updateIA(dt);
     this.updateVehicleDamage(dt);
     this.updatePickups(dt, a);

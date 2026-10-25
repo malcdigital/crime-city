@@ -261,7 +261,7 @@ export class Props {
     const game = this.game;
     // Cars knocking things over.
     for (const v of game.vehicles) {
-      if (v.removed || v.exploded || Math.abs(v.speed) < 2.2) continue;
+      if (v.removed || v.exploded || v.high || Math.abs(v.speed) < 2.2) continue;
       // Only close to you (that's where it can be seen).
       const [px, pz] = game.player.pos();
       if (Math.abs(v.x - px) > 120 || Math.abs(v.z - pz) > 120) continue;

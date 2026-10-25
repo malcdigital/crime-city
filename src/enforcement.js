@@ -11,6 +11,7 @@ import { dist } from './util.js';
 // - Don't stop (or drive off during the stop) and it's a chase: 1 star for fleeing.
 // After a ticket the cops leave you alone for a minute.
 export const SPEED_LIMIT = 45; // mph
+export const HIGHWAY_LIMIT = 65; // mph, on the highways
 const SPEEDING = 55; // mph: when they pull you over for it
 const FINES = { red: 150, speed: 200 };
 const MPH = 2.237;
@@ -49,7 +50,7 @@ export class Enforcement {
   // Crossing the stop line at a signal on red.
   redLight(v) {
     const S = this.game.streets;
-    const n = S.nodeNear(v.x, v.z);
+    const n = v.high ? null : S.nodeNear(v.x, v.z);
     if (!n || S.typeAt(n) !== 'signal' || Math.abs(v.speed) < 4) {
       this.prevNode = null;
       return null;
@@ -73,9 +74,10 @@ export class Enforcement {
 
   speeding(v, dt) {
     const mph = Math.abs(v.speed) * MPH;
-    this.fastT = mph > SPEEDING ? this.fastT + dt : 0;
+    const limit = v.high ? HIGHWAY_LIMIT : SPEED_LIMIT;
+    this.fastT = mph > limit + (SPEEDING - SPEED_LIMIT) ? this.fastT + dt : 0;
     if (this.fastT < 0.8) return null;
-    return { kind: 'speed', label: `were doing ${Math.round(mph)} in a ${SPEED_LIMIT}`, fine: FINES.speed };
+    return { kind: 'speed', label: `were doing ${Math.round(mph)} in a ${limit}`, fine: FINES.speed };
   }
 
   // A patrol car close enough to see it.

@@ -9,6 +9,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #cred { font-size: 15px; margin-top: 4px; }
 #district { font-size: 13px; opacity: .85; margin-top: 2px; }
 #top-right { position: absolute; top: 16px; right: 20px; text-align: right; }
+#clock { font-size: 13px; font-weight: 800; letter-spacing: .04em; opacity: .9; margin-bottom: 1px; }
 #cash { font-size: 30px; font-weight: 800; color: #8ff08f; font-family: 'Courier New', monospace; }
 #bank-line { font-size: 12px; font-weight: 700; opacity: .75; margin-top: -2px; }
 #stars { font-size: 28px; letter-spacing: 3px; margin-top: 2px; color: rgba(255,255,255,.25); }
@@ -296,6 +297,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #cine.on .cine-title { opacity: 1; animation: cineflash .5s steps(2) infinite .6s; }
 @keyframes cineflash { 50% { color: #3b7bff; text-shadow: 0 0 18px rgba(40,90,255,.7), 0 3px 0 #000; } }
 #hud.cine #minimap, #hud.cine #phone-toast, #hud.cine #phone-hint, #hud.cine #crew, #hud.cine #health, #hud.cine #armor, #hud.cine #toast, #hud.cine #crosshair { opacity: 0; transition: opacity .3s; }
+#hud.cine #prompt, #hud.cine #speed, #hud.cine #progress { display: none; }
 /* City budget (pause menu) */
 #crackdowns .budget-head { flex-basis: 100%; margin-top: 6px; font-size: 12px; opacity: .85; }
 #crackdowns .budget-head .bad { color: #ff8a80; }
@@ -418,6 +420,7 @@ body.touch #phone-body .ph-row { padding: 11px 8px; }
   .crew-row { font-size: 10px; padding: 1px 5px; grid-template-columns: 48px 36px auto; }
   #top-right { top: 6px; right: 10px; }
   #cash { font-size: 20px; }
+  #clock { font-size: 10px; }
   #bank-line { font-size: 10px; }
   #stars { font-size: 17px; letter-spacing: 1px; }
   #weapon { font-size: 11px; margin-top: 2px; }
@@ -465,3 +468,18 @@ body.touch #phone-body .ph-row { padding: 11px 8px; }
   #pause h2 { order: -2; }
   #president h3 { font-size: 12px; }
 }
+
+/* Taxi / bus ride cut scene (travel.js) */
+#ride { position: fixed; inset: 0; z-index: 35; pointer-events: none; }
+#ride .rb { position: absolute; left: 0; right: 0; height: 0; background: #000; transition: height .3s ease-out; }
+#ride .rb.top { top: 0; }
+#ride .rb.bottom { bottom: 0; }
+#ride.on .rb { height: 10vh; }
+#ride .rfade { position: absolute; inset: 0; background: #000; opacity: 0; transition: opacity .4s; }
+#ride.dark .rfade { opacity: 1; }
+#ride .rcard { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; opacity: 0; transition: opacity .3s; text-shadow: 0 2px 6px #000; }
+#ride.dark .rcard { opacity: 1; }
+#ride .rk { font-size: 14px; font-weight: 900; letter-spacing: .3em; color: #ffd23f; }
+#ride .rt { font-size: 34px; font-weight: 900; margin-top: 6px; }
+#ride .rs { font-size: 14px; opacity: .8; margin-top: 6px; }
+@media (max-height: 520px) { #ride .rt { font-size: 22px; } #ride .rs, #ride .rk { font-size: 11px; } }
