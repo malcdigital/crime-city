@@ -62,18 +62,16 @@ const smooth = (t) => {
   t = Math.max(0, Math.min(1, t));
   return t * t * (3 - 2 * t);
 };
-// Distance from the ring freeway's centerline.
-export function ringDist(x, z) {
-  let d = Infinity;
-  for (let i = 0; i < RING_LINE.length; i++) {
-    const [ax, az] = RING_LINE[i];
-    const [bx, bz] = RING_LINE[(i + 1) % RING_LINE.length];
-    const c = closestOnSeg(x, z, ax, az, bx, bz);
-    if (c.d < d) d = c.d;
-  }
-  return d;
+// Signed distance from the ring freeway's centerline (negative inside): it's a rounded
+// rectangle, so this is exact and quick.
+export function ringSd(x, z) {
+  const { x0, z0, x1, z1, r } = RING;
+  const dx = Math.abs(x - (x0 + x1) / 2) - ((x1 - x0) / 2 - r);
+  const dz = Math.abs(z - (z0 + z1) / 2) - ((z1 - z0) / 2 - r);
+  return Math.hypot(Math.max(dx, 0), Math.max(dz, 0)) + Math.min(Math.max(dx, dz), 0) - r;
 }
-export const insideRing = (x, z) => pointInPoly(x, z, RING_LINE);
+export const ringDist = (x, z) => Math.abs(ringSd(x, z));
+export const insideRing = (x, z) => ringSd(x, z) < 0;
 export const HEIGHTS_CENTER = [1455, 380];
 // Height of the land before roads are cut in. The city inside the ring (and a strip around
 // it) is flat; outside, the Heights hill to the east, wooded ridges north and west, and the
