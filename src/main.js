@@ -1477,7 +1477,7 @@ class Game {
     let tx, tz, ty, distBack, height, shoulder = 0, fov = 65;
     if (v) {
       // Swing behind the car when the camera stick/mouse is idle.
-      if (this.camIdle > 1 && Math.abs(v.speed) > 2) {
+      if (this.camIdle > (this.input.touchMode ? 0.6 : 1) && Math.abs(v.speed) > 2) { // (sooner on a phone)
         const behind = v.speed >= 0 ? v.heading : v.heading + Math.PI;
         this.camYaw = lerpAngle(this.camYaw, behind, Math.min(1, dt * 2.5));
       }

@@ -17,6 +17,13 @@ function capture(el, id) {
 }
 const LOOK = 1.5; // look speed (mouse pixels per screen pixel)
 const STICK_R = 56; // joystick radius in pixels
+// Driving with the stick (thumbs are less precise than a real stick):
+const STEER_R = 76; // a wider sideways throw for steering
+const STEER_DEAD = 0.07; // a little slack in the middle so the car tracks straight
+const STEER_CURVE = 1.7; // gentle near the center, full lock at the edge
+const STEER_RATE = 3.2; // how fast the wheel turns toward the stick (full lock per ~0.3 s)
+const STEER_RETURN = 7; // and how fast it comes back to center when you let go
+const PAD_DEAD = 0.18; // input.js's stick deadzone (the shaped steering skips past it)
 
 // [id, label, button, contexts, kind, class]
 // kind: 'hold' (pressed while touched), 'toggle' (tap on / tap off), 'fire' (hold + drag to
@@ -67,6 +74,11 @@ export class TouchControls {
     this.toggled = new Set();
     this.fresh = new Set(); // pressed and released before the game saw it: report once
     this.axes = [0, 0, 0, 0];
+    this.raw = [0, 0]; // stick offset in pixels
+    this.steer = 0; // smoothed steering (driving)
+    this.pedal = 0; // stick gas (1) / brake (-1), latched (driving)
+    this.carSpeed = 0;
+    this.padT = 0;
     this.lookDX = 0;
     this.lookDY = 0;
     this.sprint = false;
@@ -224,6 +236,8 @@ export class TouchControls {
         dx = e.clientX - ox;
         dy = e.clientY - oy;
       }
+      this.raw[0] = dx;
+      this.raw[1] = dy;
       const dd = Math.hypot(dx, dy);
       const s = dd > STICK_R ? STICK_R / dd : 1;
       this.axes[0] = (dx * s) / STICK_R;
@@ -234,6 +248,8 @@ export class TouchControls {
       if (e.pointerId !== pid) return;
       pid = null;
       this.axes[0] = this.axes[1] = 0;
+      this.raw[0] = this.raw[1] = 0;
+      this.pedal = 0;
       this.sprint = false;
       stick.classList.add('hidden');
     };
@@ -272,6 +288,7 @@ export class TouchControls {
     else if (game.hud.phoneOpen) ctx = 'phone';
     else if (this.latched || game.inventory?.open) ctx = 'strip';
     else if (game.player.vehicle) ctx = 'car';
+    this.carSpeed = game.player.vehicle ? Math.abs(game.player.vehicle.speed) : 0;
     if (ctx !== this.ctx) {
       // New screen: let go of everything (a held AIM must not become a held BRAKE).
       if (!(this.ctx === 'foot' && ctx === 'strip') && !(this.ctx === 'strip' && ctx === 'foot')) {
@@ -299,14 +316,43 @@ export class TouchControls {
   pad() {
     for (let i = 0; i < this.btn.length; i++) this.btn[i] = this.held.has(i) || this.toggled.has(i) || this.fresh.has(i) ? 1 : 0;
     if (this.latched) this.btn[B.L1] = 1;
-    // Driving: the stick's up/down is gas/brake too.
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - (this.padT || now)) / 1000);
+    this.padT = now;
     const axes = [this.axes[0], this.axes[1], 0, 0];
     if (this.ctx === 'car') {
-      if (this.axes[1] < -0.35) this.btn[B.R2] = Math.max(this.btn[B.R2], Math.min(1, (-this.axes[1] - 0.35) / 0.5));
-      if (this.axes[1] > 0.35) this.btn[B.L2] = Math.max(this.btn[B.L2], Math.min(1, (this.axes[1] - 0.35) / 0.5));
+      axes[0] = this.driveSteer(dt);
+      // The stick's up/down is gas/brake too. Push up past a third to get on the gas and it
+      // stays on while you steer, even if your thumb drifts sideways or down a bit; pull back
+      // below the middle to come off it. Same for the brake.
+      const y = this.raw[1] / STICK_R;
+      if (y < -0.35) this.pedal = 1;
+      else if (y > 0.35) this.pedal = -1;
+      else if ((this.pedal > 0 && y > 0.2) || (this.pedal < 0 && y < -0.2)) this.pedal = 0;
+      if (this.pedal > 0) this.btn[B.R2] = Math.max(this.btn[B.R2], Math.min(1, 0.6 + Math.max(0, -y - 0.35)));
+      if (this.pedal < 0) this.btn[B.L2] = Math.max(this.btn[B.L2], Math.min(1, 0.6 + Math.max(0, y - 0.35)));
+      axes[1] = 0;
+    } else {
+      this.steer = 0;
+      this.pedal = 0;
     }
     this.fresh.clear();
     return { connected: true, mapping: 'standard', axes, buttons: this.btn.map((v) => ({ pressed: v > 0.5, value: v })) };
+  }
+
+  // Steering from the stick: a wide sideways throw, gentle near the center, less lock the
+  // faster you go, and the wheel turns smoothly instead of snapping.
+  driveSteer(dt) {
+    const x = Math.max(-1, Math.min(1, this.raw[0] / STEER_R));
+    const m = Math.max(0, (Math.abs(x) - STEER_DEAD) / (1 - STEER_DEAD));
+    const fast = Math.min(1, this.carSpeed / 35);
+    const want = Math.sign(x) * Math.pow(m, STEER_CURVE) * (1 - 0.45 * fast);
+    const rate = Math.abs(want) < Math.abs(this.steer) || want * this.steer < 0 ? STEER_RETURN : STEER_RATE;
+    const d = want - this.steer;
+    this.steer += Math.sign(d) * Math.min(Math.abs(d), rate * dt);
+    // (input.js applies its stick deadzone; step past it so small steering still counts)
+    if (Math.abs(this.steer) < 0.005) return 0;
+    return Math.sign(this.steer) * (PAD_DEAD + (1 - PAD_DEAD) * Math.abs(this.steer));
   }
 
   takeLook() {
