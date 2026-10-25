@@ -440,7 +440,7 @@ export class Vehicle {
     const s = Math.sin(this.heading);
     const lx = w.position.x;
     const lz = w.position.z;
-    return [this.x + lx * c + lz * s, 0.38, this.z - lx * s + lz * c];
+    return [this.x + lx * c + lz * s, (this.y || 0) + 0.38, this.z - lx * s + lz * c];
   }
 
   // Shoot out a tire: it sags, and the car gets slower and pulls to that side.

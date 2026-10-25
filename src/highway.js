@@ -132,6 +132,14 @@ export class Highway {
     return this.game.city.groundY(o.x, o.z);
   }
 
+  // The highest freeway surface below height y here (or null): what a camera up there can't
+  // go through.
+  floorBelow(x, z, y) {
+    let best = null;
+    for (const o of this.surfacesAt(x, z, 0.5)) if (o.h <= y && (best === null || o.h > best)) best = o.h;
+    return best;
+  }
+
   // Is there freeway overhead (for things like the helicopter's view or rain)?
   overhead(x, z, y) {
     return this.surfacesAt(x, z, 0).some((o) => o.h > y + 2);
@@ -427,7 +435,7 @@ export class Highway {
     const mats = {
       deck: lam(0x8c8f94), top: lam(0x34363b), ramptop: new THREE.MeshLambertMaterial({ color: 0x36383d, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }),
       rail: lam(0xc4c7cb), pillar: lam(0x7f8388),
-      yellow: new THREE.MeshBasicMaterial({ color: 0xd8b13a }), white: new THREE.MeshBasicMaterial({ color: 0xdadada }),
+      yellow: new THREE.MeshBasicMaterial({ color: 0xd8b13a, side: THREE.DoubleSide }), white: new THREE.MeshBasicMaterial({ color: 0xdadada, side: THREE.DoubleSide }),
     };
     for (const [k, list] of Object.entries(parts)) {
       if (!list.length) continue;

@@ -179,7 +179,7 @@ export function raycast(game, ox, oy, oz, dx, dy, dz, maxT, ignore = null, solid
   }
   for (const c of solidOnly ? [] : game.characters()) {
     if (c === ignore || !c.alive) continue;
-    const y = game.city.groundY(c.x, c.z);
+    const y = c.high && c.gy ? c.gy() : game.city.groundY(c.x, c.z);
     const top = !c.standing ? y + 0.5 : c.crouched ? y + 1.1 : y + 1.95;
     const r = c.standing ? 0.33 : 0.9;
     const t = rayBox(ox, oy, oz, dx, dy, dz, c.x - r, y, c.z - r, c.x + r, top, c.z + r);
@@ -190,8 +190,9 @@ export function raycast(game, ox, oy, oz, dx, dy, dz, maxT, ignore = null, solid
   }
   for (const v of game.vehicles) {
     if (v === ignore || v.removed || !v.doors) continue;
+    const vy = v.y || 0;
     for (const b of v.doorBoxes()) {
-      const t = rayBox(ox, oy, oz, dx, dy, dz, b.minX, 0.45, b.minZ, b.maxX, b.h, b.maxZ);
+      const t = rayBox(ox, oy, oz, dx, dy, dz, b.minX, vy + 0.45, b.minZ, b.maxX, vy + b.h, b.maxZ);
       if (t !== null && t < best.t) best = { t, type: 'car', target: v };
     }
   }
@@ -207,7 +208,7 @@ export function raycast(game, ox, oy, oz, dx, dy, dz, maxT, ignore = null, solid
     const loz = ex * s + ez * c;
     const ldx = dx * c - dz * s;
     const ldz = dx * s + dz * c;
-    const t = rayBox(lox, oy, loz, ldx, dy, ldz, -v.type.w / 2, 0.2, -v.type.l / 2, v.type.w / 2, 1.9, v.type.l / 2);
+    const t = rayBox(lox, oy, loz, ldx, dy, ldz, -v.type.w / 2, (v.y || 0) + 0.2, -v.type.l / 2, v.type.w / 2, (v.y || 0) + 1.9, v.type.l / 2);
     if (t !== null && t < best.t) best = { t, type: 'car', target: v };
   }
   // The police helicopter.

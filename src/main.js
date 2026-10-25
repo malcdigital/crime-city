@@ -821,7 +821,7 @@ class Game {
     this.scareNearby(shooter.x, shooter.z, 40, true);
     this.effects.impact(tx, wy, tz);
     if (hit && v.popTire(i)) {
-      this.effects.smoke(wx, 0.5, wz);
+      this.effects.smoke(wx, (v?.y || 0) + 0.5, wz);
       if (v.driver === 'player') this.hud.toast(v.flatCount >= 2 ? 'Tires shot out!' : 'Tire shot out!', '#ff8080');
     }
   }
@@ -906,7 +906,7 @@ class Game {
             this.peds.addAt(v.x + fz * 2.2, v.z - fx * 2.2).scare(v.x, v.z);
           }
         }
-        if (Math.random() < dt * 25) this.effects.fire(v.x, 1.3, v.z);
+        if (Math.random() < dt * 25) this.effects.fire(v.x, (v.y || 0) + 1.3, v.z);
         v.burnT -= dt;
         if (v.burnT <= 0) this.explode(v);
       }
@@ -915,7 +915,7 @@ class Game {
 
   dropAmmo(x, z, weapon, amount) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.35, 0.4), lam(weapon === 'smg' ? 0x4b5320 : 0x5d4037));
-    mesh.position.set(x, 0.6, z);
+    mesh.position.set(x, this.city.groundY(x, z) + 0.4, z);
     this.scene.add(mesh);
     this.pickups.push({ x, z, weapon, amount, mesh, t: 60 });
   }
@@ -926,7 +926,7 @@ class Game {
     const wad = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.14, 0.24), lam(0x2e8b3a));
     const band = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.15, 0.25), lam(0xf2e9b8));
     g.add(wad, band);
-    g.position.set(x, 0.5, z);
+    g.position.set(x, this.city.groundY(x, z) + 0.3, z);
     this.scene.add(g);
     this.pickups.push({ x, z, cash: amount, mesh: g, t: 90 });
   }
@@ -1475,13 +1475,13 @@ class Game {
       }
       tx = v.x;
       tz = v.z;
-      ty = 1.6 + (v.high ? v.y || 0 : 0); // (up on the highway)
+      ty = 1.6 + (v.y || 0); // (on the hills or up on the freeway too)
       distBack = 9.5 + Math.abs(v.speed) * 0.08;
       height = 2.2;
     } else {
       tx = this.player.x;
       tz = this.player.z;
-      ty = (this.player.lowProfile ? 1.15 : 1.7) + (this.player.high ? this.player.gy() : 0);
+      ty = (this.player.lowProfile ? 1.15 : 1.7) + this.player.gy();
       distBack = down ? 7 : 5.5;
       height = 1.2;
       // In cover: a wider view so you can see around you.
@@ -1502,7 +1502,7 @@ class Game {
     // Looking up: instead of sinking into the ground, the camera tucks in close behind your
     // head so you can still aim steeply upward (e.g. at the helicopter).
     if (this.camPitch < 0) {
-      const room = ty + height - 0.5;
+      const room = ty + height - 0.5 - (v ? v.y || 0 : this.player.gy());
       distBack = Math.min(distBack, room / Math.max(0.01, -Math.sin(this.camPitch)));
       distBack = Math.max(distBack, 1.2);
     }
@@ -1531,7 +1531,9 @@ class Game {
       cz = oz + ddz * k;
     }
     const shake = v ? v.crash * 0.01 : 0;
-    this.camera.position.set(cx + rand(-shake, shake), Math.max(this.city.groundY(cx, cz) + 0.6, cy), cz + rand(-shake, shake));
+    // (never under the ground, or under the freeway deck you're up on)
+    const floor = Math.max(this.city.groundY(cx, cz), this.highway.floorBelow(cx, cz, ty) ?? -1e9);
+    this.camera.position.set(cx + rand(-shake, shake), Math.max(floor + 0.6, cy), cz + rand(-shake, shake));
     this.camera.lookAt(tx + rx * shoulder, ty + 0.6, tz + rz * shoulder);
     if (Math.abs(this.camera.fov - fov) > 0.1) {
       this.camera.fov = lerp(this.camera.fov, fov, Math.min(1, dt * 10));

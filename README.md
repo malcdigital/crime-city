@@ -15,23 +15,25 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 
 ## What's in 0.1
 
-- A 14×14-block city (about 1.1 km across) in eight districts, each with its own look (src/districts.js holds the layout, special places and starting turf):
-  - The Heights (NW): big houses with yards and trees
-  - Financial District (N): glass towers and a plaza
-  - Government District (NE): stone civic buildings with columns, City Hall (domed) and the police station
-  - Midtown (W, and south of Downtown): mixed mid-rise, the hospital, your crew's park, the gun shop and safehouse
-  - Downtown (center): tall city blocks
-  - The Strip (E): dark low clubs with neon
-  - The Projects (SW): long low brick buildings, the Southside Kings' corner
-  - The Docks (SE): warehouses, stacked shipping containers, the chop shop
-  Districts show as slightly different shades on the radar and map, with faint names on the full map. Traffic and pedestrians fill the streets around you (cars more than 380 m away and people more than 300 m away are replaced nearer). Static buildings are merged per 2×2-block chunk to keep draw calls down, and collision checks use a spatial grid
+- A 1.6 km city laid out like a real one (the plan is in src/worldplan.js, built in 3D by src/city.js; the design notes are in reports/City and highway design for games.md). Districts each have their own street pattern and look (src/districts.js pins the special places, stores, banks, homes and starting turf to spots on the map):
+  - Midtown (north-west and north): a straight grid in the west, a grid turned 25 degrees in the east; mid-rise blocks, the hospital, the gun shop
+  - Central Park: a 380 × 200 m park in the middle of town, with smaller parks and squares in most districts (Liberty Square, your crew's hangout, is next to it in Downtown)
+  - Downtown (middle and east): a tight grid of towers cut by Grand Ave, a diagonal running from Market St up to the Government District's plaza
+  - Government District (north-east): stone civic buildings with columns, City Hall (domed) on the plaza and the police station
+  - Financial District (south): the old core, with irregular blocks and streets that bend and stop short
+  - The Projects (west): superblocks with cul-de-sacs, long low brick buildings and a basketball court, the Southside Kings' corner
+  - The Strip (south-west): clubs with neon, cut by curving Ocean Blvd
+  - The Docks (south and on the water): warehouses, shipping containers, piers out into the sea, the chop shop
+  - The Heights (east, outside the ring): houses with yards on a hill, winding contour roads up to Summit Park
+  - Out past the ring: wooded hills, a quarry, a junkyard, a lookout, beaches along the sea and the bay
+  Arterials (Park Ave, Midway Blvd, Market St, Central Ave, Grand Ave) are wide with parking lanes; collectors and local streets are narrower; hill roads have no sidewalks. Districts show as different shades on the radar and map, with faint names on the full map. Traffic and pedestrians fill the streets around you (cars more than 380 m away and people more than 300 m away are replaced nearer). Static geometry is merged by material per map chunk to keep draw calls down, trees are instanced, and collision checks use a spatial grid (buildings at any angle use rotated boxes)
 - Day and night (src/daynight.js): a full day is 48 real minutes (one real second is half a game minute); sessions start at 9:00 PM. The sky, fog, sun (moonlight at night) and ambient light follow the clock, with a warm glow at dawn and dusk; after dark building windows light up and the street lights come on (soft pools of light on the road)
-- Streets (src/streets.js): traffic lights at the busy intersections (Downtown, the Financial and Government districts, the Strip, every third street in Midtown — 102 of them), all-way stop signs everywhere else (123), white stop lines on every approach, and street lights along every sidewalk (two per block side). Signals run north-south then east-west (green 10 s, yellow 2.5 s, all-red 1 s), staggered street to street. Traffic stops at the line on red, goes through a yellow only when it's too close to stop, and at stop signs comes to a full stop and goes in the order cars arrived once the intersection is clear. Pedestrians wait on the curb for the walk phase (they only start across with 6+ seconds of green left, and hurry across); cars stop for anyone in front of them. Police, gang cars and backup ignore the rules. Poles and posts are solid
+- Streets (src/streets.js): junctions of any shape. Traffic lights where main roads cross and at the busy junctions of Downtown, the Financial and Government districts and the Strip; elsewhere stop signs (a minor road meeting a bigger one stops, the main road runs through; where equal roads meet, everyone stops); bends in a road have nothing. White stop lines on every approach that stops, set back past the widest road crossing it, and street lights along every sidewalk. Signals split each junction's arms into two phases by direction (green 10 s, yellow 2.5 s, all-red 1 s), staggered junction to junction. Traffic stops at the line on red, goes through a yellow only when it's too close to stop, and at stop signs comes to a full stop and goes in the order cars arrived once the junction is clear. Pedestrians cross at the crosswalks (worked out for every arm of every junction) and wait on the curb for the walk phase (they only start across with 6+ seconds of green left, and hurry across); cars stop for anyone in front of them. Police, gang cars and backup ignore the rules. Poles and posts are solid
 - Clock: top right of the HUD, e.g. "Tue 9:42 PM · Day 3" (the day count is saved; day 1 is a Monday)
 - Taxis and buses (src/travel.js): fast travel with a quick cut scene (you get in, it pulls away, a title card with where you're going, the time and the fare, then you're dropped at the curb). The clock moves on by however long the drive would take. Nobody gives you a ride while you're wanted.
   - Taxi: walk up to a taxi on the street and press USE / E to hail it; it pulls over while you pick your map waypoint or a place (home, the hangout, the gun shop, the garage, the nearest bank, the chop shop, the hospital, any district). $20 plus $1 per block (bank first, then cash).
   - Bus: at any of the 23 bus stops, press USE / E and pick any stop on either route ($5, no waiting). The ★ stop is the one closest to your waypoint.
-- Highways (src/highway.js, layout in src/hwlayout.js): an elevated ring around the city (over the edge roads) and a crosstown highway over 7th Street, 8 m up, with guard rails, pillars down the middle of the streets below, a 65 mph limit (the speedometer shows it) and no lights or stop signs. You get on and off by one-way loop ramps (jughandle style) at ten interchanges: turn right off the street, circle 270 degrees up and merge with the traffic on that side; exits do the same backwards. Each interchange has an on-ramp loop and an off-ramp loop either side of a cross street. The ring's loops are out past the edge of the city (the map shows a border of open ground around the city for them); the crosstown's take the corners of four blocks (cleared to grass). Curved guard rails both sides of every loop, a green sign at the curb where each on-ramp leaves the street, and an EXIT sign on the highway 25 m before each off-ramp. Traffic (ramps are one way, no passing), police chases and the GPS use them; they show in amber on the radar and the map. Police don't get out of their cars up there, and nobody walks up except you
+- Freeways (src/highway.js, layout in src/fwyplan.js): a ring around the city core (3 lanes each way, smooth 170 m corners) and a crosstown north-south through the middle (2 lanes each way), 7.5 m up on pillars, with a median barrier, shoulders, lane lines, guard rails and a 65 mph limit (the speedometer shows it). Ring Rd and Crosstown Rd run underneath, so streets cross under them anywhere. You always veer right onto a ramp and never cross traffic to reach one: the eight interchanges are partial cloverleaves (from the cross street every way on is a right turn — a diagonal ramp on the near side, or under the freeway and right into a loop on the far side — and every way off leaves from the right-hand lane down a deceleration lane to a T-junction with lights). Ramps climb at 6–9%, run alongside on an acceleration lane, and merge from the right. Where the crosstown meets the ring at each end, a two-loop T: the crosstown's right lane curves onto the near side of the ring; its left lane crosses over the ring on a 14 m bridge and loops round onto the far side (and the same backwards), so every move there exits right and merges from the right too. Green signs over the lanes 1/8 mile before each exit and at it, and at the curb at each entrance. Anything up there rides the surface nearest its own height (on the bridge you stay on the bridge; under it you stay under), so freeways, ramps and bridges stack. Traffic (lanes, lane changes, ramps one way, speed by the curve ahead), police chases and the GPS (which prefers the freeway for long trips and draws the route up on the decks) use them; they show in amber on the radar and the map. Police don't get out of their cars up there, and nobody walks up except you
 : headlights and taillights come on after dark; each headlight throws its own soft beam straight ahead on the road (about as wide as the lamp where it starts, spreading to about 4 m and fading out about 10 m on); brake lights show whenever a driver brakes or holds the car still; delivery trucks blink their hazards when double-parked. A police car with its lights going washes the street around it red and blue (strongest at night). Empty cars stay dark
 - Daily rhythms (src/rhythm.js): how many cars and people are out depends on the hour and the district. Morning rush (7–9 AM) and evening rush (4:30–6:30 PM) are the busiest times; the Financial and Government districts fill up in working hours and empty out at night; the Strip comes alive after dark (packed 10 PM–2 AM, about 1.8× the daytime crowd); the Heights stay quiet; around 4 AM the whole city is close to empty (about 10 people and 10 cars around you). The vehicle mix changes too: taxis Downtown and on the Strip, box trucks at the Docks and in working hours, sports cars in the Heights and on the Strip at night
 - Streets are 16 m wide: a lane each way plus a parking shoulder each side (marked with a solid white line), so parked cars sit clear of the traffic
@@ -162,7 +164,10 @@ Open the game link on your phone and turn it sideways. Touch controls switch on 
 | File | What it does |
 | --- | --- |
 | `src/main.js` | Game loop, crimes, wanted level, interactions, camera |
-| `src/city.js` | City generation, road graph, minimap |
+| `src/worldplan.js` | The city's plan: terrain, water, districts, every street, the road graph and the blocks (pure data) |
+| `src/fwyplan.js` | The freeway plan: ring, crosstown, interchanges, every ramp (pure data) |
+| `src/geom.js` | 2D geometry: polygons, clipping, insets, rotated boxes |
+| `src/city.js` | Builds the city in 3D (terrain, roads, sidewalks, buildings, parks, trees, water, places); ground height, block and street lookups, minimap |
 | `src/vehicle.js` | Car models and arcade driving physics |
 | `src/traffic.js` | NPC traffic drivers: pass stopped cars in the other lane (pulling out early, backing up for room, giving up the pass if something is coming), sort out nose-to-nose standoffs (the one in the wrong lane backs off), turn back if stuck, and get towed if stuck out of sight |
 | `src/peds.js` | NPC pedestrians |
@@ -175,7 +180,7 @@ Open the game link on your phone and turn it sideways. Touch controls switch on 
 | `src/budget.js` | City budget: what the treasury pays for (police, public works, community programs) |
 | `src/economy.js` | Service companies (ownable), protection money, neighborhood wealth |
 | `src/bank.js` | Bank branches, ATMs, homes for sale and their stashes |
-| `src/districts.js` | City layout: districts, special places, starting turf, banks, ATMs, homes |
+| `src/districts.js` | Where things are: special places, stores, starting turf, banks, ATMs, homes, companies, district looks |
 | `src/streets.js` | Traffic lights, stop signs, stop lines, street lights, and the rules traffic and pedestrians follow |
 | `src/daynight.js` | Day/night lighting from the game clock |
 | `src/rhythm.js` | Daily rhythms: how many cars and people are out by hour and district |
@@ -183,7 +188,8 @@ Open the game link on your phone and turn it sideways. Touch controls switch on 
 | `src/parking.js` | Cars parked along the curbs (instanced stand-ins that turn into real cars up close) |
 | `src/props.js` | Hydrants (and their spray), trash cans, benches, litter and graffiti |
 | `src/travel.js` | Taxis and buses: hailing, destinations, fares and the ride cut scene |
-| `src/highway.js` | Elevated highways: decks, ramps, rails, pillars, the high/low layer, the highway road network |
+| `src/highway.js` | Freeways in 3D: decks, ramps, bridges, rails, pillars, signs; which surface you're on; the lane network |
+| `src/turfdraw.js` | Drawing turf (fills and outer borders) on the radar and map |
 | `src/touch.js` | Touch controls for phones (a virtual controller: joystick, look drag, context buttons) |
 | `src/quality.js` | Graphics quality (Phone / Full), picked automatically |
 | `src/enforcement.js` | Red lights, speeding, traffic stops and tickets |
@@ -204,7 +210,7 @@ Open the game link on your phone and turn it sideways. Touch controls switch on 
 | `src/shops.js` | Turf income stash, gun shop, mod garage, safehouse, crew gear, shop menus |
 | `src/claim.js` | Earning unclaimed blocks: tags, shakedowns, the rival response |
 | `src/mapview.js` | Full-screen map |
-| `src/gps.js` | GPS routes on the street grid and the 3D route line |
+| `src/gps.js` | GPS routes over the road network (freeways included) and the 3D route line |
 | `src/config.js` | Tuning values, crimes and the cred ladder |
 
 ## Next steps
