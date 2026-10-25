@@ -48,6 +48,7 @@ export class President {
     const game = this.game;
     this.leader = leader;
     this.termStart = day;
+    this.terms = 1;
     this.taxBoost = 1; // a fresh start on taxes
     this.approval = Math.max(this.approval, 55);
     this.reported = Math.round(this.approval);
@@ -119,9 +120,16 @@ export class President {
     const game = this.game;
     if (day - this.termStart >= TERM) {
       const ap = Math.round(this.approval);
-      if (ap >= 50) {
+      if (ap >= 50 && this.terms >= TUNE.termLimit) {
+        // Term-limited: someone from the same party runs on the record, and wins.
+        const old = this.leader.name;
+        const next = { ...newLeader(), id: this.leader.id };
+        game.hud.news(`${old} steps down after ${this.terms} terms (the limit); ${this.p.party} holds City Hall`, 'info');
+        this.takeOffice(next, day);
+      } else if (ap >= 50) {
         this.termStart = day;
-        game.hud.news(`${this.leader.name} re-elected with ${ap}% approval`, 'good');
+        this.terms = (this.terms || 1) + 1;
+        game.hud.news(`${this.leader.name} re-elected with ${ap}% approval${this.terms >= TUNE.termLimit ? ' (final term)' : ''}`, 'good');
       } else {
         const old = this.leader.name;
         const next = newLeader(this.p.side);
@@ -142,7 +150,7 @@ export class President {
   load() {
     try {
       const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
-      if (s) Object.assign(this, { crimeLevel: s.crimeLevel || 0, approval: s.approval ?? 60, recent: s.recent || {}, reported: s.approval ?? 60, leader: s.leader || null, termStart: s.termStart || 0, taxBoost: s.taxBoost || 1 });
+      if (s) Object.assign(this, { crimeLevel: s.crimeLevel || 0, approval: s.approval ?? 60, recent: s.recent || {}, reported: s.approval ?? 60, leader: s.leader || null, termStart: s.termStart || 0, terms: s.terms || 1, taxBoost: s.taxBoost || 1 });
     } catch {
       // Fresh term.
     }
@@ -150,7 +158,7 @@ export class President {
 
   save() {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ crimeLevel: this.crimeLevel, approval: this.approval, recent: this.recent, leader: this.leader, termStart: this.termStart, taxBoost: this.taxBoost }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ crimeLevel: this.crimeLevel, approval: this.approval, recent: this.recent, leader: this.leader, termStart: this.termStart, terms: this.terms, taxBoost: this.taxBoost }));
     } catch {
       // Storage unavailable.
     }

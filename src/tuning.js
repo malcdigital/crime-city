@@ -49,6 +49,9 @@ export const TUNE = {
     max: 2.5,
   },
 
+  // ---- Elections (president.js) ----
+  termLimit: 4, // terms in a row (a term is a game week); then someone else from the party runs
+
   // ---- President's approval (president.js) ----
   approval: {
     base: 60,

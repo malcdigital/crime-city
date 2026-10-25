@@ -171,6 +171,8 @@ export class MapView {
     head('Money');
     game.bank.legend(add);
     game.economy.legend(add);
+    head('Gang bases');
+    game.bases.legend(add);
     head('Business');
     if (S.stash > 0) add('blip', '#27ae60', '$', `Turf stash · $${S.stash.toLocaleString('en-US')}`, S.stashAt.x, S.stashAt.z);
     for (const p of D.plugs) add('blip', p.dead ? '#555' : '#6c3483', 'D', p.dead ? `Plug (${p.product}): dead, replaced soon` : `Plug: ${p.name} (${p.product})`, p.x, p.z);
@@ -419,7 +421,7 @@ export class MapView {
     blip(city.gangHome.x, city.gangHome.z, '#8e24aa', 'K');
     blip(city.crewHome.x, city.crewHome.z, '#2e7d32', 'G');
     for (const [x, z, col, txt] of game.turfWars.claimMarks()) blip(x, z, col, txt, 9);
-    for (const [x, z, col, txt] of [...game.shops.blips(), ...game.drugs.blips(), ...game.bank.blips(), ...game.economy.blips()]) blip(x, z, col, txt);
+    for (const [x, z, col, txt] of [...game.shops.blips(), ...game.drugs.blips(), ...game.bank.blips(), ...game.economy.blips(), ...game.bases.blips()]) blip(x, z, col, txt);
     for (const t of game.bank.atmSpots()) dot(t.x, t.z, 4, '#5dade2');
     for (const k of game.market.kingpinSpots()) blip(k.x, k.z, '#111', '♛', 10);
     const tc = game.testCar;

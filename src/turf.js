@@ -568,7 +568,11 @@ export class TurfManager {
     for (const g of Object.keys(GANGS)) {
       if (this.underground(g)) continue;
       const hb = this.homeBlock(g);
-      if (hb) this.makeGroup(g, hb, g === 'kings' ? 6 : 8, 3, 'home', g === 'kings' ? 1 : 0);
+      if (hb) {
+        // The home crew's size follows the base's tier (bases.js).
+        const [n, cars] = this.game.bases && g !== 'crew' ? this.game.bases.homeSize(g) : [g === 'kings' ? 6 : 8, 3];
+        this.makeGroup(g, hb, n, cars, 'home', g === 'kings' ? 1 : 0);
+      }
       const posts = this.blocks.filter((b) => this.owner[key(b)] === g && key(b) !== this.home[g]);
       posts.forEach((b, i) => {
         const n = i % 2 ? 3 : 2;

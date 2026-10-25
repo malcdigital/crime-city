@@ -25,6 +25,7 @@ import { PropertyMarket } from './property.js';
 import { Economy } from './economy.js';
 import { CityBudget } from './budget.js';
 import { EconDebug } from './econdebug.js';
+import { Bases } from './bases.js';
 import { Market } from './market.js';
 import { President } from './president.js';
 import { Phone } from './phone.js';
@@ -137,6 +138,7 @@ class Game {
     this.economy = new Economy(this);
     this.budget = new CityBudget(this);
     this.econDebug = new EconDebug(this); // ` toggles the economy debug panel
+    this.bases = new Bases(this);
     this.market = new Market(this);
     this.president = new President(this);
     this.phone = new Phone(this);
@@ -1854,6 +1856,7 @@ class Game {
     this.checkRunOver();
     this.handleInteractions(dt, a);
     this.updateSurrender(dt, a);
+    this.bases.update(dt, a);
     this.updateStop(dt, a);
     this.updateIA(dt);
     this.updateVehicleDamage(dt);

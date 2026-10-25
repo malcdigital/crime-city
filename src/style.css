@@ -176,7 +176,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #bigmap .bm-info { position: absolute; top: 16px; left: 16px; background: rgba(0,0,0,.7); padding: 10px 14px; border-radius: 8px; font-size: 14px; line-height: 1.5; min-width: 220px; max-width: calc(100% - 32px); }
 #bigmap .bm-war { color: #ff6b6b; font-weight: 700; }
 #bigmap .bm-legend-tab { position: absolute; top: 16px; right: 16px; background: rgba(0,0,0,.72); padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; z-index: 2; }
-#bigmap .bm-legend-tab.open { top: auto; bottom: 16px; right: 16px; }
+#bigmap .bm-legend-tab.open { top: 16px; right: 296px; }
 #bigmap .bm-legend { position: absolute; top: 16px; right: 16px; width: 270px; max-height: calc(100vh - 90px); overflow-y: auto; background: rgba(0,0,0,.72); padding: 8px 8px; border-radius: 8px; font-size: 13px; }
 #bigmap .lg-head { font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; opacity: .55; padding: 8px 6px 3px; }
 #bigmap .lg-row { display: flex; align-items: center; gap: 9px; padding: 4px 6px; border-radius: 6px; cursor: pointer; line-height: 1.25; }

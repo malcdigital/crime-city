@@ -267,6 +267,7 @@ export class PropertyMarket {
     if (tax) game.hud.text('City Tax Office', `Property tax: ${money(tax)} paid. Thank you.`);
     if (upkeep >= 25) game.hud.toast(`Upkeep on your properties: -${money(upkeep)}`);
     game.economy?.newDay(byDistrict);
+    game.bases?.newDay(); // rival gangs bank their money
     game.budget?.newDay(this.treasury - t0); // then the city spends it
     this.save();
   }
