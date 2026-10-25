@@ -2,13 +2,18 @@
 // top-down view, then rebuild the city with them and drive it.
 // - One side of one interchange at a time (◀ ▶ to move between them). Each ramp is a smooth
 //   curve through control points: drag a point to move it, tap a ramp to add a point there,
-//   select a point and tap DELETE to remove it. The square point (where it joins the freeway)
-//   stays put. Drag empty space to pan, pinch (or the + / − buttons, mouse wheel) to zoom.
+//   select a point and tap DELETE to remove it. A selected point shows its two curve handles
+//   (drag one to bend the curve; SMOOTH puts it back). The square point (where it joins the
+//   freeway) stays put. Drag empty space to pan, pinch (or the + / − buttons, mouse wheel) to
+//   zoom.
+// - SNAP (on by default): drag a ramp's street end near a street and it locks onto the curb
+//   lane, running along the street, so the ramp splits off (or merges in) seamlessly.
 // - "All" edits the design every interchange on that freeway shares; "This one" edits only
 //   the side you're looking at (it takes priority).
 // - SAVE & DRIVE stores the edits in the browser and reloads, starting you by this
 //   interchange. COPY gives the edits as text (send them over to make them permanent).
-import { EDITS, EDIT_KEY, HALVES, RAMPS, splinePts } from './fwyplan.js';
+import { EDITS, EDIT_KEY, HALVES, RAMPS, RAMP_HW, editPts, handlesOf, lockEnd, splinePts } from './fwyplan.js';
+import { closestOnSeg } from './geom.js';
 
 const KINDS = [
   ['off', '#ff5a4f', 'exit'],
@@ -16,6 +21,7 @@ const KINDS = [
   ['diag', '#46b4ff', 'diagonal entrance'],
 ];
 const clone = (o) => JSON.parse(JSON.stringify(o));
+const r1 = (v) => Math.round(v * 10) / 10;
 
 export class RampEditor {
   constructor(game) {
@@ -27,6 +33,7 @@ export class RampEditor {
     this.scope = 'all';
     this.idx = Math.max(0, HALVES.findIndex((h) => h.main === 'ring' && h.name === 'PARK AVE'));
     this.sel = null; // { kind, i }
+    this.snap = true;
     this.undo = [];
     this.build();
   }
@@ -44,12 +51,13 @@ export class RampEditor {
       <div class="re-tools">
         <button data-a="zin">+</button><button data-a="zout">−</button>
         <button data-a="undo">UNDO</button><button data-a="del">DELETE</button>
+        <button data-a="smooth">SMOOTH</button><button data-a="snap" class="re-snap"></button>
         <button data-a="reset">RESET</button>
       </div>
       <div class="re-go">
         <button data-a="copy">COPY</button><button data-a="close">CLOSE</button><button data-a="save" class="re-save">SAVE &amp; DRIVE</button>
       </div>
-      <div class="re-help">Drag a dot to move it · tap a ramp to add a dot · square dots stay put</div>
+      <div class="re-help">Drag a dot · tap a ramp to add one · tap a dot for its curve handles · drag a ramp's street end onto a street to snap it</div>
       <div class="re-legend">${KINDS.map(([, c, label]) => `<span><i style="background:${c}"></i>${label}</span>`).join('')}</div>
       <textarea class="re-text hidden" readonly></textarea>`;
     document.body.appendChild(el);
@@ -83,6 +91,12 @@ export class RampEditor {
         drag = null;
         return;
       }
+      const hh = this.hitHandle(p);
+      if (hh) {
+        this.pushUndo();
+        drag = { type: 'handle', hh, start: p, moved: false };
+        return;
+      }
       const hit = this.hitPoint(p);
       if (hit && !hit.locked) {
         this.pushUndo();
@@ -106,11 +120,31 @@ export class RampEditor {
       }
       if (!drag) return;
       if (Math.hypot(p[0] - drag.start[0], p[1] - drag.start[1]) > 6) drag.moved = true;
-      if (drag.type === 'point') {
+      if (drag.type === 'handle') {
+        // Bend the curve: the handle sets the direction (and pull) at that point.
+        const { kind, i, side } = drag.hh;
+        const ctrl = this.ctrlOf(kind);
+        const [u, v] = this.half().W.inv(...this.toWorld(p));
+        const t = side > 0 ? [u - ctrl[i][0], v - ctrl[i][1]] : [ctrl[i][0] - u, ctrl[i][1] - v];
+        ctrl[i] = [ctrl[i][0], ctrl[i][1], r1(t[0]), r1(t[1])];
+        this.setCtrl(kind, ctrl);
+      } else if (drag.type === 'point') {
         const [x, z] = this.toWorld(p);
-        const ctrl = this.ctrlOf(drag.hit.kind);
-        ctrl[drag.hit.i] = this.half().W.inv(x, z).map((v) => Math.round(v * 10) / 10);
-        this.setCtrl(drag.hit.kind, ctrl);
+        const { kind, i } = drag.hit;
+        const ctrl = this.ctrlOf(kind);
+        const keep = ctrl[i].length >= 4 ? ctrl[i].slice(2) : [];
+        let street = this.streetOf(kind);
+        const snapped = this.snap && i === this.streetEnd(kind, ctrl.length) ? this.snapEnd(kind, ctrl, i, [x, z]) : null;
+        if (snapped) {
+          ctrl[i] = snapped.pt;
+          street = snapped.street;
+          this.snapLine = snapped.line;
+        } else {
+          ctrl[i] = [...this.half().W.inv(x, z).map(r1), ...keep];
+          if (i === this.streetEnd(kind, ctrl.length)) street = null;
+          this.snapLine = null;
+        }
+        this.setCtrl(kind, ctrl, street);
       } else if (drag.moved) {
         this.cx -= (p[0] - drag.last[0]) / this.scale;
         this.cz -= (p[1] - drag.last[1]) / this.scale;
@@ -122,8 +156,11 @@ export class RampEditor {
       if (!ptrs.has(e.pointerId)) return;
       ptrs.delete(e.pointerId);
       if (ptrs.size < 2) pinch = null;
+      this.snapLine = null;
       if (drag && !drag.moved) {
-        if (drag.type === 'point') {
+        if (drag.type === 'handle') {
+          this.undo.pop();
+        } else if (drag.type === 'point') {
           this.undo.pop(); // (just selected it)
         } else if (drag.hit?.locked) {
           this.sel = null;
@@ -150,6 +187,10 @@ export class RampEditor {
       this.draw();
     }, { passive: false });
     addEventListener('resize', () => this.open && this.draw());
+    // (a mouse lock that lands while the editor is open would swallow the drags)
+    document.addEventListener('pointerlockchange', () => {
+      if (this.open && document.pointerLockElement) document.exitPointerLock?.();
+    });
   }
 
   half() {
@@ -163,14 +204,29 @@ export class RampEditor {
     const own = this.edits.halves[h.id]?.[kind];
     const tpl = this.edits.template[h.main]?.[kind];
     const r = h.ramps[kind];
-    return clone(own || tpl || r.defCtrl);
+    return clone(editPts(own) || editPts(tpl) || r.defCtrl);
   }
 
-  setCtrl(kind, ctrl) {
+  // The street point a ramp end was snapped to (this side's edit, then the shared design).
+  streetOf(kind) {
     const h = this.half();
-    if (this.scope === 'one') (this.edits.halves[h.id] ||= {})[kind] = ctrl;
+    const own = this.edits.halves[h.id]?.[kind];
+    const tpl = this.edits.template[h.main]?.[kind];
+    const ov = editPts(own) ? own : tpl;
+    return ov && !Array.isArray(ov) && ov.street ? ov.street.slice() : null;
+  }
+
+  // Which control point is the ramp's street end (the exit's last, an entrance's first).
+  streetEnd(kind, n) {
+    return kind === 'off' ? n - 1 : 0;
+  }
+
+  setCtrl(kind, ctrl, street = this.streetOf(kind)) {
+    const h = this.half();
+    const val = street ? { pts: ctrl, street } : { pts: ctrl };
+    if (this.scope === 'one') (this.edits.halves[h.id] ||= {})[kind] = val;
     else {
-      (this.edits.template[h.main] ||= {})[kind] = ctrl;
+      (this.edits.template[h.main] ||= {})[kind] = val;
       // (the shared design is what you see: drop this side's own edit of the same ramp)
       if (this.edits.halves[h.id]) delete this.edits.halves[h.id][kind];
     }
@@ -211,6 +267,19 @@ export class RampEditor {
         }
         this.sel = null;
       }
+    } else if (a === 'smooth') {
+      // The selected point's handles back to automatic.
+      if (this.sel) {
+        const ctrl = this.ctrlOf(this.sel.kind);
+        const q = ctrl[this.sel.i];
+        if (q && q.length >= 4 && !this.isLocked(this.sel.kind, this.sel.i, ctrl.length)) {
+          this.pushUndo();
+          ctrl[this.sel.i] = [q[0], q[1]];
+          this.setCtrl(this.sel.kind, ctrl);
+        }
+      }
+    } else if (a === 'snap') {
+      this.snap = !this.snap;
     } else if (a === 'reset') {
       // Back to the default shape: this side (in "This one") or the shared design (in "All").
       this.pushUndo();
@@ -239,10 +308,10 @@ export class RampEditor {
       try {
         localStorage.setItem(EDIT_KEY, JSON.stringify(this.edits));
         // Start by this interchange, on the cross street, facing it.
-        const [x, z] = h.W(0, 70);
+        const [x, z] = h.W(0, 110);
         const [fx, fz] = h.W(0, 0);
         const deg = (Math.atan2(fx - x, fz - z) * 180) / Math.PI;
-        localStorage.setItem('crimecity.startAt', JSON.stringify([...h.W(3.4, 70), deg])); // (the lane heading toward the freeway)
+        localStorage.setItem('crimecity.startAt', JSON.stringify([...h.W(3.4, 110), deg])); // (the lane heading toward the freeway)
       } catch {
         // (storage blocked)
       }
@@ -294,6 +363,72 @@ export class RampEditor {
     return [(sx - this.w / 2) / this.scale + this.cx, (sy - this.h / 2) / this.scale + this.cz];
   }
 
+  // The curve handles of the selected point: [{ x, y, side }] on screen (side +1: out, -1: in).
+  handleSpots() {
+    if (!this.sel) return [];
+    const h = this.half();
+    const ctrl = lockEnd(this.sel.kind, this.ctrlOf(this.sel.kind));
+    const i = this.sel.i;
+    if (!ctrl[i] || this.isLocked(this.sel.kind, i, ctrl.length)) return [];
+    const H = handlesOf(ctrl, i);
+    const [u, v] = ctrl[i];
+    const out = [];
+    if (i < ctrl.length - 1) out.push({ side: 1, w: h.W(u + H.outV[0], v + H.outV[1]) });
+    if (i > 0) out.push({ side: -1, w: h.W(u - H.inV[0], v - H.inV[1]) });
+    return out.map((o) => ({ ...o, s: this.toScreen(...o.w), p: h.W(u, v) }));
+  }
+
+  hitHandle(p) {
+    for (const o of this.handleSpots()) {
+      if (Math.hypot(o.s[0] - p[0], o.s[1] - p[1]) < 22) return { kind: this.sel.kind, i: this.sel.i, side: o.side };
+    }
+    return null;
+  }
+
+  // Snap a ramp's street end onto the nearest street: in the curb lane, so the ramp's outer
+  // edge lines up with the curb, heading along the street the way the ramp runs.
+  snapEnd(kind, ctrl, i, [x, z]) {
+    const h = this.half();
+    let best = null;
+    let bd = 9;
+    for (const e of this.game.city.edges) {
+      if (e.street?.stub !== undefined || e.cls === 'pier') continue;
+      const c = closestOnSeg(x, z, e.a.x, e.a.z, e.b.x, e.b.z);
+      if (c.t < 0.02 || c.t > 0.98) continue;
+      const d = Math.abs(c.d - (e.w / 2 - RAMP_HW));
+      if (d < bd) {
+        bd = d;
+        best = { e, c };
+      }
+    }
+    if (!best) return null;
+    const { e, c } = best;
+    const L = Math.hypot(e.b.x - e.a.x, e.b.z - e.a.z) || 1;
+    let dx = (e.b.x - e.a.x) / L;
+    let dz = (e.b.z - e.a.z) / L;
+    const nx = -dz;
+    const nz = dx;
+    const side = Math.sign((x - c.x) * nx + (z - c.z) * nz) || 1;
+    const off = e.w / 2 - RAMP_HW;
+    const px = c.x + nx * side * off;
+    const pz = c.z + nz * side * off;
+    // (the way the ramp runs: an exit comes in from its previous point, an entrance heads off
+    // toward its next one)
+    const nb = h.W(...ctrl[kind === 'off' ? i - 1 : i + 1]);
+    const toward = kind === 'off' ? (px - nb[0]) * dx + (pz - nb[1]) * dz : (nb[0] - px) * dx + (nb[1] - pz) * dz;
+    if (toward < 0) {
+      dx = -dx;
+      dz = -dz;
+    }
+    const [u, v] = h.W.inv(px, pz);
+    const [tu, tv] = h.W.inv(h.x + dx * 10, h.z + dz * 10);
+    return {
+      pt: [r1(u), r1(v), r1(tu), r1(tv)],
+      street: h.W.inv(c.x, c.z).map(r1),
+      line: [[e.a.x, e.a.z], [e.b.x, e.b.z], e.w],
+    };
+  }
+
   // A control point near the screen point.
   hitPoint(p) {
     const h = this.half();
@@ -319,9 +454,12 @@ export class RampEditor {
     let best = null;
     let bd = 16;
     for (const [kind] of KINDS) {
-      const ctrl = this.ctrlOf(kind);
+      const ctrl = lockEnd(kind, this.ctrlOf(kind));
       for (let i = 0; i + 1 < ctrl.length; i++) {
-        const seg = splinePts([ctrl[Math.max(0, i - 1)], ctrl[i], ctrl[i + 1], ctrl[Math.min(ctrl.length - 1, i + 2)]], 2);
+        // (just this piece of the curve, with its real handles)
+        const ha = handlesOf(ctrl, i).outV;
+        const hd = handlesOf(ctrl, i + 1).inV;
+        const seg = splinePts([[ctrl[i][0], ctrl[i][1], ha[0], ha[1]], [ctrl[i + 1][0], ctrl[i + 1][1], hd[0], hd[1]]], 2);
         for (const q of seg) {
           const [sx, sy] = this.toScreen(...h.W(q[0], q[1]));
           const d = Math.hypot(sx - p[0], sy - p[1]);
@@ -378,8 +516,12 @@ export class RampEditor {
       line(sf.pts, sf.hw * 2 * s, sf.ramp ? 'rgba(160,160,170,.45)' : '#8a8d92');
     }
     // This side's ramps: the curve through the control points (as it will be built).
+    if (this.snapLine) {
+      const [a, b, w] = this.snapLine;
+      line([a, b], w * s, 'rgba(255,214,63,.35)');
+    }
     for (const [kind, color] of KINDS) {
-      const ctrl = this.ctrlOf(kind);
+      const ctrl = lockEnd(kind, this.ctrlOf(kind));
       const pts = splinePts(ctrl, 2).map(([u, v]) => h.W(u, v));
       line(pts, 7.2 * s, 'rgba(60,62,68,.95)');
       line(pts, Math.max(2, 1.2 * s), color);
@@ -398,8 +540,37 @@ export class RampEditor {
         else g.arc(x, y, sel ? 11 : 9, 0, Math.PI * 2);
         g.fill();
         g.stroke();
+        // (a street end locked onto a street: a yellow ring)
+        if (i === this.streetEnd(kind, ctrl.length) && this.streetOf(kind)) {
+          g.strokeStyle = '#ffd23f';
+          g.lineWidth = 3;
+          g.beginPath();
+          g.arc(x, y, 15, 0, Math.PI * 2);
+          g.stroke();
+        }
       });
     }
+    // The selected point's curve handles.
+    for (const o of this.handleSpots()) {
+      const [px, py] = this.toScreen(...o.p);
+      g.strokeStyle = '#fff';
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(px, py);
+      g.lineTo(o.s[0], o.s[1]);
+      g.stroke();
+      g.fillStyle = '#ffd23f';
+      g.beginPath();
+      g.moveTo(o.s[0], o.s[1] - 9);
+      g.lineTo(o.s[0] + 9, o.s[1]);
+      g.lineTo(o.s[0], o.s[1] + 9);
+      g.lineTo(o.s[0] - 9, o.s[1]);
+      g.closePath();
+      g.fill();
+      g.strokeStyle = '#000';
+      g.stroke();
+    }
+    this.el.querySelector('.re-snap').textContent = this.snap ? 'SNAP: ON' : 'SNAP: OFF';
     // Labels.
     const edited = !!(this.edits.halves[h.id] && Object.keys(this.edits.halves[h.id]).length);
     this.el.querySelector('.re-name').textContent = `${h.name} · ${h.main === 'ring' ? 'Ring' : 'Crosstown'} · ${h.toward}${edited ? ' · own edits' : ''}`;

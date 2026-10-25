@@ -200,33 +200,56 @@ function closestOnSegLocal(p, a, b) {
   const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / l2));
   return Math.hypot(p[0] - a[0] - dx * t, p[1] - a[1] - dz * t);
 }
-// A smooth curve through control points (centripetal Catmull-Rom), a point every ~step m.
-export function splinePts(ctrl, step = 2) {
-  const P = ctrl;
-  const out = [P[0].slice()];
+// A smooth curve through control points, a point every ~step m. Each control point is
+// [u, v] (smooth: the curve's direction there follows its neighbors) or [u, v, tu, tv] (a set
+// direction: the handle, as in a drawing program). Pieces between points are cubic Beziers.
+export function handlesOf(P, i) {
+  const p = P[i];
+  const a = P[Math.max(0, i - 1)];
+  const b = P[Math.min(P.length - 1, i + 1)];
+  const lin = Math.hypot(p[0] - a[0], p[1] - a[1]) / 3;
+  const lout = Math.hypot(b[0] - p[0], b[1] - p[1]) / 3;
+  if (p.length >= 4) {
+    // (a set handle: the same on both sides, mirrored)
+    return { inV: [p[2], p[3]], outV: [p[2], p[3]], set: true };
+  }
+  let dx = b[0] - a[0];
+  let dz = b[1] - a[1];
+  const l = Math.hypot(dx, dz) || 1;
+  dx /= l;
+  dz /= l;
+  return { inV: [dx * lin, dz * lin], outV: [dx * lout, dz * lout], set: false };
+}
+export function splinePts(P, step = 2) {
+  const out = [[P[0][0], P[0][1]]];
   for (let i = 0; i + 1 < P.length; i++) {
-    const p0 = P[Math.max(0, i - 1)];
-    const p1 = P[i];
-    const p2 = P[i + 1];
-    const p3 = P[Math.min(P.length - 1, i + 2)];
-    const d = (a, b) => Math.max(1e-4, Math.sqrt(Math.hypot(b[0] - a[0], b[1] - a[1])));
-    const t0 = 0;
-    const t1 = t0 + d(p0, p1);
-    const t2 = t1 + d(p1, p2);
-    const t3 = t2 + d(p2, p3);
-    const n = Math.max(1, Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / step));
+    const a = P[i];
+    const d = P[i + 1];
+    const ha = handlesOf(P, i).outV;
+    const hd = handlesOf(P, i + 1).inV;
+    const b = [a[0] + ha[0], a[1] + ha[1]];
+    const c = [d[0] - hd[0], d[1] - hd[1]];
+    const len = Math.hypot(a[0] - b[0], a[1] - b[1]) + Math.hypot(b[0] - c[0], b[1] - c[1]) + Math.hypot(c[0] - d[0], c[1] - d[1]);
+    const n = Math.max(1, Math.ceil(len / step));
     for (let k = 1; k <= n; k++) {
-      const t = t1 + ((t2 - t1) * k) / n;
-      const L = (a, b, ta, tb) => [0, 1].map((j) => (ta === tb ? a[j] : ((tb - t) / (tb - ta)) * a[j] + ((t - ta) / (tb - ta)) * b[j]));
-      const A1 = L(p0, p1, t0, t1);
-      const A2 = L(p1, p2, t1, t2);
-      const A3 = L(p2, p3, t2, t3);
-      const B1 = L(A1, A2, t0, t2);
-      const B2 = L(A2, A3, t1, t3);
-      out.push(L(B1, B2, t1, t2));
+      const t = k / n;
+      const m = 1 - t;
+      out.push([0, 1].map((j) => m * m * m * a[j] + 3 * m * m * t * b[j] + 3 * m * t * t * c[j] + t * t * t * d[j]));
     }
   }
   return out;
+}
+// An edit as stored: { pts, street } (or, from before, just the points).
+export function editPts(ov) {
+  return Array.isArray(ov) ? ov : ov?.pts;
+}
+// The end of a ramp that joins the freeway: where it was, heading along the freeway.
+export function lockEnd(kind, ctrl) {
+  const i = kind === 'off' ? 0 : ctrl.length - 1;
+  const j = kind === 'off' ? 1 : ctrl.length - 2;
+  const l = Math.hypot(ctrl[j][0] - ctrl[i][0], ctrl[j][1] - ctrl[i][1]) / 3;
+  ctrl[i] = [ctrl[i][0], ctrl[i][1], l, 0];
+  return ctrl;
 }
 // Height along a ramp at arc length s.
 function hAt(r, s) {
@@ -250,11 +273,13 @@ function editableRamp(W, path, keys, info, half, kind) {
   r.half = half.id;
   half.ramps[kind] = r;
   const ov = EDITS.halves?.[half.id]?.[kind] || EDITS.template?.[half.main]?.[kind];
-  if (Array.isArray(ov) && ov.length >= 2) {
-    const ctrl = ov.map((p) => [+p[0], +p[1]]);
-    // (the end that joins the freeway stays exactly where it was)
+  const ovPts = editPts(ov);
+  if (Array.isArray(ovPts) && ovPts.length >= 2) {
+    const ctrl = ovPts.map((p) => p.map(Number));
+    // (the end that joins the freeway stays exactly where it was, heading along the freeway)
     if (kind === 'off') ctrl[0] = r.defCtrl[0].slice();
     else ctrl[ctrl.length - 1] = r.defCtrl[r.defCtrl.length - 1].slice();
+    lockEnd(kind, ctrl);
     const loc = splinePts(ctrl);
     const pts = loc.map(([u, v]) => W(u, v));
     const L = lengths(pts);
@@ -262,6 +287,15 @@ function editableRamp(W, path, keys, info, half, kind) {
     const T1 = L[L.length - 1] || 1;
     const h = L.map((sl) => hAt(r, (sl / T1) * T0));
     Object.assign(r, { pts, h, L, local: loc, ctrl, edited: true });
+    // Snapped onto a street: the point in the middle of that street the ramp links to.
+    if (ov.street) r.streetLocal = ov.street.map(Number);
+    // An entrance is taken by traffic going the way the ramp leaves the street.
+    if (r.approach) {
+      const [ax, az] = pts[0];
+      const [bx, bz] = pts[Math.min(pts.length - 1, 3)];
+      const l = Math.hypot(bx - ax, bz - az) || 1;
+      r.approach = [(bx - ax) / l, (bz - az) / l];
+    }
   }
   return r;
 }
@@ -326,7 +360,8 @@ function parcloHalf(W, lanes, cross, opts) {
   const offEnd = rOff.local[rOff.local.length - 1];
   const loopS = rLoop.local[0];
   const diagS = rDiag.local[0];
-  STUBS.push([W(0, offEnd[1]), W(...offEnd)], [W(0, loopS[1]), W(...loopS)], [W(0, diagS[1]), W(...diagS)]);
+  const streetOf = (r, end) => (r.streetLocal ? W(...r.streetLocal) : W(0, end[1]));
+  STUBS.push([streetOf(rOff, offEnd), W(...offEnd)], [streetOf(rLoop, loopS), W(...loopS)], [streetOf(rDiag, diagS), W(...diagS)]);
   RAMPS[RAMPS.length - 3].stub = STUBS.length - 3;
   RAMPS[RAMPS.length - 2].stub = STUBS.length - 2;
   RAMPS[RAMPS.length - 1].stub = STUBS.length - 1;
