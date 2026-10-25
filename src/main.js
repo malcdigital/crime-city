@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { CFG, CRIMES, GANG_NAME } from './config.js';
 import { buildCity, districtAt, streetAt } from './city.js';
 import { buildSidewalks } from './sidewalk.js';
+import { Streets } from './streets.js';
+import { DayNight } from './daynight.js';
 import { Input } from './input.js';
 import { Player } from './player.js';
 import { Vehicle, resolveCarCollisions } from './vehicle.js';
@@ -56,7 +58,8 @@ class Game {
     this.scene.fog = new THREE.Fog(sky, 140, 430);
     this.camera = new THREE.PerspectiveCamera(65, 1, 0.1, 450); // nothing past the fog
 
-    this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x4a4a40, 1.1));
+    this.hemi = new THREE.HemisphereLight(0xdfefff, 0x4a4a40, 1.1);
+    this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight(0xfff1d6, 1.8);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
@@ -69,6 +72,8 @@ class Game {
 
     this.city = buildCity(this.scene);
     this.city.walk = buildSidewalks(this.city, this.scene); // sidewalks and crosswalks for people on foot
+    this.streets = new Streets(this); // traffic lights, stop signs, street lights
+    this.dayNight = new DayNight(this);
     this.input = new Input(canvas);
     this.hud = new Hud(this.city);
     this.mapView = new MapView(this);
@@ -1859,6 +1864,8 @@ class Game {
     this.handleInteractions(dt, a);
     this.updateSurrender(dt, a);
     this.bases.update(dt, a);
+    this.streets.update(dt);
+    this.dayNight.update();
     this.backup.update(dt);
     this.updateStop(dt, a);
     this.updateIA(dt);

@@ -24,22 +24,40 @@ export function streetAt(x, z) {
   return STREETS[Math.max(0, Math.min(N, kz))];
 }
 
+// Building windows (some lit), and a matching glow map: only the lit windows, which light up
+// at night (daynight.js turns the glow up after dark).
 function windowTexture(rng) {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
   const g = c.getContext('2d');
+  const c2 = document.createElement('canvas');
+  c2.width = c2.height = 128;
+  const g2 = c2.getContext('2d');
   g.fillStyle = '#ffffff';
   g.fillRect(0, 0, 128, 128);
+  g2.fillStyle = '#000000';
+  g2.fillRect(0, 0, 128, 128);
   for (let i = 0; i < 4; i++) {
     for (let j = 0; j < 4; j++) {
-      g.fillStyle = rng() < 0.22 ? '#f1dc9a' : '#566779';
+      const lit = rng() < 0.22;
+      g.fillStyle = lit ? '#f1dc9a' : '#566779';
       g.fillRect(i * 32 + 7, j * 32 + 6, 18, 20);
+      // At night more windows are lit than show in daylight.
+      if (lit || rng() < 0.25) {
+        g2.fillStyle = lit ? '#ffe2a0' : '#c9a86a';
+        g2.fillRect(i * 32 + 7, j * 32 + 6, 18, 20);
+      }
     }
   }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
+  const make = (cv) => {
+    const t = new THREE.CanvasTexture(cv);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    return t;
+  };
+  const t = make(c);
+  t.glow = make(c2);
   return t;
 }
 
@@ -125,8 +143,14 @@ export function buildCity(scene) {
   let hospital = null;
 
   const winTex = windowTexture(rng);
+  const windowMats = []; // every material with windows (their glow goes up at night)
+  const winMat = (color) => {
+    const m = new THREE.MeshLambertMaterial({ color, map: winTex, emissive: 0x000000, emissiveMap: winTex.glow });
+    windowMats.push(m);
+    return m;
+  };
   const buildingMats = [0xc9c2b8, 0x9fb4c7, 0xb8a48c, 0x8e9aa6, 0xd6cfc4, 0x7d8a99, 0xa89f91, 0xb5aa9c].map(
-    (c) => new THREE.MeshLambertMaterial({ color: c, map: winTex }),
+    (c) => winMat(c),
   );
 
   // Ground: asphalt for the city, grass beyond.
@@ -181,7 +205,7 @@ export function buildCity(scene) {
   let deferredContainers = [];
   // Per-district building materials (windows on all of them).
   const matCache = {};
-  const matsFor = (d) => (matCache[d] ||= STYLES[d].colors.map((c) => new THREE.MeshLambertMaterial({ color: c, map: winTex })));
+  const matsFor = (d) => (matCache[d] ||= STYLES[d].colors.map((c) => winMat(c)));
   const roofGeo = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4);
   roofGeo.rotateY(Math.PI / 4);
   const roofMat = lam(0x5a4636);
@@ -217,7 +241,7 @@ export function buildCity(scene) {
       } else if (type === 'police') {
         const w = 40, d = 24, h = 14;
         const bz = iMaxZ - d / 2 - 1;
-        building(cx, bz, w, d, h, new THREE.MeshLambertMaterial({ color: 0x3b5b8c, map: winTex }));
+        building(cx, bz, w, d, h, winMat(0x3b5b8c));
         sign('POLICE', cx, 10, bz - d / 2 - 0.06, Math.PI, 14, 2.6, '#1c2f5a');
         station = { x: cx, z: iMinZ + 8, heading: Math.PI, name: 'Central Precinct', roof: { x: cx, z: bz, y: h } };
         // Helipad on the roof.
@@ -230,7 +254,7 @@ export function buildCity(scene) {
       } else if (type === 'cityhall') {
         const w = 44, d = 30, h = 18;
         const bz = cz + 4;
-        building(cx, bz, w, d, h, new THREE.MeshLambertMaterial({ color: 0xf0ece2, map: winTex }));
+        building(cx, bz, w, d, h, winMat(0xf0ece2));
         const dome = new THREE.Mesh(new THREE.SphereGeometry(9, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), lam(0xd9d2c0));
         dome.position.set(cx, 0.2 + h, bz);
         dome.castShadow = true;
@@ -244,7 +268,7 @@ export function buildCity(scene) {
       } else if (type === 'hospital') {
         const w = 40, d = 24, h = 16;
         const bz = iMaxZ - d / 2 - 1;
-        building(cx, bz, w, d, h, new THREE.MeshLambertMaterial({ color: 0xeeeeee, map: winTex }));
+        building(cx, bz, w, d, h, winMat(0xeeeeee));
         sign('HARBOR GENERAL HOSPITAL', cx, 11, bz - d / 2 - 0.06, Math.PI, 18, 2.4, '#b71c1c');
         hospital = { x: cx, z: iMinZ + 8, heading: Math.PI, name: 'Harbor General' };
       } else if (type === 'chop') {
@@ -481,5 +505,5 @@ export function buildCity(scene) {
   const spawn = { x: park.cx, z: park.minZ + 2, heading: Math.PI, curbZ: roadC(PLACES.crewHome[1]) + R / 2 - 1.6 };
 
   mergeStatic(scene, firstChild);
-  return { colliders, los, crates, blocks, stores, chop, station, hospital, gangHome, crewHome, spawn, nodes, nodeAt, nearestNode, blockAt, groundY, drawMap, size: SIZE, P, N };
+  return { windowMats, colliders, los, crates, blocks, stores, chop, station, hospital, gangHome, crewHome, spawn, nodes, nodeAt, nearestNode, blockAt, groundY, drawMap, size: SIZE, P, N };
 }

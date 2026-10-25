@@ -25,7 +25,8 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
   - The Projects (SW): long low brick buildings, the Southside Kings' corner
   - The Docks (SE): warehouses, stacked shipping containers, the chop shop
   Districts show as slightly different shades on the radar and map, with faint names on the full map. Traffic and pedestrians fill the streets around you (cars more than 380 m away and people more than 300 m away are replaced nearer). Static buildings are merged per 2×2-block chunk to keep draw calls down, and collision checks use a spatial grid
-- Day and night: a full day is 48 real minutes (one real second is half a game minute); sessions start at 9:00 PM
+- Day and night (src/daynight.js): a full day is 48 real minutes (one real second is half a game minute); sessions start at 9:00 PM. The sky, fog, sun (moonlight at night) and ambient light follow the clock, with a warm glow at dawn and dusk; after dark building windows light up and the street lights come on (soft pools of light on the road)
+- Streets (src/streets.js): traffic lights at the busy intersections (Downtown, the Financial and Government districts, the Strip, every third street in Midtown — 102 of them), all-way stop signs everywhere else (123), white stop lines on every approach, and street lights along every sidewalk (two per block side). Signals run north-south then east-west (green 10 s, yellow 2.5 s, all-red 1 s), staggered street to street. Traffic stops at the line on red, goes through a yellow only when it's too close to stop, and at stop signs comes to a full stop and goes in the order cars arrived once the intersection is clear. Pedestrians wait on the curb for the walk phase (they only start across with 6+ seconds of green left, and hurry across); cars stop for anyone in front of them. Police, gang cars and backup ignore the rules. Poles and posts are solid
 - Money (src/bank.js): cash on you, the bank, and home stashes — you go to each in person.
   - Cash on you is what plugs take (they don't do wires) and what you lose when opps drop you or rob you. The HUD shows your bank balance and stash total under your cash.
   - City Bank (B on the map; branches in the Financial District, Midtown and the Docks): safe from robbers, open 9 AM–6 PM only, 2% to deposit, no limit at the counter, and a $250 monthly fee (an in-game month is 30 game days, about 24 hours of play). Shops (gun shop, garage, homes, safehouse) take bank money first, then cash.
@@ -149,6 +150,8 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 | `src/economy.js` | Service companies (ownable), protection money, neighborhood wealth |
 | `src/bank.js` | Bank branches, ATMs, homes for sale and their stashes |
 | `src/districts.js` | City layout: districts, special places, starting turf, banks, ATMs, homes |
+| `src/streets.js` | Traffic lights, stop signs, stop lines, street lights, and the rules traffic and pedestrians follow |
+| `src/daynight.js` | Day/night lighting from the game clock |
 | `src/sidewalk.js` | Sidewalk/crosswalk walking graph (routes for people on foot) and the crosswalk stripes |
 | `src/heliicon.js` | The helicopter icon and searchlight on the radar and map |
 | `src/police.js` | Police units and officers |

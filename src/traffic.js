@@ -1,4 +1,5 @@
 import { CFG } from './config.js';
+import { STOP_LINE } from './streets.js';
 import { Vehicle } from './vehicle.js';
 import { steerToward, throttleFor, StuckHelper } from './driving.js';
 import { pick, rand, dist } from './util.js';
@@ -70,6 +71,54 @@ export class TrafficDriver {
     const ctrl = { throttle: throttleFor(c, desired), steer: dEnd < 3 ? 0 : steerToward(c, tx, tz), handbrake: desired === 0 || (this.hurry && dEnd < 12 && Math.abs(c.speed) > desired + 2) };
     this.stuck.apply(dt, c, desired, ctrl);
     c.update(dt, ctrl, game.city.colliders);
+  }
+
+  // Traffic lights and stop signs at the intersection ahead (streets.js). Red: stop at the line.
+  // Yellow: stop if there's room, otherwise go through. Stop sign: come to a full stop at the
+  // line, then go in the order cars arrived, once the intersection is clear.
+  obey(game, desired, ux, uz, dn, dt) {
+    const S = game.streets;
+    if (!S || this.hurry || this.passing) return desired;
+    const n = this.to;
+    const ctl = S.control.get(n);
+    if (!ctl || dn > 45) return desired;
+    const c = this.car;
+    const toLine = dn - STOP_LINE;
+    const v = Math.abs(c.speed);
+    const stopSpeed = Math.sqrt(2 * 4.5 * Math.max(0, toLine - 0.6));
+    const axis = Math.abs(ux) > Math.abs(uz) ? 'EW' : 'NS';
+    if (ctl.type === 'signal') {
+      if (toLine < 0) return desired; // already past the line
+      const ph = S.phase(n, axis);
+      if (ph === 'green') return desired;
+      if (ph === 'yellow' && toLine < (v * v) / (2 * 6) + 1) return desired; // too close to stop
+      return Math.min(desired, stopSpeed < 0.6 ? 0 : stopSpeed);
+    }
+    // All-way stop.
+    if (this.servedNode === n) return desired;
+    if (toLine < -1) {
+      this.servedNode = n; // (came on past the line, e.g. just spawned)
+      return desired;
+    }
+    const q = (S.queue ||= new Map());
+    if (!q.has(n)) q.set(n, []);
+    const line = q.get(n);
+    if (v < 0.5 && toLine < 3) {
+      if (!line.includes(this)) line.push(this);
+      this.stopWait = (this.stopWait || 0) + dt;
+      // First in line (or waited a while), and nobody in the middle of the intersection.
+      for (let i = line.length - 1; i >= 0; i--) if (!line[i].active || line[i].car.removed || line[i].to !== n) line.splice(i, 1);
+      const first = line[0] === this || this.stopWait > 4;
+      const clear = !game.vehicles.some((o) => o !== c && !o.removed && Math.abs(o.x - n.x) < 7.5 && Math.abs(o.z - n.z) < 7.5);
+      if (this.stopWait > 0.9 && first && clear) {
+        this.servedNode = n;
+        this.stopWait = 0;
+        line.splice(line.indexOf(this), 1);
+        return desired;
+      }
+      return 0;
+    }
+    return Math.min(desired, stopSpeed < 0.6 ? 0 : stopSpeed);
   }
 
   // Stuck behind a stopped car (a parked car in the lane, a wreck, a jam): pass it, or turn back.
@@ -275,6 +324,7 @@ export class TrafficDriver {
       if (!straight) desired = Math.min(desired, 6.5);
     }
 
+    desired = this.obey(game, desired, ux, uz, dn, dt);
     desired = this.yieldTo(game, desired);
     this.standoff(dt);
 

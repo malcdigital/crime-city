@@ -314,6 +314,18 @@ export class Ped {
       [tx, tz] = cs[this.corner];
       this.hurryT = Math.max(0, (this.hurryT || 0) - dt);
       speed = this.walkSpeed * (this.hurryT > 0 ? 1.6 : 1);
+      // About to cross at a traffic light: wait on the curb for the walk signal.
+      const S = game.streets;
+      const onCurb = game.city.blockAt(this.x, this.z);
+      if (S && onCurb && onCurb !== this.block && dist(this.x, this.z, tx, tz) < 22) {
+        const n = S.nodeNear((this.x + tx) / 2, (this.z + tz) / 2);
+        const axis = Math.abs(tx - this.x) > Math.abs(tz - this.z) ? 'EW' : 'NS';
+        if (n && !S.canWalk(n, axis)) {
+          speed = 0;
+          this.heading = lerpAngle(this.heading, Math.atan2(tx - this.x, tz - this.z), Math.min(1, dt * 4));
+        }
+      }
+      if (S && !onCurb && speed > 0) speed *= 1.35; // hurry across the street
       if (dist(this.x, this.z, tx, tz) < 0.6) this.arrive();
     }
 
