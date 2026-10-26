@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { districtAt } from './worldplan.js';
 import { edgesNear } from './city.js';
-import { inHole } from './fwyplan.js';
+import { inHole, RING } from './fwyplan.js';
 
 // Street furniture and the rules of the road, for intersections of any shape.
 // - Traffic lights where main roads cross, and at the busy junctions of Downtown, the
@@ -209,6 +209,7 @@ export class Streets {
     this.lampRefs = []; // [node, axis, color, index]
     this.poleStats = { total: 0, moved: 0, skipped: 0 };
     this.junctionPoles = new Map(); // node -> the sign and signal poles there
+    this.armNames = []; // street names on the traffic light arms: [x, y, z, dirx, dirz, name, half, node]
     // In a roadway (any street's pavement, with a little room)?
     // (out on the hills the roads are strips that flare a little at bends and junctions: more room)
     const inRoad = (x, z, pad) => edgesNear(x, z, city.heightAt(x, z) > 0.05 ? pad + 1.6 : pad).length > 0 || !!this.game.highway?.surfacesAt(x, z, 0.8).some((o) => o.h < 2.5);
@@ -230,6 +231,15 @@ export class Streets {
       }
       return null;
     };
+    // On a sidewalk: inside a city block (not a yard, ramp land or the hills), at least
+    // 0.6 m in from its curb all round - or, out on the hills (no sidewalks), beside the road.
+    const onWalk = (x, z) => {
+      const b = city.blockAt(x, z);
+      if (!b) return city.heightAt(x, z) > 0.05; // (the hills)
+      if (b.country) return true;
+      if (b.lot || b.type === 'ramps') return false;
+      return [[0.6, 0], [-0.6, 0], [0, 0.6], [0, -0.6]].every(([dx, dz]) => city.blockAt(x + dx, z + dz) === b);
+    };
     const poleSpot = (n, a, w) => {
       // Out from the stop line first; then (a short street) a bit in toward the junction.
       const tries = [];
@@ -240,9 +250,41 @@ export class Streets {
         const pt = along(n, a, d);
         if (!pt) continue;
         // (traffic heads toward n, so its right is to the left of the outward direction)
-        const px = pt.x + pt.uz * (w / 2 + 0.7);
-        const pz = pt.z - pt.ux * (w / 2 + 0.7);
-        if (!inRoad(px, pz, 0.4)) return { p: [px, pz], moved: k > 0 };
+        // On the sidewalk just in from the curb (a little further in where the curb bends).
+        for (const off of [0.7, 1.3, 2]) {
+          const px = pt.x + pt.uz * (w / 2 + off);
+          const pz = pt.z - pt.ux * (w / 2 + off);
+          if (!inRoad(px, pz, 0.4) && onWalk(px, pz)) return { p: [px, pz], moved: k > 0 };
+        }
+      }
+      // (no sidewalk on the right - a road under the freeway, a wide entry: the left-hand curb)
+      for (const d of tries) {
+        if (d < 4) break;
+        const pt = along(n, a, d);
+        if (!pt) continue;
+        for (const off of [0.7, 1.3, 2]) {
+          const px = pt.x - pt.uz * (w / 2 + off);
+          const pz = pt.z + pt.ux * (w / 2 + off);
+          if (!inRoad(px, pz, 0.4) && onWalk(px, pz)) return { p: [px, pz], moved: true };
+        }
+      }
+      // (no sidewalk anywhere near - under a freeway, out of town: on the grass or ground beside
+      // the road, never out on open paving)
+      const ground = (x, z) => {
+        const b = city.blockAt(x, z);
+        return b ? b.type === 'ramps' || b.country : !city.paved(x, z) || z > RING.z1 + 14; // (or the quay at the docks)
+      };
+      for (const side of [1, -1]) {
+        for (const d of tries) {
+          if (d < 4) break;
+          const pt = along(n, a, d);
+          if (!pt) continue;
+          for (const off of [0.7, 1.3, 2]) {
+            const px = pt.x + side * pt.uz * (w / 2 + off);
+            const pz = pt.z - side * pt.ux * (w / 2 + off);
+            if (!inRoad(px, pz, 0.4) && ground(px, pz)) return { p: [px, pz], moved: true };
+          }
+        }
       }
       return null;
     };
@@ -307,6 +349,9 @@ export class Streets {
           const reach = w / 2 + 0.7 - 0.8;
           const ax = -rx;
           const az = -rz;
+          // The name of the street being crossed, on the arm by the pole, facing the driver.
+          const cross = ctl.arms.filter((o) => o.e.street?.name && o.e.street.name !== a.e.street?.name).sort((p, q) => q.rank - p.rank)[0];
+          if (cross && !share) this.armNames.push([px + ax * 2.1, y + 6.25, pz + az * 2.1, ax, az, cross.e.street.name, 0.06, n]);
           if (!share) {
             mastPoles.push([px, y + 3.9, pz, 0]);
             arms.push([px + ax * (reach / 2), y + 6.6, pz + az * (reach / 2), Math.atan2(ax, az), 1, 1, reach]);
@@ -383,9 +428,12 @@ export class Streets {
   buildNameSigns(place) {
     const blades = []; // [x, y, z, dirx, dirz, name]
     const extra = []; // pole extensions above stop signs
+    // At traffic lights, the names hang on the arms (below); elsewhere, on the corner pole.
+    const armed = new Set(this.armNames.map((b) => b[7]));
+    for (const b of this.armNames) blades.push(b.slice(0, 7));
     for (const [n, poles] of this.junctionPoles) {
       const pole = poles[0];
-      if (!pole) continue;
+      if (!pole || armed.has(n)) continue;
       const named = new Map();
       for (const e of n.edges) {
         const nm = e.street?.name;

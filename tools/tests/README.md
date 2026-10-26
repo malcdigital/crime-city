@@ -31,6 +31,7 @@ Screenshots land in `tools/tests/shots/` (not kept in git).
 | `soak2.mjs` | Traffic soak in each district: frame time, stuck cars and people |
 | `stuck.mjs` | Lists cars that stay stuck, and why |
 | `audit.mjs` | Signs, signal poles, street lights, props and road markings in the right places |
+| `polespots.mjs` | Every sign and light pole stands on a sidewalk (or grass/ground where there is none, or the docks quay), and which junctions have no pole |
 | `signpost.mjs` | Freeway sign posts stand clear of every lane, ramp and street |
 | `sink.mjs` | Nowhere a car would sink into the ground: compares where a car sits with what's drawn, all over the map. Args: `[spacing m] [spots to list] [tolerance m] [out.json]` |
 | `rampside.mjs` | Drives at every ramp from the side; a car must climb on or be stopped, never end up inside it |

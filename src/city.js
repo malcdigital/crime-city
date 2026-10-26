@@ -1631,7 +1631,7 @@ export function buildCity(scene) {
   const city = {
     windowMats, colliders, los, crates, blocks, stores, chop, station, hospital, gangHome, crewHome, spawn,
     get markings() { return markings; },
-    nodes, edges: GRAPH.edges, nearestNode, blockAt, groundY, heightAt, roadY, drawMap, size: MAP, hilly: true,
+    nodes, edges: GRAPH.edges, nearestNode, blockAt, groundY, paved, heightAt, roadY, drawMap, size: MAP, hilly: true,
     storefront, frontPoint, edgeAt, streetAt, onPier,
     byKey: new Map(blocks.map((b) => [b.key, b])),
   };

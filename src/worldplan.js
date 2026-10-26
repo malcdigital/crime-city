@@ -609,7 +609,8 @@ function makeBlock(f, id) {
     // (a side running in to the wedge's point: the road along it is the one closest all
     // along its length outside the ring - not whichever road is nearest one spot of it)
     if (isApex(p) || isApex(q)) {
-      const R = wedge.R;
+      const ap = isApex(p) ? p : q;
+      const R = wedge.hits.find((h) => h.apexes.some((a) => a[0] === ap[0] && a[1] === ap[1])).R;
       const samples = [];
       for (let k = 1; k < 10; k++) {
         const x = p[0] + ((q[0] - p[0]) * k) / 10;
@@ -646,7 +647,7 @@ function makeBlock(f, id) {
   // let the corner go as far in as it must)
   if (!curb.length) curb = insetLoose(poly, half, wedge ? 30 : 3);
   if (!curb.length) return null;
-  if (wedge) curb = clipDisc(curb, wedge.R, wedge.R.r + ROAD_CLASS.roundabout.w / 2);
+  if (wedge) for (const h of wedge.hits) curb = clipDisc(curb, h.R, h.R.r + ROAD_CLASS.roundabout.w / 2);
   const [cx, cz] = centroid(curb);
   if (isWater(cx, cz)) return null;
   const zone = insideRing(cx, cz) ? ZONES.find((zn) => pointInPoly(cx, cz, zn.poly)) : null;
@@ -684,16 +685,21 @@ function makeBlock(f, id) {
 // roads; then the curbs are worked out as usual, and the wedge's point is cut off by the circle
 // just outside the ring road - so the curb runs along each road and round the circle.
 function roundaboutWedge(poly) {
+  // (a block can border more than one roundabout: every ring's stretch is found on the
+  // original outline first, then all are replaced together)
+  const n = poly.length;
+  const ringOf = poly.map((p) => ROUNDABOUTS.find((R) => Math.abs(Math.hypot(p[0] - R.x, p[1] - R.z) - R.r) < 1.5) || null);
+  if (!ringOf.some(Boolean)) return null;
+  const hits = [];
+  const replace = new Map(); // index of a stretch's first point -> its apex
   for (const R of ROUNDABOUTS) {
-    const d = (p) => Math.hypot(p[0] - R.x, p[1] - R.z);
-    const onRing = poly.map((p) => Math.abs(d(p) - R.r) < 1.5);
-    if (!onRing.some(Boolean) || onRing.every(Boolean)) continue;
+    const on = ringOf.map((q) => q === R);
+    if (!on.some(Boolean) || on.every(Boolean)) continue;
     // (the point the block's two roads would meet at, carried on into the ring - usually its
     // middle; or where they really cross, if that's inside the ring)
-    const n = poly.length;
     const apex = (s) => {
       let e = s;
-      while (onRing[(e + 1) % n] && e - s < n) e++;
+      while (on[(e + 1) % n] && e - s < n) e++;
       const P1 = poly[(s + n - 1) % n];
       const S = poly[s];
       const E = poly[e % n];
@@ -702,23 +708,29 @@ function roundaboutWedge(poly) {
       if (X) {
         const x = P1[0] + (S[0] - P1[0]) * 50 * X.t;
         const z = P1[1] + (S[1] - P1[1]) * 50 * X.t;
-        if (Math.hypot(x - R.x, z - R.z) < R.r) return [x, z];
+        if (Math.hypot(x - R.x, z - R.z) < R.r) return [[x, z]];
       }
-      return [R.x, R.z];
+      // (the two roads don't meet inside the ring - one runs off to another roundabout: keep
+      // where each meets the ring; the ring's own disc is trimmed off the block after)
+      return S === E ? [S] : [S, E];
     };
-    const out = [];
     const apexes = [];
     for (let i = 0; i < n; i++) {
-      if (!onRing[i]) out.push(poly[i]);
-      else if (!onRing[(i + n - 1) % n]) {
+      if (on[i] && !on[(i + n - 1) % n]) {
         const a = apex(i);
-        apexes.push(a);
-        out.push(a);
+        if (a.length === 1) apexes.push(a[0]);
+        replace.set(i, a);
       }
     }
-    return { poly: out, R, apexes };
+    hits.push({ R, apexes });
   }
-  return null;
+  if (!hits.length) return null;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    if (replace.has(i)) out.push(...replace.get(i));
+    else if (!ringOf[i] || !hits.some((h) => h.R === ringOf[i])) out.push(poly[i]);
+  }
+  return { poly: out, hits, apexes: hits.flatMap((h) => h.apexes) };
 }
 function clipDisc(poly, R, rad) {
   const inside = (p) => Math.hypot(p[0] - R.x, p[1] - R.z) < rad;
