@@ -435,6 +435,8 @@ function buildGraph() {
         }
         // An end that stops just short of another street: a T.
         for (const [P, Q, end] of [[g, h, 0], [g, h, 1], [h, g, 0], [h, g, 1]]) {
+          // (a ring road's own points are never pulled onto another street - that tears the ring)
+          if (streets[P.si].roundabout) continue;
           const px = end ? P.bx : P.ax;
           const pz = end ? P.bz : P.az;
           const c = closestOnSeg(px, pz, Q.ax, Q.az, Q.bx, Q.bz);
@@ -1081,6 +1083,8 @@ tidyStreets();
 export const ROUNDABOUTS = [{ x: CENTRAL_X, z: MIDWAY_Z, r: 52, name: 'Liberty Circle', feeds: [{ name: 'Exchange St', angle: -32, from: 100 }] }, // (big enough to take in the five-way junction that was just off it)
   // Down Grand Ave, where it crosses an avenue and a street a few meters apart (two junctions
   // on top of each other): one roundabout each instead.
+  // Bank St, where Grand Ave and Wall Ave cross it 28 m apart: one roundabout for both.
+  { x: 978, z: 560, r: 26, name: 'Bank Circle' }, // (south of Park Ave by ~40 m, so a queue at its lights stays off the ring)
   { x: 777, z: 788, r: 30, name: 'Union Circle' },
   { x: 695, z: 853, r: 26, name: 'Founders Circle' },
 ];
@@ -1228,7 +1232,21 @@ function makeRoundabouts() {
     // (any piece left with no length to it goes)
     const len = (st) => st.pts.reduce((L, p, i) => (i ? L + Math.hypot(p[0] - st.pts[i - 1][0], p[1] - st.pts[i - 1][1]) : 0), 0);
     for (let k = streets.length - 1; k >= 0; k--) if (streets[k].pts.length < 2 || len(streets[k]) < 1) streets.splice(k, 1);
-    add(arcPts(R.x, R.z, R.r, 0, Math.PI * 2, 7), 'roundabout', R.name, { keep: true, loop: true, roundabout: R });
+    // The ring: a point exactly where each road meets it (and none of its own close by, which
+    // could merge into the wrong junction and leave a gap in the ring).
+    const angs = [];
+    for (const st of streets) for (const q of [st.pts[0], st.pts[st.pts.length - 1]]) if (onRing(q)) angs.push((Math.atan2(q[1] - R.z, q[0] - R.x) + Math.PI * 2) % (Math.PI * 2)); // (0 to 2 pi, like the ring's own points)
+    const ringPts = [];
+    const nArc = Math.ceil((Math.PI * 2 * R.r) / 7);
+    for (let k = 0; k < nArc; k++) {
+      const a0 = (k / nArc) * Math.PI * 2;
+      const near = angs.some((a1) => Math.abs(Math.atan2(Math.sin(a0 - a1), Math.cos(a0 - a1))) * R.r < 4);
+      if (!near) ringPts.push(a0);
+    }
+    ringPts.push(...angs);
+    ringPts.sort((p, q) => p - q);
+    const loop = ringPts.map((a1) => [R.x + Math.cos(a1) * R.r, R.z + Math.sin(a1) * R.r]);
+    add([...loop, loop[0]], 'roundabout', R.name, { keep: true, loop: true, roundabout: R });
   }
 }
 makeRoundabouts();

@@ -51,7 +51,9 @@ export class Streets {
         const busy = BUSY.includes(districtAt(n.x, n.z)) && deg >= 4;
         const both = arms.some((a) => a.group === 0) && arms.some((a) => a.group === 1);
         const stub = arms.some((a) => a.e.street?.stub !== undefined);
-        if (both && !stub && ((big >= 3 && arms.some((a) => a.group === 1 && a.rank >= 4)) || busy)) type = 'signal';
+        // (no lights just off a roundabout: a red light there backs traffic up onto the ring)
+        const nearRing = arms.some((a) => Math.hypot(a.m.x - n.x, a.m.z - n.z) < 50 && a.m.edges?.some((e) => e.street?.roundabout));
+        if (both && !stub && !nearRing && ((big >= 3 && arms.some((a) => a.group === 1 && a.rank >= 4)) || busy)) type = 'signal';
         else type = 'stop';
       }
       // Who stops: at a stop junction, everyone below the top rank (if the top-rank road
