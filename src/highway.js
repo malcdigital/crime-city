@@ -25,6 +25,20 @@ export { DECK as DECK_H };
 const T = 0.35; // rail thickness
 const SEG = 4; // rail piece length
 
+// A green sign panel: the lettered face toward the traffic it's for (facing rotY), a plain
+// gray back behind it, so from behind you see the back of a sign, not mirrored letters.
+const SIGN_BACK = new THREE.MeshBasicMaterial({ color: 0x6b7077 });
+function signFace(scene, text, w, h, x, y, z, rotY) {
+  const front = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: signTexture(text, '#1b6e3a', '#ffffff') }));
+  front.rotation.y = rotY;
+  front.position.set(x, y, z);
+  scene.add(front);
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(w, h), SIGN_BACK);
+  back.rotation.y = rotY + Math.PI;
+  back.position.set(x - Math.sin(rotY) * 0.04, y, z - Math.cos(rotY) * 0.04);
+  scene.add(back);
+}
+
 export class Highway {
   constructor(game) {
     this.game = game;
@@ -570,34 +584,54 @@ export class Highway {
   // the lane, on a gantry post at the edge; on a street: on a pole by the curb.
   sign(scene, sg) {
     if (!(sg.h > 1)) return this.streetSign(scene, sg);
-    const [x, z] = sg.at;
-    const y = sg.h || 0;
+    const y = sg.h;
     const w = Math.max(5, sg.text.length * 0.42);
     const text = sg.sub ? `${sg.text}  ${sg.sub}` : sg.text;
-    const mat = new THREE.MeshBasicMaterial({ map: signTexture(text, '#1b6e3a', '#ffffff'), side: THREE.DoubleSide });
-    const p = new THREE.Mesh(new THREE.PlaneGeometry(w + 3, 1.5), mat);
-    const fx = -Math.cos(sg.ang);
-    const fz = -Math.sin(sg.ang);
-    p.rotation.y = Math.atan2(fx, fz);
-    const over = y > 1;
-    p.position.set(x, y + (over ? 6.2 : 4.2), z);
-    scene.add(p);
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, over ? 6.2 : 4, 6), lam(0x5a5f66));
-    if (over) {
-      // Post at the outer edge of the deck, arm over the lane.
+    const dx = Math.cos(sg.ang);
+    const dz = Math.sin(sg.ang);
+    const rx = -dz;
+    const rz = dx;
+    // The post: off to the right, clear of every lane, ramp and street (stepping out past any
+    // acceleration lane or ramp alongside), standing on the ground, with the arm out over the
+    // lane. No room on the right (a street alongside): on the far side, past the median. Right
+    // over a street passing under: the whole sign a little way along, where there's ground.
+    const at = (k) => [sg.at[0] + dx * k, sg.at[1] + dz * k];
+    const reach0 = (x, z) => {
       const surf = this.surfacesAt(x, z, 1)[0];
-      const rx = -Math.sin(sg.ang);
-      const rz = Math.cos(sg.ang);
-      const reach = surf ? Math.max(1, surf.s.hw - surf.d + 0.6) : 3;
-      pole.position.set(x + rx * reach, y + 3.1, z + rz * reach);
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, reach), lam(0x5a5f66));
-      arm.position.set(x + (rx * reach) / 2, y + 7.1, z + (rz * reach) / 2);
-      arm.rotation.y = Math.atan2(rx, rz);
-      scene.add(arm);
-    } else {
-      pole.position.set(x, 2, z);
+      return surf ? Math.max(1, surf.s.hw - surf.d + 0.6) : 3;
+    };
+    const free = (x, z, r, pad) => !this.surfacesAt(x + rx * r, z + rz * r, pad).length && !edgesNear(x + rx * r, z + rz * r, pad).length;
+    const tries = [
+      (x, z, r0) => { for (let r = r0; r < r0 + 30; r += 0.5) if (free(x, z, r, 1)) return r; return null; },
+      (x, z) => { for (let r = -1; r > -40; r -= 0.25) if (free(x, z, r, 0.25)) return r; return null; },
+      (x, z, r0) => { for (let r = r0; r < r0 + 30; r += 0.25) if (free(x, z, r, 0.25)) return r; return null; },
+    ];
+    let place = null;
+    for (const t of tries) {
+      for (const k of [0, -12, 12, -24, 24, -36, 36]) {
+        const [x, z] = at(k);
+        const r = t(x, z, reach0(x, z));
+        if (r !== null) {
+          place = [x, z, r];
+          break;
+        }
+      }
+      if (place) break;
     }
+    const [x, z, reach] = place || [...sg.at, reach0(...sg.at)];
+    signFace(scene, text, w + 3, 1.5, x, y + 6.2, z, Math.atan2(-dx, -dz));
+    const px = x + rx * reach;
+    const pz = z + rz * reach;
+    const gy = Math.min(y, this.game.city.groundY(px, pz));
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, y + 7.2 - gy, 6), lam(0x5a5f66));
+    pole.position.set(px, (gy + y + 7.2) / 2, pz);
     scene.add(pole);
+    this.game.city.colliders.push({ minX: px - 0.2, maxX: px + 0.2, minZ: pz - 0.2, maxZ: pz + 0.2, h: y + 7.2 });
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, Math.abs(reach)), lam(0x5a5f66));
+    arm.position.set(x + (rx * reach) / 2, y + 7.1, z + (rz * reach) / 2);
+    arm.rotation.y = Math.atan2(rx, rz);
+    scene.add(arm);
+    (this.signPosts ||= []).push({ text: sg.text, kind: sg.kind, at: sg.at, post: [px, pz, gy] }); // (for the tests)
   }
 
   // On the street at a freeway entrance: a small green sign on a pole by the curb ("RING HWY
@@ -623,11 +657,7 @@ export class Highway {
     const y = city.groundY(x, z);
     const text = `${sg.text} ↗`;
     const w = text.length * 0.2 + 0.8;
-    const mat = new THREE.MeshBasicMaterial({ map: signTexture(text, '#1b6e3a', '#ffffff'), side: THREE.DoubleSide });
-    const p = new THREE.Mesh(new THREE.PlaneGeometry(w, 0.65), mat);
-    p.rotation.y = Math.atan2(-Math.cos(sg.ang), -Math.sin(sg.ang));
-    p.position.set(x, y + 3.1, z);
-    scene.add(p);
+    signFace(scene, text, w, 0.65, x, y + 3.1, z, Math.atan2(-Math.cos(sg.ang), -Math.sin(sg.ang)));
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 3.1, 6), lam(0x5a5f66));
     pole.position.set(x, y + 1.55, z);
     scene.add(pole);

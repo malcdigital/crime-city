@@ -413,12 +413,13 @@ function parcloHalf(W, lanes, cross, opts) {
     frontage: front !== null ? [W(0, front), W(offEnd[0] - 25, front)] : null,
   });
   HOLES.push({ poly: rectLocal(W, H, Math.max(195, mx(pos, 0, Math.max) + 30), 8, Math.max(vS + 20, mx(pos, 1, Math.max) + 14)), edgeRoad: true }); // (room for the peel-off: side streets keep well clear; edgeRoad: out of town, a road along its far side picks up any road the ramp land cuts)
-  // Signs over the right-hand lanes: 200 m before the exit and where it leaves.
+  // Signs over the right-hand lane: a quarter mile out, and just before the exit starts
+  // peeling off (so the post at the edge is never in the exit's way).
   const [ox, oz] = W(0, 0);
   const [tx, tz] = W(1, 0);
   const ang = Math.atan2(tz - oz, tx - ox);
   SIGNS.push({ at: W(-Ud - 150, vL), ang, text: `EXIT ${name}`, sub: '1/8 MILE', kind: 'advance', h: DECK });
-  SIGNS.push({ at: W(-Ud + 25, vA), ang, text: `EXIT ${name}`, sub: '↗', kind: 'exit', h: DECK });
+  SIGNS.push({ at: W(-Ud - 15, vL), ang, text: `EXIT ${name}`, sub: '↗', kind: 'exit', h: DECK });
   // On the cross street, at the two entrances.
   SIGNS.push({ at: W(-H - 1.5, loopS[1] - 5), ang: ang + Math.PI / 2, text: opts.toward, kind: 'entrance', h: 0 });
   SIGNS.push({ at: W(H + 1.5, diagS[1] + 8), ang: ang - Math.PI / 2, text: opts.toward, kind: 'entrance', h: 0 });
