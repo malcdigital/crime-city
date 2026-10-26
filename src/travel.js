@@ -9,7 +9,8 @@ import { dist } from './util.js';
 // Getting around by taxi and bus (fast travel).
 // - Taxi: walk up to a taxi on the street and hail it (USE / E). Pick your map waypoint or a
 //   place from the list. $20 to get in plus $1 per block (bank first, then cash).
-// - Bus: at any bus stop, take the bus to any of the 23 stops (either route). $5 flat, no wait.
+// - Bus: at any bus stop, take the bus to any other stop (either route), from a list or by
+//   picking it on the map. $5 flat, no wait.
 // - Nobody gives you a ride while you're wanted.
 // The trip is a quick cinematic cut: you get in, the screen fades, and you're dropped off at
 // the curb. The clock moves on by however long the drive would have taken.
@@ -137,17 +138,42 @@ export class Travel {
     const wp = game.mapView.waypoint;
     const stops = game.transit.stops.filter((s) => s !== from);
     if (wp) stops.sort((a, b) => dist(a.sx, a.sz, wp[0], wp[1]) - dist(b.sx, b.sz, wp[0], wp[1]));
-    const list = () => stops.map((s, k) => ({
-      label: `${wp && k === 0 ? '★ ' : ''}Route ${s.route.name} · ${streetAt(s.sx, s.sz)}, ${districtAt(s.sx, s.sz)}`,
+    const go = (s) => this.start('bus', s.wx, s.wz, BUS_FARE, this.stopName(s), null, s, from);
+    const list = () => [{
+      label: 'Pick a stop on the map', price: 0, priceText: 'Map ›',
+      detail: 'Open the map and tap the stop you want',
+      can: true,
+      buy: () => {
+        game.shops.close();
+        game.mapView.pickStop({
+          from,
+          stops,
+          info: (s) => `${this.stopName(s)} · Route ${s.route.name} · ${money(BUS_FARE)} · about ${this.minutes(s.sx, s.sz, BUS_SPEED)} min`,
+          onPick: (s) => {
+            if (!game.bank.pay(BUS_FARE)) {
+              game.hud.toast(`You need ${money(BUS_FARE)} for the bus`, '#ff8080');
+              return;
+            }
+            game.sfx.cash?.();
+            go(s);
+          },
+        });
+      },
+    }, ...stops.map((s, k) => ({
+      label: `${wp && k === 0 ? '★ ' : ''}Route ${s.route.name} · ${this.stopName(s)}`,
       price: BUS_FARE,
       detail: `${wp && k === 0 ? 'Closest stop to your waypoint · ' : ''}about ${this.minutes(s.sx, s.sz, BUS_SPEED)} min`,
       can: true,
       buy: () => {
         game.shops.close();
-        this.start('bus', s.wx, s.wz, BUS_FARE, `${streetAt(s.sx, s.sz)}, ${districtAt(s.sx, s.sz)}`, null, s, from);
+        go(s);
       },
-    }));
+    }))];
     game.shops.openCustom('Bus · pick a stop', list);
+  }
+
+  stopName(s) {
+    return `${streetAt(s.sx, s.sz)}, ${districtAt(s.sx, s.sz)}`;
   }
 
   // Game minutes the trip takes (the clock runs 30x: a second of driving is half a minute).

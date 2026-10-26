@@ -187,6 +187,13 @@ export class MapView {
 
   setHelp() {
     const pad = this.game.input.mode === 'pad';
+    if (this.picker) {
+      this.el.querySelector('.bm-help').textContent = pad
+        ? 'Pick a bus stop · Left stick: move · D-pad ↑↓: next stop · ✕: ride there · ○: cancel'
+        : this.game.input.touchMode ? 'Pick a bus stop · Tap a stop to ride there · ▲▼: next stop · Drag: move · Pinch: zoom · ○: cancel'
+          : 'Pick a bus stop · Click a stop to ride there · ↑↓: next stop · Drag / WASD: move · Wheel: zoom · Esc: cancel';
+      return;
+    }
     const heat = this.heat ? `${this.heat} prices` : 'prices';
     this.el.querySelector('.bm-help').textContent = pad
       ? `Left stick: move · D-pad ↑↓: go to a place · △: ${this.legendOpen ? 'hide' : 'show'} legend · □: ${heat} · R2 / L2: zoom · ✕: waypoint · ○: close`
@@ -195,6 +202,7 @@ export class MapView {
 
   hide() {
     this.open = false;
+    this.picker = null;
     this.el.classList.add('hidden');
   }
 
@@ -332,7 +340,47 @@ export class MapView {
     this.cz = wz - (sy - innerHeight / 2) / this.scale;
   }
 
+  // Picking a bus stop to ride to: the map opens with the stops picked out; tap / click / ✕ on
+  // one to go there. ↑↓ (D-pad) steps through them.
+  pickStop(picker) {
+    this.show();
+    this.picker = { ...picker, t: performance.now(), sel: -1 };
+    this.setHelp();
+    this.draw();
+  }
+
+  // The stop nearest a point on screen (within reach of a finger).
+  stopNear(sx, sy, reach = 28) {
+    let best = null;
+    let bd = reach;
+    for (const s of this.picker.stops) {
+      const [x, y] = this.toScreen(s.sx, s.sz);
+      const d = Math.hypot(x - sx, y - sy);
+      if (d < bd) {
+        bd = d;
+        best = s;
+      }
+    }
+    return best;
+  }
+
+  pickAt(x, z) {
+    const pk = this.picker;
+    if (performance.now() - pk.t < 300) return; // the press that opened the map
+    const s = this.stopNear(...this.toScreen(x, z));
+    if (!s) {
+      const [fx, fy] = pk.from ? this.toScreen(pk.from.sx, pk.from.sz) : [-1e9, -1e9];
+      const [tx, ty] = this.toScreen(x, z);
+      this.game.hud.toast(Math.hypot(fx - tx, fy - ty) < 28 ? "You're at this stop" : 'Pick one of the bus stops', '#9fc3ff');
+      return;
+    }
+    this.picker = null;
+    this.hide();
+    pk.onPick(s);
+  }
+
   toggleWaypoint(x, z) {
+    if (this.picker) return this.pickAt(x, z);
     const w = this.waypoint;
     if (w && dist(w[0], w[1], x, z) < 20 / Math.max(0.5, this.scale)) this.waypoint = null;
     else this.waypoint = [clamp(x, -MARGIN, 1600 + MARGIN), clamp(z, -MARGIN, 1600 + MARGIN)];
@@ -343,7 +391,16 @@ export class MapView {
     // Cursor: the stick (or WASD) moves it; the view follows when it nears the edge.
     if (this.mouse && game.input.mode !== 'pad') this.cursor = this.toWorld(...this.mouse);
     // The legend: step through the places on the map; the cursor jumps to each.
-    if (a.phoneUp || a.phoneDown) {
+    if (this.picker && (a.phoneUp || a.phoneDown)) {
+      const pk = this.picker;
+      const n = pk.stops.length;
+      pk.sel = pk.sel < 0 ? 0 : (pk.sel + (a.phoneDown ? 1 : -1) + n) % n;
+      const s = pk.stops[pk.sel];
+      this.mouse = null;
+      this.cursor = [s.sx, s.sz];
+      this.cx = s.sx;
+      this.cz = s.sz;
+    } else if (a.phoneUp || a.phoneDown) {
       if (!this.legendOpen) this.toggleLegend(); // stepping through places opens it
       const n = (this.pickable || []).length;
       if (n) this.jumpTo(this.legendActive ? (this.legendSel + (a.phoneDown ? 1 : -1) + n) % n : 0);
@@ -485,7 +542,7 @@ export class MapView {
     for (const [x, z, col, txt] of game.turfWars.claimMarks()) blip(x, z, col, txt, 9);
     for (const [x, z, col, txt] of [...game.shops.blips(), ...game.drugs.blips(), ...game.bank.blips(), ...game.economy.blips(), ...game.bases.blips()]) blip(x, z, col, txt);
     for (const t of game.bank.atmSpots()) dot(t.x, t.z, 4, '#5dade2');
-    for (const st of game.transit.shelters()) drawBusStop(ctx, ...this.toScreen(st.sx, st.sz), 7);
+    if (!this.picker) for (const st of game.transit.shelters()) drawBusStop(ctx, ...this.toScreen(st.sx, st.sz), 7);
     for (const k of game.market.kingpinSpots()) blip(k.x, k.z, '#111', '♛', 10);
     const tc = game.testCar;
     if (tc && !tc.removed && !tc.exploded && game.player.vehicle !== tc) blip(tc.x, tc.z, '#1e88e5', 'V', 9);
@@ -605,7 +662,65 @@ export class MapView {
     }
     this.info.innerHTML = this.blockInfo(hb);
     this.legend();
-    this.drawHover(ctx);
+    if (this.picker) this.drawPicker(ctx);
+    else this.drawHover(ctx);
+  }
+
+  // Picking a stop: the map dims, the stops stand out, and the one under the cursor is labeled.
+  drawPicker(ctx) {
+    const pk = this.picker;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,.35)';
+    ctx.fillRect(0, 0, innerWidth, innerHeight);
+    if (pk.from) {
+      const [x, y] = this.toScreen(pk.from.sx, pk.from.sz);
+      ctx.strokeStyle = '#7ee081';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, y, 15, 0, Math.PI * 2);
+      ctx.stroke();
+      drawBusStop(ctx, x, y, 8);
+      ctx.font = '600 12px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#7ee081';
+      ctx.fillText('You are here', x, y + 28);
+    }
+    const [mx, my] = this.mouse || this.toScreen(...this.cursor);
+    const hit = this.stopNear(mx, my);
+    for (const s of pk.stops) {
+      const [x, y] = this.toScreen(s.sx, s.sz);
+      if (s === hit) continue;
+      drawBusStop(ctx, x, y, 11);
+    }
+    if (hit) {
+      const [x, y] = this.toScreen(hit.sx, hit.sz);
+      ctx.shadowColor = 'rgba(0,0,0,.6)';
+      ctx.shadowBlur = 10;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, y, 20, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      drawBusStop(ctx, x, y, 15);
+      const label = pk.info(hit);
+      ctx.font = '600 13px Arial';
+      const w = ctx.measureText(label).width + 18;
+      const bx = Math.max(8, Math.min(innerWidth - w - 8, x - w / 2));
+      const by = y - 58 < 8 ? y + 26 : y - 58;
+      ctx.fillStyle = 'rgba(10,12,16,.92)';
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(bx, by, w, 26, 6) : ctx.rect(bx, by, w, 26);
+      ctx.fill();
+      ctx.strokeStyle = '#f39c12';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, bx + 9, by + 13.5);
+    }
+    ctx.restore();
   }
 
   // Hovering a marker (the mouse, or the controller's cursor) or a legend row: the marker grows
