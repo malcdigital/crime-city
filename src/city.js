@@ -285,6 +285,9 @@ export function buildCity(scene) {
   docksPave.push([DOCKS_X1, RING.z1], [DOCKS_X0, RING.z1]);
   const paved = (x, z) => ringDist(x, z) < 13 + 0.001 || insideRing(x, z)
     || (x > DOCKS_X0 && x < DOCKS_X1 && z > RING.z1 - 5 && z < coastZ(x) - 1.5);
+  // Blocks out in the hills (not in the paved city): no sidewalk slab there - it's just the
+  // ground, and any road through the block (a dead end, which doesn't split blocks) stays a road.
+  for (const b of blocks) b.country = !b.lot && !paved(...centroid(b.poly));
   // (interchanges outside the ring sit on level ground, easing back into the hills around)
   const rampLevel = (x, z) => {
     if (!inHole(x, z, 36)) return 1;
@@ -502,29 +505,45 @@ export function buildCity(scene) {
     piers.push({ ax, az, bx, bz, hw: ROAD_CLASS.pier.w / 2 + 1 });
   }
   const onPier = (x, z) => piers.some((p) => closestOnSeg(x, z, p.ax, p.az, p.bx, p.bz).d < p.hw);
-  // Cells of yard / pad (a lot's level ground, and not a road crossing it): there you stand
-  // on the pad's surface, which on a slope stands out over the hillside.
-  const padCell = new Uint8Array(BN * BN);
+  // Yards and pads (a lot's level ground, not a road crossing it): there you stand on the
+  // pad's surface, which on a slope stands out over the hillside. Each 2 m cell remembers the
+  // lot touching it (inside, or its edge running through); the exact outline decides.
+  const padLot = new Int16Array(BN * BN).fill(-1);
   for (const b of blocks) {
     if (!b.lot || b.padY === undefined) continue;
+    const put = (i, j) => {
+      if (i < 0 || j < 0 || i >= BN || j >= BN) return;
+      const k = j * BN + i;
+      if (padLot[k] < 0 || blocks[padLot[k]].padY < b.padY) padLot[k] = b.id;
+    };
     const i0 = Math.max(0, Math.floor(b.minX / BG));
     const i1 = Math.min(BN - 1, Math.floor(b.maxX / BG));
     const j0 = Math.max(0, Math.floor(b.minZ / BG));
     const j1 = Math.min(BN - 1, Math.floor(b.maxZ / BG));
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-      const x = i * BG + BG / 2;
-      const z = j * BG + BG / 2;
-      if (pointInPoly(x, z, b.poly) && !edgesNear(x, z, 1.5).length) padCell[j * BN + i] = 1;
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (pointInPoly(i * BG + BG / 2, j * BG + BG / 2, b.poly)) put(i, j);
+    for (let q = 0; q < b.poly.length; q++) {
+      const [ax, az] = b.poly[q];
+      const [bx, bz] = b.poly[(q + 1) % b.poly.length];
+      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 0.5));
+      for (let t = 0; t <= n; t++) put(Math.floor((ax + ((bx - ax) * t) / n) / BG), Math.floor((az + ((bz - az) * t) / n) / BG));
     }
   }
+  const padAt = (x, z) => {
+    if (x < 0 || z < 0 || x >= MAP || z >= MAP) return -Infinity;
+    const id = padLot[Math.floor(z / BG) * BN + Math.floor(x / BG)];
+    if (id < 0) return -Infinity;
+    const b = blocks[id];
+    if (!pointInPoly(x, z, b.poly) || edgesNear(x, z, 0.2).length) return -Infinity;
+    return b.padY + 0.02;
+  };
   const steps = []; // raised entrance steps you can stand (or drive) on: { cx, cz, c, s, hx, hz, y }
   const groundY = (x, z) => {
     let h = heightAt(x, z);
     const b = blockAt(x, z);
-    if (b && !b.lot && b.type !== 'ramps') h += 0.2;
+    if (b && !b.lot && b.type !== 'ramps' && !b.country) h += 0.2;
     // (a yard is a level pad: on a slope its edge stands out over the ground, so on the
     // yard you're on its surface, not down in the hillside under it)
-    if (b && b.lot && b.padY !== undefined && padCell[Math.floor(z / BG) * BN + Math.floor(x / BG)]) h = Math.max(h, b.padY + 0.02);
+    h = Math.max(h, padAt(x, z));
     for (const st of steps) {
       const dx = x - st.cx;
       const dz = z - st.cz;
@@ -1004,7 +1023,7 @@ export function buildCity(scene) {
   const rampLawns = []; // ramp land: grass at street level
   const frontages = new Map(); // block -> the building on its front side (for storefronts)
   for (const b of blocks) {
-    if (!b.lot && b.type !== 'ramps') slabs.push(b.poly);
+    if (!b.lot && b.type !== 'ramps' && !b.country) slabs.push(b.poly);
     const lot = b.lot ? b.poly : inset(b.poly, b.sw);
     b.inner = lot;
     if (b.type === 'ramps') {
@@ -1013,7 +1032,7 @@ export function buildCity(scene) {
     }
     if (b.type === 'park') {
       const l = inset(b.poly, b.sw);
-      if (l.length) lawns.push(l);
+      if (l.length && !b.country) lawns.push(l); // (out in the hills the ground is grass already)
       const n = Math.min(60, Math.round(b.area / 260));
       for (let t = 0; t < n; t++) {
         const x = rr(b.minX, b.maxX);
@@ -1414,7 +1433,7 @@ export function buildCity(scene) {
           hillDash.push(...a0, ...b0, ...a1, ...a1, ...b0, ...b1);
         }
         const [mx, mz, dx, dz] = at(t + 1.5);
-        dashes.push([mx, heightAt(mx, mz) + 0.07, mz, Math.atan2(dx, dz)]);
+        dashes.push([mx, heightAt(mx, mz) + 0.07, mz, Math.atan2(dx, dz), pts.map(([x, z]) => [x, heightAt(x, z) + 0.07, z])]); // (and the points it's laid through, for the tests)
       }
     }
     if (hillDash.length) {

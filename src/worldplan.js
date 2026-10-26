@@ -398,7 +398,7 @@ function buildGraph() {
       const [ax, az] = st.pts[k];
       const [bx, bz] = st.pts[k + 1];
       if (dist(ax, az, bx, bz) < 0.5) continue;
-      segs.push({ si, ax, az, bx, bz, cuts: [0, 1] });
+      segs.push({ si, k, ax, az, bx, bz, cuts: [0, 1] });
     }
   }
   const CELL = 60;
@@ -450,6 +450,10 @@ function buildGraph() {
                 P.ax = c.x;
                 P.az = c.z;
               }
+              // (and the street itself, so it's drawn - and its lines painted - where it's driven)
+              const sp = streets[P.si].pts;
+              if (end && P.k + 2 === sp.length) sp[sp.length - 1] = [c.x, c.z];
+              if (!end && P.k === 0) sp[0] = [c.x, c.z];
             }
           }
         }
@@ -785,9 +789,20 @@ function addLots(graph, blocks) {
     if (kind === 'quarry') dz = -s - 6;
     if (kind === 'junkyard') dx = s + 6;
     if (kind === 'lookout') dx = -s - 6;
-    const cx = x + dx;
-    const cz = z + dz;
-    lot([[cx - s, cz - s], [cx + s, cz - s], [cx + s, cz + s], [cx - s, cz + s]], { street: name, special: kind, front: [[x, z], 0], type: 'place' });
+    // (as big as fits without another road running through it: smaller if need be)
+    const own = streets.find((st) => st.name === name);
+    let best = null;
+    for (const k of [1, 0.9, 0.8, 0.7, 0.6, 0.5]) {
+      const h = s * k;
+      const cx = x + (dx / s) * (h + 6);
+      const cz = z + (dz / s) * (h + 6);
+      const poly = [[cx - h, cz - h], [cx + h, cz - h], [cx + h, cz + h], [cx - h, cz + h]];
+      if (graph.edges.every((e) => e.street === own || segPolyDist(e.a.x, e.a.z, e.b.x, e.b.z, poly) >= e.w / 2 + 2)) {
+        best = poly;
+        break;
+      }
+    }
+    if (best) lot(best, { street: name, special: kind, front: [[x, z], 0], type: 'place' });
   }
 }
 

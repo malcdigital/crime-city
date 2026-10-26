@@ -91,21 +91,26 @@ export class Highway {
     }
   }
 
-  // Every surface over a point: [{ s, h, d (from the center line) }], at most one per surface.
+  // Every surface over a point: [{ s, h, d (from the center line) }], one per surface at each
+  // level (a link that loops round under itself is there twice: down below and on the bridge).
   surfacesAt(x, z, pad = 0.3) {
     const list = this.hash.get(Math.floor(x / this.CELL) * 1000 + Math.floor(z / this.CELL));
     if (!list) return [];
-    const best = new Map();
+    const out = [];
     for (const { s, i } of list) {
       const [ax, az] = s.pts[i - 1];
       const [bx, bz] = s.pts[i];
       const c = closestOnSeg(x, z, ax, az, bx, bz);
       if (c.d > s.hw + pad) continue;
-      const prev = best.get(s);
-      if (prev && prev.d <= c.d) continue;
-      best.set(s, { s, d: c.d, h: s.h[i - 1] + (s.h[i] - s.h[i - 1]) * c.t, i, t: c.t });
+      const h = s.h[i - 1] + (s.h[i] - s.h[i - 1]) * c.t;
+      const prev = out.find((o) => o.s === s && Math.abs(o.h - h) < 2);
+      if (prev) {
+        if (prev.d > c.d) Object.assign(prev, { d: c.d, h, i, t: c.t });
+        continue;
+      }
+      out.push({ s, d: c.d, h, i, t: c.t });
     }
-    return [...best.values()];
+    return out;
   }
 
   // Height of the freeway surface at a spot (the one nearest nearY), or null if there's none.

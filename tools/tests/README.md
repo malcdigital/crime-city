@@ -35,6 +35,7 @@ Screenshots land in `tools/tests/shots/` (not kept in git).
 | `sink.mjs` | Nowhere a car would sink into the ground: compares where a car sits with what's drawn, all over the map. Args: `[spacing m] [spots to list] [tolerance m] [out.json]` |
 | `rampside.mjs` | Drives at every ramp from the side; a car must climb on or be stopped, never end up inside it |
 | `sinktilt.mjs` | A whole car (tilted to the ground) at points all over the map, four ways: where the ground would come up through the body |
+| `lines.mjs` | Every painted line (street dashes, lane lines, freeway and ramp lines): on its road, at its height, center dashes on the center line |
 | `drivehills.mjs` | Cars driven off-road flat out on the hills: the body never goes into the ground. Args: `[runs] [seconds]` |
 | `conn.mjs` | The street network is all connected |
 | `gpschk.mjs` | GPS routes between sample points |
