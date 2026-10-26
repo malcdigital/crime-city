@@ -12,10 +12,9 @@ export const CFG = {
   START_IN_CAR: true,
   CAR_SPAWN_KEY: true,
   // Testing switch: where you start (in the car): [x, z, heading in degrees, height up on the
-  // freeway (optional)], or null. Right now: on the grass at the Park Ave interchange (west side
-  // of the ring, Midtown), facing the low end of the "RING HWY SOUTH" loop entrance, where a
-  // car used to sink into the ramp.
-  START_AT: [75, 459, -55],
+  // freeway (optional)], or null. Right now: at the foot of the steep slope west of the
+  // Park Ave interchange (Midtown), facing up it - where a car used to dig into the hill.
+  START_AT: [44, 440, -90],
   // Testing switch: the interchange editor in the pause menu (reshape the ramps, then drive them).
   RAMP_EDITOR: true,
 
