@@ -1081,6 +1081,8 @@ tidyStreets();
 export const ROUNDABOUTS = [{ x: CENTRAL_X, z: MIDWAY_Z, r: 52, name: 'Liberty Circle', feeds: [{ name: 'Exchange St', angle: -32, from: 100 }] }, // (big enough to take in the five-way junction that was just off it)
   // Down Grand Ave, where it crosses an avenue and a street a few meters apart (two junctions
   // on top of each other): one roundabout each instead.
+  // Bank St, where Grand Ave and Wall Ave cross it 28 m apart: one roundabout for both.
+  { x: 976, z: 548, r: 30, name: 'Bank Circle' },
   { x: 777, z: 788, r: 30, name: 'Union Circle' },
   { x: 695, z: 853, r: 26, name: 'Founders Circle' },
 ];
