@@ -1,21 +1,27 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { lam } from './character.js';
+import { chainTexture } from './court.js';
 
 // Harbor Field: a football field on the ramp land beside the east freeway at the Docks, between
 // the road along the freeway and the on-ramp. Full length (100 yards and two end zones), but
-// narrower than a regulation field (29 m, not 49): that's all the room the ramp leaves.
+// narrower than a regulation field (27 m, not 49): that's all the room the ramp leaves.
 // Goalposts at both ends, bleachers behind the south end zone, a scoreboard behind the north
-// one, and lights down the west side that come on at night.
+// one, and lights down the west side that come on at night. A chain-link fence round the lot of
+// it, set back from the street, with a gate to the parking lot and one onto the street.
 const YD = 0.9144;
-const F = { x0: 1200, x1: 1229, z0: 940 }; // the field, end line to end line along z
+const F = { x0: 1204, x1: 1231, z0: 940 }; // the field, end line to end line along z
 F.z1 = F.z0 + 120 * YD;
 F.cx = (F.x0 + F.x1) / 2;
 const EZ = 10 * YD; // end zone depth
 const GOAL0 = F.z0 + EZ; // north goal line
 const GOAL1 = F.z1 - EZ;
-const BLEACH = { x0: 1203, x1: 1226, z0: F.z1 + 5, rows: 5, depth: 0.85, rise: 0.45 };
-const BOARD = { x: 1209, z: F.z0 - 7 };
+const BLEACH = { x0: 1206, x1: 1229, z0: F.z1 + 5, rows: 5, depth: 0.85, rise: 0.45 };
+const BOARD = { x: 1212, z: F.z0 - 6 };
+// The fence (west side about 4 m back from the street; east side clear of the on-ramp).
+const FENCE = { x0: 1202, x1: 1233, z0: 931, z1: 1060, h: 2.4 };
+const GATE_S = [1213, 1217]; // onto the path from the lot (x)
+const GATE_W = [1014, 1019]; // onto the street (z)
 // The lot south of the bleachers: an aisle in line with Freight Way (which meets the road
 // alongside here), a row of spaces either side.
 const LOT = { x0: 1199, x1: 1237, z0: 1061, z1: 1080 };
@@ -25,7 +31,7 @@ const STALL_W = 2.7;
 const STALLS = 13; // per row
 
 export const FIELD_SITE = { name: 'Harbor Field', x: F.cx, z: (F.z0 + F.z1) / 2, field: F };
-export const FIELD_RESERVED = [[F.x0 - 4, F.z0 - 10, F.x1 + 4, BLEACH.z0 + BLEACH.rows * BLEACH.depth + 2], [LOT.x0 - 1, LOT.z0 - 1, LOT.x1 + 1, LOT.z1 + 1]];
+export const FIELD_RESERVED = [[FENCE.x0 - 2, FENCE.z0 - 2, FENCE.x1 + 1, FENCE.z1 + 1], [LOT.x0 - 1, LOT.z0 - 1, LOT.x1 + 1, LOT.z1 + 1]];
 export const FIELD_BLEACHERS = BLEACH;
 
 const box = (w, h, d, x, y, z) => {
@@ -42,7 +48,7 @@ const flat = (x0, z0, x1, z1, y) => {
 
 // The paint: mowing stripes, end zones, yard lines, hash marks and numbers.
 function fieldTexture() {
-  const M = 3; // a little grass round the outside (meters)
+  const M = 1.8; // a little grass round the outside (meters, inside the fence)
   const S = 14; // pixels per meter
   const W = F.x1 - F.x0 + M * 2;
   const L = F.z1 - F.z0 + M * 2;
@@ -204,7 +210,7 @@ export function buildField(city, scene) {
   // Light towers down the west side, aimed across the field.
   const heads = [];
   for (const z of [F.z0 + 12, (F.z0 + F.z1) / 2, F.z1 - 12]) {
-    const x = F.x0 - 2.2;
+    const x = FENCE.x0 + 0.9; // (just inside the fence)
     steel.push(box(0.3, 13, 0.3, x, 6.5, z));
     heads.push(box(0.5, 1.4, 3, x + 0.3, 13, z));
     city.colliders.push({ minX: x - 0.2, maxX: x + 0.2, minZ: z - 0.2, maxZ: z + 0.2, h: 13 });
@@ -225,8 +231,37 @@ export function buildField(city, scene) {
       spots.push({ x, z: (z0 + z1) / 2 + (heading ? -0.3 : 0.3), heading });
     }
   }
-  // (a path from the lot up to the bleachers)
-  asphalt.push(flat(B.x0 + 8, back, B.x0 + 10, LOT.z0, 0.04));
+  // (a path from the lot through the gate to the bleachers)
+  asphalt.push(flat(GATE_S[0] + 0.5, back, GATE_S[1] - 0.5, LOT.z0, 0.04));
+
+  // ---- The fence ----
+  const chain = chainTexture();
+  const { x0, x1, z0, z1, h } = FENCE;
+  const runs = [
+    [[x0, z0], [x1, z0]],
+    [[x1, z0], [x1, z1]],
+    [[x1, z1], [GATE_S[1], z1]],
+    [[GATE_S[0], z1], [x0, z1]],
+    [[x0, z1], [x0, GATE_W[1]]],
+    [[x0, GATE_W[0]], [x0, z0]],
+  ];
+  for (const [[ax, az], [bx, bz]] of runs) {
+    const L = Math.hypot(bx - ax, bz - az);
+    const n = Math.max(1, Math.round(L / 3));
+    for (let k = 0; k <= n; k++) steel.push(box(0.08, h, 0.08, ax + ((bx - ax) * k) / n, h / 2, az + ((bz - az) * k) / n));
+    const along = ax === bx;
+    steel.push(box(along ? 0.06 : L, 0.06, along ? L : 0.06, (ax + bx) / 2, h, (az + bz) / 2));
+    const t = chain.clone();
+    t.repeat.set(L / 0.6, h / 0.6);
+    t.needsUpdate = true;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(L, h), new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide }));
+    m.position.set((ax + bx) / 2, h / 2, (az + bz) / 2);
+    m.rotation.y = along ? Math.PI / 2 : 0;
+    scene.add(m);
+    city.colliders.push({ minX: Math.min(ax, bx) - 0.1, maxX: Math.max(ax, bx) + 0.1, minZ: Math.min(az, bz) - 0.1, maxZ: Math.max(az, bz) + 0.1, h });
+  }
+  // (a path from the street gate across the grass to the sideline)
+  asphalt.push(flat(1197, GATE_W[0] + 0.5, x0, GATE_W[1] - 0.5, 0.04));
 
   const add = (list, mat, shadow = true) => {
     if (!list.length) return;
@@ -270,6 +305,9 @@ export function drawField(ctx, s) {
   ctx.strokeRect(F.x0 * s, F.z0 * s, (F.x1 - F.x0) * s, (F.z1 - F.z0) * s);
   ctx.fillStyle = '#4a4d52';
   ctx.fillRect(LOT.x0 * s, LOT.z0 * s, (LOT.x1 - LOT.x0) * s, (LOT.z1 - LOT.z0) * s);
+  ctx.strokeStyle = 'rgba(200,205,210,0.8)';
+  ctx.lineWidth = Math.max(1, s * 0.3);
+  ctx.strokeRect(FENCE.x0 * s, FENCE.z0 * s, (FENCE.x1 - FENCE.x0) * s, (FENCE.z1 - FENCE.z0) * s);
   ctx.fillStyle = '#b9c0c6';
   ctx.fillRect(BLEACH.x0 * s, BLEACH.z0 * s, (BLEACH.x1 - BLEACH.x0) * s, BLEACH.rows * BLEACH.depth * s);
 }

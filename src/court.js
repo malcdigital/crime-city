@@ -108,7 +108,7 @@ function courtTexture() {
 }
 
 // Chain-link: a see-through diamond mesh.
-function chainTexture() {
+export function chainTexture() {
   const cv = document.createElement('canvas');
   cv.width = cv.height = 32;
   const c = cv.getContext('2d');
