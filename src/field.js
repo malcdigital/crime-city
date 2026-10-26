@@ -245,6 +245,19 @@ export function buildField(city, scene) {
     [[x0, z1], [x0, GATE_W[1]]],
     [[x0, GATE_W[0]], [x0, z0]],
   ];
+  // The lot: fenced on the street side (open at the driveway), the south and the east; its
+  // north side is the field's fence, plus the bits where the lot is wider than the field.
+  const lx0 = LOT.x0 + 0.3;
+  const lx1 = LOT.x1 + 0.3;
+  const lz1 = LOT.z1 + 0.3;
+  runs.push(
+    [[x0, z1], [lx0, z1]],
+    [[lx0, z1], [lx0, LOT_AISLE[0] - 0.5]],
+    [[lx0, LOT_AISLE[1] + 0.5], [lx0, lz1]],
+    [[lx0, lz1], [lx1, lz1]],
+    [[lx1, lz1], [lx1, z1]],
+    [[lx1, z1], [x1, z1]],
+  );
   for (const [[ax, az], [bx, bz]] of runs) {
     const L = Math.hypot(bx - ax, bz - az);
     const n = Math.max(1, Math.round(L / 3));
@@ -308,6 +321,7 @@ export function drawField(ctx, s) {
   ctx.strokeStyle = 'rgba(200,205,210,0.8)';
   ctx.lineWidth = Math.max(1, s * 0.3);
   ctx.strokeRect(FENCE.x0 * s, FENCE.z0 * s, (FENCE.x1 - FENCE.x0) * s, (FENCE.z1 - FENCE.z0) * s);
+  ctx.strokeRect((LOT.x0 + 0.3) * s, FENCE.z1 * s, (LOT.x1 - LOT.x0) * s, (LOT.z1 + 0.3 - FENCE.z1) * s);
   ctx.fillStyle = '#b9c0c6';
   ctx.fillRect(BLEACH.x0 * s, BLEACH.z0 * s, (BLEACH.x1 - BLEACH.x0) * s, BLEACH.rows * BLEACH.depth * s);
 }
