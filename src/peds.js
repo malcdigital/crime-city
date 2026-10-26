@@ -269,6 +269,13 @@ export class Ped {
         const [lx, lz] = game.player.pos(); // face you (or your car)
         this.heading = lerpAngle(this.heading, Math.atan2(lx - this.x, lz - this.z), Math.min(1, dt * 6));
       }
+    } else if (this.state === 'hoops') {
+      // Shooting hoops at the court (hoops.js runs the game).
+      const o = this.hoop.drive(this, dt);
+      if (o.speed > 0) {
+        [tx, tz] = [o.tx, o.tz];
+        speed = o.speed;
+      }
     } else if (this.state === 'shop') {
       // Standing out front of the store, watching you.
       const [px, pz] = game.player.pos();
@@ -369,6 +376,7 @@ export class Ped {
       c.armL.rotation.x = -2.7;
       c.armR.rotation.x = -2.7;
     }
+    if (this.state === 'hoops') yOff = this.hoop.pose(this);
     c.group.position.set(this.x, y + yOff, this.z);
     this.char.group.rotation.y = this.heading;
   }
@@ -496,12 +504,12 @@ export class PedManager {
     const [px, pz] = this.game.player.pos();
     const want = this.want();
     if (this.peds.length > want) {
-      const far = this.peds.find((p) => dist(p.x, p.z, px, pz) > (this.peds.length > want + 10 ? 75 : 120) && p.standing && !p.shopkeeper && p.state !== 'buyer' && !p.loot);
+      const far = this.peds.find((p) => dist(p.x, p.z, px, pz) > (this.peds.length > want + 10 ? 75 : 120) && p.standing && !p.shopkeeper && p.state !== 'buyer' && !p.loot && !p.keep);
       if (far) far.dispose();
     }
     // Way off across the city: gone (they're replaced around you).
     {
-      const far = this.peds.find((p) => dist(p.x, p.z, px, pz) > 300 && !p.shopkeeper && !p.loot && !p.isPlug);
+      const far = this.peds.find((p) => dist(p.x, p.z, px, pz) > 300 && !p.shopkeeper && !p.loot && !p.isPlug && !p.keep);
       if (far) far.dispose();
     }
     this.peds = this.peds.filter((p) => !p.removed);

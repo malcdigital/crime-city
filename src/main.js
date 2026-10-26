@@ -8,6 +8,7 @@ import { Rhythm } from './rhythm.js';
 import { TouchControls } from './touch.js';
 import { GFX, PHONE, QUALITY, setQuality } from './quality.js';
 import { Transit } from './transit.js';
+import { Hoops } from './hoops.js';
 import { Parking } from './parking.js';
 import { Props } from './props.js';
 import { Enforcement } from './enforcement.js';
@@ -113,6 +114,7 @@ class Game {
     this.rhythm.update(0, true);
     this.traffic = new TrafficManager(this);
     this.peds = new PedManager(this);
+    this.hoops = new Hoops(this); // (people shooting hoops at the court)
     this.police = new PoliceManager(this);
 
     // Parked cars at the curb near the start point.
@@ -2069,6 +2071,7 @@ class Game {
     }
     if (!this.player.vehicle) this.highway.updateLayer(this.player); // walking up or down a ramp
     this.peds.update(dt);
+    this.hoops.update(dt);
     this.checkRunOver();
     this.handleInteractions(dt, a);
     this.updateSurrender(dt, a);

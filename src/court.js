@@ -180,6 +180,7 @@ export function buildCourt(city, scene) {
   // Hoops: pole behind the baseline, an arm out over the line, backboard, rim and net.
   const hl = COURT.l / 2;
   const nets = [];
+  const hoops = [];
   for (const end of [-1, 1]) {
     const base = COURT.cz + end * hl;
     const poleZ = base + end * 1.0;
@@ -196,6 +197,7 @@ export function buildCourt(city, scene) {
     const net = new THREE.CylinderGeometry(0.23, 0.15, 0.45, 10, 2, true);
     net.translate(COURT.cx, 2.82, rimZ);
     nets.push(net);
+    hoops.push({ x: COURT.cx, z: rimZ, y: 3.05, dir: -end, boardZ }); // (dir: from the rim out into the court, along z)
     city.colliders.push({ minX: COURT.cx - 0.2, maxX: COURT.cx + 0.2, minZ: poleZ - 0.2, maxZ: poleZ + 0.2, h: 3.6 });
   }
   // The ball, left by the free-throw line.
@@ -278,7 +280,7 @@ export function buildCourt(city, scene) {
     glowMat.opacity = 0.16 * k;
     glow.visible = k > 0.02;
   });
-  return { spots };
+  return { spots, hoops, ball, pad: PAD, court: COURT };
 }
 
 // The lot and court on the 2D maps (city canvas, radar, big map).
