@@ -599,10 +599,35 @@ function makeBlock(f, id) {
   const wedge = roundaboutWedge(poly);
   if (wedge) poly = wedge.poly;
   const armEdges = wedge ? f.edges.filter((e) => !e.street?.roundabout) : f.edges;
+  const isApex = (p) => wedge && wedge.apexes.some((a) => a[0] === p[0] && a[1] === p[1]);
   const half = poly.map((p, i) => {
     const q = poly[(i + 1) % poly.length];
-    const mx = (p[0] + q[0]) / 2;
-    const mz = (p[1] + q[1]) / 2;
+    let mx = (p[0] + q[0]) / 2;
+    let mz = (p[1] + q[1]) / 2;
+    // (a side running in to the wedge's point: the road along it is the one closest all
+    // along its length outside the ring - not whichever road is nearest one spot of it)
+    if (isApex(p) || isApex(q)) {
+      const R = wedge.R;
+      const samples = [];
+      for (let k = 1; k < 10; k++) {
+        const x = p[0] + ((q[0] - p[0]) * k) / 10;
+        const z = p[1] + ((q[1] - p[1]) * k) / 10;
+        if (Math.hypot(x - R.x, z - R.z) > R.r + 2) samples.push([x, z]);
+      }
+      if (samples.length) {
+        let bestE = null;
+        let bestD = Infinity;
+        for (const e of armEdges) {
+          let sum = 0;
+          for (const [x, z] of samples) sum += closestOnSeg(x, z, e.a.x, e.a.z, e.b.x, e.b.z).d;
+          if (sum < bestD) {
+            bestD = sum;
+            bestE = e;
+          }
+        }
+        if (bestE) return bestE.w / 2;
+      }
+    }
     let best = 7;
     let bd = Infinity;
     for (const e of armEdges) {
@@ -615,7 +640,9 @@ function makeBlock(f, id) {
     return best;
   });
   let curb = isConvex(poly) ? insetConvex(poly, half) : [];
-  if (!curb.length) curb = insetLoose(poly, half);
+  // (a roundabout's corner block: its point is a narrow wedge, cut off by the ring after -
+  // let the corner go as far in as it must)
+  if (!curb.length) curb = insetLoose(poly, half, wedge ? 30 : 3);
   if (!curb.length) return null;
   if (wedge) curb = clipDisc(curb, wedge.R, wedge.R.r + ROAD_CLASS.roundabout.w / 2);
   const [cx, cz] = centroid(curb);
@@ -678,11 +705,16 @@ function roundaboutWedge(poly) {
       return [R.x, R.z];
     };
     const out = [];
+    const apexes = [];
     for (let i = 0; i < n; i++) {
       if (!onRing[i]) out.push(poly[i]);
-      else if (!onRing[(i + n - 1) % n]) out.push(apex(i));
+      else if (!onRing[(i + n - 1) % n]) {
+        const a = apex(i);
+        apexes.push(a);
+        out.push(a);
+      }
     }
-    return { poly: out, R };
+    return { poly: out, R, apexes };
   }
   return null;
 }
@@ -711,6 +743,7 @@ function clipDisc(poly, R, rad) {
     return pts;
   };
   const out = [];
+  const marks = new Set(); // (where a road's curb meets the circle: rounded off below)
   let entry = null;
   for (let i = 0; i < poly.length; i++) {
     const p = poly[i];
@@ -720,18 +753,66 @@ function clipDisc(poly, R, rad) {
     for (const x of X) {
       if (entry === null && !inside(p)) {
         entry = x;
+        marks.add(out.length);
         out.push(x);
       } else if (entry !== null) {
-        out.push(...arc(entry, x), x);
+        out.push(...arc(entry, x));
+        marks.add(out.length);
+        out.push(x);
         entry = null;
-      } else out.push(x);
+      } else {
+        marks.add(out.length);
+        out.push(x);
+      }
     }
   }
-  return out.length >= 3 ? out : poly;
+  return out.length >= 3 ? roundCorners(out, marks, 9) : poly;
+}
+// Round off the given corners of a polygon: the corner is replaced by a curve from `rad`
+// meters before it to `rad` meters after it, along the outline (so traffic swings round a
+// curb there, not a sharp point).
+function roundCorners(poly, marks, rad) {
+  const n = poly.length;
+  const skip = new Set();
+  const curves = new Map();
+  const walk = (i, dir) => {
+    let left = rad;
+    let j = i;
+    for (let guard = 0; guard < n; guard++) {
+      const k = (j + dir + n) % n;
+      const L = Math.hypot(poly[k][0] - poly[j][0], poly[k][1] - poly[j][1]);
+      if (L >= left) {
+        const t = left / (L || 1);
+        return { pt: [poly[j][0] + (poly[k][0] - poly[j][0]) * t, poly[j][1] + (poly[k][1] - poly[j][1]) * t], j };
+      }
+      left -= L;
+      j = k;
+      if (k !== i) skip.add(k);
+    }
+    return { pt: poly[i], j: i };
+  };
+  for (const i of marks) {
+    const P = walk(i, -1).pt;
+    const Q = walk(i, 1).pt;
+    const V = poly[i];
+    const pts = [];
+    for (let k = 0; k <= 8; k++) {
+      const t = k / 8;
+      const m = 1 - t;
+      pts.push([m * m * P[0] + 2 * m * t * V[0] + t * t * Q[0], m * m * P[1] + 2 * m * t * V[1] + t * t * Q[1]]);
+    }
+    curves.set(i, pts);
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    if (curves.has(i)) out.push(...curves.get(i));
+    else if (!skip.has(i)) out.push(poly[i]);
+  }
+  return out;
 }
 
 // Inset for odd shapes: move each corner in along its bisector.
-function insetLoose(poly, half) {
+function insetLoose(poly, half, capK = 3) {
   // Each side moved in by its own street's half width (so it lands right on that street's
   // curb), and each corner where two moved sides meet (a miter, capped where the sides are
   // nearly parallel).
@@ -761,7 +842,7 @@ function insetLoose(poly, half) {
       const t = ((bx - ax) * vz - (bz - az) * vx) / den;
       pt = [ax + ux * t, az + uz * t];
       // (a very sharp corner would throw the point far out: cap it)
-      const lim = 3 * Math.max(d1, d2);
+      const lim = capK * Math.max(d1, d2);
       if (Math.hypot(pt[0] - q[0], pt[1] - q[1]) > lim) pt = null;
     }
     if (!pt) {
@@ -994,9 +1075,56 @@ tidyStreets();
 // A big many-way junction made a roundabout: the streets stop at a one-way ring road (right-
 // hand traffic goes round with the island on its left), entering traffic gives way, and the
 // island in the middle has a statue.
-export const ROUNDABOUTS = [{ x: CENTRAL_X, z: MIDWAY_Z, r: 52, name: 'Liberty Circle' }]; // (big enough to take in the five-way junction that was just off it)
+// feeds: a street brought round to come onto the ring by itself (it ran right along the
+// ring's edge, crossing the roads coming onto it): kept from its far end, then curved in to
+// the ring at the angle given (degrees; 0 = east, -90 = north).
+export const ROUNDABOUTS = [{ x: CENTRAL_X, z: MIDWAY_Z, r: 52, name: 'Liberty Circle', feeds: [{ name: 'Exchange St', angle: -32, from: 100 }] }, // (big enough to take in the five-way junction that was just off it)
+  // Down Grand Ave, where it crosses an avenue and a street a few meters apart (two junctions
+  // on top of each other): one roundabout each instead.
+  { x: 777, z: 788, r: 30, name: 'Union Circle' },
+  { x: 695, z: 853, r: 26, name: 'Founders Circle' },
+];
 function makeRoundabouts() {
   for (const R of ROUNDABOUTS) {
+    for (const F of R.feeds || []) {
+      const st = streets.find((q) => q.name === F.name && q.pts.some((p) => Math.hypot(p[0] - R.x, p[1] - R.z) < R.r + 60));
+      if (!st) continue;
+      // from its far end in to `from` meters off the ring's middle, then a smooth curve on
+      const far = Math.hypot(st.pts[0][0] - R.x, st.pts[0][1] - R.z) > Math.hypot(st.pts.at(-1)[0] - R.x, st.pts.at(-1)[1] - R.z);
+      const pts = far ? [...st.pts] : [...st.pts].reverse();
+      const keep = [pts[0]];
+      let A = null;
+      let dir = null;
+      for (let i = 1; i < pts.length && !A; i++) {
+        const [ax, az] = pts[i - 1];
+        const [bx, bz] = pts[i];
+        const L = Math.hypot(bx - ax, bz - az) || 1;
+        for (let t = 0; t <= L; t += 1) {
+          const x = ax + ((bx - ax) * t) / L;
+          const z = az + ((bz - az) * t) / L;
+          if (Math.hypot(x - R.x, z - R.z) <= F.from) {
+            A = [x, z];
+            dir = [(bx - ax) / L, (bz - az) / L];
+            break;
+          }
+        }
+        if (!A) keep.push(pts[i]);
+      }
+      if (!A) continue;
+      const ang = (F.angle * Math.PI) / 180;
+      const P = [R.x + Math.cos(ang) * (R.r + 1), R.z + Math.sin(ang) * (R.r + 1)];
+      const k = Math.hypot(P[0] - A[0], P[1] - A[1]) * 0.6;
+      const Cp = [A[0] + dir[0] * k, A[1] + dir[1] * k];
+      const curve = [];
+      for (let i = 0; i <= 12; i++) {
+        const t = i / 12;
+        const m = 1 - t;
+        curve.push([m * m * A[0] + 2 * m * t * Cp[0] + t * t * P[0], m * m * A[1] + 2 * m * t * Cp[1] + t * t * P[1]]);
+      }
+      // (on in a little way past the ring's edge, so the cut below ends it right on the ring)
+      const inward = [R.x + Math.cos(ang) * (R.r - 3), R.z + Math.sin(ang) * (R.r - 3)];
+      st.pts = [...keep, ...curve, inward];
+    }
     const inside = ([x, z]) => Math.hypot(x - R.x, z - R.z) < R.r;
     // Where a segment crosses the circle (parameter t along it), in order.
     const hits = (p, q) => {
@@ -1044,8 +1172,32 @@ function makeRoundabouts() {
     });
     const rank = (st) => ROAD_CLASS[st.cls].rank * 1e4 + Math.min(9999, st.pts.length);
     for (const e of ends) {
-      const bigger = ends.find((o) => o !== e && o.st !== e.st && rank(o.st) > rank(e.st) && Math.hypot(o.at[0] - e.at[0], o.at[1] - e.at[1]) < 30);
-      if (!bigger) continue;
+      const bigger = ends.find((o) => o !== e && o.st !== e.st && rank(o.st) > rank(e.st) && Math.hypot(o.at[0] - e.at[0], o.at[1] - e.at[1]) < 25);
+      // (or a short stretch off the ring to another junction just beyond it - queues there
+      // would back up onto the ring: it stops at that junction instead)
+      const firstCross = (() => {
+        const pts = e.first ? e.st.pts : [...e.st.pts].reverse();
+        let walked = 0;
+        for (let i = 1; i < pts.length; i++) {
+          const [ax, az] = pts[i - 1];
+          const [bx, bz] = pts[i];
+          const L = Math.hypot(bx - ax, bz - az);
+          for (const o of streets) {
+            if (o === e.st || o.roundabout) continue;
+            for (let k = 0; k + 1 < o.pts.length; k++) {
+              const X = segInter(ax, az, bx, bz, ...o.pts[k], ...o.pts[k + 1]);
+              if (X && walked + X.t * L > 1) return walked + X.t * L;
+            }
+            for (const q of [o.pts[0], o.pts[o.pts.length - 1]]) {
+              const c = closestOnSeg(q[0], q[1], ax, az, bx, bz);
+              if (c.d < 2 && walked + c.t * L > 1) return walked + c.t * L;
+            }
+          }
+          walked += L;
+        }
+        return Infinity;
+      })();
+      if (!bigger && firstCross > 30) continue;
       // back along it to the first place another street meets it
       const pts = e.first ? e.st.pts : [...e.st.pts].reverse();
       let cut = null;

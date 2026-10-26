@@ -114,6 +114,7 @@ export function buildSidewalks(city, scene) {
     return null;
   };
   const seen = new Set();
+  const stopLines = streets?.placed?.stopLines || [];
   for (const n of city.nodes) {
     if (!n.street || !n.edges || n.edges.length < 3) continue;
     const ctl = streets?.control.get(n);
@@ -126,7 +127,26 @@ export function buildSidewalks(city, scene) {
       const arm = ctl?.arms.find((a) => a.m === m);
       // (onto a roundabout: one car length back from the give-way line)
       const round = n.edges.some((o) => o.street?.roundabout);
-      const d = round && arm ? Math.min(L * 0.8, arm.stopAt + 6.5) : Math.min(L * 0.45, arm ? arm.stopAt - 2.2 : e.w / 2 + 3);
+      let d = round && arm ? Math.min(L * 0.8, arm.stopAt + 6.5) : Math.min(L * 0.45, arm ? arm.stopAt - 2.2 : e.w / 2 + 3);
+      // (never with a stop line running through it - at an angled junction another road's
+      // line can reach across: in toward the junction until it's clear, or none)
+      const hitsLine = (dd) => {
+        const px = n.x + ux * dd;
+        const pz = n.z + uz * dd;
+        for (const [lx, , lz, ry, sx] of stopLines) {
+          if (Math.hypot(lx - px, lz - pz) > 3.7 * sx + e.w) continue;
+          const dx = Math.cos(ry);
+          const dz = -Math.sin(ry);
+          for (let k = -1; k <= 1.001; k += 0.1) {
+            const qx = lx + dx * 3.7 * sx * k - px;
+            const qz = lz + dz * 3.7 * sx * k - pz;
+            if (Math.abs(qx * ux + qz * uz) < 2 && Math.abs(-qx * uz + qz * ux) < e.w / 2) return true;
+          }
+        }
+        return false;
+      };
+      while (hitsLine(d) && d > e.w / 2) d -= 1;
+      if (hitsLine(d)) continue;
       const cx = n.x + ux * d;
       const cz = n.z + uz * d;
       const rx = -uz;
