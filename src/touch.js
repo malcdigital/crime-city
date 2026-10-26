@@ -305,6 +305,9 @@ export class TouchControls {
         B0.hint.textContent = (HINTS[ctx] && HINTS[ctx][id]) || '';
       }
     }
+    // FIRE is dimmed until you aim (a gun only fires while aiming).
+    const fire = this.el.buttons.fire;
+    if (fire) fire.el.classList.toggle('dim', ctx === 'foot' && !game.aimingNow && !game.arsenal?.current()?.melee);
     // USE lights up when there's something to do.
     const use = this.el.buttons.use;
     if (use) use.el.classList.toggle('hot', !!game.prompt && /\bUSE\b/.test(game.prompt));

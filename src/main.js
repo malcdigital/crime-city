@@ -578,6 +578,14 @@ class Game {
     if (w.melee || this.arsenal.reloadT > 0 || this.arsenal.cool > 0) return;
     const want = w.auto ? a.fire : a.firePressed;
     if (!want) return;
+    // A gun only fires while you're aiming it (right-click / L2 / AIM).
+    if (!this.aimingNow) {
+      if (a.firePressed && this.time - (this.aimTipT ?? -99) > 6) {
+        this.aimTipT = this.time;
+        this.hud.toast(this.input.touch?.enabled ? 'Tap AIM first to shoot' : this.input.mode === 'pad' ? 'Hold L2 to aim, then shoot' : 'Hold right-click to aim, then shoot', '#ffd479');
+      }
+      return;
+    }
     const am = this.arsenal.ammo[w.id];
     if (am.mag <= 0) {
       if (!this.arsenal.startReload()) {

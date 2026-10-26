@@ -343,6 +343,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #touch .tb.red { background: rgba(190,40,40,.5); }
 #touch .tb.pill { width: 88px; height: 42px; border-radius: 21px; font-size: 15px; opacity: .55; }
 #touch .tb.pill.hot { opacity: 1; background: rgba(255,210,63,.85); color: #111; text-shadow: none; border-color: #fff; animation: usepulse .8s ease-in-out infinite alternate; }
+#touch .tb.dim { opacity: .35; }
 @keyframes usepulse { to { transform: scale(1.08); } }
 #touch .tb.pedal { width: 72px; height: 104px; border-radius: 16px; font-size: 13px; }
 #touch .tb.green { background: rgba(40,150,70,.5); }
