@@ -1,0 +1,14 @@
+import { launch, GAME_URL, SHOTS } from './launch.mjs';
+const browser = await launch();
+const page = await browser.newPage({ viewport: { width: 400, height: 300 } });
+await page.goto(GAME_URL); await page.waitForFunction(() => window.__game, null, { timeout: 120000 });
+const [X, Z] = JSON.parse(process.argv[2]);
+const r = await page.evaluate(([X, Z]) => { const g = window.__game; const C = g.city; const out = [];
+  g.scene.traverse(o => { if (!o.isMesh || o.isInstancedMesh) return; const pos = o.geometry.attributes.position; if (!pos) return; const idx = o.geometry.index; const n = idx ? idx.count : pos.count; o.updateMatrixWorld(); const m = o.matrixWorld.elements;
+   const P = (i) => { const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i); return [m[0]*x+m[4]*y+m[8]*z+m[12], m[1]*x+m[5]*y+m[9]*z+m[13], m[2]*x+m[6]*y+m[10]*z+m[14]]; };
+   for (let k = 0; k + 2 < n; k += 3) { const t = [P(idx ? idx.getX(k) : k), P(idx ? idx.getX(k+1) : k+1), P(idx ? idx.getX(k+2) : k+2)];
+     const [a,b,c] = t; const d = (b[2]-c[2])*(a[0]-c[0]) + (c[0]-b[0])*(a[2]-c[2]); if (Math.abs(d) < 1e-9) continue;
+     const l1 = ((b[2]-c[2])*(X-c[0]) + (c[0]-b[0])*(Z-c[2]))/d, l2 = ((c[2]-a[2])*(X-c[0]) + (a[0]-c[0])*(Z-c[2]))/d, l3 = 1-l1-l2; if (l1 < 0 || l2 < 0 || l3 < 0) continue;
+     const y = l1*a[1]+l2*b[1]+l3*c[1]; if (y > C.groundY(X,Z) + 0.3 && y < C.groundY(X,Z) + 3) out.push({ y: +y.toFixed(2), mat: o.material.color?.getHexString(), cnt: pos.count, verts: t.map(v => [+v[0].toFixed(1), +v[1].toFixed(2), +v[2].toFixed(1), +C.heightAt(v[0], v[2]).toFixed(2)]) }); } });
+  return { gy: C.groundY(X, Z), h: C.heightAt(X, Z), out: out.slice(0, 6) }; }, [X, Z]);
+console.log(JSON.stringify(r, null, 1)); await browser.close();

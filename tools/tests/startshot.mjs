@@ -1,0 +1,11 @@
+import { launch, GAME_URL, SHOTS } from './launch.mjs';
+const browser = await launch();
+const page = await browser.newPage({ viewport: { width: 1000, height: 560 } });
+const errs=[]; page.on('pageerror', e=>errs.push(e.message));
+await page.goto(GAME_URL); await page.waitForFunction(() => window.__game, null, { timeout: 120000 });
+await page.evaluate(() => window.__game.start());
+await page.waitForTimeout(4000);
+console.log(await page.evaluate(() => { const g = window.__game; const v = g.player.vehicle; return `in car ${!!v} at ${v?.x.toFixed(1)},${v?.z.toFixed(1)} clock ${g.clockText()}`; }));
+await page.screenshot({ path: `${SHOTS}/start.png` });
+console.log('errors', errs);
+await browser.close();

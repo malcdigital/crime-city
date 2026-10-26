@@ -1,0 +1,11 @@
+import { launch, GAME_URL, SHOTS } from './launch.mjs';
+const browser = await launch();
+const page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
+await page.goto(GAME_URL); await page.waitForFunction(() => window.__game, null, { timeout: 120000 });
+const [cx, cz, h, name] = [+process.argv[2], +process.argv[3], +process.argv[4], process.argv[5]];
+await page.evaluate(([cx, cz]) => { const g = window.__game; g.start(); const v = g.player.vehicle; if (v) { v.x = cx; v.z = cz + 40; v.speed = 0; } g.time = ((13*60 - 9*60 + 2880) % 1440) * 2; }, [cx, cz]);
+await page.waitForTimeout(2500);
+await page.evaluate(([cx, cz, h]) => { const g = window.__game; g.started = false; g.paused = false; const cam = g.camera; cam.position.set(cx, h, cz + 0.01); cam.lookAt(cx, 0, cz); g.updateCamera = () => {}; g.renderer.render(g.scene, cam); }, [cx, cz, h]);
+await page.waitForTimeout(1500);
+await page.screenshot({ path: `${SHOTS}/${name}.png` });
+await browser.close();
