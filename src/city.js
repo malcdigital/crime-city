@@ -851,6 +851,18 @@ export function buildCity(scene) {
   };
   const underXT = (x, z, pad) => Math.abs(x - XT.x) < XT_HALF + pad && z > RING.z0 && z < RING.z1;
   const clearOfRoads = (x, z, pad) => ringDist(x, z) > RING_HALF + pad && !underXT(x, z, pad) && !nearRamp(x, z, pad) && !inHole(x, z, pad);
+  // A building's footprint (4 corners) clear of every street - its pavement and a sidewalk's
+  // width - checked all over it, not just at the corners (a road can cut across a long side).
+  const footClear = (R, pad = 1.5) => {
+    for (let i = 0; i <= 4; i++) for (let j = 0; j <= 4; j++) {
+      const u = i / 4;
+      const v = j / 4;
+      const x = R[0][0] + (R[1][0] - R[0][0]) * u + (R[3][0] - R[0][0]) * v;
+      const z = R[0][1] + (R[1][1] - R[0][1]) * u + (R[3][1] - R[0][1]) * v;
+      if (edgesNear(x, z, pad).some((e) => e.street?.stub === undefined)) return false;
+    }
+    return true;
+  };
 
   // ======== Building helpers ========
   // A box building: center, size, angle of its width (radians, x/z), base height.
@@ -957,6 +969,7 @@ export function buildCity(scene) {
           const shrunk = rect4(cx, cz, w / 2 - 0.4, d / 2 - 0.4, ux, uz);
           if (!shrunk.every(([x, z]) => pointInPoly(x, z, lotPoly))) continue;
           if (![...shrunk, [cx, cz]].every(([x, z]) => clearOfRoads(x, z, 2.5))) continue;
+          if (!footClear(R)) continue;
           if (placed.some((o) => overlaps(o.R, R, 0.6))) continue;
           const item = { R, cx, cz, w, d, ang: Math.atan2(uz, ux), ux, uz, nx: -nx, nz: -nz, side: [p, q] };
           placed.push(item);
@@ -1007,9 +1020,16 @@ export function buildCity(scene) {
   // A special building facing the block's front: returns where it is and its door.
   const frontBuilding = (b, w, d, h, mat, setback = 10) => {
     const s = b.frontSide;
-    const L = Math.min(w, s.len - 6);
-    const cx = s.mx - s.nx * (b.sw + setback + d / 2);
-    const cz = s.mz - s.nz * (b.sw + setback + d / 2);
+    let L = Math.min(w, s.len - 6);
+    let cx = s.mx - s.nx * (b.sw + setback + d / 2);
+    let cz = s.mz - s.nz * (b.sw + setback + d / 2);
+    // (smaller, front kept where it is, until it's clear of every street round the block)
+    for (let k = 0; k < 12 && !footClear(rect4(cx, cz, L / 2, d / 2, s.ux, s.uz)); k++) {
+      L *= 0.85;
+      d *= 0.85;
+      cx = s.mx - s.nx * (b.sw + setback + d / 2);
+      cz = s.mz - s.nz * (b.sw + setback + d / 2);
+    }
     const ang = Math.atan2(s.uz, s.ux);
     building(cx, cz, L, d, h, mat, ang);
     const face = { x: cx + s.nx * (d / 2 + 0.06), z: cz + s.nz * (d / 2 + 0.06) };
@@ -1257,7 +1277,7 @@ export function buildCity(scene) {
           const cz = ccz - s.nz * r * 22;
           const w = rr(38, 46);
           const R = rect4(cx, cz, w / 2, 5, s.ux, s.uz);
-          if (R.every(([x, z]) => pointInPoly(x, z, lot)) && !placed.some((o) => overlaps(o.R, R, 3)) && clearOfRoads(cx, cz, 4)) {
+          if (R.every(([x, z]) => pointInPoly(x, z, lot)) && !placed.some((o) => overlaps(o.R, R, 3)) && clearOfRoads(cx, cz, 4) && footClear(R)) {
             const it = { R, cx, cz, w, d: 10, ang: Math.atan2(s.uz, s.ux), nx: s.nx, nz: s.nz };
             placed.push(it);
             onPlace(it, height(), pickMat());
@@ -1277,7 +1297,7 @@ export function buildCity(scene) {
         const w = rr(22, 34);
         const d = rr(22, 34);
         const R = rect4(ccx, ccz, w / 2, d / 2, s.ux, s.uz);
-        if (R.every(([x, z]) => pointInPoly(x, z, lot)) && !placed.some((o) => overlaps(o.R, R, 2)) && clearOfRoads(ccx, ccz, 4)) {
+        if (R.every(([x, z]) => pointInPoly(x, z, lot)) && !placed.some((o) => overlaps(o.R, R, 2)) && clearOfRoads(ccx, ccz, 4) && footClear(R)) {
           const it = { R, cx: ccx, cz: ccz, w, d, ang: Math.atan2(s.uz, s.ux), nx: s.nx, nz: s.nz };
           placed.push(it);
           onPlace(it, height() * 1.2, pickMat());
