@@ -1354,6 +1354,7 @@ export function buildCity(scene) {
       for (let t = t0 + 1.5; t < t1 - 1.5; t += 6) {
         const x = e.a.x + ux * t;
         const z = e.a.z + uz * t;
+        if (!paved(x, z)) continue; // (out on the hills: laid along the drawn road, below)
         dashes.push([x, roadY(x, z), z, ry]);
       }
       if (ROAD_CLASS[e.cls].parking) {
@@ -1362,14 +1363,71 @@ export function buildCity(scene) {
         for (const s of [-1, 1]) {
           const x = e.a.x + ux * mid - uz * off * s;
           const z = e.a.z + uz * mid + ux * off * s;
-          lines.push([x, roadY(x, z) + 0.001, z, ry, t1 - t0]);
+          // (one long flat bar: only on the level city streets)
+          if (paved(e.a.x, e.a.z) && paved(e.b.x, e.b.z)) lines.push([x, roadY(x, z) + 0.001, z, ry, t1 - t0]);
         }
       }
     }
+    const cityDashes = dashes.length;
+    // Roads out on the hills: the center dashes laid along the road as drawn, bending with
+    // its curves and lying on it end to end up and down the slopes (not flat straight bars).
+    const hillDash = [];
+    for (const r of ribbons) {
+      const st = r.st;
+      if (st.cls === 'pier' || st.culDeSac) continue;
+      const P = r.pts;
+      const S = [0];
+      for (let i = 1; i < P.length; i++) S.push(S[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]));
+      const total = S[S.length - 1];
+      let seg = 1;
+      const at = (t) => {
+        while (seg < P.length - 1 && S[seg] < t) seg++;
+        while (seg > 1 && S[seg - 1] > t) seg--;
+        const [ax, az] = P[seg - 1];
+        const [bx, bz] = P[seg];
+        const L = S[seg] - S[seg - 1] || 1;
+        const k = Math.max(0, Math.min(1, (t - S[seg - 1]) / L));
+        return [ax + (bx - ax) * k, az + (bz - az) * k, (bx - ax) / L, (bz - az) / L];
+      };
+      // (clear of junctions: where another road's pavement, plus room to turn, is close)
+      const nearOther = (x, z) => edgesNear(x, z, 4.5).some((e) => e.street !== st && e.street?.stub === undefined);
+      seg = 1;
+      for (let t = 1.5; t + 3 < total - 1; t += 6) {
+        const pts = [];
+        let ok = true;
+        for (let u = 0; u <= 3.001; u += 0.75) {
+          const [x, z, dx, dz] = at(t + u);
+          if (paved(x, z) || nearOther(x, z)) {
+            ok = false;
+            break;
+          }
+          pts.push([x, z, dx, dz]);
+        }
+        if (!ok) continue;
+        for (let i = 0; i + 1 < pts.length; i++) {
+          const q = [pts[i], pts[i + 1]].map(([x, z, dx, dz]) => {
+            const y = heightAt(x, z) + 0.07;
+            return [x + dz * 0.125, y, z - dx * 0.125, x - dz * 0.125, y, z + dx * 0.125];
+          });
+          const [a0, a1] = [q[0].slice(0, 3), q[0].slice(3)];
+          const [b0, b1] = [q[1].slice(0, 3), q[1].slice(3)];
+          hillDash.push(...a0, ...b0, ...a1, ...a1, ...b0, ...b1);
+        }
+        const [mx, mz, dx, dz] = at(t + 1.5);
+        dashes.push([mx, heightAt(mx, mz) + 0.07, mz, Math.atan2(dx, dz)]);
+      }
+    }
+    if (hillDash.length) {
+      // (both faces: whichever way the road runs)
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(hillDash, 3));
+      scene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xd9c45a, side: THREE.DoubleSide })));
+    }
     markings = { dashes, lines };
-    const dashMesh = new THREE.InstancedMesh(dashGeo, new THREE.MeshBasicMaterial({ color: 0xd9c45a }), dashes.length);
+    const flatDashes = dashes.slice(0, cityDashes); // (the city's: flat bars, all alike)
+    const dashMesh = new THREE.InstancedMesh(dashGeo, new THREE.MeshBasicMaterial({ color: 0xd9c45a }), flatDashes.length);
     const dummy = new THREE.Object3D();
-    dashes.forEach(([x, y, z, ry], i) => {
+    flatDashes.forEach(([x, y, z, ry], i) => {
       dummy.position.set(x, y, z);
       dummy.rotation.set(0, ry, 0);
       dummy.scale.set(1, 1, 1);
