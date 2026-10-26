@@ -36,7 +36,9 @@ Screenshots land in `tools/tests/shots/` (not kept in git).
 | `rampside.mjs` | Drives at every ramp from the side; a car must climb on or be stopped, never end up inside it |
 | `sinktilt.mjs` | A whole car (tilted to the ground) at points all over the map, four ways: where the ground would come up through the body |
 | `lines.mjs` | Every painted line (street dashes, lane lines, freeway and ramp lines): on its road, at its height, center dashes on the center line |
-| `drivehills.mjs` | Cars driven off-road flat out on the hills: the body never goes into the ground. Args: `[runs] [seconds]` |
+| `xwalk.mjs` | Crosswalks: at their junction, across one road, not in another road or on top of another crosswalk |
+| `roundabout.mjs` | Traffic at the roundabouts goes round the right way and gets through |
+| `drivehills.mjs` | Cars driven off-road flat out on the hills: the body never goes into the ground, and the car sits on its wheels. Args: `[runs] [seconds]` |
 | `conn.mjs` | The street network is all connected |
 | `gpschk.mjs` | GPS routes between sample points |
 | `rampblk.mjs` | Ramp points inside city blocks that aren't ramp land |

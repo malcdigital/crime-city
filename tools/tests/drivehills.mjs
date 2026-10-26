@@ -1,6 +1,7 @@
 // Off-road driving on the hills: cars dropped at random spots outside the paved city drive
 // flat out with random steering for a while. Every frame, the body's underside corners (the
-// car tilted to the ground the way the game does) must stay above the ground.
+// car tilted to the ground the way the game does) must stay above the ground, and the car
+// must sit on its wheels (not float).
 // Args: [runs] [seconds each]
 import { launch, GAME_URL } from './launch.mjs';
 const browser = await launch();
@@ -12,6 +13,7 @@ await page.waitForFunction(() => window.__game, null, { timeout: 120000 });
 const RUNS = +(process.argv[2] || 300);
 const SECS = +(process.argv[3] || 8);
 const r = await page.evaluate(([RUNS, SECS]) => {
+  globalThis.DBG = true;
   const g = window.__game;
   const C = g.city;
   const hw = g.highway;
@@ -24,6 +26,7 @@ const r = await page.evaluate(([RUNS, SECS]) => {
   for (const sx of [-1, 1]) for (const sz of [-1, 0, 1]) corners.push([(sx * t.w) / 2, 0.35, (sz * t.l) / 2]);
   const bad = [];
   const paths = [];
+  const floats = [];
   let frames = 0;
   let worstAll = 0;
   for (let run = 0; run < RUNS; run++) {
@@ -40,6 +43,8 @@ const r = await page.evaluate(([RUNS, SECS]) => {
     let path = 0;
     let worst = 0;
     let at = null;
+    let floatWorst = 0;
+    let floatAt = null;
     for (let f = 0; f < SECS * 60; f++) {
       const dt = 1 / 60;
       if (f % 40 === 0) steer = rnd() * 2 - 1;
@@ -52,6 +57,15 @@ const r = await page.evaluate(([RUNS, SECS]) => {
       if (f < 30) continue; // (settling after the drop)
       frames++;
       v.group.updateMatrixWorld(true);
+      // floating: every wheel well clear of the ground under it
+      if (!v.high && f > 60) {
+        let gap = Infinity;
+        for (const [wx, wz] of [[t.w / 2 - 0.2, t.l / 2 - 0.6], [-(t.w / 2 - 0.2), t.l / 2 - 0.6], [t.w / 2 - 0.2, -(t.l / 2 - 0.6)], [-(t.w / 2 - 0.2), -(t.l / 2 - 0.6)]]) {
+          const p = v.group.localToWorld(new v.group.position.constructor(wx, 0, wz));
+          gap = Math.min(gap, p.y - C.groundY(p.x, p.z));
+        }
+        if (gap > floatWorst) { floatWorst = gap; floatAt = [Math.round(v.x), Math.round(v.z)]; if (globalThis.DBG) { const h = v.heading, fx = Math.sin(h), fz = Math.cos(h), lx = Math.cos(h), lz = -Math.sin(h); floatAt.push({ f, y: +v.y.toFixed(2), gy: +v.groundY.toFixed(2), posY: +v.group.position.y.toFixed(2), pitch: +v.pitch.toFixed(2), roll: +v.roll.toFixed(2), flat: v.flat, high: v.high, spd: +v.speed.toFixed(1), pts: [[2.3,1],[2.3,-1],[-2.3,1],[-2.3,-1],[1.7,0.8],[-1.7,0.8],[1.7,-0.8],[-1.7,-0.8],[0,0]].map(([u, s2]) => +C.groundY(v.x + fx * u + lx * s2, v.z + fz * u + lz * s2).toFixed(2)) }); } }
+      }
       for (const [cx, cy, cz] of corners) {
         const p = v.group.localToWorld(new v.group.position.constructor(cx, cy, cz));
         if (v.high) continue;
@@ -62,9 +76,10 @@ const r = await page.evaluate(([RUNS, SECS]) => {
     worstAll = Math.max(worstAll, worst);
     paths.push(path);
     if (worst > 0.3) bad.push([run, +worst.toFixed(2), at]);
+    if (floatWorst > 0.35) floats.push([run, +floatWorst.toFixed(2), floatAt]);
   }
   paths.sort((a, b) => a - b);
-  return { runs: RUNS, frames, avgPath: Math.round(paths.reduce((a, b) => a + b, 0) / paths.length), shortRuns: paths.filter((p) => p < 30).length, worstAll: +worstAll.toFixed(2), bad: bad.length, ex: bad.slice(0, 15) };
+  return { runs: RUNS, frames, avgPath: Math.round(paths.reduce((a, b) => a + b, 0) / paths.length), shortRuns: paths.filter((p) => p < 30).length, worstAll: +worstAll.toFixed(2), bad: bad.length, ex: bad.slice(0, 15), floating: floats.length, floatEx: floats.slice(0, 8) };
 }, [RUNS, SECS]);
 console.log(JSON.stringify(r));
 console.log('errors', errs.slice(0, 3));

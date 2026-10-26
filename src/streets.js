@@ -12,6 +12,7 @@ import { inHole } from './fwyplan.js';
 //   (two-way stop); where equal roads meet, everyone stops (all-way stop). Bends in a road
 //   (two arms) have nothing.
 // - White stop lines on every approach that stops, just before the crosswalk.
+// - Lights and stop signs on the near-right corner of each approach, by the stop line.
 // - Street lights along every sidewalk (on at dusk, off at dawn — see daynight.js).
 // Traffic (traffic.js), pedestrians (peds.js) and the police (enforcement.js) ask here what
 // they're allowed to do. "Axis" is 'NS' (the first phase group) or 'EW' (the second).
@@ -57,8 +58,12 @@ export class Streets {
       // runs straight through), otherwise everyone.
       const tops = arms.filter((a) => a.rank === top);
       const through = tops.length === 2 && tops[0].ux * tops[1].ux + tops[0].uz * tops[1].uz < -0.7;
+      // On a roundabout: no lights; traffic coming onto it gives way, traffic on it carries on.
+      const round = arms.some((a) => a.e.street?.roundabout);
+      if (round) type = deg >= 3 ? 'stop' : 'none';
       for (const a of arms) {
         a.stop = type === 'signal' || (type === 'stop' && !(through && a.rank === top));
+        if (round) a.stop = type === 'stop' && !a.e.street?.roundabout;
         // The stop line: clear of the widest road crossing this one, plus the crosswalk.
         // At an angle the crossing road's pavement reaches further along this one (out to our
         // curb), so the line sits further back. (The straight continuation isn't a crossing.)
@@ -72,7 +77,7 @@ export class Streets {
         }
         a.stopAt = Math.min(22, Math.max(6, w + 4.2));
       }
-      this.control.set(n, { type, offset: Math.floor((n.x + n.z) / 20) % CYCLE, arms });
+      this.control.set(n, { type, offset: Math.floor((n.x + n.z) / 20) % CYCLE, arms, yield: round });
     }
     this.build();
   }
@@ -186,7 +191,12 @@ export class Streets {
     const lines = [];
     const signPoles = [];
     const signs = [];
+    const yields = [];
     const sigPoles = [];
+    const mastPoles = [];
+    const arms = [];
+    const mastLamps = [];
+    const walks = [];
     const sigHeads = [];
     const lamps = { red: [], yellow: [], green: [] };
     this.lampRefs = []; // [node, axis, color, index]
@@ -245,34 +255,14 @@ export class Streets {
         if (lp) {
           const lx = lp.x + lp.uz * (w / 4);
           const lz = lp.z - lp.ux * (w / 4);
-          lines.push([lx, city.roadY(lx, lz) + 0.01, lz, Math.atan2(lp.uz, -lp.ux), (w / 2 - 0.6) / 7.4, 1, 1]);
+          lines.push([lx, city.roadY(lx, lz) + 0.01, lz, Math.atan2(-lp.ux, -lp.uz), (w / 2 - 0.6) / 7.4, 1, 1]); // (across the lanes coming in)
         }
         // Pole on the right-hand curb, facing oncoming drivers. It must stand clear of every
         // road (a short block or an angled junction can put the plain spot in another street):
         // slide it back along the curb until it's clear, or leave it out.
-        // Traffic lights stand on the far side of the junction (on the right, just past the
-        // crosswalk), where a driver waiting at the line can see them; stop signs on the near
-        // side. (No road straight on, or no room: the near side.)
+        // Traffic lights and stop signs both stand on the near side, on the right-hand corner
+        // just behind the stop line, so each approach has its own light on its own corner.
         let spot = null;
-        if (ctl.type === 'signal') {
-          let b = null;
-          let bd = -0.7;
-          for (const o of ctl.arms) {
-            const d = a.ux * o.ux + a.uz * o.uz;
-            if (o !== a && d < bd) {
-              bd = d;
-              b = o;
-            }
-          }
-          for (let k = 0; b && k <= 4 && !spot; k++) {
-            const pt = along(n, b, b.stopAt + 1 + k * 1.5);
-            if (!pt) break;
-            // (leaving the junction along b: the right-hand curb)
-            const px = pt.x - pt.uz * (b.e.w / 2 + 0.7);
-            const pz = pt.z + pt.ux * (b.e.w / 2 + 0.7);
-            if (!inRoad(px, pz, 0.4)) spot = { p: [px, pz], moved: false, far: true };
-          }
-        }
         spot ||= poleSpot(n, a, w);
         this.poleStats.total++;
         if (!spot) {
@@ -291,18 +281,37 @@ export class Streets {
         if (ctl.type === 'stop') {
           if (share) continue; // (one stop sign per corner)
           signPoles.push([px, y + 1.45, pz, 0]);
-          signs.push([px, y + 2.55, pz, face]);
+          (ctl.yield ? yields : signs).push([px, y + 2.55, pz, face]); // (a roundabout: give way)
           city.colliders.push({ minX: px - 0.12, maxX: px + 0.12, minZ: pz - 0.12, maxZ: pz + 0.12, h: y + 2.9 });
         } else {
-          if (!share) sigPoles.push([px, y + 2.3, pz, 0]);
-          sigHeads.push([px, y + 4.1, pz, face]);
+          // A mast arm: a tall pole on the corner with an arm out over the lanes coming in, a
+          // light hanging over each lane, one more on the pole at eye level, a walk signal for
+          // people crossing, and a street light on top.
           const fx = Math.sin(face) * 0.24;
           const fz = Math.cos(face) * 0.24;
-          [['red', 4.55], ['yellow', 4.1], ['green', 3.65]].forEach(([col, hy]) => {
-            this.lampRefs.push([n, axis, col, lamps[col].length]);
-            lamps[col].push([px + fx, y + hy, pz + fz, face]);
-          });
-          if (!share) city.colliders.push({ minX: px - 0.15, maxX: px + 0.15, minZ: pz - 0.15, maxZ: pz + 0.15, h: y + 4.8 });
+          const head = (hx, hy, hz) => {
+            sigHeads.push([hx, hy, hz, face]);
+            [['red', 0.45], ['yellow', 0], ['green', -0.45]].forEach(([col, dy]) => {
+              this.lampRefs.push([n, axis, col, lamps[col].length]);
+              lamps[col].push([hx + fx, hy + dy, hz + fz, face]);
+            });
+          };
+          // (the arm reaches in from the curb, over this side's lanes, to near the middle)
+          const reach = w / 2 + 0.7 - 0.8;
+          const ax = -rx;
+          const az = -rz;
+          if (!share) {
+            mastPoles.push([px, y + 3.9, pz, 0]);
+            arms.push([px + ax * (reach / 2), y + 6.6, pz + az * (reach / 2), Math.atan2(ax, az), 1, 1, reach]);
+            mastLamps.push([px, y + 7.9, pz, Math.atan2(ax, az)]);
+            walks.push([px + ax * 0.25, y + 2.5, pz + az * 0.25, Math.atan2(ax, az)]); // (facing across the road, for people crossing it)
+            city.colliders.push({ minX: px - 0.2, maxX: px + 0.2, minZ: pz - 0.2, maxZ: pz + 0.2, h: y + 8 });
+          }
+          // over the lanes: at the travel lane and, on a wide road, the inner lane too
+          const offs = [w / 2 + 0.7 - a.e.lane];
+          if (w >= 16) offs.push(w / 2 + 0.7 - a.e.lane * 0.25);
+          for (const o of offs) head(px + ax * o, y + 5.9, pz + az * o);
+          head(px + ux * 0.3, y + 3.5, pz + uz * 0.3); // (on the pole)
         }
       }
     }
@@ -316,7 +325,34 @@ export class Streets {
     oct.rotateZ(Math.PI / 8);
     const signMat = new THREE.MeshLambertMaterial({ color: 0xc0392b, emissive: 0x200000 });
     place(new THREE.InstancedMesh(oct, signMat, signs.length), signs);
+    // Give way: a red triangle, point down.
+    const tri = new THREE.CylinderGeometry(0.55, 0.55, 0.04, 3);
+    tri.rotateX(Math.PI / 2);
+    tri.rotateZ(-Math.PI / 2);
+    place(new THREE.InstancedMesh(tri, signMat, Math.max(1, yields.length)), yields).count = yields.length;
     place(new THREE.InstancedMesh(new THREE.CylinderGeometry(0.09, 0.09, 4.6, 6), new THREE.MeshLambertMaterial({ color: 0x2c3e50 }), sigPoles.length), sigPoles);
+    // Mast arms: galvanized poles, arms, the street light on top, walk signals.
+    const steel = new THREE.MeshLambertMaterial({ color: 0xa9adb3 });
+    const many = (geo, mat, list) => {
+      const m = place(new THREE.InstancedMesh(geo, mat, Math.max(1, list.length)), list);
+      m.count = list.length;
+      return m;
+    };
+    many(new THREE.CylinderGeometry(0.16, 0.2, 7.8, 8), steel, mastPoles);
+    const armGeo = new THREE.CylinderGeometry(0.09, 0.11, 1, 6);
+    armGeo.rotateX(Math.PI / 2); // (along local z; scaled to the arm's length)
+    many(armGeo, steel, arms);
+    const lampArm = new THREE.BoxGeometry(0.08, 0.08, 2.2);
+    lampArm.translate(0, 0, 1.1);
+    many(lampArm, steel, mastLamps);
+    const lampHead = new THREE.BoxGeometry(0.35, 0.12, 0.7);
+    lampHead.translate(0, -0.08, 2.2);
+    many(lampHead, new THREE.MeshLambertMaterial({ color: 0x5b6067, emissive: 0x2a2416 }), mastLamps);
+    const walkBox = new THREE.BoxGeometry(0.4, 0.4, 0.22);
+    many(walkBox, new THREE.MeshLambertMaterial({ color: 0x1b1f24 }), walks);
+    const hand = new THREE.PlaneGeometry(0.26, 0.26);
+    hand.translate(0, 0, 0.12);
+    many(hand, new THREE.MeshBasicMaterial({ color: 0xff6a1a }), walks);
     place(new THREE.InstancedMesh(new THREE.BoxGeometry(0.5, 1.45, 0.4), new THREE.MeshLambertMaterial({ color: 0x1b1f24 }), sigHeads.length), sigHeads);
     const lampGeo = new THREE.CircleGeometry(0.16, 12);
     this.lampMeshes = {};
@@ -329,10 +365,10 @@ export class Streets {
     this.on = { red: new THREE.Color(0xff2a1a), yellow: new THREE.Color(0xffc21a), green: new THREE.Color(0x2bff6a) };
     this.off = { red: new THREE.Color(0x3a0d0a), yellow: new THREE.Color(0x3a300a), green: new THREE.Color(0x0a3a18) };
     this.paintSignals(true);
-    this.placedPoles = [...signPoles, ...sigPoles];
+    this.placedPoles = [...signPoles, ...sigPoles, ...mastPoles];
     this.buildNameSigns(place);
     this.buildStreetLights(place);
-    this.placed = { stopLines: lines, signPoles, signs, sigPoles, sigHeads }; // (for checks and tests)
+    this.placed = { stopLines: lines, signPoles, signs, sigPoles: [...sigPoles, ...mastPoles], sigHeads }; // (for checks and tests)
   }
 
   // Street name signs: green blades on the corner pole at each junction (the stop sign or the
@@ -352,7 +388,7 @@ export class Streets {
       }
       const list = [...named.values()].sort((p, q) => q.rank - p.rank).slice(0, 2);
       if (!list.length) continue;
-      const base = pole.type === 'stop' ? 3.05 : 2.75;
+      const base = pole.type === 'stop' ? 3.05 : 4.5; // (on a mast pole: above its light)
       if (pole.type === 'stop') extra.push([pole.x, pole.y + 3.3, pole.z, 0]);
       list.forEach((e, k) => {
         const m = e.other(n);

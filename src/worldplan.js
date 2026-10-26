@@ -35,6 +35,7 @@ export const ROAD_CLASS = {
   under: { w: 16, sw: 3, parking: false, lane: 3.4, rank: 3 }, // under a freeway
   hills: { w: 10, sw: 0, parking: false, lane: 2.6, rank: 2 },
   pier: { w: 12, sw: 0, parking: false, lane: 3.0, rank: 1 },
+  roundabout: { w: 12, sw: 4, parking: false, lane: 0, rank: 6 }, // (one way round: drive its middle)
 };
 
 const { x0: RX0, z0: RZ0, x1: RX1, z1: RZ1 } = RING;
@@ -499,8 +500,19 @@ function buildGraph() {
     }
   }
   for (const e of edges) {
-    if (!e.a.nb.includes(e.b)) e.a.nb.push(e.b);
-    if (!e.b.nb.includes(e.a)) e.b.nb.push(e.a);
+    // (a roundabout is one way: the way that keeps its island on the driver's left)
+    let fwd = true;
+    let back = true;
+    const R = e.street.roundabout;
+    if (R) {
+      const fx = e.b.x - e.a.x;
+      const fz = e.b.z - e.a.z;
+      const left = fz * (R.x - (e.a.x + e.b.x) / 2) - fx * (R.z - (e.a.z + e.b.z) / 2) > 0;
+      fwd = left;
+      back = !left;
+    }
+    if (fwd && !e.a.nb.includes(e.b)) e.a.nb.push(e.b);
+    if (back && !e.b.nb.includes(e.a)) e.b.nb.push(e.a);
   }
   // Each node: the edge toward each neighbor.
   for (const n of nodes) n.edgeTo = new Map(n.edges.map((e) => [e.other(n), e]));
@@ -894,9 +906,62 @@ function tidyStreets() {
 }
 tidyStreets();
 
+// ---- Roundabouts ----
+// A big many-way junction made a roundabout: the streets stop at a one-way ring road (right-
+// hand traffic goes round with the island on its left), entering traffic gives way, and the
+// island in the middle has a statue.
+export const ROUNDABOUTS = [{ x: CENTRAL_X, z: MIDWAY_Z, r: 26, name: 'Liberty Circle' }];
+function makeRoundabouts() {
+  for (const R of ROUNDABOUTS) {
+    const inside = ([x, z]) => Math.hypot(x - R.x, z - R.z) < R.r;
+    // Where a segment crosses the circle (parameter t along it), in order.
+    const hits = (p, q) => {
+      const dx = q[0] - p[0];
+      const dz = q[1] - p[1];
+      const fx = p[0] - R.x;
+      const fz = p[1] - R.z;
+      const A = dx * dx + dz * dz;
+      const B = 2 * (fx * dx + fz * dz);
+      const Cc = fx * fx + fz * fz - R.r * R.r;
+      const D = B * B - 4 * A * Cc;
+      if (D <= 0 || A < 1e-9) return [];
+      const sq = Math.sqrt(D);
+      return [(-B - sq) / (2 * A), (-B + sq) / (2 * A)].filter((t) => t > 0 && t < 1);
+    };
+    for (let k = streets.length - 1; k >= 0; k--) {
+      const st = streets[k];
+      if (!st.pts.some(inside) && !st.pts.some((p, i) => i && hits(st.pts[i - 1], p).length)) continue;
+      const pieces = [];
+      let cur = inside(st.pts[0]) ? null : [st.pts[0]];
+      for (let i = 1; i < st.pts.length; i++) {
+        const p = st.pts[i - 1];
+        const q = st.pts[i];
+        for (const t of hits(p, q)) {
+          const X = [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+          if (cur) {
+            cur.push(X);
+            pieces.push(cur);
+            cur = null;
+          } else cur = [X];
+        }
+        if (cur && !inside(q)) cur.push(q);
+      }
+      if (cur) pieces.push(cur);
+      streets.splice(k, 1, ...pieces.filter((pp) => pp.length >= 2).map((pts) => ({ ...st, pts })));
+    }
+    add(arcPts(R.x, R.z, R.r, 0, Math.PI * 2, 7), 'roundabout', R.name, { keep: true, loop: true, roundabout: R });
+  }
+}
+makeRoundabouts();
+
 export const STREETS = streets;
 export const GRAPH = buildGraph();
 export const BLOCKS = buildBlocks(GRAPH).filter((b) => b.area >= 60);
+// (a roundabout's island: grass and its statue, nothing built on it)
+for (const b of BLOCKS) {
+  const R = ROUNDABOUTS.find((q) => Math.hypot(b.cx - q.x, b.cz - q.z) < q.r * 0.5);
+  if (R) Object.assign(b, { type: 'park', island: R });
+}
 BLOCKS.forEach((b, i) => {
   b.id = i;
   b.key = `b${i}`;

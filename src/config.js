@@ -12,9 +12,9 @@ export const CFG = {
   START_IN_CAR: true,
   CAR_SPAWN_KEY: true,
   // Testing switch: where you start (in the car): [x, z, heading in degrees, height up on the
-  // freeway (optional)], or null. Right now: on Canyon Dr in the Heights, heading down toward
-  // the freeway - where the center line didn't follow the road.
-  START_AT: [1398, 546, -113],
+  // freeway (optional)], or null. Right now: on Central Ave downtown, heading north into the
+  // new roundabout (Liberty Circle).
+  START_AT: [904, 770, 180],
   // Testing switch: the interchange editor in the pause menu (reshape the ramps, then drive them).
   RAMP_EDITOR: true,
 

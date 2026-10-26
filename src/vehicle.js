@@ -716,7 +716,7 @@ export class Vehicle {
   sync(dt) {
     // Ride up onto curbs and sidewalks instead of sinking into them.
     const gy = this.groundY || 0;
-    this.y = this.y === undefined ? gy : this.y + (gy - this.y) * Math.min(1, dt * 18);
+    this.y = this.y === undefined ? gy : this.y + (gy - this.y) * Math.min(1, dt * 30);
     // (up a hill: right with the ground, never lagging into it; only coming down is eased)
     if (this.y < gy - 0.08) this.y = gy - 0.08;
     // Tilted to the ground under the wheels (set from outside: groundAt), front to back and
@@ -738,9 +738,21 @@ export class Vehicle {
       this.flat = [hf, hb, hl, hr].every((h) => Math.abs(h - gy) < 0.05)
         && Math.abs(this.groundAt(this.x + fx * far, this.z + fz * far) - gy) < 0.05
         && Math.abs(this.groundAt(this.x - fx * far, this.z - fz * far) - gy) < 0.05;
-      // (a curb or a step under one wheel: ignore it, it's not a slope)
-      const pitch = Math.abs(hf - hb) < 2 * a ? Math.atan2(hf - hb, 2 * a) : 0;
-      const roll = Math.abs(hl - hr) < 2 * b ? Math.atan2(hl - hr, 2 * b) : 0;
+      // The lean: from the highest ground along each end and each side of the car (the nose
+      // meeting a slope tips the car up it, rather than the whole car being lifted level).
+      let pitch = 0;
+      let roll = 0;
+      if (!this.flat) {
+        const L0 = this.halfLen;
+        const W0 = this.type.w / 2;
+        const G = (u, s2) => this.groundAt(this.x + fx * u + lx * s2, this.z + fz * u + lz * s2);
+        const front = Math.max(hf, G(L0, W0), G(L0, -W0), G(L0, 0));
+        const back = Math.max(hb, G(-L0, W0), G(-L0, -W0), G(-L0, 0));
+        const left = Math.max(hl, G(0, W0), G(L0 * 0.6, W0), G(-L0 * 0.6, W0));
+        const right = Math.max(hr, G(0, -W0), G(L0 * 0.6, -W0), G(-L0 * 0.6, -W0));
+        pitch = Math.atan2(front - back, 2 * L0);
+        roll = Math.atan2(left - right, 2 * W0);
+      }
       const k = Math.min(1, dt * 25);
       this.pitch = (this.pitch || 0) + (Math.max(-0.7, Math.min(0.7, pitch)) - (this.pitch || 0)) * k;
       this.roll = (this.roll || 0) + (Math.max(-0.7, Math.min(0.7, roll)) - (this.roll || 0)) * k;
@@ -751,10 +763,18 @@ export class Vehicle {
       const L = this.halfLen;
       const W = this.type.w / 2;
       if (!this.flat) {
-        for (const [u, s] of [[L, W], [L, -W], [-L, W], [-L, -W], [L, 0], [-L, 0], [0, W], [0, -W]]) {
-          const d = this.groundAt(this.x + fx * u + lx * s, this.z + fz * u + lz * s) - (gy + u * tp + s * tr);
-          if (d > lift && d < 2) lift = d;
-        }
+        // Tilted that way, it sits as low as it can with no part of it below the ground: its
+        // underside touches the highest point of ground under it (on its wheels, never
+        // floating, never sunk in).
+        let c = gy;
+        const at = (u, s) => this.groundAt(this.x + fx * u + lx * s, this.z + fz * u + lz * s) - u * tp - s * tr;
+        // (on its wheels...)
+        const wu = L - 0.6;
+        const ws = W - 0.2;
+        for (const [u, s] of [[wu, ws], [wu, -ws], [-wu, ws], [-wu, -ws], [0, W], [0, -W]]) c = Math.max(c, at(u, s));
+        // (...with the bumpers' underside, 0.35 m up, still clear of the ground)
+        for (const [u, s] of [[L, W], [L, -W], [-L, W], [-L, -W], [L, 0], [-L, 0]]) c = Math.max(c, at(u, s) - 0.3);
+        lift = Math.min(1.5, c - gy);
       }
     } else {
       this.pitch = 0;

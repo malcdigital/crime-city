@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { segmentBlockedPad } from './collision.js';
 import { dist } from './util.js';
 import { closestOnSeg, pointInPoly } from './geom.js';
+import { edgesNear } from './city.js';
 
 // Sidewalks and crosswalks. People on foot stay on the sidewalks and only cross the street at
 // the crosswalks at the junctions (unless they're allowed to cut across: running for cover,
@@ -117,7 +118,7 @@ export function buildSidewalks(city, scene) {
     if (!n.street || !n.edges || n.edges.length < 3) continue;
     const ctl = streets?.control.get(n);
     for (const e of n.edges) {
-      if (e.cls === 'pier' || e.street?.stub !== undefined) continue;
+      if (e.cls === 'pier' || e.street?.stub !== undefined || e.street?.roundabout) continue; // (not across a roundabout: across the roads coming onto it)
       const m = e.other(n);
       const L = Math.hypot(m.x - n.x, m.z - n.z) || 1;
       const ux = (m.x - n.x) / L;
@@ -131,6 +132,12 @@ export function buildSidewalks(city, scene) {
       const off = e.w / 2 + 1.6;
       const A = [cx + rx * off, cz + rz * off];
       const B = [cx - rx * off, cz - rz * off];
+      // Only a clean crossing of this one road: not out in another road or junction, not
+      // running on into one, and not on top of a crosswalk that's already there.
+      const own = new Set(n.edges);
+      const other = (x, z, pad) => edgesNear(x, z, pad).some((o) => !own.has(o) && o.street?.stub === undefined);
+      if (other(cx, cz, 0) || other(...A, -0.2) || other(...B, -0.2)) continue;
+      if (crossings.some((o) => Math.hypot((o.x0 + o.x1) / 2 - cx, (o.z0 + o.z1) / 2 - cz) < Math.max(o.w, e.w) * 0.6 + 2)) continue;
       const ba = blockNear(...A);
       const bb = blockNear(...B);
       if (!ba || !bb || ba === bb) continue;

@@ -1030,6 +1030,48 @@ export function buildCity(scene) {
       rampLawns.push(b.poly);
       continue;
     }
+    if (b.type === 'park' && b.island) {
+      // A roundabout's island: lawn, and a statue on a stone plinth in the middle - a bronze
+      // figure holding up a lit torch, facing down the avenue.
+      const l = inset(b.poly, b.sw);
+      if (l.length) lawns.push(l);
+      const { x: sx, z: sz } = b.island;
+      const stone = lam(0xb8b2a4);
+      const bronze = lam(0x5f7f6a);
+      const face = Math.PI; // (toward the south: up Central Ave from Downtown)
+      const part = (geo, mat, x, y, z, ry = face) => batch.mesh(geo, mat, sx + x, y, sz + z, ry, { cast: true });
+      part(new THREE.CylinderGeometry(4.2, 4.6, 0.6, 24), stone, 0, 0.5, 0);
+      part(new THREE.BoxGeometry(4.4, 1.4, 4.4), stone, 0, 1.5, 0);
+      part(new THREE.BoxGeometry(3.4, 2.2, 3.4), stone, 0, 3.3, 0);
+      part(new THREE.BoxGeometry(3.8, 0.35, 3.8), stone, 0, 4.55, 0);
+      const fig = (geo, x, y, z, rx = 0, rz = 0) => {
+        geo.rotateX(rx);
+        geo.rotateZ(rz);
+        geo.translate(x, y, z);
+        geo.rotateY(face);
+        batch.mesh(geo, bronze, sx, 0, sz, 0, { cast: true });
+      };
+      const base = 4.7;
+      fig(new THREE.CylinderGeometry(0.75, 1.15, 3.6, 10), 0, base + 1.8, 0); // robe
+      fig(new THREE.CylinderGeometry(0.62, 0.75, 1.0, 10), 0, base + 4.0, 0); // shoulders
+      fig(new THREE.BoxGeometry(0.62, 0.72, 0.62), 0, base + 4.85, 0); // head
+      fig(new THREE.ConeGeometry(0.55, 0.45, 7), 0, base + 5.4, 0); // crown
+      fig(new THREE.BoxGeometry(0.32, 1.9, 0.32), 0.62, base + 5.2, 0, 0, -0.12); // raised arm
+      fig(new THREE.CylinderGeometry(0.16, 0.12, 0.9, 8), 0.75, base + 6.4, 0); // torch
+      fig(new THREE.BoxGeometry(0.3, 1.3, 0.75), -0.82, base + 3.3, 0.2, 0.3); // tablet arm
+      const flame = new THREE.ConeGeometry(0.28, 0.75, 8);
+      flame.translate(0.75, base + 7.2, 0);
+      flame.rotateY(face);
+      batch.mesh(flame, new THREE.MeshBasicMaterial({ color: 0xffb030 }), sx, 0, sz, 0);
+      colliders.push({ minX: sx - 2.3, maxX: sx + 2.3, minZ: sz - 2.3, maxZ: sz + 2.3, h: 12 });
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2 + 0.3;
+        const x = sx + Math.cos(a) * 9;
+        const z = sz + Math.sin(a) * 9;
+        if (l.length && pointInPoly(x, z, l)) tree(x, z, 0.7);
+      }
+      continue;
+    }
     if (b.type === 'park') {
       const l = inset(b.poly, b.sw);
       if (l.length && !b.country) lawns.push(l); // (out in the hills the ground is grass already)
@@ -1362,7 +1404,7 @@ export function buildCity(scene) {
       return n.edges.length > 1 ? m + 4.5 : 1;
     };
     for (const e of GRAPH.edges) {
-      if (e.cls === 'pier' || e.culDeSac || e.street?.stub !== undefined) continue;
+      if (e.cls === 'pier' || e.culDeSac || e.street?.stub !== undefined || e.street?.roundabout) continue; // (a roundabout: one way, no center line)
       const L = Math.hypot(e.b.x - e.a.x, e.b.z - e.a.z);
       const ux = (e.b.x - e.a.x) / L;
       const uz = (e.b.z - e.a.z) / L;
@@ -1376,14 +1418,18 @@ export function buildCity(scene) {
         if (!paved(x, z)) continue; // (out on the hills: laid along the drawn road, below)
         dashes.push([x, roadY(x, z), z, ry]);
       }
-      if (ROAD_CLASS[e.cls].parking) {
+      // The parking lane's edge line, in 3 m pieces: none where it would run out into another
+      // road (a junction, a road meeting this one at an angle), none on a stub of a street.
+      if (ROAD_CLASS[e.cls].parking && t1 - t0 >= 12 && paved(e.a.x, e.a.z) && paved(e.b.x, e.b.z)) {
         const off = e.w / 2 - 2.8;
-        const mid = (t0 + t1) / 2;
         for (const s of [-1, 1]) {
-          const x = e.a.x + ux * mid - uz * off * s;
-          const z = e.a.z + uz * mid + ux * off * s;
-          // (one long flat bar: only on the level city streets)
-          if (paved(e.a.x, e.a.z) && paved(e.b.x, e.b.z)) lines.push([x, roadY(x, z) + 0.001, z, ry, t1 - t0]);
+          for (let t = t0; t + 3 <= t1 + 0.01; t += 3) {
+            const x = e.a.x + ux * (t + 1.5) - uz * off * s;
+            const z = e.a.z + uz * (t + 1.5) + ux * off * s;
+            const ends = [[x - ux * 1.5, z - uz * 1.5], [x + ux * 1.5, z + uz * 1.5]];
+            if (ends.some(([px, pz]) => edgesNear(px, pz, 1).some((o) => o !== e && o.street !== e.street))) continue;
+            lines.push([x, roadY(x, z) + 0.001, z, ry, 3]);
+          }
         }
       }
     }
