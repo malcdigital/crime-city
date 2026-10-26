@@ -96,7 +96,7 @@ function courtTexture() {
     c.stroke();
     c.beginPath();
     const mid = end > 0 ? -Math.PI / 2 : Math.PI / 2;
-    c.arc(X(COURT.cx), Z(rim), r3 * S, mid - (Math.PI / 2 - a), mid + (Math.PI / 2 - a));
+    c.arc(X(COURT.cx), Z(rim), r3 * S, mid - a, mid + a); // (out to where it meets the corner lines)
     c.stroke();
   }
   // Some wear.
