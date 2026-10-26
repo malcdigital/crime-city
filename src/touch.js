@@ -32,8 +32,9 @@ const BUTTONS = [
   ['fire', 'FIRE', B.R2, ['foot'], 'fire', 'big red'],
   ['aim', 'AIM', B.L2, ['foot'], 'toggle', 'mid'],
   ['reload', '□', B.SQUARE, ['foot', 'strip'], 'hold', 'sm'],
-  ['cross', '✕', B.CROSS, ['foot', 'car', 'phone', 'menu', 'strip', 'map'], 'hold', 'sm'],
-  ['circle', '○', B.CIRCLE, ['foot', 'car', 'phone', 'menu', 'map'], 'hold', 'sm'],
+  ['cross', '✕', B.CROSS, ['foot', 'car', 'phone', 'menu', 'strip', 'map', 'stop'], 'hold', 'sm'],
+  ['circle', '○', B.CIRCLE, ['foot', 'car', 'phone', 'menu', 'map', 'stop'], 'hold', 'sm'],
+  ['fight', '□', B.SQUARE, ['stop'], 'hold', 'sm'], // (a police stop: fight back)
   ['tri', '△', B.TRIANGLE, ['foot', 'car', 'map'], 'hold', 'sm'],
   ['crouch', 'DUCK', B.L3, ['foot'], 'hold', 'sm txt'],
   ['weapon', 'GUN', B.L1, ['foot', 'strip'], 'weapon', 'sm txt'],
@@ -48,7 +49,7 @@ const BUTTONS = [
   ['down', '▼', B.DOWN, ['phone', 'menu', 'map'], 'hold', 'dp'],
   ['left', '◀', B.LEFT, ['phone', 'menu', 'strip'], 'hold', 'dp'],
   ['right', '▶', B.RIGHT, ['phone', 'menu', 'strip'], 'hold', 'dp'],
-  ['pause', '❚❚', B.OPTIONS, ['foot', 'car', 'phone', 'map', 'strip'], 'hold', 'top'],
+  ['pause', '❚❚', B.OPTIONS, ['foot', 'car', 'phone', 'map', 'strip', 'stop'], 'hold', 'top'],
   ['phone', '📱', B.CREATE, ['foot', 'car', 'phone'], 'hold', 'top'],
   ['map', 'MAP', B.TOUCHPAD, ['foot', 'car', 'map'], 'hold', 'top txt'],
   ['spawn', 'CAR', B.R3, ['foot'], 'hold', 'top txt test'],
@@ -61,6 +62,7 @@ const HINTS = {
   menu: { cross: 'buy', circle: 'leave' },
   strip: { cross: 'give', reload: 'drop', weapon: 'close' },
   map: { cross: 'pin', circle: 'close', tri: 'legend', heat: 'heat' },
+  stop: { cross: 'quietly', circle: 'bribe', fight: 'fight' },
 };
 
 export class TouchControls {
@@ -287,6 +289,7 @@ export class TouchControls {
     else if (game.mapView.open) ctx = 'map';
     else if (game.hud.phoneOpen) ctx = 'phone';
     else if (this.latched || game.inventory?.open) ctx = 'strip';
+    else if (game.stop) ctx = 'stop'; // (pulled over: go quietly, bribe, or fight)
     else if (game.player.vehicle) ctx = 'car';
     this.carSpeed = game.player.vehicle ? Math.abs(game.player.vehicle.speed) : 0;
     if (ctx !== this.ctx) {
@@ -305,6 +308,7 @@ export class TouchControls {
         B0.hint.textContent = (HINTS[ctx] && HINTS[ctx][id]) || '';
       }
     }
+    if (ctx === 'stop') this.el.buttons.fight.hint.textContent = game.player.vehicle ? 'floor it' : 'fight';
     // FIRE is dimmed until you aim (a gun only fires while aiming).
     const fire = this.el.buttons.fire;
     if (fire) fire.el.classList.toggle('dim', ctx === 'foot' && !game.aimingNow && !game.arsenal?.current()?.melee);

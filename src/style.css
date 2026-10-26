@@ -369,6 +369,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #touch[data-ctx="car"] .tb-cross { right: 196px; bottom: 22px; }
 #touch[data-ctx="car"] .tb-circle { right: 196px; bottom: 84px; }
 #touch[data-ctx="car"] .tb-tri { right: 30px; bottom: 140px; }
+/* Pulled over: three big choices in a row (go quietly, bribe, fight). */
+#touch[data-ctx="stop"] .tz { display: none; }
+#touch[data-ctx="stop"] .tb-cross, #touch[data-ctx="stop"] .tb-circle, #touch[data-ctx="stop"] .tb-fight { width: 70px; height: 70px; font-size: 22px; bottom: 104px; } /* (above the prompt and the phone line) */
+#touch[data-ctx="stop"] .tb-cross { right: 196px; }
+#touch[data-ctx="stop"] .tb-circle { right: 114px; }
+#touch[data-ctx="stop"] .tb-fight { right: 32px; background: rgba(190,40,40,.5); }
 #touch[data-ctx="car"] .tb-use { right: 22px; bottom: 206px; }
 /* D-pad (phone, menus, inventory strip) on the left */
 #touch .tb-up { left: 76px; bottom: 120px; }

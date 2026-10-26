@@ -420,11 +420,14 @@ class Game {
     this.endStory(`Suspect arrested on ${streetAt(bx, bz)}`, bx, bz, 'info', true);
     let fine = Math.min(this.cash, 200 * Math.max(1, this.stars) + Math.floor(this.cash * 0.1));
     if (opts.bribery) fine = Math.min(this.cash, fine + 500 + Math.floor((this.cash - fine) * 0.25)); // tried to bribe a straight cop
+    if (opts.resisting) fine = Math.min(this.cash, fine + 800 + Math.floor((this.cash - fine) * 0.3)); // fought the officer
     this.cash -= fine;
-    const credLoss = opts.bribery ? 25 : 10;
+    const credLoss = opts.bribery ? 25 : opts.resisting ? 15 : 10;
     this.cred = Math.max(0, this.cred - credLoss);
-    this.hud.busted(true, `Fined $${fine.toLocaleString('en-US')}${opts.bribery ? ' (+ bribery charge)' : ''} · -${credLoss} street cred`);
+    const charge = opts.bribery ? ' (+ bribery charge)' : opts.resisting ? ' (+ resisting arrest)' : '';
+    this.hud.busted(true, `Fined $${fine.toLocaleString('en-US')}${charge} · -${credLoss} street cred`);
     if (opts.bribery) this.hud.news(`Suspect charged with trying to bribe an officer on ${streetAt(bx, bz)}`, 'info');
+    if (opts.resisting) this.hud.news(`Suspect charged with resisting arrest after scuffle with officer on ${streetAt(bx, bz)}`, 'info');
     this.bustedT = 3;
     this.drugs.onBusted();
     this.clearWanted();
@@ -1729,7 +1732,12 @@ class Game {
 
   // ---- Dirty cops ----
   // A lone patrol stop can be a dirty cop. Every stop shows one or two details about the officer;
-  // dirty ones give themselves away in small ways. Go quietly or offer a bribe:
+  // dirty ones give themselves away in small ways. Go quietly, offer a bribe, or fight:
+  // - fight, on foot: you swing on him. About 2 in 3 you drop him and run (a straight cop calls
+  //   it in: assaulting an officer, and they shoot now; a dirty one won't report it - he'd have
+  //   to explain himself). Lose and a straight cop arrests you for resisting too (a bigger
+  //   fine); a dirty one gives you a beating and takes everything.
+  // - fight, in a car: you floor it (fleeing the stop: the chase is on).
   // - straight cop: going quietly is a normal arrest; a bribe gets you a bribery charge on top.
   // - dirty cop: going quietly, he takes everything you've got (cash and product) and lets you
   //   walk, wanted level cleared; a bribe costs your product and half your cash instead.
@@ -1776,8 +1784,10 @@ class Game {
     const pad = this.input.mode === 'pad';
     const who = s.name ? `Officer ${s.name}` : 'The officer';
     const details = s.tells.length ? ` (${s.tells.join(' · ')})` : '';
-    this.prompt = `${who}${details}: "Hands where I can see em." — ${pad ? '✕' : 'E'} go quietly · ${pad ? '○' : 'Q'} offer a bribe`;
+    const inCar = !!this.player.vehicle;
+    this.prompt = `${who}${details}: "Hands where I can see em." — ${pad ? '✕' : 'E'} go quietly · ${pad ? '○' : 'Q'} offer a bribe · ${pad ? '□' : 'R'} ${inCar ? 'floor it' : 'fight'}`;
     if (s.t < 0.6) return; // a beat before you can answer
+    if (a.dealFight && !a.dealYes && !a.dealNo) return this.fightStop(s, who);
     const quiet = a.dealYes || s.t > 15;
     const bribe = a.dealNo && !quiet;
     if (!quiet && !bribe) return;
@@ -1802,6 +1812,76 @@ class Game {
     this.hud.toast(bribe ? `${who} took the bribe${what ? `: ${what}` : ''}. "Get outta here."` : `${who} took everything${what ? `: ${what}` : ''}. "We never met."`, '#ffd36b');
     this.save();
     this.drugs.save();
+  }
+
+  // Running from a stop: at least two stars, and the chase is on.
+  fled(x, z) {
+    this.crime('fleeStop', x, z);
+    if (this.heat < CFG.STAR_HEAT[1]) this.heat = CFG.STAR_HEAT[1];
+    this.stars = Math.max(this.stars, 2);
+  }
+
+  // Fighting your way out of a stop (see above).
+  fightStop(s, who) {
+    this.stop = null;
+    this.holdFireUntil = 0;
+    const p = this.player;
+    const [px, pz] = p.pos();
+    // In a car: you floor it.
+    if (p.vehicle) {
+      const v = p.vehicle;
+      v.speed = Math.max(v.speed, 6);
+      if (!s.dirty) this.fled(px, pz);
+      this.hud.toast(s.dirty ? `You floor it. ${who} doesn't call it in.` : 'You floor it!', '#ff8080');
+      this.save();
+      return;
+    }
+    // On foot: the officer closest to you (out of his car, or getting out).
+    let cop = null;
+    for (const o of this.police.officers()) {
+      if (!o.standing || o.state === 'inCar') continue;
+      if (!cop || dist(o.x, o.z, px, pz) < dist(cop.x, cop.z, px, pz)) cop = o;
+    }
+    if (!cop || dist(cop.x, cop.z, px, pz) > 9) {
+      // Nobody in reach: you run for it.
+      if (!s.dirty) this.fled(px, pz);
+      this.hud.toast('You make a run for it!', '#ff8080');
+      return;
+    }
+    p.heading = Math.atan2(cop.x - p.x, cop.z - p.z);
+    this.sfx.punch?.();
+    // Odds: about 2 in 3, a little better with more street cred.
+    const win = Math.random() < Math.min(0.8, 0.62 + this.cred / 4000);
+    if (win) {
+      cop.knockDown(px, pz, 1.5);
+      if (s.dirty) {
+        this.hud.toast(`You drop ${who.replace('The officer', 'the officer')}. He won't be reporting this. Go!`, '#ffd36b');
+        this.cred += 6;
+        this.police.standDown();
+      } else {
+        this.crime('assaultCop', cop.x, cop.z);
+        this.hud.toast(`You drop ${who.replace('The officer', 'the officer')}. Run!`, '#ff8080');
+      }
+      this.save();
+      return;
+    }
+    // He gets the better of you.
+    if (s.dirty) {
+      const took = this.cash;
+      this.cash = 0;
+      this.drugs.inv = { weed: 0, pills: 0, coke: 0 };
+      this.drugs.lostRun();
+      this.health = Math.max(15, this.health - 35);
+      this.clearWanted();
+      this.police.standDown();
+      this.hud.toast(`${who} beats you down and takes everything${took ? ` (-$${took.toLocaleString('en-US')})` : ''}. "Should've paid."`, '#ff8080');
+      this.save();
+      this.drugs.save();
+      return;
+    }
+    this.health = Math.max(15, this.health - 15);
+    this.hud.toast(`${who} takes you down. "Stop resisting!"`, '#ff8080');
+    this.bust({ final: true, resisting: true });
   }
 
   // City News now and then: Internal Affairs looking at a dirty officer (remember the names).
