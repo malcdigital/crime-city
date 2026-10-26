@@ -1980,6 +1980,7 @@ class Game {
     for (const v of this.vehicles) {
       this.highway.updateLayer(v); // up a ramp onto the highway, or back down
       v.groundY = this.highway.groundFor(v);
+      v.groundAt ||= (x, z) => (v.high ? this.highway.heightAt(x, z, v.y) ?? v.groundY : this.city.groundY(x, z));
       v.sync(dt);
     }
     if (!this.player.vehicle) this.highway.updateLayer(this.player); // walking up or down a ramp

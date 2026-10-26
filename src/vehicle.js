@@ -456,6 +456,9 @@ export class Vehicle {
   update(dt, ctrl, boxes) {
     if (this.wrecked) ctrl = { throttle: 0, steer: 0, handbrake: true };
     if (this.high && HIGHWAY) boxes = HIGHWAY.boxesFor(this.y || 0); // up on the highway: only the rails
+    const x0 = this.x;
+    const z0 = this.z;
+    const h0 = this.heading;
     const t = this.type;
     let s = this.speed;
     const s0 = s;
@@ -514,6 +517,7 @@ export class Vehicle {
     if (player && s0 > 3.5 && !this.wrecked) {
       this.dynamics(dt, ctrl, steer, s0, maxS, accel);
       this.collide(boxes);
+      this.steepStop(x0, z0, h0);
       return;
     }
     this.driftAmt = 0;
@@ -529,6 +533,40 @@ export class Vehicle {
     this.speed = s;
     this.drift = Math.abs(this.lat);
     this.collide(boxes);
+    this.steepStop(x0, z0, h0);
+  }
+
+  // Ground too steep to drive up (a cliff, the edge of a raised yard) is a wall. Hills are
+  // fine; a move (or turn) that puts a corner or an end of the car against a rise of more
+  // than about 50% from where it stands is undone, so the body never goes into the ground.
+  steepness(x, z, h) {
+    const fx = Math.sin(h);
+    const fz = Math.cos(h);
+    const lx = Math.cos(h);
+    const lz = -Math.sin(h);
+    const L = this.halfLen;
+    const W = this.type.w / 2;
+    const here = this.groundAt(x, z);
+    let worst = -Infinity;
+    for (const [u, s] of [[L, W], [L, -W], [-L, W], [-L, -W], [L, 0], [-L, 0], [0, W], [0, -W]]) {
+      const rise = this.groundAt(x + fx * u + lx * s, z + fz * u + lz * s) - here;
+      worst = Math.max(worst, rise - 0.5 * Math.hypot(u, s));
+    }
+    return worst;
+  }
+  steepStop(x0, z0, h0) {
+    if (this.high || !this.groundAt || this.flat) return; // (flat all round last frame: nothing to climb)
+    if (this.x === x0 && this.z === z0 && this.heading === h0) return;
+    const now = this.steepness(this.x, this.z, this.heading);
+    if (now <= 0.2) return;
+    // (already wedged somewhere steep: any move that doesn't make it worse is allowed out)
+    if (now <= this.steepness(x0, z0, h0)) return;
+    this.x = x0;
+    this.z = z0;
+    this.heading = h0;
+    this.speed *= -0.15;
+    this.lat = 0;
+    if (this.r !== undefined) this.r = 0;
   }
 
   // Driving model, after GTA V's handling data. Each axle's sideways grip follows a traction
@@ -679,8 +717,53 @@ export class Vehicle {
     // Ride up onto curbs and sidewalks instead of sinking into them.
     const gy = this.groundY || 0;
     this.y = this.y === undefined ? gy : this.y + (gy - this.y) * Math.min(1, dt * 18);
-    this.group.position.set(this.x, this.y, this.z);
-    this.group.rotation.y = this.heading;
+    // (up a hill: right with the ground, never lagging into it; only coming down is eased)
+    if (this.y < gy - 0.08) this.y = gy - 0.08;
+    // Tilted to the ground under the wheels (set from outside: groundAt), front to back and
+    // side to side, so on a hill the nose or tail doesn't dig into the slope.
+    let lift = 0;
+    if (this.groundAt) {
+      const fx = Math.sin(this.heading);
+      const fz = Math.cos(this.heading);
+      const lx = Math.cos(this.heading); // (local +x is the car's left)
+      const lz = -Math.sin(this.heading);
+      const a = this.halfLen * 0.8;
+      const b = this.type.w * 0.45;
+      const hf = this.groundAt(this.x + fx * a, this.z + fz * a);
+      const hb = this.groundAt(this.x - fx * a, this.z - fz * a);
+      const hl = this.groundAt(this.x + lx * b, this.z + lz * b);
+      const hr = this.groundAt(this.x - lx * b, this.z - lz * b);
+      // (level ground all round - most of the city - nothing more to do)
+      const far = this.halfLen + 0.8;
+      this.flat = [hf, hb, hl, hr].every((h) => Math.abs(h - gy) < 0.05)
+        && Math.abs(this.groundAt(this.x + fx * far, this.z + fz * far) - gy) < 0.05
+        && Math.abs(this.groundAt(this.x - fx * far, this.z - fz * far) - gy) < 0.05;
+      // (a curb or a step under one wheel: ignore it, it's not a slope)
+      const pitch = Math.abs(hf - hb) < 2 * a ? Math.atan2(hf - hb, 2 * a) : 0;
+      const roll = Math.abs(hl - hr) < 2 * b ? Math.atan2(hl - hr, 2 * b) : 0;
+      const k = Math.min(1, dt * 25);
+      this.pitch = (this.pitch || 0) + (Math.max(-0.7, Math.min(0.7, pitch)) - (this.pitch || 0)) * k;
+      this.roll = (this.roll || 0) + (Math.max(-0.7, Math.min(0.7, roll)) - (this.roll || 0)) * k;
+      // (where the ground bends - flat into a slope, a dip - sit up on the high points: no
+      // corner or end of the body below the ground under it)
+      const tp = Math.tan(this.pitch);
+      const tr = Math.tan(this.roll);
+      const L = this.halfLen;
+      const W = this.type.w / 2;
+      if (!this.flat) {
+        for (const [u, s] of [[L, W], [L, -W], [-L, W], [-L, -W], [L, 0], [-L, 0], [0, W], [0, -W]]) {
+          const d = this.groundAt(this.x + fx * u + lx * s, this.z + fz * u + lz * s) - (gy + u * tp + s * tr);
+          if (d > lift && d < 2) lift = d;
+        }
+      }
+    } else {
+      this.pitch = 0;
+      this.roll = 0;
+      this.flat = false;
+    }
+    this.group.position.set(this.x, this.y + lift, this.z);
+    this.group.rotation.order = 'YXZ';
+    this.group.rotation.set(-this.pitch, this.heading, this.roll);
     for (const w of this.wheels) {
       const spin = !w.userData.front && this.rearSpin > 0 ? this.rearSpin : this.speed;
       if (!w.userData.flat) w.rotation.x += (spin * dt) / 0.38;
