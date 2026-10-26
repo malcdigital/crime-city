@@ -96,6 +96,13 @@ export function crouchPose(c, depth = 1, shuffle = 0) {
   return -Math.min(dl, dr);
 }
 
+// A different shirt (a team jersey, say).
+export function setShirt(c, color) {
+  c.group.traverse((m) => {
+    if (m.isMesh && (m.geometry === BODY || m.geometry === ARM)) m.material = lam(color);
+  });
+}
+
 // Lay the character on its back (knocked down) or stand it back up.
 export function setDown(c, down) {
   c.group.rotation.x = down ? -Math.PI / 2 : 0;

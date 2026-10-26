@@ -269,9 +269,9 @@ export class Ped {
         const [lx, lz] = game.player.pos(); // face you (or your car)
         this.heading = lerpAngle(this.heading, Math.atan2(lx - this.x, lz - this.z), Math.min(1, dt * 6));
       }
-    } else if (this.state === 'hoops') {
-      // Shooting hoops at the court (hoops.js runs the game).
-      const o = this.hoop.drive(this, dt);
+    } else if (this.state === 'play') {
+      // Playing ball: shooting hoops (hoops.js), football practice or watching it (football.js).
+      const o = this.act.drive(this, dt);
       if (o.speed > 0) {
         [tx, tz] = [o.tx, o.tz];
         speed = o.speed;
@@ -376,7 +376,7 @@ export class Ped {
       c.armL.rotation.x = -2.7;
       c.armR.rotation.x = -2.7;
     }
-    if (this.state === 'hoops') yOff = this.hoop.pose(this);
+    if (this.state === 'play') yOff = this.act.pose(this);
     c.group.position.set(this.x, y + yOff, this.z);
     this.char.group.rotation.y = this.heading;
   }

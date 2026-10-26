@@ -8,7 +8,7 @@ import { rand, dist, lerpAngle } from './util.js';
 // the ball: dribbles to a spot, sets, jumps and shoots. It goes in (drops through the net) or
 // clanks off the rim; whoever's closest chases the rebound, and sometimes passes it out to
 // someone else for the next shot. They're ordinary pedestrians underneath (peds.js state
-// 'hoops'): shooting or crashing near them scatters them like anyone else, and the ball rolls
+// 'play'): shooting or crashing near them scatters them like anyone else, and the ball rolls
 // to a stop where it's dropped.
 const NEAR = 150; // they turn up when you're this close
 const FAR = 200; // and go when you're this far
@@ -74,8 +74,8 @@ export class Hoops {
       for (let k = 0; k < n; k++) {
         const [x, z] = this.spot(g, 3, 7);
         const p = this.game.peds.addAt(x, z);
-        p.state = 'hoops';
-        p.hoop = this;
+        p.state = 'play';
+        p.act = this;
         p.keep = true;
         p.sidewalk = false;
         p.heading = Math.atan2(rim.x - x, rim.z - z);
@@ -172,11 +172,11 @@ export class Hoops {
     const b = g.ball;
     // Anyone who got scared off, hurt or killed is out (and drops the ball).
     for (const p of [...g.players]) {
-      if (p.state === 'hoops' && !p.removed) continue;
+      if (p.state === 'play' && !p.removed) continue;
       g.players.splice(g.players.indexOf(p), 1);
       p.keep = false;
       p.sidewalk = true;
-      p.hoop = null;
+      p.act = null;
       if (b.holder === p) this.dropBall(g);
       if (b.target === p) b.target = null;
     }
@@ -231,7 +231,7 @@ export class Hoops {
     if (b.kind === 'pass') {
       const r = b.target;
       b.target = null;
-      if (r && !r.removed && r.state === 'hoops' && dist(r.x, r.z, b.x, b.z) < 1.5) {
+      if (r && !r.removed && r.state === 'play' && dist(r.x, r.z, b.x, b.z) < 1.5) {
         this.giveBall(g, r);
         r.hp.phase = 'set'; // catch and shoot from there
         r.hp.t = rand(0.3, 0.7);
@@ -335,7 +335,7 @@ export class Hoops {
       }
       if (h.phase === 'pass') {
         const r = h.to;
-        if (!r || r.removed || r.state !== 'hoops') {
+        if (!r || r.removed || r.state !== 'play') {
           h.phase = 'walk';
           return { speed: 0 };
         }

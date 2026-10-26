@@ -16,9 +16,17 @@ const GOAL0 = F.z0 + EZ; // north goal line
 const GOAL1 = F.z1 - EZ;
 const BLEACH = { x0: 1203, x1: 1226, z0: F.z1 + 5, rows: 5, depth: 0.85, rise: 0.45 };
 const BOARD = { x: 1209, z: F.z0 - 7 };
+// The lot south of the bleachers: an aisle in line with Freight Way (which meets the road
+// alongside here), a row of spaces either side.
+const LOT = { x0: 1199, x1: 1237, z0: 1061, z1: 1080 };
+const LOT_AISLE = [1067, 1074];
+const LOT_X0 = 1200.5;
+const STALL_W = 2.7;
+const STALLS = 13; // per row
 
 export const FIELD_SITE = { name: 'Harbor Field', x: F.cx, z: (F.z0 + F.z1) / 2, field: F };
-export const FIELD_RESERVED = [[F.x0 - 4, F.z0 - 10, F.x1 + 4, BLEACH.z0 + BLEACH.rows * BLEACH.depth + 2]];
+export const FIELD_RESERVED = [[F.x0 - 4, F.z0 - 10, F.x1 + 4, BLEACH.z0 + BLEACH.rows * BLEACH.depth + 2], [LOT.x0 - 1, LOT.z0 - 1, LOT.x1 + 1, LOT.z1 + 1]];
+export const FIELD_BLEACHERS = BLEACH;
 
 const box = (w, h, d, x, y, z) => {
   const g = new THREE.BoxGeometry(w, h, d);
@@ -202,6 +210,24 @@ export function buildField(city, scene) {
     city.colliders.push({ minX: x - 0.2, maxX: x + 0.2, minZ: z - 0.2, maxZ: z + 0.2, h: 13 });
   }
 
+  // ---- The lot ----
+  const asphalt = [flat(LOT.x0, LOT.z0, LOT.x1, LOT.z1, 0.035)];
+  const paint = [];
+  const white = [];
+  const spots = [];
+  for (const [z0, z1, heading] of [[LOT.z0 + 0.5, LOT_AISLE[0], Math.PI], [LOT_AISLE[1], LOT.z1 - 0.5, 0]]) {
+    const head = heading ? z0 : z1; // (the nose end of the spaces)
+    for (let k = 0; k <= STALLS; k++) paint.push(box(0.12, 0.01, z1 - z0, LOT_X0 + k * STALL_W, 0.045, (z0 + z1) / 2));
+    paint.push(box(STALLS * STALL_W, 0.01, 0.12, LOT_X0 + (STALLS * STALL_W) / 2, 0.045, head));
+    for (let k = 0; k < STALLS; k++) {
+      const x = LOT_X0 + (k + 0.5) * STALL_W;
+      white.push(box(1.6, 0.12, 0.2, x, 0.095, head + (heading ? 0.6 : -0.6)));
+      spots.push({ x, z: (z0 + z1) / 2 + (heading ? -0.3 : 0.3), heading });
+    }
+  }
+  // (a path from the lot up to the bleachers)
+  asphalt.push(flat(B.x0 + 8, back, B.x0 + 10, LOT.z0, 0.04));
+
   const add = (list, mat, shadow = true) => {
     if (!list.length) return;
     const m = new THREE.Mesh(mergeGeometries(list), mat);
@@ -213,6 +239,9 @@ export function buildField(city, scene) {
   add(alu, lam(0xb9c0c6));
   add(yellow, lam(0xf2c418));
   add(dark, lam(0x22272d));
+  add(asphalt, lam(0x3a3d42), false);
+  add(paint, new THREE.MeshBasicMaterial({ color: 0xe8e8e0 }), false);
+  add(white, lam(0xe9e9e4));
   const headMat = new THREE.MeshLambertMaterial({ color: 0xd9d6c8, emissive: 0x000000 });
   add(heads, headMat, false);
   city.windowMats?.push(headMat); // (lit after dark with the windows)
@@ -225,7 +254,7 @@ export function buildField(city, scene) {
     glowMat.opacity = 0.13 * k;
     glow.visible = k > 0.02;
   });
-  return { field: F };
+  return { field: F, spots, bleachers: BLEACH, goal0: GOAL0, goal1: GOAL1 };
 }
 
 // On the 2D maps.
@@ -239,6 +268,8 @@ export function drawField(ctx, s) {
   ctx.strokeStyle = '#f4f4f0';
   ctx.lineWidth = Math.max(1, s * 0.5);
   ctx.strokeRect(F.x0 * s, F.z0 * s, (F.x1 - F.x0) * s, (F.z1 - F.z0) * s);
+  ctx.fillStyle = '#4a4d52';
+  ctx.fillRect(LOT.x0 * s, LOT.z0 * s, (LOT.x1 - LOT.x0) * s, (LOT.z1 - LOT.z0) * s);
   ctx.fillStyle = '#b9c0c6';
   ctx.fillRect(BLEACH.x0 * s, BLEACH.z0 * s, (BLEACH.x1 - BLEACH.x0) * s, BLEACH.rows * BLEACH.depth * s);
 }
