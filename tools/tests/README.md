@@ -38,6 +38,7 @@ Screenshots land in `tools/tests/shots/` (not kept in git).
 | `lines.mjs` | Every painted line (street dashes, lane lines, freeway and ramp lines): on its road, at its height, center dashes on the center line |
 | `xwalk.mjs` | Crosswalks: at their junction, across one road, not in another road or on top of another crosswalk |
 | `roundabout.mjs` | Traffic at the roundabouts goes round the right way and gets through |
+| `closeup.mjs` | A picture from any point at any target: `'[[eyeX, eyeY, eyeZ, lookX, lookY, lookZ, "name", hour]]'` |
 | `handling.mjs` | Your car at 12/20/28 m/s with full steering for 1.5 s: on the gas, coasting, braking, drifting - how far it turns and how much it slides |
 | `drivehills.mjs` | Cars driven off-road flat out on the hills: the body never goes into the ground, and the car sits on its wheels. Args: `[runs] [seconds]` |
 | `conn.mjs` | The street network is all connected |

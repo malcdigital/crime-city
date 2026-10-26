@@ -609,8 +609,8 @@ export class Vehicle {
     const rearFlats = this.wheels.filter((w) => w.userData.flat && !w.userData.front).length;
     // Arcade feel: on the gas the front bites (the car turns in tight); off the gas the rear
     // holds (no snapping round when you lift); the drift (gas + brake) is its own thing.
-    const muF = H.max * (H.bias + 0.5) * (1 - 0.25 * frontFlats) * (1 + 0.35 * gasAmt * (1 - drift));
-    const muR = H.max * (1.5 - H.bias) * (1 - 0.25 * rearFlats) * (1 - 0.35 * drift) * (1 + 0.45 * (1 - gasAmt) * (1 - drift));
+    const muF = H.max * (H.bias + 0.5) * (1 - 0.25 * frontFlats) * (1 + 0.6 * gasAmt * (1 - drift));
+    const muR = H.max * (1.5 - H.bias) * (1 - 0.25 * rearFlats) * (1 - 0.35 * drift) * (1 + (0.45 + 0.35 * gasAmt) * (1 - drift)); // (planted on the gas too: it turns, it doesn't skid)
     const curve = (al, mu) => {
       // Grip (as a friction coefficient) for a slip angle: builds to the peak, then eases to
       // the sliding level.
@@ -671,7 +671,7 @@ export class Vehicle {
       // back toward the rate the car's path is turning, and the sideways slip bleeds off).
       if (drift < 0.3) {
         const beta = Math.atan2(this.vy, vx);
-        const over = Math.max(0, Math.abs(beta) - 0.14);
+        const over = Math.max(0, Math.abs(beta) - 0.06); // (a slide past ~3.5 degrees is caught)
         if (over > 0) {
           const V = Math.max(Math.hypot(this.vx, this.vy), 1);
           const pathRate = Fy / m / V;

@@ -400,7 +400,8 @@ export class Streets {
       list.forEach((e, k) => {
         const m = e.other(n);
         const L = Math.hypot(m.x - n.x, m.z - n.z) || 1;
-        blades.push([pole.x, pole.y + base + k * 0.24, pole.z, (m.x - n.x) / L, (m.z - n.z) / L, e.street.name]);
+        // (thick enough to wrap the pole it's on: a mast pole is ~0.2 m round, a sign post 0.05)
+        blades.push([pole.x, pole.y + base + k * 0.3, pole.z, (m.x - n.x) / L, (m.z - n.z) / L, e.street.name, pole.type === 'stop' ? 0.07 : 0.21]);
       });
     }
     if (!blades.length) return;
@@ -435,7 +436,8 @@ export class Streets {
     const uv = [];
     const W = 2.1;
     const Hh = 0.27;
-    for (const [x, y, z, dx, dz, nm] of blades) {
+    const body = [];
+    for (const [x, y, z, dx, dz, nm, half] of blades) {
       const i = names.indexOf(nm);
       const u0 = (i % cols) / cols;
       const u1 = u0 + 1 / cols;
@@ -445,21 +447,42 @@ export class Streets {
       const az = z - (dz * W) / 2;
       const bx = x + (dx * W) / 2;
       const bz = z + (dz * W) / 2;
-      // Front (one side) and back (the other, so it reads the right way round from there too).
-      const quad = (p, q, flip) => {
-        const [pa, pb] = flip ? [q, p] : [p, q];
+      // A solid green board round the pole, the name on each face (each reading the right
+      // way round from its side), just outside the board so the pole never shows through.
+      const nx = -dz;
+      const nz = dx;
+      const t = half + 0.006;
+      const quad = (side) => {
+        const ox = nx * t * side;
+        const oz = nz * t * side;
+        const [pa, pb] = side > 0 ? [[ax + ox, az + oz], [bx + ox, bz + oz]] : [[bx + ox, bz + oz], [ax + ox, az + oz]]; // (facing out that side, reading left to right)
         pos.push(pa[0], y - Hh / 2, pa[1], pb[0], y - Hh / 2, pb[1], pb[0], y + Hh / 2, pb[1]);
         pos.push(pa[0], y - Hh / 2, pa[1], pb[0], y + Hh / 2, pb[1], pa[0], y + Hh / 2, pa[1]);
         uv.push(u0, v0, u1, v0, u1, v1, u0, v0, u1, v1, u0, v1);
       };
-      quad([ax, az], [bx, bz], false);
-      quad([ax, az], [bx, bz], true);
+      quad(1);
+      quad(-1);
+      body.push([x, y, z, Math.atan2(dx, dz), 1, 1, 1, half * 2]);
     }
+    // (the boards themselves: one box each, as long as the sign, as thick as the pole)
+    const boardGeo = new THREE.BoxGeometry(1, Hh, W);
+    const boards = new THREE.InstancedMesh(boardGeo, new THREE.MeshLambertMaterial({ color: 0x1d6b3a }), Math.max(1, body.length));
+    body.forEach(([bx2, by, bz2, ry, , , , thick], k) => {
+      const d = new THREE.Object3D();
+      d.position.set(bx2, by, bz2);
+      d.rotation.set(0, ry, 0);
+      d.scale.set(thick, 1, 1);
+      d.updateMatrix();
+      boards.setMatrixAt(k, d.matrix);
+    });
+    boards.count = body.length;
+    boards.computeBoundingSphere();
+    this.scene.add(boards);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     geo.computeBoundingSphere();
-    this.scene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex })));
+    this.scene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex, side: THREE.FrontSide })));
     if (extra.length) place(new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.05, 0.75, 6), new THREE.MeshLambertMaterial({ color: 0x8a8f96 }), extra.length), extra);
     this.nameBlades = blades.length;
   }
