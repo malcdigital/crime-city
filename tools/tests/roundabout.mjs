@@ -50,7 +50,7 @@ const r = await page.evaluate(async (secs) => {
       }
     }
     const longStuck = [...stuck.values()].filter((t) => t > 20).length;
-    out.push({ name: R.name, carsOnRing: seen.size, samplesRightWay: right, samplesWrongWay: wrong, stuckOver20s: longStuck, wrongEx, stuckEx: [...stuck.entries()].filter(([, t]) => t > 20).map(([d]) => [Math.round(d.car.x), Math.round(d.car.z), d.from && [Math.round(d.from.x), Math.round(d.from.z)], d.to && [Math.round(d.to.x), Math.round(d.to.z)]]) });
+    out.push({ name: R.name, carsOnRing: seen.size, samplesRightWay: right, samplesWrongWay: wrong, stuckOver20s: longStuck, wrongEx, stuckEx: [...stuck.entries()].filter(([, t]) => t > 20).map(([d]) => [Math.round(d.car.x), Math.round(d.car.z), d.from && [Math.round(d.from.x), Math.round(d.from.z)], d.to && [Math.round(d.to.x), Math.round(d.to.z)], 'ctl ' + g.streets.control.get(d.to)?.type, 'blocked ' + (d.blockedBy ? (d.blockedBy.parkSpot ? 'parked' : d.blockedBy.driver === 'player' ? 'player' : d.blockedBy.driver ? 'car@' + Math.round(d.blockedBy.x) + ',' + Math.round(d.blockedBy.z) : 'other') : '-'), 'halt ' + !!d.halt, 'peds ' + g.peds.peds.filter((q) => Math.hypot(q.x - d.car.x, q.z - d.car.z) < 12).length]) });
   }
   return out;
 }, secs);
