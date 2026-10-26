@@ -13,6 +13,7 @@ import {
 } from './worldplan.js';
 import { RAMPS, RING, RING_HALF, XT, XT_HALF, inHole, roundRect } from './fwyplan.js';
 import { SPECIAL, STORES, PLACES, STYLES } from './districts.js';
+import { buildCourt, drawCourt, COURT_RESERVED } from './court.js';
 
 export { districtAt };
 export const SIZE = MAP;
@@ -1646,6 +1647,7 @@ export function buildCity(scene) {
       ctx.closePath();
       ctx.fill();
     }
+    drawCourt(ctx, s);
   };
 
   const city = {
@@ -1654,6 +1656,8 @@ export function buildCity(scene) {
     nodes, edges: GRAPH.edges, nearestNode, blockAt, groundY, paved, heightAt, roadY, drawMap, size: MAP, hilly: true,
     storefront, frontPoint, edgeAt, streetAt, onPier,
     byKey: new Map(blocks.map((b) => [b.key, b])),
+    reserved: COURT_RESERVED, // (ground kept clear of signs and poles: the court and its lot)
   };
+  city.court = buildCourt(city, scene);
   return city;
 }

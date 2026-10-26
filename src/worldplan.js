@@ -1263,6 +1263,40 @@ function makeRoundabouts() {
 }
 makeRoundabouts();
 
+// A service road in town that runs on past its last cross street and stops in nothing (it
+// didn't reach the next street): the loose end is cut off at that cross street. Left alone it
+// would sit under the block's lawn, with its lines and signs showing through the grass.
+function trimLooseServiceEnds() {
+  const reachOf = (o) => Math.max(SNAP, ROAD_CLASS[o.cls].w / 2);
+  const touches = (x, z, self) => streets.some((o) => o !== self && o.pts.some((q, k) => k + 1 < o.pts.length && closestOnSeg(x, z, ...q, ...o.pts[k + 1]).d < reachOf(o)));
+  for (const st of streets) {
+    if (!st.service || st.pts.length < 2) continue;
+    for (const end of [0, 1]) {
+      const n = st.pts.length;
+      const P = end ? st.pts[n - 1] : st.pts[0];
+      const Q = end ? st.pts[n - 2] : st.pts[1];
+      if (!insideRing(...P) || touches(...P, st)) continue;
+      // The nearest street it crosses (or that meets it), going back from the loose end.
+      let best = null;
+      for (const o of streets) {
+        if (o === st) continue;
+        for (let k = 0; k + 1 < o.pts.length; k++) {
+          const X = segInter(...P, ...Q, ...o.pts[k], ...o.pts[k + 1]);
+          if (X && X.t > 0.01 && (!best || X.t < best.t)) best = X;
+        }
+        for (const q of [o.pts[0], o.pts[o.pts.length - 1]]) {
+          const c = closestOnSeg(...q, ...P, ...Q);
+          if (c.d < reachOf(st) && c.t > 0.01 && (!best || c.t < best.t)) best = { t: c.t, x: c.x, z: c.z };
+        }
+      }
+      if (!best || best.t * dist(...P, ...Q) > 70) continue;
+      if (end) st.pts[n - 1] = [best.x, best.z];
+      else st.pts[0] = [best.x, best.z];
+    }
+  }
+}
+trimLooseServiceEnds();
+
 export const STREETS = streets;
 export const GRAPH = buildGraph();
 export const BLOCKS = buildBlocks(GRAPH).filter((b) => b.area >= 60);

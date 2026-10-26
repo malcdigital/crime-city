@@ -271,6 +271,7 @@ export class Streets {
       // (no sidewalk anywhere near - under a freeway, out of town: on the grass or ground beside
       // the road, never out on open paving)
       const ground = (x, z) => {
+        if (city.reserved?.some(([x0, z0, x1, z1]) => x > x0 && x < x1 && z > z0 && z < z1)) return false;
         const b = city.blockAt(x, z);
         return b ? b.type === 'ramps' || b.country : !city.paved(x, z) || z > RING.z1 + 14; // (or the quay at the docks)
       };

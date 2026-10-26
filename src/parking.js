@@ -76,6 +76,14 @@ export class Parking {
         }
       }
     }
+    // (and the lot by the basketball court: about half the spaces taken)
+    for (const sp of city.court?.spots || []) {
+      if (rng() > 0.55) continue;
+      const r = rng();
+      const type = r < 0.12 ? 'sports' : r < 0.3 ? 'van' : 'sedan';
+      const cols = VTYPES[type].colors;
+      this.spots.push({ x: sp.x, z: sp.z, heading: sp.heading, type, color: cols[Math.floor(rng() * cols.length)], car: null, gone: -1, idx: -1 });
+    }
   }
 
   makeMeshes() {

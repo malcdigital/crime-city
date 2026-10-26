@@ -45,6 +45,7 @@ export class DayNight {
     game.sun.color.copy(DAY_SUN).lerp(NIGHT_SUN, k);
     // Lit windows glow after dark.
     for (const mat of game.city.windowMats || []) mat.emissive.setRGB(1.0 * k, 0.85 * k, 0.55 * k);
+    for (const f of game.city.onNight || []) f(k);
     game.streets?.setNight(k);
     setCarNight(k);
   }
