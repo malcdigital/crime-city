@@ -1076,6 +1076,79 @@ class Game {
     return Math.hypot(sx, sy) / innerHeight;
   }
 
+  // Aim assist on the phone. Tapping AIM snaps to the nearest threat in front of you (a
+  // gang member or cop first, anyone else only if they're close to the crosshair); the camera
+  // stays on them. A short swipe left or right jumps to the next target that way, a swipe up
+  // goes for the head (down for the body), and a long drag breaks the lock to aim freely.
+  updateTouchAimAssist(dt, a) {
+    const p = this.player;
+    const valid = (c) =>
+      c.alive && c.standing && !c.isCrew && dist(c.x, c.z, p.x, p.z) < 45 && !segmentBlocked(p.x, p.z, c.x, c.z, this.city.los);
+    const threat = (c) => c.isGang || c.isCop || c.shopkeeper;
+    const started = !this.touchAimWas;
+    this.touchAimWas = true;
+    this.lockIgnoreT = (this.lockIgnoreT || 0) - dt;
+    let t = this.lockTarget;
+    if (t && (!valid(t) || this.crosshairOffset(t) > 1.2)) t = this.lockTarget = null; // (gone, or right off the screen)
+    if (!t) {
+      // (just aimed: a wide look round; after that, a target drifting near the crosshair)
+      let best = null;
+      let bestS = Infinity;
+      for (const c of this.characters()) {
+        if (!valid(c) || (c === this.lockIgnore && this.lockIgnoreT > 0)) continue;
+        const off = this.crosshairOffset(c);
+        const reach = started ? (threat(c) ? 0.45 : 0.15) : threat(c) ? 0.12 : 0.06;
+        if (off > reach) continue;
+        const score = off + (threat(c) ? 0 : 0.3) + dist(c.x, c.z, p.x, p.z) * 0.002;
+        if (score < bestS) {
+          bestS = score;
+          best = c;
+        }
+      }
+      t = this.lockTarget = best;
+      this.lockHead = false;
+      this.swipeX = this.swipeY = 0;
+    }
+    if (!t) return;
+    // Swipes (a finger drag arrives as look movement).
+    const dragging = a.lookX !== 0 || a.lookY !== 0;
+    if (!dragging) {
+      this.swipeX = this.swipeY = 0;
+      this.swipeDone = false;
+    } else {
+      this.swipeX = (this.swipeX || 0) + a.lookX;
+      this.swipeY = (this.swipeY || 0) + a.lookY;
+    }
+    if (!this.swipeDone && Math.abs(this.swipeX) > 0.12) {
+      const next = this.nextTarget(t, this.swipeX < 0 ? 1 : -1, valid);
+      if (next) {
+        this.lockTarget = t = next;
+        this.lockHead = false;
+        this.swipeDone = true; // (one jump per swipe)
+      } else if (Math.abs(this.swipeX) > 0.35) {
+        // nobody that way: dragging on frees the aim
+        this.lockIgnore = t;
+        this.lockIgnoreT = 0.8;
+        this.lockTarget = null;
+        return;
+      }
+    }
+    if (this.swipeY < -0.08) this.lockHead = true;
+    else if (this.swipeY > 0.08) this.lockHead = false;
+    a.lookX = 0;
+    a.lookY = 0;
+    // Keep the crosshair on them.
+    tmpV.set(...this.lockAimPoint(t)).project(this.camera);
+    if (tmpV.z < 1) {
+      const tanV = Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2);
+      const ex = Math.atan(tmpV.x * tanV * this.camera.aspect);
+      const ey = Math.atan(tmpV.y * tanV);
+      const k = Math.min(1, dt * 12);
+      this.camYaw -= ex * k;
+      this.camPitch = clamp(this.camPitch - ey * k, -0.3, 1.0);
+    }
+  }
+
   updateAimAssist(dt, a) {
     const p = this.player;
     const valid = (c) =>
@@ -1936,8 +2009,11 @@ class Game {
 
     // Controller aim assist: aim freely with the right stick; the reticle sticks
     // to a target when the crosshair passes close to it.
-    if (this.input.mode === 'pad' && this.aimingNow) this.updateAimAssist(dt, a);
+    // On the phone: its own version, tuned for a finger (see updateTouchAimAssist).
+    if (this.input.touchMode && this.aimingNow) this.updateTouchAimAssist(dt, a);
+    else if (this.input.mode === 'pad' && this.aimingNow) this.updateAimAssist(dt, a);
     else this.lockTarget = null;
+    if (!this.aimingNow) this.touchAimWas = false;
 
     if (p.vehicle) {
       const v = p.vehicle;
