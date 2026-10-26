@@ -214,8 +214,9 @@ class Game {
         v.z = z;
         v.heading = (deg * Math.PI) / 180;
         v.speed = 0;
-        v.high = false;
-        v.y = v.groundY = this.city.groundY(x, z);
+        // (a 4th number: up on the freeway at that height)
+        v.high = startAt[3] > 0;
+        v.y = v.groundY = v.high ? startAt[3] : this.city.groundY(x, z);
         this.camYaw = v.heading;
       }
       this.player.enter(this.testCar);

@@ -11,9 +11,10 @@ export const CFG = {
   // Testing switches: start in a car, and V / R3 spawns a car next to you.
   START_IN_CAR: true,
   CAR_SPAWN_KEY: true,
-  // Testing switch: where you start (in the car): [x, z, heading in degrees], or null. Right now:
-  // on Bayview Dr in the Heights, heading up into the bend where it turns into Canyon Dr.
-  START_AT: [1445.5, 672, 178],
+  // Testing switch: where you start (in the car): [x, z, heading in degrees, height up on the
+  // freeway (optional)], or null. Right now: on the ring freeway in the right lane, heading
+  // west toward the Central Ave exit (Government District).
+  START_AT: [1125, 110, -90, 7.5],
   // Testing switch: the interchange editor in the pause menu (reshape the ramps, then drive them).
   RAMP_EDITOR: true,
 
