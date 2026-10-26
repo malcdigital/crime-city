@@ -13,8 +13,9 @@ import {
 } from './worldplan.js';
 import { RAMPS, RING, RING_HALF, XT, XT_HALF, inHole, roundRect } from './fwyplan.js';
 import { SPECIAL, STORES, PLACES, STYLES } from './districts.js';
-import { buildCourt, drawCourt, COURT_RESERVED } from './court.js';
+import { buildCourts, drawCourt, COURT_RESERVED } from './court.js';
 import { buildField, drawField, FIELD_RESERVED } from './field.js';
+import { buildPark, drawPark, PARK_RESERVED } from './playground.js';
 
 export { districtAt };
 export const SIZE = MAP;
@@ -1650,6 +1651,7 @@ export function buildCity(scene) {
     }
     drawCourt(ctx, s);
     drawField(ctx, s);
+    drawPark(ctx, s);
   };
 
   const city = {
@@ -1658,9 +1660,11 @@ export function buildCity(scene) {
     nodes, edges: GRAPH.edges, nearestNode, blockAt, groundY, paved, heightAt, roadY, drawMap, size: MAP, hilly: true,
     storefront, frontPoint, edgeAt, streetAt, onPier,
     byKey: new Map(blocks.map((b) => [b.key, b])),
-    reserved: [...COURT_RESERVED, ...FIELD_RESERVED], // (ground kept clear of signs and poles: the court, its lot, the football field)
+    reserved: [...COURT_RESERVED, ...FIELD_RESERVED, ...PARK_RESERVED], // (ground kept clear of signs and poles: the courts, lots, field, park)
   };
-  city.court = buildCourt(city, scene);
+  city.courts = buildCourts(city, scene);
+  city.court = city.courts[0]; // (the one with the parking lot)
   city.footballField = buildField(city, scene);
+  city.park = buildPark(city, scene);
   return city;
 }

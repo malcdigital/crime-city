@@ -10,6 +10,8 @@ import { GFX, PHONE, QUALITY, setQuality } from './quality.js';
 import { Transit } from './transit.js';
 import { Hoops } from './hoops.js';
 import { Football } from './football.js';
+import { Playground } from './playground.js';
+import { noteCrime } from './safety.js';
 import { Parking } from './parking.js';
 import { Props } from './props.js';
 import { Enforcement } from './enforcement.js';
@@ -115,8 +117,9 @@ class Game {
     this.rhythm.update(0, true);
     this.traffic = new TrafficManager(this);
     this.peds = new PedManager(this);
-    this.hoops = new Hoops(this); // (people shooting hoops at the court)
+    this.hoops = this.city.courts.map((site) => new Hoops(this, site)); // (people shooting hoops at each court)
     this.football = new Football(this); // (football practice at Harbor Field)
+    this.playground = new Playground(this); // (kids at the Market St playground, people by the statue)
     this.police = new PoliceManager(this);
 
     // Parked cars at the curb near the start point.
@@ -303,8 +306,10 @@ class Game {
     }
   }
 
+  // Everyone who can be shot, hit or run over. (Not the children at the playground: they can't
+  // be hurt. They still run from trouble - see Ped.scare.)
   characters() {
-    return [...this.peds.peds, ...this.police.officers().filter((o) => o.visibleOnStreet), ...this.gang.members, ...this.crew.visible(), ...this.turfWars.soldiers];
+    return [...this.peds.peds.filter((p) => !p.kid), ...this.police.officers().filter((o) => o.visibleOnStreet), ...this.gang.members, ...this.crew.visible(), ...this.turfWars.soldiers];
   }
 
   // You and your crew, as targets for enemies.
@@ -377,6 +382,7 @@ class Game {
 
   crime(type, x, z, extra = '') {
     const c = CRIMES[type];
+    noteCrime(this, type, x, z); // (people stay away from the parks for a while)
     this.president.crime(type, c.label);
     this.property?.crimeType(type, x, z); // crime drags down property values there
     this.heat += c.heat;
@@ -2073,8 +2079,9 @@ class Game {
     }
     if (!this.player.vehicle) this.highway.updateLayer(this.player); // walking up or down a ramp
     this.peds.update(dt);
-    this.hoops.update(dt);
+    for (const h of this.hoops) h.update(dt);
     this.football.update(dt);
+    this.playground.update(dt);
     this.checkRunOver();
     this.handleInteractions(dt, a);
     this.updateSurrender(dt, a);

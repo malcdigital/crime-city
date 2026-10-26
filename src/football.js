@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { lam, setShirt, bendLeg, crouchPose } from './character.js';
 import { rand, dist, lerpAngle, pick } from './util.js';
+import { safetyAt, turnout, quietNote } from './safety.js';
 
 // Football practice at Harbor Field (field.js): a passing drill, and a few people watching
 // from the bleachers.
@@ -54,7 +55,7 @@ export class Football {
       this.spoiled = false;
       return;
     }
-    if (!this.active && !this.spoiled && d < NEAR) this.start();
+    if (!this.active && !this.spoiled && d < NEAR && this.game.time >= (this.nextTry || 0)) this.start();
     if (!this.ball) return;
     this.step(dt);
     if (!this.players.length && !this.fans.length) this.spoiled = true;
@@ -62,7 +63,15 @@ export class Football {
 
   // ---- Setting up ----
   start() {
-    const [nWR, nDB, nFans] = this.crowd();
+    // Fewer come out when it's not safe (safety.js).
+    const F0 = this.site.field;
+    const safe = safetyAt(this.game, F0.cx, (F0.z0 + F0.z1) / 2);
+    const base = this.crowd();
+    const nWR = turnout(base[0], safe.k, 0.3);
+    const nDB = Math.min(nWR, turnout(base[1], safe.k, 0.3));
+    const nFans = turnout(base[2], safe.k * safe.k, 0.3); // (watchers are the first to stay home)
+    quietNote(this.game, 'Harbor Field', safe);
+    this.nextTry = this.game.time + 30;
     if (!nWR) return;
     const F = this.site.field;
     this.los = rand(992, 1006); // line of scrimmage; they're going north (toward smaller z)

@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { lam } from './character.js';
 import { rand, dist, lerpAngle } from './util.js';
+import { safetyAt, turnout, quietNote } from './safety.js';
 
-// People shooting hoops at Ledger Ave Courts (court.js).
+// People shooting hoops at the basketball courts (court.js): one of these per court.
 // When you come near, a few people turn up at each basket (more in the day and evening, a
 // couple late at night under the lights, nobody in the small hours). At each basket one has
 // the ball: dribbles to a spot, sets, jumps and shoots. It goes in (drops through the net) or
@@ -18,9 +19,9 @@ const FLOOR = 0.06 + BALL_R; // the court's surface
 const ARRIVE = 0.4;
 
 export class Hoops {
-  constructor(game) {
+  constructor(game, site) {
     this.game = game;
-    this.site = game.city.court;
+    this.site = site;
     this.groups = [];
     this.spoiled = false; // everyone ran off: nobody comes back until you've been away
   }
@@ -43,13 +44,13 @@ export class Hoops {
     if (!S) return;
     const game = this.game;
     const [px, pz] = game.player.pos();
-    const d = dist(px, pz, S.court.cx, S.court.cz);
+    const d = dist(px, pz, S.cx, S.cz);
     if (d > FAR) {
       if (this.active) this.clear();
       this.spoiled = false;
       return;
     }
-    if (!this.active && !this.spoiled && d < NEAR) this.start();
+    if (!this.active && !this.spoiled && d < NEAR && game.time >= (this.nextTry || 0)) this.start();
     for (const g of this.groups) this.step(g, dt);
     // Everyone gone (ran off, hurt): the game's over.
     if (this.active && this.groups.every((g) => !g.players.length)) {
@@ -61,7 +62,12 @@ export class Hoops {
 
   start() {
     const S = this.site;
-    const counts = this.crowd();
+    // Fewer come out when it's not safe (safety.js).
+    const safe = safetyAt(this.game, S.cx, S.cz);
+    const counts = this.crowd().map((n) => turnout(n, safe.k, 0.25));
+    if (counts[0] === 1 && counts[1]) [counts[0], counts[1]] = [counts[0] + counts[1], 0]; // (nobody shoots alone if there's company)
+    quietNote(this.game, S.name, safe);
+    this.nextTry = this.game.time + 30; // (if nobody came: look again in a while)
     if (!counts[0] && !counts[1]) return;
     S.ball.visible = false;
     S.hoops.forEach((rim, i) => {
@@ -99,12 +105,14 @@ export class Hoops {
   // A spot on this basket's half, `a` to `b` meters out from the rim, on the court.
   spot(g, a, b) {
     const { rim } = g;
-    const C = this.site.court;
+    const C = this.site.court; // (world bounds of the lines)
     const ang = rand(-1.25, 1.25);
     const r = rand(a, b);
-    const x = Math.max(C.cx - C.w / 2 + 0.6, Math.min(C.cx + C.w / 2 - 0.6, rim.x + Math.sin(ang) * r));
-    const z = rim.z + rim.dir * Math.max(0.8, Math.cos(ang) * r);
-    return [x, z];
+    const out = Math.max(0.8, Math.cos(ang) * r); // out into the court
+    const side = Math.sin(ang) * r; // across it
+    const x = rim.x + rim.dx * out - rim.dz * side;
+    const z = rim.z + rim.dz * out + rim.dx * side;
+    return [Math.max(C.x0 + 0.6, Math.min(C.x1 - 0.6, x)), Math.max(C.z0 + 0.6, Math.min(C.z1 - 0.6, z))];
   }
 
   giveBall(g, p) {
@@ -256,8 +264,8 @@ export class Hoops {
       const side = rand(-1, 1);
       const sp = rand(1.5, 3.2);
       const L = Math.hypot(side, 1);
-      b.vx = (side / L) * sp;
-      b.vz = (rim.dir / L) * sp;
+      b.vx = ((rim.dx - rim.dz * side) / L) * sp;
+      b.vz = ((rim.dz + rim.dx * side) / L) * sp;
       b.vy = rand(0.8, 2.6);
     }
   }

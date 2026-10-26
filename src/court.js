@@ -2,31 +2,53 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { lam } from './character.js';
 
-// Ledger Ave Courts: an outdoor basketball court and a parking lot on the grass beside the
-// east freeway, between Ledger Ave, Midway Blvd and Bond St (the land the off-ramp crosses).
-// - The lot: two rows of nose-in spaces either side of an aisle that carries on from the road
-//   coming up from Bond St, out to Midway Blvd. Parked cars fill some of the spaces
-//   (parking.js picks them up from `spots`).
-// - The court: full size, painted, a hoop at each end, a chain-link fence with a gate on the
-//   lot side, benches, and four light poles that come on at night.
-// Everything here is axis-aligned (the streets around it run north-south and east-west).
+// Outdoor basketball courts. Each one: full size, painted, a hoop at each end, a chain-link
+// fence with a gate, benches, and four light poles that come on at night. Built in the court's
+// own frame (long side along local z, the gate on its local west side), then set down in the
+// city at `cx, cz`, turned by `rot` (a quarter turn or none: the streets round them run
+// north-south and east-west).
+// - Ledger Ave Courts: on the grass beside the east freeway, between Ledger Ave, Midway Blvd
+//   and Bond St, with a parking lot (two rows of nose-in spaces either side of an aisle that
+//   carries on from the road up from Bond St to Midway Blvd; parking.js fills some of them).
+// - Market St Courts: on the strip along Market St by the crosstown freeway, the gate onto
+//   Market St (beside the children's park, playground.js).
+const COURT = { cx: 0, cz: 0, w: 15.24, l: 28.65 }; // play area (meters), long side along local z
+const PAD = { x0: -12, x1: 12, z0: -20, z1: 20 }; // the court's slab, inside the fence
+const FENCE_H = 3;
+const GATE = [-4, 4]; // gap in the (local) west fence, along z
+export const COURT_CONFIGS = [
+  { name: 'Ledger Ave Courts', cx: 1217, cz: 731, rot: 0, path: 6, lot: true },
+  { name: 'Market St Courts', cx: 557, cz: 929, rot: -Math.PI / 2, path: 7 },
+];
+// The first court's lot (world coordinates).
 const LOT = { x0: 1179, x1: 1199, z0: 700, z1: 760.5 };
 const AISLE = { x0: 1185, x1: 1193 }; // (in line with the road from Bond St)
 const STALL_W = 2.7;
 const STALL_Z0 = 703;
 const STALLS = 20; // per row
-const COURT = { cx: 1217, cz: 731, w: 15.24, l: 28.65 }; // play area (meters), long side north-south
-const PAD = { x0: 1205, x1: 1229, z0: 711, z1: 751 }; // the court's slab, inside the fence
-const FENCE_H = 3;
-const GATE = [727, 735]; // gap in the west fence (z)
 
-export const COURT_SITE = { lot: LOT, pad: PAD, name: 'Ledger Ave Courts', x: COURT.cx, z: COURT.cz };
+// Court frame -> world: (x, z) turned by rot (as three.js turns about y), moved to the center.
+const toWorld = (cfg, x, z) => {
+  const c = Math.cos(cfg.rot);
+  const sn = Math.sin(cfg.rot);
+  return [cfg.cx + x * c + z * sn, cfg.cz - x * sn + z * c];
+};
+// A box in the court's frame -> its world bounds.
+const worldRect = (cfg, x0, z0, x1, z1) => {
+  const a = toWorld(cfg, x0, z0);
+  const b = toWorld(cfg, x1, z1);
+  return { x0: Math.min(a[0], b[0]), z0: Math.min(a[1], b[1]), x1: Math.max(a[0], b[0]), z1: Math.max(a[1], b[1]) };
+};
+
+export const COURT_SITE = { name: COURT_CONFIGS[0].name, x: COURT_CONFIGS[0].cx, z: COURT_CONFIGS[0].cz };
+export const COURT_SITES = COURT_CONFIGS.map((c) => ({ name: c.name, x: c.cx, z: c.cz }));
 
 // Ground the rest of the city should leave alone (signs, poles): [x0, z0, x1, z1].
-export const COURT_RESERVED = [
-  [LOT.x0 - 1, LOT.z0, LOT.x1 + 1, LOT.z1],
-  [PAD.x0 - 2, PAD.z0 - 2, PAD.x1 + 2, PAD.z1 + 2],
-];
+export const COURT_RESERVED = [[LOT.x0 - 1, LOT.z0, LOT.x1 + 1, LOT.z1]];
+for (const cfg of COURT_CONFIGS) {
+  const r = worldRect(cfg, PAD.x0 - 2 - cfg.path, PAD.z0 - 2, PAD.x1 + 2, PAD.z1 + 2);
+  COURT_RESERVED.push([r.x0, r.z0, r.x1, r.z1]);
+}
 
 const box = (w, h, d, x, y, z) => {
   const g = new THREE.BoxGeometry(w, h, d);
@@ -126,47 +148,38 @@ export function chainTexture() {
   return tex;
 }
 
-export function buildCourt(city, scene) {
+export function buildCourts(city, scene) {
+  return COURT_CONFIGS.map((cfg) => buildCourt(city, scene, cfg));
+}
+
+function buildCourt(city, scene, cfg) {
   const asphalt = [];
   const paint = [];
   const steel = [];
   const wood = [];
   const white = [];
   const orange = [];
-  // ---- The lot ----
-  asphalt.push(flat(LOT.x0, LOT.z0, LOT.x1, LOT.z1, 0.035));
+  // Everything in the court's own frame goes in this group (set down in the city at the end);
+  // the lot is in world coordinates already.
+  const group = new THREE.Group();
+  group.position.set(cfg.cx, 0, cfg.cz);
+  group.rotation.y = cfg.rot;
+  scene.add(group);
+  const worldAsphalt = [];
+  const worldPaint = [];
+  const worldWhite = [];
   const spots = [];
-  const rows = [
-    { x0: LOT.x0 + 0.5, x1: AISLE.x0, heading: -Math.PI / 2 }, // west row, nose to the west
-    { x0: AISLE.x1, x1: LOT.x1 - 0.5, heading: Math.PI / 2 }, // east row
-  ];
-  for (const r of rows) {
-    for (let k = 0; k <= STALLS; k++) {
-      const z = STALL_Z0 + k * STALL_W;
-      paint.push(box(r.x1 - r.x0, 0.01, 0.12, (r.x0 + r.x1) / 2, 0.045, z));
-    }
-    // (the line at the head of each row)
-    const hx = r.heading < 0 ? r.x0 : r.x1;
-    paint.push(box(0.12, 0.01, STALLS * STALL_W, hx, 0.045, STALL_Z0 + (STALLS * STALL_W) / 2));
-    for (let k = 0; k < STALLS; k++) {
-      const z = STALL_Z0 + (k + 0.5) * STALL_W;
-      // Wheel stop at the head of the space.
-      const wx = hx + (r.heading < 0 ? 0.6 : -0.6);
-      white.push(box(0.2, 0.12, 1.6, wx, 0.095, z));
-      spots.push({ x: (r.x0 + r.x1) / 2 + (r.heading < 0 ? -0.3 : 0.3), z, heading: r.heading });
-    }
-  }
-  // Arrows down the aisle (both ways).
-  for (const z of [712, 748]) {
-    paint.push(box(0.15, 0.01, 2.2, AISLE.x0 + 2, 0.045, z));
-    paint.push(box(0.15, 0.01, 2.2, AISLE.x1 - 2, 0.045, z));
-  }
-
+  // Colliders: given in the court's frame, stored in world bounds.
+  const collide = (x0, z0, x1, z1, h) => {
+    const r = worldRect(cfg, x0, z0, x1, z1);
+    city.colliders.push({ minX: r.x0, maxX: r.x1, minZ: r.z0, maxZ: r.z1, h });
+  };
+  if (cfg.lot) buildLot(worldAsphalt, worldPaint, worldWhite, spots);
   // ---- The court ----
   const courtMat = new THREE.MeshLambertMaterial({ map: courtTexture() });
   const pad = new THREE.Mesh(flat(PAD.x0, PAD.z0, PAD.x1, PAD.z1, 0.06), courtMat);
   pad.receiveShadow = true;
-  scene.add(pad);
+  group.add(pad);
   // Concrete edge round the slab.
   for (const [w, d, x, z] of [
     [PAD.x1 - PAD.x0 + 0.6, 0.3, (PAD.x0 + PAD.x1) / 2, PAD.z0 - 0.15],
@@ -174,8 +187,8 @@ export function buildCourt(city, scene) {
     [0.3, PAD.z1 - PAD.z0, PAD.x0 - 0.15, (PAD.z0 + PAD.z1) / 2],
     [0.3, PAD.z1 - PAD.z0, PAD.x1 + 0.15, (PAD.z0 + PAD.z1) / 2],
   ]) white.push(box(w, 0.1, d, x, 0.05, z));
-  // A path across the grass from the lot to the gate.
-  asphalt.push(flat(LOT.x1, GATE[0] + 1, PAD.x0, GATE[1] - 1, 0.04));
+  // A path out from the gate (to the lot, or the street).
+  if (!cfg.lot) asphalt.push(flat(PAD.x0 - cfg.path, GATE[0] + 1, PAD.x0, GATE[1] - 1, 0.04));
 
   // Hoops: pole behind the baseline, an arm out over the line, backboard, rim and net.
   const hl = COURT.l / 2;
@@ -197,14 +210,17 @@ export function buildCourt(city, scene) {
     const net = new THREE.CylinderGeometry(0.23, 0.15, 0.45, 10, 2, true);
     net.translate(COURT.cx, 2.82, rimZ);
     nets.push(net);
-    hoops.push({ x: COURT.cx, z: rimZ, y: 3.05, dir: -end, boardZ }); // (dir: from the rim out into the court, along z)
-    city.colliders.push({ minX: COURT.cx - 0.2, maxX: COURT.cx + 0.2, minZ: poleZ - 0.2, maxZ: poleZ + 0.2, h: 3.6 });
+    // (dir: from the rim out into the court)
+    const [hx, hz] = toWorld(cfg, COURT.cx, rimZ);
+    const [ax, az] = toWorld(cfg, COURT.cx, rimZ - end);
+    hoops.push({ x: hx, z: hz, y: 3.05, dx: ax - hx, dz: az - hz });
+    collide(COURT.cx - 0.2, poleZ - 0.2, COURT.cx + 0.2, poleZ + 0.2, 3.6);
   }
   // The ball, left by the free-throw line.
   const ball = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), lam(0xd8641f));
   ball.position.set(COURT.cx + 1.3, 0.18, COURT.cz - hl + 6.4);
   ball.castShadow = true;
-  scene.add(ball);
+  group.add(ball);
 
   // Fence: posts every 3 m, a top rail, and the chain-link between (a gate gap on the west).
   const chainTex = chainTexture();
@@ -232,12 +248,12 @@ export function buildCourt(city, scene) {
     m.position.set((ax + bx) / 2, FENCE_H / 2, (az + bz) / 2);
     m.rotation.y = along ? Math.PI / 2 : 0;
     fenceMeshes.push(m);
-    city.colliders.push({ minX: Math.min(ax, bx) - 0.1, maxX: Math.max(ax, bx) + 0.1, minZ: Math.min(az, bz) - 0.1, maxZ: Math.max(az, bz) + 0.1, h: FENCE_H });
+    collide(Math.min(ax, bx) - 0.1, Math.min(az, bz) - 0.1, Math.max(ax, bx) + 0.1, Math.max(az, bz) + 0.1, FENCE_H);
   }
-  for (const m of fenceMeshes) scene.add(m);
+  for (const m of fenceMeshes) group.add(m);
 
   // Benches inside the fence, along the west side (either side of the gate).
-  for (const z of [719, 743]) {
+  for (const z of [-12, 12]) {
     const x = PAD.x0 + 0.9;
     wood.push(box(0.45, 0.06, 2.2, x, 0.5, z));
     wood.push(box(0.06, 0.4, 2.2, x - 0.22, 0.75, z));
@@ -250,19 +266,22 @@ export function buildCourt(city, scene) {
     steel.push(box(0.18, 8, 0.18, x, 4, z));
     steel.push(box(0.1, 0.1, 1.4, x + dx * 0.45, 7.9, z + dz * 0.45));
     heads.push(box(0.9, 0.18, 0.5, x + dx * 0.9, 7.85, z + dz * 0.9));
-    city.colliders.push({ minX: x - 0.15, maxX: x + 0.15, minZ: z - 0.15, maxZ: z + 0.15, h: 8 });
+    collide(x - 0.15, z - 0.15, x + 0.15, z + 0.15, 8);
   }
 
-  const add = (list, mat, shadow = true) => {
+  const add = (list, mat, shadow = true, parent = group) => {
     if (!list.length) return null;
     const m = new THREE.Mesh(mergeGeometries(list), mat);
     m.castShadow = shadow;
     m.receiveShadow = true;
-    scene.add(m);
+    parent.add(m);
     return m;
   };
   add(asphalt, lam(0x3a3d42), false);
   add(paint, new THREE.MeshBasicMaterial({ color: 0xe8e8e0 }), false);
+  add(worldAsphalt, lam(0x3a3d42), false, scene);
+  add(worldPaint, new THREE.MeshBasicMaterial({ color: 0xe8e8e0 }), false, scene);
+  add(worldWhite, lam(0xe9e9e4), true, scene);
   add(steel, lam(0x4a5560));
   add(wood, lam(0x7a5434));
   add(white, lam(0xe9e9e4));
@@ -275,21 +294,64 @@ export function buildCourt(city, scene) {
   const glowMat = new THREE.MeshBasicMaterial({ color: 0xfff1c8, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
   const glow = new THREE.Mesh(flat(PAD.x0 - 2, PAD.z0 - 2, PAD.x1 + 2, PAD.z1 + 2, 0.08), glowMat);
   glow.visible = false;
-  scene.add(glow);
+  group.add(glow);
   (city.onNight = city.onNight || []).push((k) => {
     glowMat.opacity = 0.16 * k;
     glow.visible = k > 0.02;
   });
-  return { spots, hoops, ball, pad: PAD, court: COURT };
+  const hw = COURT.w / 2;
+  const hl2 = COURT.l / 2;
+  return {
+    name: cfg.name, cx: cfg.cx, cz: cfg.cz, spots, hoops, ball,
+    pad: worldRect(cfg, PAD.x0, PAD.z0, PAD.x1, PAD.z1),
+    court: worldRect(cfg, COURT.cx - hw, COURT.cz - hl2, COURT.cx + hw, COURT.cz + hl2),
+  };
 }
 
-// The lot and court on the 2D maps (city canvas, radar, big map).
+// The first court's parking lot (world coordinates).
+function buildLot(asphalt, paint, white, spots) {
+  asphalt.push(flat(LOT.x0, LOT.z0, LOT.x1, LOT.z1, 0.035));
+  const rows = [
+    { x0: LOT.x0 + 0.5, x1: AISLE.x0, heading: -Math.PI / 2 }, // west row, nose to the west
+    { x0: AISLE.x1, x1: LOT.x1 - 0.5, heading: Math.PI / 2 }, // east row
+  ];
+  for (const r of rows) {
+    for (let k = 0; k <= STALLS; k++) {
+      const z = STALL_Z0 + k * STALL_W;
+      paint.push(box(r.x1 - r.x0, 0.01, 0.12, (r.x0 + r.x1) / 2, 0.045, z));
+    }
+    // (the line at the head of each row)
+    const hx = r.heading < 0 ? r.x0 : r.x1;
+    paint.push(box(0.12, 0.01, STALLS * STALL_W, hx, 0.045, STALL_Z0 + (STALLS * STALL_W) / 2));
+    for (let k = 0; k < STALLS; k++) {
+      const z = STALL_Z0 + (k + 0.5) * STALL_W;
+      // Wheel stop at the head of the space.
+      const wx = hx + (r.heading < 0 ? 0.6 : -0.6);
+      white.push(box(0.2, 0.12, 1.6, wx, 0.095, z));
+      spots.push({ x: (r.x0 + r.x1) / 2 + (r.heading < 0 ? -0.3 : 0.3), z, heading: r.heading });
+    }
+  }
+  // Arrows down the aisle (both ways).
+  for (const z of [712, 748]) {
+    paint.push(box(0.15, 0.01, 2.2, AISLE.x0 + 2, 0.045, z));
+    paint.push(box(0.15, 0.01, 2.2, AISLE.x1 - 2, 0.045, z));
+  }
+  // A path across the grass from the lot to the gate.
+  asphalt.push(flat(LOT.x1, 727 + 1, 1205, 735 - 1, 0.04));
+}
+
+
+// The lots and courts on the 2D maps (city canvas, radar, big map).
 export function drawCourt(ctx, s) {
   ctx.fillStyle = '#4a4d52';
   ctx.fillRect(LOT.x0 * s, LOT.z0 * s, (LOT.x1 - LOT.x0) * s, (LOT.z1 - LOT.z0) * s);
-  ctx.fillStyle = '#365f8f';
-  ctx.fillRect(PAD.x0 * s, PAD.z0 * s, (PAD.x1 - PAD.x0) * s, (PAD.z1 - PAD.z0) * s);
-  ctx.strokeStyle = '#f4f4f0';
-  ctx.lineWidth = Math.max(1, s * 0.5);
-  ctx.strokeRect((COURT.cx - COURT.w / 2) * s, (COURT.cz - COURT.l / 2) * s, COURT.w * s, COURT.l * s);
+  for (const cfg of COURT_CONFIGS) {
+    const p = worldRect(cfg, PAD.x0, PAD.z0, PAD.x1, PAD.z1);
+    ctx.fillStyle = '#365f8f';
+    ctx.fillRect(p.x0 * s, p.z0 * s, (p.x1 - p.x0) * s, (p.z1 - p.z0) * s);
+    const c = worldRect(cfg, -COURT.w / 2, -COURT.l / 2, COURT.w / 2, COURT.l / 2);
+    ctx.strokeStyle = '#f4f4f0';
+    ctx.lineWidth = Math.max(1, s * 0.5);
+    ctx.strokeRect(c.x0 * s, c.z0 * s, (c.x1 - c.x0) * s, (c.z1 - c.z0) * s);
+  }
 }
