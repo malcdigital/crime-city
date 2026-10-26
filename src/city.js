@@ -16,6 +16,7 @@ import { SPECIAL, STORES, PLACES, STYLES } from './districts.js';
 import { buildCourts, drawCourt, COURT_RESERVED } from './court.js';
 import { buildField, drawField, FIELD_RESERVED } from './field.js';
 import { buildPark, drawPark, PARK_RESERVED } from './playground.js';
+import { buildLots, drawLots, LOT_RESERVED } from './lots.js';
 
 export { districtAt };
 export const SIZE = MAP;
@@ -1652,6 +1653,7 @@ export function buildCity(scene) {
     drawCourt(ctx, s);
     drawField(ctx, s);
     drawPark(ctx, s);
+    drawLots(ctx, s);
   };
 
   const city = {
@@ -1660,11 +1662,12 @@ export function buildCity(scene) {
     nodes, edges: GRAPH.edges, nearestNode, blockAt, groundY, paved, heightAt, roadY, drawMap, size: MAP, hilly: true,
     storefront, frontPoint, edgeAt, streetAt, onPier,
     byKey: new Map(blocks.map((b) => [b.key, b])),
-    reserved: [...COURT_RESERVED, ...FIELD_RESERVED, ...PARK_RESERVED], // (ground kept clear of signs and poles: the courts, lots, field, park)
+    reserved: [...COURT_RESERVED, ...FIELD_RESERVED, ...PARK_RESERVED, ...LOT_RESERVED], // (ground kept clear of signs and poles: the courts, lots, field, park)
   };
   city.courts = buildCourts(city, scene);
   city.court = city.courts[0]; // (the one with the parking lot)
   city.footballField = buildField(city, scene);
   city.park = buildPark(city, scene);
+  city.lots = buildLots(city, scene);
   return city;
 }
