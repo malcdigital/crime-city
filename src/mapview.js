@@ -1,4 +1,5 @@
 import { COURT_SITE } from './court.js';
+import { FIELD_SITE } from './field.js';
 import { fillTurf, strokeTurf, fillBlocks, strokeBlock } from './turfdraw.js';
 const MARGIN = 0; // (the map is the whole world)
 import { DISTRICTS, districtCenter } from './districts.js';
@@ -247,6 +248,7 @@ export class MapView {
     add('blip', S.safehouse ? '#2c3e50' : '#7f8c8d', 'S', S.safehouse ? 'Your safehouse' : 'Safehouse (for sale)', S.safe.x, S.safe.z);
     const stops = [...game.transit.shelters()].sort((p, q) => dist(p.sx, p.sz, px, pz) - dist(q.sx, q.sz, px, pz));
     if (game.city.court) add('swatch', '#365f8f', '', 'Ledger Ave Courts (basketball, parking)', COURT_SITE.x, COURT_SITE.z);
+    if (game.city.footballField) add('swatch', '#4a8a42', '', 'Harbor Field (football)', FIELD_SITE.x, FIELD_SITE.z);
     if (stops.length) add('bus', '#f39c12', '', `Bus stops · ${stops.length} (nearest)`, stops[0].sx, stops[0].sz);
     head('Money');
     game.bank.legend(add);

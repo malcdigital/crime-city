@@ -14,6 +14,7 @@ import {
 import { RAMPS, RING, RING_HALF, XT, XT_HALF, inHole, roundRect } from './fwyplan.js';
 import { SPECIAL, STORES, PLACES, STYLES } from './districts.js';
 import { buildCourt, drawCourt, COURT_RESERVED } from './court.js';
+import { buildField, drawField, FIELD_RESERVED } from './field.js';
 
 export { districtAt };
 export const SIZE = MAP;
@@ -1648,6 +1649,7 @@ export function buildCity(scene) {
       ctx.fill();
     }
     drawCourt(ctx, s);
+    drawField(ctx, s);
   };
 
   const city = {
@@ -1656,8 +1658,9 @@ export function buildCity(scene) {
     nodes, edges: GRAPH.edges, nearestNode, blockAt, groundY, paved, heightAt, roadY, drawMap, size: MAP, hilly: true,
     storefront, frontPoint, edgeAt, streetAt, onPier,
     byKey: new Map(blocks.map((b) => [b.key, b])),
-    reserved: COURT_RESERVED, // (ground kept clear of signs and poles: the court and its lot)
+    reserved: [...COURT_RESERVED, ...FIELD_RESERVED], // (ground kept clear of signs and poles: the court, its lot, the football field)
   };
   city.court = buildCourt(city, scene);
+  city.footballField = buildField(city, scene);
   return city;
 }
