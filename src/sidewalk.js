@@ -124,7 +124,9 @@ export function buildSidewalks(city, scene) {
       const ux = (m.x - n.x) / L;
       const uz = (m.z - n.z) / L;
       const arm = ctl?.arms.find((a) => a.m === m);
-      const d = Math.min(L * 0.45, arm ? arm.stopAt - 2.2 : e.w / 2 + 3);
+      // (onto a roundabout: one car length back from the give-way line)
+      const round = n.edges.some((o) => o.street?.roundabout);
+      const d = round && arm ? Math.min(L * 0.8, arm.stopAt + 6.5) : Math.min(L * 0.45, arm ? arm.stopAt - 2.2 : e.w / 2 + 3);
       const cx = n.x + ux * d;
       const cz = n.z + uz * d;
       const rx = -uz;

@@ -1064,11 +1064,15 @@ export function buildCity(scene) {
       flame.rotateY(face);
       batch.mesh(flame, new THREE.MeshBasicMaterial({ color: 0xffb030 }), sx, 0, sz, 0);
       colliders.push({ minX: sx - 2.3, maxX: sx + 2.3, minZ: sz - 2.3, maxZ: sz + 2.3, h: 12 });
-      for (let k = 0; k < 8; k++) {
-        const a = (k / 8) * Math.PI * 2 + 0.3;
-        const x = sx + Math.cos(a) * 9;
-        const z = sz + Math.sin(a) * 9;
-        if (l.length && pointInPoly(x, z, l)) tree(x, z, 0.7);
+      // (trees in two rings round it, the outer one along the island's edge)
+      const rim = b.island.r - 14;
+      for (const [rad, n, sc] of [[11, 8, 0.75], [rim, Math.round(rim / 3.2), 1]]) {
+        for (let k = 0; k < n; k++) {
+          const a = (k / n) * Math.PI * 2 + 0.3;
+          const x = sx + Math.cos(a) * rad;
+          const z = sz + Math.sin(a) * rad;
+          if (l.length && pointInPoly(x, z, l)) tree(x, z, sc);
+        }
       }
       continue;
     }

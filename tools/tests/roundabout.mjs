@@ -22,6 +22,7 @@ const r = await page.evaluate(async (secs) => {
     p.x = R.x + R.r + 12;
     p.z = R.z;
     let wrong = 0;
+    const wrongEx = [];
     let right = 0;
     const seen = new Map(); // driver -> angle travelled round
     const stuck = new Map();
@@ -44,12 +45,12 @@ const r = await page.evaluate(async (secs) => {
         const lz = -Math.sin(v.heading);
         const side = (lx * -dx + lz * -dz) / rr;
         if (side > 0.5) right++;
-        else if (side < -0.5) wrong++;
+        else if (side < -0.5) { wrong++; if (wrongEx.length < 10) wrongEx.push([Math.round(v.x), Math.round(v.z), Math.round(rr), d.from && [Math.round(d.from.x), Math.round(d.from.z)], d.to && [Math.round(d.to.x), Math.round(d.to.z)], !!d.route]); }
         seen.set(d, true);
       }
     }
     const longStuck = [...stuck.values()].filter((t) => t > 20).length;
-    out.push({ name: R.name, carsOnRing: seen.size, samplesRightWay: right, samplesWrongWay: wrong, stuckOver20s: longStuck });
+    out.push({ name: R.name, carsOnRing: seen.size, samplesRightWay: right, samplesWrongWay: wrong, stuckOver20s: longStuck, wrongEx, stuckEx: [...stuck.entries()].filter(([, t]) => t > 20).map(([d]) => [Math.round(d.car.x), Math.round(d.car.z), d.from && [Math.round(d.from.x), Math.round(d.from.z)], d.to && [Math.round(d.to.x), Math.round(d.to.z)]]) });
   }
   return out;
 }, secs);

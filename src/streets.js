@@ -76,6 +76,11 @@ export class Streets {
           w = Math.max(w, (b.e.w / 2 + (a.e.w / 2) * Math.abs(c)) / sn);
         }
         a.stopAt = Math.min(22, Math.max(6, w + 4.2));
+        // (coming onto a roundabout: the give-way line right at the ring's edge)
+        if (round && !a.e.street?.roundabout) {
+          const ring = arms.find((o) => o.e.street?.roundabout);
+          a.stopAt = ring.e.w / 2 + 1.2;
+        }
       }
       this.control.set(n, { type, offset: Math.floor((n.x + n.z) / 20) % CYCLE, arms, yield: round });
     }

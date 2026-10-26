@@ -595,14 +595,17 @@ function buildBlocks(graph) {
 
 // A block: the face shrunk to the curbs (half each street's width).
 function makeBlock(f, id) {
-  const poly = simplify(f.poly, 0.4);
+  let poly = simplify(f.poly, 0.4);
+  const wedge = roundaboutWedge(poly);
+  if (wedge) poly = wedge.poly;
+  const armEdges = wedge ? f.edges.filter((e) => !e.street?.roundabout) : f.edges;
   const half = poly.map((p, i) => {
     const q = poly[(i + 1) % poly.length];
     const mx = (p[0] + q[0]) / 2;
     const mz = (p[1] + q[1]) / 2;
     let best = 7;
     let bd = Infinity;
-    for (const e of f.edges) {
+    for (const e of armEdges) {
       const c = closestOnSeg(mx, mz, e.a.x, e.a.z, e.b.x, e.b.z);
       if (c.d < bd) {
         bd = c.d;
@@ -614,6 +617,7 @@ function makeBlock(f, id) {
   let curb = isConvex(poly) ? insetConvex(poly, half) : [];
   if (!curb.length) curb = insetLoose(poly, half);
   if (!curb.length) return null;
+  if (wedge) curb = clipDisc(curb, wedge.R, wedge.R.r + ROAD_CLASS.roundabout.w / 2);
   const [cx, cz] = centroid(curb);
   if (isWater(cx, cz)) return null;
   const zone = insideRing(cx, cz) ? ZONES.find((zn) => pointInPoly(cx, cz, zn.poly)) : null;
@@ -644,6 +648,86 @@ function makeBlock(f, id) {
     streets: [...new Set(names)],
     convex: isConvex(curb),
   };
+}
+
+// A block beside a roundabout. Its outline (road center lines) runs round part of the ring:
+// that part is replaced by the roundabout's middle, so the block is the wedge between its two
+// roads; then the curbs are worked out as usual, and the wedge's point is cut off by the circle
+// just outside the ring road - so the curb runs along each road and round the circle.
+function roundaboutWedge(poly) {
+  for (const R of ROUNDABOUTS) {
+    const d = (p) => Math.hypot(p[0] - R.x, p[1] - R.z);
+    const onRing = poly.map((p) => Math.abs(d(p) - R.r) < 1.5);
+    if (!onRing.some(Boolean) || onRing.every(Boolean)) continue;
+    // (the point the block's two roads would meet at, carried on into the ring - usually its
+    // middle; or where they really cross, if that's inside the ring)
+    const n = poly.length;
+    const apex = (s) => {
+      let e = s;
+      while (onRing[(e + 1) % n] && e - s < n) e++;
+      const P1 = poly[(s + n - 1) % n];
+      const S = poly[s];
+      const E = poly[e % n];
+      const N1 = poly[(e + 1) % n];
+      const X = segInter(P1[0], P1[1], P1[0] + (S[0] - P1[0]) * 50, P1[1] + (S[1] - P1[1]) * 50, N1[0], N1[1], N1[0] + (E[0] - N1[0]) * 50, N1[1] + (E[1] - N1[1]) * 50);
+      if (X) {
+        const x = P1[0] + (S[0] - P1[0]) * 50 * X.t;
+        const z = P1[1] + (S[1] - P1[1]) * 50 * X.t;
+        if (Math.hypot(x - R.x, z - R.z) < R.r) return [x, z];
+      }
+      return [R.x, R.z];
+    };
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      if (!onRing[i]) out.push(poly[i]);
+      else if (!onRing[(i + n - 1) % n]) out.push(apex(i));
+    }
+    return { poly: out, R };
+  }
+  return null;
+}
+function clipDisc(poly, R, rad) {
+  const inside = (p) => Math.hypot(p[0] - R.x, p[1] - R.z) < rad;
+  const cross = (p, q) => {
+    const dx = q[0] - p[0];
+    const dz = q[1] - p[1];
+    const fx = p[0] - R.x;
+    const fz = p[1] - R.z;
+    const A = dx * dx + dz * dz;
+    const B = 2 * (fx * dx + fz * dz);
+    const C = fx * fx + fz * fz - rad * rad;
+    const D = Math.max(0, B * B - 4 * A * C);
+    const ts = [(-B - Math.sqrt(D)) / (2 * A), (-B + Math.sqrt(D)) / (2 * A)].filter((t) => t >= 0 && t <= 1);
+    return ts.map((t) => [p[0] + dx * t, p[1] + dz * t]);
+  };
+  const arc = (a, b) => {
+    const a0 = Math.atan2(a[1] - R.z, a[0] - R.x);
+    let da = Math.atan2(b[1] - R.z, b[0] - R.x) - a0;
+    while (da > Math.PI) da -= Math.PI * 2;
+    while (da < -Math.PI) da += Math.PI * 2;
+    const n = Math.max(1, Math.ceil(Math.abs(da) / 0.1));
+    const pts = [];
+    for (let k = 1; k < n; k++) pts.push([R.x + Math.cos(a0 + (da * k) / n) * rad, R.z + Math.sin(a0 + (da * k) / n) * rad]);
+    return pts;
+  };
+  const out = [];
+  let entry = null;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % poly.length];
+    if (!inside(p)) out.push(p);
+    const X = cross(p, q);
+    for (const x of X) {
+      if (entry === null && !inside(p)) {
+        entry = x;
+        out.push(x);
+      } else if (entry !== null) {
+        out.push(...arc(entry, x), x);
+        entry = null;
+      } else out.push(x);
+    }
+  }
+  return out.length >= 3 ? out : poly;
 }
 
 // Inset for odd shapes: move each corner in along its bisector.
@@ -910,7 +994,7 @@ tidyStreets();
 // A big many-way junction made a roundabout: the streets stop at a one-way ring road (right-
 // hand traffic goes round with the island on its left), entering traffic gives way, and the
 // island in the middle has a statue.
-export const ROUNDABOUTS = [{ x: CENTRAL_X, z: MIDWAY_Z, r: 26, name: 'Liberty Circle' }];
+export const ROUNDABOUTS = [{ x: CENTRAL_X, z: MIDWAY_Z, r: 52, name: 'Liberty Circle' }]; // (big enough to take in the five-way junction that was just off it)
 function makeRoundabouts() {
   for (const R of ROUNDABOUTS) {
     const inside = ([x, z]) => Math.hypot(x - R.x, z - R.z) < R.r;
@@ -949,6 +1033,49 @@ function makeRoundabouts() {
       if (cur) pieces.push(cur);
       streets.splice(k, 1, ...pieces.filter((pp) => pp.length >= 2).map((pts) => ({ ...st, pts })));
     }
+    // Roads coming onto it close beside a bigger one (they all used to meet at one junction
+    // just off the ring): the smaller one stops at its last crossing before the ring instead,
+    // so each road has its own way on, well apart.
+    const onRing = (p) => Math.abs(Math.hypot(p[0] - R.x, p[1] - R.z) - R.r) < 0.5;
+    const ends = [];
+    streets.forEach((st) => {
+      if (onRing(st.pts[0])) ends.push({ st, at: st.pts[0], first: true });
+      if (onRing(st.pts[st.pts.length - 1])) ends.push({ st, at: st.pts[st.pts.length - 1], first: false });
+    });
+    const rank = (st) => ROAD_CLASS[st.cls].rank * 1e4 + Math.min(9999, st.pts.length);
+    for (const e of ends) {
+      const bigger = ends.find((o) => o !== e && o.st !== e.st && rank(o.st) > rank(e.st) && Math.hypot(o.at[0] - e.at[0], o.at[1] - e.at[1]) < 30);
+      if (!bigger) continue;
+      // back along it to the first place another street meets it
+      const pts = e.first ? e.st.pts : [...e.st.pts].reverse();
+      let cut = null;
+      let walked = 0;
+      for (let i = 1; i < pts.length && !cut; i++) {
+        const [ax, az] = pts[i - 1];
+        const [bx, bz] = pts[i];
+        for (const o of streets) {
+          if (o === e.st) continue;
+          for (let k = 0; k + 1 < o.pts.length; k++) {
+            const X = segInter(ax, az, bx, bz, ...o.pts[k], ...o.pts[k + 1]);
+            if (X && (walked > 0 || X.t > 0.05) && (!cut || X.t < cut.t)) cut = { i, t: X.t };
+          }
+          for (const q of [o.pts[0], o.pts[o.pts.length - 1]]) {
+            const c = closestOnSeg(q[0], q[1], ax, az, bx, bz);
+            if (c.d < 2 && (walked > 0 || c.t > 0.05) && (!cut || c.t < cut.t)) cut = { i, t: c.t };
+          }
+        }
+        walked += Math.hypot(bx - ax, bz - az);
+      }
+      if (!cut) continue;
+      const [ax, az] = pts[cut.i - 1];
+      const [bx, bz] = pts[cut.i];
+      const rest = [[ax + (bx - ax) * cut.t, az + (bz - az) * cut.t], ...pts.slice(cut.i)];
+      e.st.pts = e.first ? rest : rest.reverse();
+      e.dropped = true;
+    }
+    // (any piece left with no length to it goes)
+    const len = (st) => st.pts.reduce((L, p, i) => (i ? L + Math.hypot(p[0] - st.pts[i - 1][0], p[1] - st.pts[i - 1][1]) : 0), 0);
+    for (let k = streets.length - 1; k >= 0; k--) if (streets[k].pts.length < 2 || len(streets[k]) < 1) streets.splice(k, 1);
     add(arcPts(R.x, R.z, R.r, 0, Math.PI * 2, 7), 'roundabout', R.name, { keep: true, loop: true, roundabout: R });
   }
 }
