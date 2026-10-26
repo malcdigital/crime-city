@@ -607,8 +607,10 @@ export class Vehicle {
     const hb = ctrl.handbrake ? 1 : 0;
     const frontFlats = this.wheels.filter((w) => w.userData.flat && w.userData.front).length;
     const rearFlats = this.wheels.filter((w) => w.userData.flat && !w.userData.front).length;
-    const muF = H.max * (H.bias + 0.5) * (1 - 0.25 * frontFlats);
-    const muR = H.max * (1.5 - H.bias) * (1 - 0.25 * rearFlats) * (1 - 0.35 * drift);
+    // Arcade feel: on the gas the front bites (the car turns in tight); off the gas the rear
+    // holds (no snapping round when you lift); the drift (gas + brake) is its own thing.
+    const muF = H.max * (H.bias + 0.5) * (1 - 0.25 * frontFlats) * (1 + 0.35 * gasAmt * (1 - drift));
+    const muR = H.max * (1.5 - H.bias) * (1 - 0.25 * rearFlats) * (1 - 0.35 * drift) * (1 + 0.45 * (1 - gasAmt) * (1 - drift));
     const curve = (al, mu) => {
       // Grip (as a friction coefficient) for a slip angle: builds to the peak, then eases to
       // the sliding level.
@@ -623,7 +625,7 @@ export class Vehicle {
     let ax = this.ax || 0;
     for (let i = 0; i < n; i++) {
       const vx = Math.max(this.vx, 0.5);
-      const transfer = clamp((m * -ax * hcg) / L, -3500, 3500);
+      const transfer = clamp((m * -ax * hcg) / L, -3500, 3500) * 0.35; // (weight shifts, but gently)
       const Fzf = (m * g * b) / L + transfer;
       const Fzr = (m * g * a) / L - transfer;
       // Front: brakes, then whatever grip is left corners.
@@ -637,7 +639,7 @@ export class Vehicle {
       const rMax = muR * Fzr;
       // Traction control keeps drive force within what the rears can take while cornering;
       // in a drift you're deliberately spinning them.
-      const tc = rMax * (driftWanted ? 0.7 : 0.55 + 0.35 * (1 - Math.abs(steer)));
+      const tc = rMax * (driftWanted ? 0.7 : 0.75);
       let Fxr = Math.min(gasAmt * m * accel * Math.max(0, 1 - this.vx / maxS), tc) - brakeAmt * m * Math.min(this.brakePow(), 12.5 * (1 + 0.15 * (this.mods ? this.mods.brakes : 0))) * 0.4 - hb * 0.3 * rMax; // handbrake: slows the rear, no slide
       Fxr = clamp(Fxr, -rMax, rMax);
       const fyr = Math.sqrt(Math.max(0, rMax * rMax - Fxr * Fxr));
@@ -664,6 +666,18 @@ export class Vehicle {
         const pathRate = Fy / m / V; // how fast the direction of travel is turning
         const want = pathRate - (target - beta) * 3;
         this.r += (want - this.r) * (1 - Math.exp(-ddt * 9 * drift));
+      }
+      // Stability: outside a drift, a slide past ~8 degrees is caught (the turn rate eases
+      // back toward the rate the car's path is turning, and the sideways slip bleeds off).
+      if (drift < 0.3) {
+        const beta = Math.atan2(this.vy, vx);
+        const over = Math.max(0, Math.abs(beta) - 0.14);
+        if (over > 0) {
+          const V = Math.max(Math.hypot(this.vx, this.vy), 1);
+          const pathRate = Fy / m / V;
+          this.r += (pathRate - this.r) * (1 - Math.exp(-ddt * 6 * over * 10));
+          this.vy *= Math.exp(-ddt * 4 * over * 10);
+        }
       }
       // Angular damping, and sideways creep dies out at walking pace.
       this.r *= Math.exp(-ddt * (0.6 + 1.0 * (1 - drift) * Math.min(1, this.vx / 20))); // stability at speed (less while drifting)
