@@ -148,6 +148,33 @@ export function chainTexture() {
   return tex;
 }
 
+// A chain-link fence along straight runs ([[ax, az], [bx, bz]], axis-aligned, world space):
+// posts every 3 m, a top rail, the mesh between; solid to walk or drive into.
+export function chainFence(city, scene, runs, h = 1.8) {
+  const posts = [];
+  const chain = chainTexture();
+  for (const [[ax, az], [bx, bz]] of runs) {
+    const len = Math.hypot(bx - ax, bz - az);
+    const n = Math.max(1, Math.round(len / 3));
+    for (let k = 0; k <= n; k++) posts.push(box(0.07, h, 0.07, ax + ((bx - ax) * k) / n, h / 2, az + ((bz - az) * k) / n));
+    const along = ax === bx;
+    posts.push(box(along ? 0.05 : len, 0.05, along ? len : 0.05, (ax + bx) / 2, h, (az + bz) / 2));
+    const t = chain.clone();
+    t.repeat.set(len / 0.6, h / 0.6);
+    t.needsUpdate = true;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(len, h), new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide }));
+    m.position.set((ax + bx) / 2, h / 2, (az + bz) / 2);
+    m.rotation.y = along ? Math.PI / 2 : 0;
+    scene.add(m);
+    city.colliders.push({ minX: Math.min(ax, bx) - 0.08, maxX: Math.max(ax, bx) + 0.08, minZ: Math.min(az, bz) - 0.08, maxZ: Math.max(az, bz) + 0.08, h });
+  }
+  if (posts.length) {
+    const m = new THREE.Mesh(mergeGeometries(posts), lam(0x4a5560));
+    m.castShadow = true;
+    scene.add(m);
+  }
+}
+
 export function buildCourts(city, scene) {
   return COURT_CONFIGS.map((cfg) => buildCourt(city, scene, cfg));
 }
@@ -174,7 +201,21 @@ function buildCourt(city, scene, cfg) {
     const r = worldRect(cfg, x0, z0, x1, z1);
     city.colliders.push({ minX: r.x0, maxX: r.x1, minZ: r.z0, maxZ: r.z1, h });
   };
-  if (cfg.lot) buildLot(worldAsphalt, worldPaint, worldWhite, spots);
+  if (cfg.lot) {
+    buildLot(worldAsphalt, worldPaint, worldWhite, spots);
+    // The lot's fence: open at both ends of the aisle (Midway Blvd, Bond St) and at the path to
+    // the court's gate.
+    const { x0, x1, z0, z1 } = LOT;
+    chainFence(city, scene, [
+      [[x0, z0], [AISLE.x0, z0]],
+      [[AISLE.x1, z0], [x1, z0]],
+      [[x1, z0], [x1, 727.5]],
+      [[x1, 734.5], [x1, z1]],
+      [[x1, z1], [AISLE.x1, z1]],
+      [[AISLE.x0, z1], [x0, z1]],
+      [[x0, z1], [x0, z0]],
+    ]);
+  }
   // ---- The court ----
   const courtMat = new THREE.MeshLambertMaterial({ map: courtTexture() });
   const pad = new THREE.Mesh(flat(PAD.x0, PAD.z0, PAD.x1, PAD.z1, 0.06), courtMat);

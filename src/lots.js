@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { lam } from './character.js';
-import { chainTexture } from './court.js';
+import { chainFence } from './court.js';
 
 // Surface parking lots (beyond the ones built with the courts and the field). Each lot is
 // asphalt rectangles plus rows of nose-in spaces running east-west; parked cars fill about half
@@ -101,28 +101,7 @@ export function buildLots(city, scene) {
   add(trunk, lam(0x5a3d24), true);
   add(leaves, lam(0x3f7a35), true);
   for (const lot of LOTS) for (const [x, z] of lot.trees || []) city.colliders.push({ minX: x - 0.25, maxX: x + 0.25, minZ: z - 0.25, maxZ: z + 0.25, h: 2.4 });
-  // Fences: posts every 3 m, a top rail, chain-link between.
-  const H = 1.8;
-  const posts = [];
-  const chain = chainTexture();
-  for (const lot of LOTS) {
-    for (const [[ax, az], [bx, bz]] of lot.fence || []) {
-      const len = Math.hypot(bx - ax, bz - az);
-      const n = Math.max(1, Math.round(len / 3));
-      for (let k = 0; k <= n; k++) posts.push(box(0.07, H, 0.07, ax + ((bx - ax) * k) / n, H / 2, az + ((bz - az) * k) / n));
-      const along = ax === bx;
-      posts.push(box(along ? 0.05 : len, 0.05, along ? len : 0.05, (ax + bx) / 2, H, (az + bz) / 2));
-      const t = chain.clone();
-      t.repeat.set(len / 0.6, H / 0.6);
-      t.needsUpdate = true;
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(len, H), new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide }));
-      m.position.set((ax + bx) / 2, H / 2, (az + bz) / 2);
-      m.rotation.y = along ? Math.PI / 2 : 0;
-      scene.add(m);
-      city.colliders.push({ minX: Math.min(ax, bx) - 0.08, maxX: Math.max(ax, bx) + 0.08, minZ: Math.min(az, bz) - 0.08, maxZ: Math.max(az, bz) + 0.08, h: H });
-    }
-  }
-  add(posts, lam(0x4a5560), true);
+  for (const lot of LOTS) if (lot.fence) chainFence(city, scene, lot.fence);
   return { spots };
 }
 
