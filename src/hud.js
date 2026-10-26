@@ -1,3 +1,4 @@
+import { drawBusStop } from './mapview.js';
 import { fillTurf, strokeTurf, fillBlocks, strokeBlock } from './turfdraw.js';
 const MARGIN = 0; // (the map is the whole world)
 import { drawHeli, drawSearchlight } from './heliicon.js';
@@ -504,6 +505,11 @@ export class Hud {
       if (!inside(p)) continue;
       ctx.fillStyle = '#5dade2';
       ctx.fillRect(p[0] - 2.5, p[1] - 2.5, 5, 5);
+    }
+    // Bus stops: only when they're on the radar.
+    for (const st of game.transit.shelters()) {
+      const p = project(st.sx, st.sz);
+      if (inside(p)) drawBusStop(ctx, p[0], p[1], 6);
     }
     const wp = game.mapView.waypoint;
     if (wp) blip(wp[0], wp[1], '#e0b000', 'W');

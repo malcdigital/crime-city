@@ -12,6 +12,25 @@ import { gpsRoute, routeLength } from './gps.js';
 // Full-screen city map (touchpad / M). The game pauses while it's open.
 // Left stick / WASD / mouse drag pans the cursor, R2 / L2 / wheel zoom, ✕ / click sets or
 // clears a waypoint, touchpad / M / ○ / Esc closes.
+// A bus stop marker: a little orange sign with a white bus front on it (map and radar).
+export function drawBusStop(ctx, x, y, r = 7) {
+  ctx.fillStyle = '#f39c12';
+  ctx.strokeStyle = 'rgba(0,0,0,.6)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(x - r, y - r, r * 2, r * 2, r * 0.35);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x - r * 0.55, y - r * 0.6, r * 1.1, r * 0.95); // body
+  ctx.fillStyle = '#f39c12';
+  ctx.fillRect(x - r * 0.4, y - r * 0.45, r * 0.8, r * 0.35); // windscreen
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x - r * 0.5, y + r * 0.35, r * 0.25, r * 0.3); // wheels
+  ctx.fillRect(x + r * 0.25, y + r * 0.35, r * 0.25, r * 0.3);
+}
+const BUS_ICON = '<span class="lg-bus"><svg viewBox="0 0 14 14" width="14" height="14"><rect x="0.5" y="0.5" width="13" height="13" rx="3" fill="#f39c12" stroke="rgba(0,0,0,.6)"/><rect x="3" y="2.6" width="8" height="6.6" fill="#fff"/><rect x="4" y="3.6" width="6" height="2.4" fill="#f39c12"/><rect x="3.4" y="9.4" width="1.8" height="2" fill="#fff"/><rect x="8.8" y="9.4" width="1.8" height="2" fill="#fff"/></svg></span>';
+
 // A tiny helicopter for the legend.
 const HELI_SVG = '<svg width="18" height="18" viewBox="-10 -10 20 20"><rect x="-0.9" y="2" width="1.8" height="7" fill="#1c2a44" stroke="#fff" stroke-width="1"/><rect x="-2.6" y="7.6" width="5.2" height="1.4" fill="#1c2a44" stroke="#fff" stroke-width="1"/><ellipse cx="0" cy="-0.5" rx="3.6" ry="5" fill="#1c2a44" stroke="#fff" stroke-width="1"/><circle cx="-2.2" cy="1.5" r="1.1" fill="#ff3b3b"/><circle cx="2.2" cy="1.5" r="1.1" fill="#3b7bff"/><path d="M-8 -8L8 8M-8 8L8 -8" stroke="#fff" stroke-width="1.3"/></svg>';
 
@@ -217,6 +236,8 @@ export class MapView {
     add('blip', S.gun.color, 'A', `${S.gun.name} (guns, armor)`, S.gun.x, S.gun.z);
     add('blip', S.garage.color, 'M', `${S.garage.name} (mods, respray)`, S.garage.x, S.garage.z);
     add('blip', S.safehouse ? '#2c3e50' : '#7f8c8d', 'S', S.safehouse ? 'Your safehouse' : 'Safehouse (for sale)', S.safe.x, S.safe.z);
+    const stops = [...game.transit.shelters()].sort((p, q) => dist(p.sx, p.sz, px, pz) - dist(q.sx, q.sz, px, pz));
+    if (stops.length) add('bus', '#f39c12', '', `Bus stops · ${stops.length} (nearest)`, stops[0].sx, stops[0].sz);
     head('Money');
     game.bank.legend(add);
     game.economy.legend(add);
@@ -251,6 +272,7 @@ export class MapView {
       if (e.kind === 'text') return `<span class="lg-tx" style="color:${e.color}">${e.text}</span>`;
       if (e.kind === 'pin') return '<span class="lg-pin"></span>';
       if (e.kind === 'heli') return '<span class="lg-heli">' + HELI_SVG + '</span>';
+      if (e.kind === 'bus') return BUS_ICON;
       if (e.kind === 'you') return '<span class="lg-you">▲</span>';
       return `<span class="lg-bl" style="background:${e.color}">${e.text}</span>`;
     };
@@ -463,6 +485,7 @@ export class MapView {
     for (const [x, z, col, txt] of game.turfWars.claimMarks()) blip(x, z, col, txt, 9);
     for (const [x, z, col, txt] of [...game.shops.blips(), ...game.drugs.blips(), ...game.bank.blips(), ...game.economy.blips(), ...game.bases.blips()]) blip(x, z, col, txt);
     for (const t of game.bank.atmSpots()) dot(t.x, t.z, 4, '#5dade2');
+    for (const st of game.transit.shelters()) drawBusStop(ctx, ...this.toScreen(st.sx, st.sz), 7);
     for (const k of game.market.kingpinSpots()) blip(k.x, k.z, '#111', '♛', 10);
     const tc = game.testCar;
     if (tc && !tc.removed && !tc.exploded && game.player.vehicle !== tc) blip(tc.x, tc.z, '#1e88e5', 'V', 9);
