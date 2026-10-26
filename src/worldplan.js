@@ -1078,7 +1078,7 @@ tidyStreets();
 // feeds: a street brought round to come onto the ring by itself (it ran right along the
 // ring's edge, crossing the roads coming onto it): kept from its far end, then curved in to
 // the ring at the angle given (degrees; 0 = east, -90 = north).
-export const ROUNDABOUTS = [{ x: CENTRAL_X, z: MIDWAY_Z, r: 52, name: 'Liberty Circle', feeds: [{ name: 'Exchange St', angle: -32, from: 100 }] }, // (big enough to take in the five-way junction that was just off it)
+export const ROUNDABOUTS = [{ x: CENTRAL_X, z: MIDWAY_Z, r: 52, name: 'Liberty Circle', feeds: [{ name: 'Exchange St', angle: -32, from: 100 }, { name: 'Bond St', angle: 40, from: 100 }] }, // (big enough to take in the five-way junction that was just off it)
   // Down Grand Ave, where it crosses an avenue and a street a few meters apart (two junctions
   // on top of each other): one roundabout each instead.
   { x: 777, z: 788, r: 30, name: 'Union Circle' },
