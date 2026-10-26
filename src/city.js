@@ -307,7 +307,10 @@ export function buildCity(scene) {
     const b = H[j * GN + i + 1];
     const c = H[(j + 1) * GN + i];
     const d = H[(j + 1) * GN + i + 1];
-    return a + (b - a) * tx + (c - a) * tz + (a - b - c + d) * tx * tz;
+    // (the same two triangles per square the terrain is drawn with - split from its +x
+    // corner to its +z corner - so what you stand on is exactly the ground you see)
+    if (tx + tz <= 1) return a + (b - a) * tx + (c - a) * tz;
+    return d + (c - d) * (1 - tx) + (b - d) * (1 - tz);
   };
   // Roads outside the paved areas: heights along each, smoothed and kept to a 12% grade,
   // then burned into the grid (flat across the road, blending out over a few meters).
@@ -315,6 +318,7 @@ export function buildCity(scene) {
   const RT = new Float32Array(GN * GN);
   const RD = new Float32Array(GN * GN).fill(Infinity); // (and how far that road is)
   const ribbons = []; // roads drawn as strips on the terrain: { pts, h, w }
+  const profiles = []; // each road's points and heights, before they're burned in
   for (const st of STREETS) {
     if (st.cls === 'pier') continue;
     const pts = [];
@@ -329,8 +333,56 @@ export function buildCity(scene) {
     let h = pts.map(([x, z]) => (paved(x, z) ? 0 : rawAt(x, z)));
     for (let pass = 0; pass < 4; pass++) h = h.map((v, i) => (paved(...pts[i]) ? 0 : (h[Math.max(0, i - 2)] + h[Math.max(0, i - 1)] + v + h[Math.min(h.length - 1, i + 1)] + h[Math.min(h.length - 1, i + 2)]) / 5));
     const ds = (i) => Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
-    for (let i = 1; i < h.length; i++) h[i] = Math.max(h[i - 1] - 0.12 * ds(i), Math.min(h[i - 1] + 0.12 * ds(i), h[i]));
-    for (let i = h.length - 2; i >= 0; i--) h[i] = Math.max(h[i + 1] - 0.12 * ds(i + 1), Math.min(h[i + 1] + 0.12 * ds(i + 1), h[i]));
+    profiles.push({ st, pts, h, ds, pins: new Map() });
+  }
+  // Where roads meet, one height: a road meeting a bigger one (wider, or as wide and longer)
+  // takes that road's height where they meet, so a junction is never a step between two
+  // roads at different heights. Then each road is kept to a 12% grade out from there.
+  const rankOf = (p) => ROAD_CLASS[p.st.cls].w * 10000 + p.pts.length;
+  const byRank = [...profiles].sort((a, b) => rankOf(b) - rankOf(a));
+  const done = [];
+  const heightOn = (q, x, z) => {
+    let best = null;
+    for (let k = 0; k + 1 < q.pts.length; k++) {
+      const c = closestOnSeg(x, z, q.pts[k][0], q.pts[k][1], q.pts[k + 1][0], q.pts[k + 1][1]);
+      if (c.d < ROAD_CLASS[q.st.cls].w / 2 + 1 && (!best || c.d < best.d)) best = { d: c.d, h: q.h[k] + (q.h[k + 1] - q.h[k]) * c.t }; // (anywhere on its pavement)
+    }
+    return best;
+  };
+  for (const p of byRank) {
+    for (let i = 0; i < p.pts.length; i++) {
+      if (paved(...p.pts[i])) continue;
+      for (const q of done) {
+        const o = heightOn(q, p.pts[i][0], p.pts[i][1]);
+        if (o) {
+          p.pins.set(i, o.h);
+          break;
+        }
+      }
+    }
+    const { h, ds } = p;
+    for (const [i, v] of p.pins) h[i] = v;
+    for (let pass = 0; pass < 3; pass++) {
+      for (let i = 1; i < h.length; i++) if (!p.pins.has(i)) h[i] = Math.max(h[i - 1] - 0.12 * ds(i), Math.min(h[i - 1] + 0.12 * ds(i), h[i]));
+      for (let i = h.length - 2; i >= 0; i--) if (!p.pins.has(i)) h[i] = Math.max(h[i + 1] - 0.12 * ds(i + 1), Math.min(h[i + 1] + 0.12 * ds(i + 1), h[i]));
+    }
+    // (two junctions too far apart in height for 12%: one even slope between them)
+    const pinned = [...p.pins.keys()].sort((a, b) => a - b);
+    for (let k = 0; k + 1 < pinned.length; k++) {
+      const i0 = pinned[k];
+      const i1 = pinned[k + 1];
+      let L = 0;
+      for (let i = i0 + 1; i <= i1; i++) L += ds(i);
+      if (Math.abs(h[i1] - h[i0]) <= 0.12 * L + 0.01) continue;
+      let s = 0;
+      for (let i = i0 + 1; i < i1; i++) {
+        s += ds(i);
+        h[i] = h[i0] + ((h[i1] - h[i0]) * s) / L;
+      }
+    }
+    done.push(p);
+  }
+  for (const { st, pts, h } of profiles) {
     const w = ROAD_CLASS[st.cls].w;
     ribbons.push({ pts, h, w, st });
     const reach = w / 2 + 13; // (flat across the road and a few meters either side, then easing into the hill)
@@ -362,7 +414,9 @@ export function buildCity(scene) {
     if (!b.lot) continue;
     const [fx, fz] = b.front ? b.front[0] : [b.cx, b.cz];
     b.padY = rawAt(fx, fz) + 0.15;
-    const reach = 5;
+    // (level for one grid step past the edge, so the ground meets the pad's edge exactly
+    // instead of dipping under it, then easing back into the hill)
+    const reach = 5 + TG;
     const i0 = Math.max(0, Math.floor((b.minX - reach) / TG));
     const i1 = Math.min(GN - 1, Math.ceil((b.maxX + reach) / TG));
     const j0 = Math.max(0, Math.floor((b.minZ - reach) / TG));
@@ -383,7 +437,7 @@ export function buildCity(scene) {
         }
       }
       if (d > reach) continue;
-      const wgt = 1 - d / reach;
+      const wgt = d <= TG ? 1 : 1 - (d - TG) / (reach - TG);
       H[idx] = H[idx] * (1 - wgt) + b.padY * wgt;
     }
   }
@@ -395,7 +449,22 @@ export function buildCity(scene) {
   // ======== Lookups: blocks, ground height, nodes ========
   const BG = 2;
   const BN = MAP / BG;
+  // Which blocks touch each 2 m cell: every cell with a corner or its middle in the block,
+  // and every cell its edge runs through (so slivers along the edge are never missed); a
+  // cell two blocks share keeps both.
   const cellBlock = new Int16Array(BN * BN);
+  const cellMore = new Map(); // cell -> [block ids] (a cell with more than one block)
+  const mark = (i, j, b) => {
+    if (i < 0 || j < 0 || i >= BN || j >= BN) return;
+    const k = j * BN + i;
+    const v = cellBlock[k];
+    if (!v) cellBlock[k] = b.id + 1;
+    else if (v !== b.id + 1) {
+      const l = cellMore.get(k) || [];
+      if (!l.includes(b.id)) l.push(b.id);
+      cellMore.set(k, l);
+    }
+  };
   for (const b of blocks) {
     const i0 = Math.max(0, Math.floor(b.minX / BG));
     const i1 = Math.min(BN - 1, Math.floor(b.maxX / BG));
@@ -405,7 +474,13 @@ export function buildCity(scene) {
       const x0 = i * BG;
       const z0 = j * BG;
       if (pointInPoly(x0 + 1, z0 + 1, b.poly) || pointInPoly(x0, z0, b.poly) || pointInPoly(x0 + BG, z0, b.poly)
-        || pointInPoly(x0, z0 + BG, b.poly) || pointInPoly(x0 + BG, z0 + BG, b.poly)) cellBlock[j * BN + i] = b.id + 1;
+        || pointInPoly(x0, z0 + BG, b.poly) || pointInPoly(x0 + BG, z0 + BG, b.poly)) mark(i, j, b);
+    }
+    for (let q = 0; q < b.poly.length; q++) {
+      const [ax, az] = b.poly[q];
+      const [bx, bz] = b.poly[(q + 1) % b.poly.length];
+      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 0.5));
+      for (let t = 0; t <= n; t++) mark(Math.floor((ax + ((bx - ax) * t) / n) / BG), Math.floor((az + ((bz - az) * t) / n) / BG), b);
     }
   }
   const blockAt = (x, z) => {
@@ -415,7 +490,9 @@ export function buildCity(scene) {
     const v = cellBlock[j * BN + i];
     if (!v) return null;
     const b = blocks[v - 1];
-    return pointInPoly(x, z, b.poly) ? b : null;
+    if (pointInPoly(x, z, b.poly)) return b;
+    for (const id of cellMore.get(j * BN + i) || []) if (pointInPoly(x, z, blocks[id].poly)) return blocks[id];
+    return null;
   };
   // Piers: a deck level with the docks, over the water.
   const piers = [];
@@ -425,11 +502,35 @@ export function buildCity(scene) {
     piers.push({ ax, az, bx, bz, hw: ROAD_CLASS.pier.w / 2 + 1 });
   }
   const onPier = (x, z) => piers.some((p) => closestOnSeg(x, z, p.ax, p.az, p.bx, p.bz).d < p.hw);
+  // Cells of yard / pad (a lot's level ground, and not a road crossing it): there you stand
+  // on the pad's surface, which on a slope stands out over the hillside.
+  const padCell = new Uint8Array(BN * BN);
+  for (const b of blocks) {
+    if (!b.lot || b.padY === undefined) continue;
+    const i0 = Math.max(0, Math.floor(b.minX / BG));
+    const i1 = Math.min(BN - 1, Math.floor(b.maxX / BG));
+    const j0 = Math.max(0, Math.floor(b.minZ / BG));
+    const j1 = Math.min(BN - 1, Math.floor(b.maxZ / BG));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const x = i * BG + BG / 2;
+      const z = j * BG + BG / 2;
+      if (pointInPoly(x, z, b.poly) && !edgesNear(x, z, 1.5).length) padCell[j * BN + i] = 1;
+    }
+  }
+  const steps = []; // raised entrance steps you can stand (or drive) on: { cx, cz, c, s, hx, hz, y }
   const groundY = (x, z) => {
     let h = heightAt(x, z);
     const b = blockAt(x, z);
     if (b && !b.lot && b.type !== 'ramps') h += 0.2;
-    if (h < -0.3 && onPier(x, z)) h = 0;
+    // (a yard is a level pad: on a slope its edge stands out over the ground, so on the
+    // yard you're on its surface, not down in the hillside under it)
+    if (b && b.lot && b.padY !== undefined && padCell[Math.floor(z / BG) * BN + Math.floor(x / BG)]) h = Math.max(h, b.padY + 0.02);
+    for (const st of steps) {
+      const dx = x - st.cx;
+      const dz = z - st.cz;
+      if (Math.abs(dx * st.c + dz * st.s) < st.hx && Math.abs(-dx * st.s + dz * st.c) < st.hz) h = Math.max(h, st.y);
+    }
+    if (h < 0 && onPier(x, z)) h = 0; // (on a pier: its deck, even over shallow water)
     return h;
   };
 
@@ -524,7 +625,8 @@ export function buildCity(scene) {
     batch.add(flatPoly(CITY_PAVE, 0), asphaltMat);
     batch.add(flatPoly(docksPave, 0), asphaltMat);
     // Terrain mesh (skipping squares under the paving), colored by height, slope and shore.
-    const S = 5;
+    // (on the height grid's own points, so it's exactly the ground everything stands on)
+    const S = TG;
     const n = MAP / S;
     const grass = new THREE.Color(0x3d5a3a);
     const forest = new THREE.Color(0x2f4a2c);
@@ -584,10 +686,27 @@ export function buildCity(scene) {
         if (paved(ax, az) && paved(bx, bz)) continue;
         const [anx, anz] = side(i);
         const [bnx, bnz] = side(i + 1);
-        const ya = r.h[i] + 0.04;
-        const yb = r.h[i + 1] + 0.04;
-        pos.push(ax - anx * hw, ya, az - anz * hw, ax + anx * hw, ya, az + anz * hw, bx - bnx * hw, yb, bz - bnz * hw);
-        pos.push(bx - bnx * hw, yb, bz - bnz * hw, ax + anx * hw, ya, az + anz * hw, bx + bnx * hw, yb, bz + bnz * hw);
+        // (a fine mesh laid on the ground - the road is burned into it - so roads meeting at
+        // a junction lie on the same ground, and cars on them sit on what's drawn)
+        const y = (x, z) => heightAt(x, z) + 0.04;
+        const nu = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 2));
+        const nv = Math.max(1, Math.ceil(r.w / 2.5));
+        const at = (u, v) => {
+          const sx = (ax - anx * hw) + ((ax + anx * hw) - (ax - anx * hw)) * v;
+          const sz = (az - anz * hw) + ((az + anz * hw) - (az - anz * hw)) * v;
+          const ex = (bx - bnx * hw) + ((bx + bnx * hw) - (bx - bnx * hw)) * v;
+          const ez = (bz - bnz * hw) + ((bz + bnz * hw) - (bz - bnz * hw)) * v;
+          const x = sx + (ex - sx) * u;
+          const z = sz + (ez - sz) * u;
+          return [x, y(x, z), z];
+        };
+        for (let iu = 0; iu < nu; iu++) for (let iv = 0; iv < nv; iv++) {
+          const p00 = at(iu / nu, iv / nv);
+          const p01 = at(iu / nu, (iv + 1) / nv);
+          const p10 = at((iu + 1) / nu, iv / nv);
+          const p11 = at((iu + 1) / nu, (iv + 1) / nv);
+          pos.push(...p00, ...p01, ...p10, ...p10, ...p01, ...p11);
+        }
       }
       if (!pos.length) continue;
       // (wind the triangles to face up whichever way the road runs)
@@ -611,9 +730,13 @@ export function buildCity(scene) {
       for (const i of [0, r.pts.length - 1]) {
         const [x, z] = r.pts[i];
         if (paved(x, z)) continue;
-        const disk = new THREE.CircleGeometry(hw, 16);
+        // (a rounded end only where the road just ends - not where it meets another road)
+        if (ribbons.some((o) => o !== r && o.pts.some((p, k) => k > 0 && closestOnSeg(x, z, o.pts[k - 1][0], o.pts[k - 1][1], p[0], p[1]).d < o.w / 2 + 0.5))) continue;
+        const disk = new THREE.RingGeometry(0, hw, 16, Math.max(1, Math.ceil(hw / 2))); // (in rings, to follow the ground)
         disk.rotateX(-Math.PI / 2);
-        disk.translate(x, r.h[i] + 0.035, z);
+        disk.translate(x, 0, z);
+        const dp = disk.attributes.position;
+        for (let v = 0; v < dp.count; v++) dp.setY(v, heightAt(dp.getX(v), dp.getZ(v)) + 0.035);
         batch.add(disk, asphaltMat);
       }
     }
@@ -1025,6 +1148,7 @@ export function buildCity(scene) {
       const f = frontBuilding(b, Math.min(48, b.frontSide.len * 0.6), Math.min(34, Math.sqrt(b.area) * 0.45), height(), pickMat(), 6);
       const s = b.frontSide;
       batch.mesh(new THREE.BoxGeometry(f.w * 0.6, 0.5, 3), lam(0xd8d2c4), f.face.x + s.nx * 1.5, 0.45, f.face.z + s.nz * 1.5, -f.ang);
+      steps.push({ cx: f.face.x + s.nx * 1.5, cz: f.face.z + s.nz * 1.5, c: Math.cos(f.ang), s: Math.sin(f.ang), hx: f.w * 0.3, hz: 1.5, y: 0.7 });
       for (let k = -2; k <= 2; k++) batch.mesh(new THREE.CylinderGeometry(0.45, 0.5, 8, 10), columnMat, f.face.x + s.ux * k * f.w * 0.12 + s.nx * 0.6, 4.2, f.face.z + s.uz * k * f.w * 0.12 + s.nz * 0.6);
       placed.push(f);
       frontages.set(b, { x: f.face.x, z: f.face.z, h: f.h, nx: s.nx, nz: s.nz, ux: s.ux, uz: s.uz });

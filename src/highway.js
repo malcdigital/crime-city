@@ -452,9 +452,21 @@ export class Highway {
         since += L;
         // Over another surface (the ramp's join with the deck): nothing underneath.
         const overDeck = this.surfacesAt(bx, bz, 0).some((o) => o.s !== s && o.h > 3);
-        if (hm > 0.8 && hm < 4 && !overDeck) {
-          const w = s.hw * 0.85;
-          city.colliders.push(obb((ax + bx) / 2, (az + bz) / 2, L / 2 + 0.3, w, Math.atan2(bz - az, bx - ax), hm));
+        // The solid part under the ramp, in 2 m pieces: from where it's 0.5 m up (a car
+        // coming at it across the grass drives up onto it below 0.6 m - updateLayer - and
+        // runs into it from there on, never into it) to where there's room underneath.
+        const n = Math.max(1, Math.ceil(L / 2));
+        for (let k = 0; k < n; k++) {
+          const t0 = k / n;
+          const t1 = (k + 1) / n;
+          const h0 = s.h[i - 1] + (s.h[i] - s.h[i - 1]) * t0;
+          const h1 = s.h[i - 1] + (s.h[i] - s.h[i - 1]) * t1;
+          if (Math.min(h0, h1) < 0.5 || Math.max(h0, h1) > 4.2 || overDeck) continue;
+          const x0 = ax + (bx - ax) * t0;
+          const z0 = az + (bz - az) * t0;
+          const x1 = ax + (bx - ax) * t1;
+          const z1 = az + (bz - az) * t1;
+          city.colliders.push(obb((x0 + x1) / 2, (z0 + z1) / 2, Math.hypot(x1 - x0, z1 - z0) / 2 + 0.3, s.hw + 0.5, Math.atan2(bz - az, bx - ax), Math.max(h0, h1))); // (out to the side barriers)
           this.walls.push(i);
         }
         if (hm >= 4 && since > 13 && !overDeck && !edgesNear(bx, bz, 1).length) {

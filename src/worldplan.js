@@ -680,18 +680,45 @@ const norm = (dx, dz, ccw) => {
   return ccw ? [-dz / L, dx / L] : [dz / L, -dx / L];
 };
 
+// Distance from a segment to a polygon (0 if it runs into it).
+function segPolyDist(ax, az, bx, bz, poly) {
+  if (pointInPoly(ax, az, poly) || pointInPoly(bx, bz, poly)) return 0;
+  let d = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const [px, pz] = poly[i];
+    const [qx, qz] = poly[(i + 1) % poly.length];
+    const cross = (ox, oz, ux, uz, vx, vz) => (ux - ox) * (vz - oz) - (uz - oz) * (vx - ox);
+    const d1 = cross(ax, az, bx, bz, px, pz);
+    const d2 = cross(ax, az, bx, bz, qx, qz);
+    const d3 = cross(px, pz, qx, qz, ax, az);
+    const d4 = cross(px, pz, qx, qz, bx, bz);
+    if (d1 * d2 < 0 && d3 * d4 < 0) return 0;
+    d = Math.min(d, closestOnSeg(px, pz, ax, az, bx, bz).d, closestOnSeg(qx, qz, ax, az, bx, bz).d, closestOnSeg(ax, az, px, pz, qx, qz).d, closestOnSeg(bx, bz, px, pz, qx, qz).d);
+  }
+  return d;
+}
+
 // ---- Lots along the hill roads (no blocks form up there: houses face the road) ----
 // Rectangles each side of the road, set back a little, wherever they fit; plus a big lot at
 // the end of each ridge road (the quarry, the junkyard, the lookout).
 function addLots(graph, blocks) {
   const edgesNear = (x, z, r) => graph.edges.filter((e) => closestOnSeg(x, z, e.a.x, e.a.z, e.b.x, e.b.z).d < r + e.w / 2);
-  const fits = (poly, own) => {
+  const fits = (poly, own, st) => {
     const [cx, cz] = centroid(poly);
     for (const p of [...poly, [cx, cz]]) {
       if (isWater(p[0], p[1]) || shoreDist(p[0], p[1]) < 6 || inHole(p[0], p[1], 4)) return false;
       if (p[0] < 6 || p[0] > 1594 || p[1] < 6 || p[1] > 1594) return false;
       if (ringDist(p[0], p[1]) < RING_HALF + 30 || insideRing(p[0], p[1])) return false;
       for (const e of edgesNear(p[0], p[1], 2)) if (!own(e)) return false;
+    }
+    // (and no other road through it anywhere - not only at its corners and middle)
+    const [x0, x1] = [Math.min(...poly.map((q) => q[0])), Math.max(...poly.map((q) => q[0]))];
+    const [z0, z1] = [Math.min(...poly.map((q) => q[1])), Math.max(...poly.map((q) => q[1]))];
+    for (const e of graph.edges) {
+      // (its own road can run along its front edge, but not into it; any other road keeps clear)
+      const pad = e.w / 2 + (e.street === st ? 0.3 : 2);
+      if (Math.max(e.a.x, e.b.x) < x0 - pad || Math.min(e.a.x, e.b.x) > x1 + pad || Math.max(e.a.z, e.b.z) < z0 - pad || Math.min(e.a.z, e.b.z) > z1 + pad) continue;
+      if (segPolyDist(e.a.x, e.a.z, e.b.x, e.b.z, poly) < pad) return false;
     }
     for (const b of blocks) {
       if (b.maxX < Math.min(...poly.map((q) => q[0])) || b.minX > Math.max(...poly.map((q) => q[0]))) continue;
@@ -746,7 +773,7 @@ function addLots(graph, blocks) {
         let poly = [P(A, o0), P(B, o0), P(B, o1), P(A, o1)];
         if (area(poly) < 0) poly = poly.reverse();
         const own = (e) => e.street === st || e.cls === 'hills';
-        if (fits(poly, own)) lot(poly, { street: st.name, front: [P(M, w / 2 + Math.max(0, sag)), Math.atan2(-nz, -nx)] });
+        if (fits(poly, own, st)) lot(poly, { street: st.name, front: [P(M, w / 2 + Math.max(0, sag)), Math.atan2(-nz, -nx)] });
       }
     }
   }
