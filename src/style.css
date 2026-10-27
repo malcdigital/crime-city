@@ -22,9 +22,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #sport.hidden, #sport .hidden { display: none; }
 #sport .sb { background: rgba(0,0,0,.55); border: 1px solid rgba(255,210,63,.6); border-radius: 8px; padding: 5px 14px; font-size: 15px; letter-spacing: .05em; white-space: nowrap; }
 #sport .sm { position: relative; width: 180px; height: 12px; margin: 6px auto 0; background: rgba(0,0,0,.5); border: 1px solid rgba(255,255,255,.35); border-radius: 6px; overflow: hidden; }
-#sport .sweet { position: absolute; left: 82%; right: 0; top: 0; bottom: 0; background: rgba(126,224,129,.35); }
+#sport .sweet { position: absolute; left: 82%; width: 18%; top: 0; bottom: 0; background: rgba(126,224,129,.45); border-left: 1px solid #7ee081; border-right: 1px solid #7ee081; }
 #sport .fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: #ffd23f; }
 #sport .fill.good { background: #7ee081; }
+#sport .se { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 4px; font-size: 9px; letter-spacing: .08em; }
+#sport .eb { width: 90px; height: 6px; background: rgba(0,0,0,.5); border-radius: 3px; overflow: hidden; }
+#sport .ef { height: 100%; width: 100%; background: #4fc3f7; }
+#sport .ef.low { background: #ff8a65; }
 #sport .sh { margin-top: 4px; font-size: 11px; font-weight: 700; opacity: .9; }
 body.touch #sport { top: 58px; }
 body.touch #sport .sb { font-size: 13px; padding: 4px 10px; }
@@ -372,6 +376,14 @@ body.touch #sport .sb { font-size: 13px; padding: 4px 10px; }
 
 /* On foot (right thumb) */
 #touch .tb-fire { right: 22px; bottom: 26px; }
+#touch .tb-qfire { right: 22px; bottom: 26px; }
+#touch .tb-bshoot { right: 22px; bottom: 26px; }
+#touch .tb-bblock { right: 26px; bottom: 120px; }
+#touch .tb-bd { right: 116px; bottom: 14px; }
+#touch .tb-bcross { right: 196px; bottom: 30px; }
+#touch .tb-bhesi { right: 112px; bottom: 96px; }
+#touch .tb-bstep { right: 196px; bottom: 98px; }
+#touch .tb-bspin { right: 98px; bottom: 166px; }
 #touch .tb-aim { right: 116px; bottom: 14px; }
 #touch .tb-reload { right: 130px; bottom: 86px; }
 #touch .tb-cross { right: 104px; bottom: 148px; }

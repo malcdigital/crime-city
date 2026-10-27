@@ -157,9 +157,9 @@ export function buildPark(city, scene) {
     city.colliders.push({ minX: Math.min(ax, bx) - 0.1, maxX: Math.max(ax, bx) + 0.1, minZ: Math.min(az, bz) - 0.1, maxZ: Math.max(az, bz) + 0.1, h: 1.05 });
   }
   // The sign over the gate.
-  for (const x of [GATE[0] - 0.2, GATE[1] + 0.2]) L.green.push(box(0.12, 2.6, 0.12, x, 1.3, PG.z0));
+  for (const x of [GATE[0] - 0.2, GATE[1] + 0.2]) L.green.push(box(0.12, 3.8, 0.12, x, 1.9, PG.z0));
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.2), new THREE.MeshLambertMaterial({ map: signTexture(), side: THREE.DoubleSide }));
-  sign.position.set((GATE[0] + GATE[1]) / 2, 2.3, PG.z0 - 0.05);
+  sign.position.set((GATE[0] + GATE[1]) / 2, 3.2, PG.z0 - 0.05); // (bottom edge 2.6 m: well over your head)
   sign.rotation.y = Math.PI; // (reads from the street)
   scene.add(sign);
 

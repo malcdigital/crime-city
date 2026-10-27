@@ -240,6 +240,30 @@ export class Input {
     a.playClip = this.hit('Enter') || this.btnHit(PAD.CROSS);
     a.closeClip = this.hit('Escape') || this.btnHit(PAD.CIRCLE);
     a.spawnCar = this.hit('KeyV') || this.btnHit(PAD.R3);
+    // Pickup basketball (streetball.js), NBA 2K's layout on the controller:
+    //   □ hold and let go = shoot (tap = pump fake) / steal on D, R2 (or ✕) sprint, L2 intense D /
+    //   box out, △ block / rebound, right stick = Pro Stick dribble moves (the camera follows).
+    // Keyboard: hold left-click or Space to shoot / left-click or R to steal, Shift sprint,
+    //   right-click intense D, F block / rebound, moves: J / L crossover, I hesitation (hold:
+    //   size-up), K step-back, U / O spin, B / N behind the back.
+    // Touch: SHOOT (□), BLOCK (△), D (L2) and the CROSS / HESI / STEP / SPIN buttons.
+    a.bShoot = this.lmb || k('Space') || this.btn(PAD.SQUARE);
+    a.bSteal = this.clicked || this.hit('KeyR') || this.btnHit(PAD.SQUARE);
+    a.bSprint = a.sprint || this.btnVal(PAD.R2) > 0.3;
+    a.bIntense = this.rmb || this.btnVal(PAD.L2) > 0.3;
+    a.bBlock = this.hit('KeyF') || this.btnHit(PAD.TRIANGLE);
+    a.bStickX = this.touchMode ? 0 : this.axis(2);
+    a.bStickY = this.touchMode ? 0 : this.axis(3);
+    const mv = [['KeyJ', 'cross', -1], ['KeyL', 'cross', 1], ['KeyI', 'hesi', 0], ['KeyK', 'step', 0], ['KeyU', 'spin', -1], ['KeyO', 'spin', 1], ['KeyB', 'behind', -1], ['KeyN', 'behind', 1]];
+    a.bMove = null;
+    for (const [code, kind, side] of mv) if (this.hit(code)) a.bMove = { kind, side };
+    a.bSizeUp = k('KeyI');
+    // (the touch buttons: 18 cross, 19 hesi, 20 step, 21 spin; their side comes from the stick)
+    const tside = a.moveX < -0.2 ? -1 : a.moveX > 0.2 ? 1 : 0;
+    if (this.btnHit(18)) a.bMove = { kind: 'cross', side: tside };
+    if (this.btnHit(19)) a.bMove = { kind: 'hesi', side: 0 };
+    if (this.btnHit(20)) a.bMove = { kind: 'step', side: 0 };
+    if (this.btnHit(21)) a.bMove = { kind: 'spin', side: tside };
     a.looking = a.lookX !== 0 || a.lookY !== 0;
     return a;
   }

@@ -29,12 +29,22 @@ const PAD_DEAD = 0.18; // input.js's stick deadzone (the shaped steering skips p
 // kind: 'hold' (pressed while touched), 'toggle' (tap on / tap off), 'fire' (hold + drag to
 // look), 'weapon' (tap = swap; long-press opens the inventory strip until the next tap).
 const BUTTONS = [
-  ['fire', 'FIRE', B.R2, ['foot', 'ball'], 'fire', 'big red'],
+  ['fire', 'FIRE', B.R2, ['foot'], 'fire', 'big red'],
   ['aim', 'AIM', B.L2, ['foot'], 'toggle', 'mid'],
-  ['reload', '□', B.SQUARE, ['foot', 'strip', 'ball'], 'hold', 'sm'],
-  ['cross', '✕', B.CROSS, ['foot', 'car', 'phone', 'menu', 'strip', 'map', 'stop', 'ball'], 'hold', 'sm'],
+  ['reload', '□', B.SQUARE, ['foot', 'strip'], 'hold', 'sm'],
+  ['cross', '✕', B.CROSS, ['foot', 'car', 'phone', 'menu', 'strip', 'map', 'stop', 'qb'], 'hold', 'sm'],
   ['circle', '○', B.CIRCLE, ['foot', 'car', 'phone', 'menu', 'map', 'stop'], 'hold', 'sm'],
   ['fight', '□', B.SQUARE, ['stop'], 'hold', 'sm'], // (a police stop: fight back)
+  // Pickup basketball (streetball.js): NBA 2K style.
+  ['bshoot', 'SHOOT', B.SQUARE, ['ball'], 'hold', 'big red txt'],
+  ['bblock', '△', B.TRIANGLE, ['ball'], 'hold', 'sm'],
+  ['bd', 'D', B.L2, ['ball'], 'hold', 'mid txt'],
+  ['bcross', 'CROSS', 18, ['ball'], 'hold', 'sm txt'],
+  ['bhesi', 'HESI', 19, ['ball'], 'hold', 'sm txt'],
+  ['bstep', 'STEP', 20, ['ball'], 'hold', 'sm txt'],
+  ['bspin', 'SPIN', 21, ['ball'], 'hold', 'sm txt'],
+  // Football (gridiron.js): throw with FIRE, hike with ✕.
+  ['qfire', 'FIRE', B.R2, ['qb'], 'hold', 'big red'],
   ['tri', '△', B.TRIANGLE, ['foot', 'car', 'map'], 'hold', 'sm'],
   ['crouch', 'DUCK', B.L3, ['foot'], 'hold', 'sm txt'],
   ['weapon', 'GUN', B.L1, ['foot', 'strip'], 'weapon', 'sm txt'],
@@ -49,7 +59,7 @@ const BUTTONS = [
   ['down', '▼', B.DOWN, ['phone', 'menu', 'map'], 'hold', 'dp'],
   ['left', '◀', B.LEFT, ['phone', 'menu', 'strip'], 'hold', 'dp'],
   ['right', '▶', B.RIGHT, ['phone', 'menu', 'strip'], 'hold', 'dp'],
-  ['pause', '❚❚', B.OPTIONS, ['foot', 'car', 'phone', 'map', 'strip', 'stop', 'ball'], 'hold', 'top'],
+  ['pause', '❚❚', B.OPTIONS, ['foot', 'car', 'phone', 'map', 'strip', 'stop', 'ball', 'qb'], 'hold', 'top'],
   ['phone', '📱', B.CREATE, ['foot', 'car', 'phone'], 'hold', 'top'],
   ['map', 'MAP', B.TOUCHPAD, ['foot', 'car', 'map'], 'hold', 'top txt'],
   ['spawn', 'CAR', B.R3, ['foot'], 'hold', 'top txt test'],
@@ -63,7 +73,8 @@ const HINTS = {
   strip: { cross: 'give', reload: 'drop', weapon: 'close' },
   map: { cross: 'pin', circle: 'close', tri: 'legend', heat: 'heat' },
   stop: { cross: 'quietly', circle: 'bribe', fight: 'fight' },
-  ball: { fire: 'shoot', reload: 'steal', cross: 'block' },
+  ball: { bblock: 'block', bd: 'hold' },
+  qb: { qfire: 'throw', cross: 'hike' },
 };
 
 export class TouchControls {
@@ -72,7 +83,7 @@ export class TouchControls {
     this.enabled = false;
     this.lastT = -1;
     this.ctx = ''; // (set on the first update)
-    this.btn = new Array(18).fill(0);
+    this.btn = new Array(22).fill(0);
     this.held = new Map(); // button index -> number of touches holding it
     this.toggled = new Set();
     this.fresh = new Set(); // pressed and released before the game saw it: report once
@@ -292,7 +303,8 @@ export class TouchControls {
     else if (this.latched || game.inventory?.open) ctx = 'strip';
     else if (game.stop) ctx = 'stop'; // (pulled over: go quietly, bribe, or fight)
     else if (game.player.vehicle) ctx = 'car';
-    else if (game.sport?.active || game.gridiron?.active) ctx = 'ball'; // (a pickup game: shoot / throw, steal, block / hike)
+    else if (game.sport?.active) ctx = 'ball'; // (one-on-one: shoot, moves, steal, block)
+    else if (game.gridiron?.active) ctx = 'qb'; // (quarterback: throw, hike)
     this.carSpeed = game.player.vehicle ? Math.abs(game.player.vehicle.speed) : 0;
     if (ctx !== this.ctx) {
       // New screen: let go of everything (a held AIM must not become a held BRAKE).
@@ -312,10 +324,12 @@ export class TouchControls {
     }
     if (ctx === 'stop') this.el.buttons.fight.hint.textContent = game.player.vehicle ? 'floor it' : 'fight';
     if (ctx === 'ball') {
-      const qb = !!game.gridiron?.active; // (football: throw and hike; no steal)
-      this.el.buttons.fire.hint.textContent = qb ? 'throw' : 'shoot';
-      this.el.buttons.cross.hint.textContent = qb ? 'hike' : 'block';
-      this.el.buttons.reload.el.classList.toggle('hidden', qb);
+      // (on defense: SHOOT is steal, the moves are hidden)
+      const off = game.sport.has === 'you';
+      const b = this.el.buttons;
+      b.bshoot.el.querySelector('.tl').textContent = off || game.sport.has !== 'opp' ? 'SHOOT' : 'STEAL';
+      b.bblock.hint.textContent = game.sport.has === 'opp' ? 'block' : 'rebound';
+      for (const id of ['bcross', 'bhesi', 'bstep', 'bspin']) b[id].el.classList.toggle('hidden', !off);
     }
     // FIRE is dimmed until you aim (a gun only fires while aiming).
     const fire = this.el.buttons.fire;

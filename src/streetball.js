@@ -1,34 +1,76 @@
-import { dist, rand, pick, lerpAngle } from './util.js';
+import { dist, rand, pick, lerpAngle, clamp } from './util.js';
+import { crouchPose } from './character.js';
 
-// One-on-one to 11 at a basketball court, against one of the people shooting there (hoops.js).
-// - Join: on the court, on foot, nobody after you. E starts it; Q / ○ changes the bet
-//   ($0, $50, $100, $250, $500 - he matches it; you can't bet more cash than you've got).
-// - Scoring: 1 a basket, 2 from beyond the arc. First to 11. A miss is a loose ball: whoever
-//   gets there first. After a defensive rebound the ball has to be taken back past the arc
-//   before a basket counts. After a basket the other one gets it at the top of the key.
-// - You with the ball: move as usual (you dribble). Hold FIRE (R2, the mouse, the FIRE button)
-//   and let go at the top of the meter: timing, distance and how close he is decide it.
-// - Him with the ball: get in his face (it throws him off), □ / R to try for a steal when
-//   you're on him, ✕ / E to go up for the block as he shoots.
-// - Walk off the court, get in a car or have the police after you and you forfeit (the bet
-//   too). If he gets scared off or hurt, it's called off and the bet comes back.
+// One-on-one at a basketball court against one of the people shooting there (hoops.js),
+// played like NBA 2K's Blacktop.
+//
+// Joining: on the court, on foot, nobody after you. E / D-pad ↑ / USE plays. Q / ○ changes the
+// bet ($0-$500; he matches it, never more than your cash), R / □ the game (to 11, 15 or 21).
+// Each player has an overall rating (60-90), shown when he offers.
+//
+// Rules: 1s and 2s (2 from beyond the arc). A miss is a live ball. After a defensive rebound or
+// a steal the ball has to be taken back past the arc before a basket counts. After a basket
+// the other player checks it at the top. No free throws: a reach-in keeps the ball with the
+// offense; a foul on a made shot is an and-one (+1).
+//
+// Controls (NBA 2K's layout on the controller; input.js has the keyboard and touch versions):
+//   Offense  □ hold, let go at the top of the meter = shoot (a quick tap is a pump fake).
+//            What you get depends on where you are: a jumper, a layup driving in close, a
+//            floater sprinting in from mid-range, a dunk sprinting at the rim.
+//            R2 / ✕ sprint (it costs energy). Right stick = Pro Stick dribble moves: flick left
+//            or right a crossover, up a hesitation (hold up to size him up), down a step-back,
+//            down-left / down-right a spin, up-left / up-right behind the back. On the controller
+//            the camera looks down the court on its own while you play.
+//   Defense  L2 hold = intense D (face him, slide; drive into you and you cut him off; box out
+//            on a shot). □ steal (the timing matters: easier while he's doing a move; reach
+//            twice in a row and it's a foul). △ block as he goes up / jump for a rebound.
+// The shot meter: a perfect release ("Excellent", green) always goes in. The green window
+// shrinks when he's in your face, when you shoot on the run or from deep, and when you're
+// tired. Anything else is a "Slightly Early", "Late", "Very Late"... and only a chance.
+// Energy: sprinting and moves drain it; standing still brings it back. Tired players are
+// slower, shoot worse and get beaten off the dribble.
+// Ankles: chain moves (or size him up first) and a move that beats your man can put him on the
+// floor for a second. He can do it to you too.
+// Walk off the court, get in a car or have the police after you and you forfeit (the bet too).
+// If he gets scared off or hurt, it's called off and the bet comes back.
 // (Betting against another player waits for multiplayer: the wager is held the same way.)
-const TO = 11;
 const ARC = 6.75;
 const BETS = [0, 50, 100, 250, 500];
+const TARGETS = [11, 15, 21];
 const NAMES = ['Dre', 'Tank', 'Lil Mike', 'Jojo', 'Smoke', 'Ray', 'Peanut', 'Boogie', 'Shorty', 'Deuce'];
 const G = 9.8;
+// Shots: T = seconds to the perfect release, W = green window (seconds, its full width).
+// (NBA 2K's green window is about 40-60 ms; ours is wider for a browser and a phone screen.)
+const SHOTS = {
+  jumper: { T: 0.6, W: 0.08 },
+  layup: { T: 0.45, W: 0.13 },
+  floater: { T: 0.45, W: 0.09 },
+  dunk: { T: 0.42, W: 0 },
+};
+const LATE = 0.35; // (held this long past the top it goes up anyway: very late)
+// Dribble moves: how long they take, the chance they beat a good defender, the chance of
+// losing it if you do it right into him.
+const MOVES = {
+  cross: { T: 0.32, beat: 0.3, risk: 0, name: 'Crossover' },
+  behind: { T: 0.38, beat: 0.33, risk: 0.1, name: 'Behind the back' },
+  spin: { T: 0.48, beat: 0.4, risk: 0.08, name: 'Spin' },
+  hesi: { T: 0.48, beat: 0.3, risk: 0, name: 'Hesi' },
+  step: { T: 0.34, beat: 0, risk: 0, name: 'Step-back' },
+};
+const OPEN = ['Wide Open', 'Open', 'Contested', 'Heavily Contested'];
+const OPEN_WINDOW = [1, 1, 0.7, 0.45]; // (green window)
+const OPEN_MAKE = [1.08, 1, 0.75, 0.45]; // (a white release's chance)
 
 export class Streetball {
   constructor(game) {
     this.game = game;
     this.active = false;
     this.betI = 2;
-    this.meter = null;
+    this.toI = 0;
+    this.shot = null;
   }
 
   // ---- Joining (main.js handleInteractions, on foot) ----
-  // Returns the court's hoops game and group you're standing by, or null.
   nearGame() {
     const game = this.game;
     const [px, pz] = game.player.pos();
@@ -51,21 +93,26 @@ export class Streetball {
     if (this.active || game.player.vehicle || game.stars > 0 || game.stop) return;
     const near = this.nearGame();
     if (!near) return;
-    const L = (k) => game.input.label(k);
+    const kb = game.input.mode === 'kb';
     if (a.dealNo) {
       this.betI = (this.betI + 1) % BETS.length;
       a.melee = false; // (○ changes the bet here, it doesn't throw a punch)
+    }
+    if (a.reload) {
+      this.toI = (this.toI + 1) % TARGETS.length;
+      a.reload = false;
     }
     let bet = BETS[this.betI];
     while (bet > game.cash && bet > 0) bet = BETS[BETS.indexOf(bet) - 1];
     const opp = near.g.players[0];
     if (!opp.ballName) opp.ballName = pick(NAMES);
-    const betKey = game.input.mode === 'kb' ? 'Q' : '○';
-    game.prompt = `${opp.ballName}: "Run it? One-on-one, to 11." ${L('interact')} to play · ${betKey} bet: ${bet ? `$${bet}` : 'nothing'}`;
-    if (a.interactHeld && !game.interactWasHeld) this.start(near.H, near.g, opp, bet);
+    if (!opp.ballR) opp.ballR = Math.round(clamp(rand(58, 92) * 0.5 + rand(58, 92) * 0.5, 60, 90));
+    const to = TARGETS[this.toI];
+    game.prompt = `${opp.ballName} (${opp.ballR} OVR): "Run it? One-on-one, to ${to}." ${game.input.label('interact')} to play · ${kb ? 'Q' : '○'} bet: ${bet ? `$${bet}` : 'nothing'} · ${kb ? 'R' : '□'} game to ${to}`;
+    if (a.interactHeld && !game.interactWasHeld) this.start(near.H, near.g, opp, bet, to);
   }
 
-  start(H, g, opp, bet) {
+  start(H, g, opp, bet, to) {
     const game = this.game;
     this.active = true;
     this.H = H;
@@ -73,39 +120,64 @@ export class Streetball {
     this.opp = opp;
     this.rim = g.rim;
     this.bet = bet;
+    this.to = to;
+    this.r = opp.ballR || 75;
     game.cash -= bet; // (held until it's over)
     this.score = { you: 0, opp: 0 };
     this.cleared = true;
     this.shot = null;
-    this.blockT = 0;
-    this.stealT = 0;
     this.outT = 0;
     this.dead = null;
     this.lastShooter = null;
+    this.clock = 0;
+    this.you = { st: 1, beatT: 0, fallT: 0, jumpT: 0, move: null, combo: 0, lastMoveEnd: -9, rhythm: 0, hand: 1, stealT: 0, lastSteal: -9, blockT: 0, intense: false, ps: { on: false, t: 0, x: 0, y: 0 }, sizeUp: false };
     g.match = this;
     // Everyone else at that basket steps off and watches from the side.
     const C = H.site.court;
-    const side = [];
-    for (const q of g.players) if (q !== opp) side.push(q);
+    const side = g.players.filter((q) => q !== opp);
     side.forEach((q, k) => {
       q.hp.role = 'watch';
-      const nx = this.rim.dz !== 0; // (court runs along z)
-      q.hp.spot = nx ? [C.x0 - 1.2, this.rim.z + this.rim.dz * (5 + k * 2.5)] : [this.rim.x + this.rim.dx * (5 + k * 2.5), C.z0 - 1.2];
+      const along = this.rim.dz !== 0; // (the court runs along z)
+      q.hp.spot = along ? [C.x0 - 1.2, this.rim.z + this.rim.dz * (5 + k * 2.5)] : [this.rim.x + this.rim.dx * (5 + k * 2.5), C.z0 - 1.2];
     });
-    opp.hp.role = 'opp';
+    const hp = opp.hp;
+    hp.role = 'opp';
+    hp.st = 1;
+    hp.beatT = 0;
+    hp.fallT = 0;
+    hp.lagT = 0;
+    hp.combo = 0;
+    hp.style = pick(['slasher', 'shooter', 'balanced']);
     this.give(Math.random() < 0.5 ? 'you' : 'opp', true);
-    game.hud.toast(`One-on-one with ${opp.ballName}${bet ? ` · $${bet} on it` : ''}. First to 11`, '#ffd23f');
-    game.hud.sport?.(this.board());
+    game.hud.toast(`One-on-one with ${opp.ballName} (${this.r} OVR)${bet ? ` · $${bet} on it` : ''}. First to ${to}`, '#ffd23f');
+  }
+
+  // ---- Helpers ----
+  topOfKey() {
+    return [this.rim.x + this.rim.dx * 8, this.rim.z + this.rim.dz * 8];
   }
 
   onCourt(x, z) {
     const C = this.H.site.court;
-    return [Math.max(C.x0 + 0.6, Math.min(C.x1 - 0.6, x)), Math.max(C.z0 + 0.6, Math.min(C.z1 - 0.6, z))];
+    return [clamp(x, C.x0 + 0.6, C.x1 - 0.6), clamp(z, C.z0 + 0.6, C.z1 - 0.6)];
   }
 
-  // ---- Possession ----
-  topOfKey() {
-    return [this.rim.x + this.rim.dx * 8, this.rim.z + this.rim.dz * 8];
+  // How open a shooter at (sx, sz) is with the defender at (dx, dz): 0 wide open .. 3 heavily.
+  openness(sx, sz, dx, dz, beaten, handsUp) {
+    if (beaten) return 0;
+    const d = dist(sx, sz, dx, dz);
+    const rx = this.rim.x - sx;
+    const rz = this.rim.z - sz;
+    const rl = Math.hypot(rx, rz) || 1;
+    const front = ((dx - sx) * rx + (dz - sz) * rz) / ((d || 1) * rl) > 0.2;
+    if (!front && d > 1.2) return 0;
+    let lv = d > 3 ? 0 : d > 2 ? 1 : d > 1.05 ? 2 : 3;
+    if (handsUp && d < 1.6) lv = Math.min(3, lv + 1);
+    return lv;
+  }
+
+  base(d) {
+    return d < 2 ? 0.72 : Math.max(0.28, 0.8 - d * 0.055);
   }
 
   give(who, check = false) {
@@ -113,120 +185,463 @@ export class Streetball {
     this.has = who;
     b.mode = 'held';
     b.holder = who === 'you' ? 'you' : this.opp;
-    this.oppPlan = null;
-    this.cleared = check ? true : this.cleared;
+    this.shot = null;
+    if (check) this.cleared = true;
     if (who === 'opp') {
-      this.opp.hp.role = 'opp';
-      this.opp.hp.phase = 'walk';
-      this.opp.hp.t = 0;
-      this.oppPlan = { spot: check ? this.topOfKey() : null, setT: 0 };
+      const hp = this.opp.hp;
+      hp.role = 'opp';
+      hp.state = 'walk';
+      hp.t = 0;
+      hp.plan = { spot: check ? this.topOfKey() : null };
+      hp.combo = 0;
+      hp.holdT = 0;
     }
   }
 
   board() {
-    const you = this.score.you;
-    const opp = this.score.opp;
-    return `YOU ${you} — ${opp} ${this.opp.ballName.toUpperCase()}${this.bet ? ` · $${this.bet} on it` : ''}`;
+    return `YOU ${this.score.you} — ${this.score.opp} ${this.opp.ballName.toUpperCase()} · to ${this.to}${this.bet ? ` · $${this.bet}` : ''}`;
   }
 
-  // ---- Your buttons (main.js, before the weapons; they're taken off the action list) ----
+  keys() {
+    const inp = this.game.input;
+    if (inp.touchMode) return { shoot: 'SHOOT', sprint: 'push the stick', d: 'D', steal: 'STEAL', block: '△', moves: 'CROSS / HESI / STEP / SPIN' };
+    if (inp.mode === 'pad') return { shoot: '□', sprint: 'R2', d: 'L2', steal: '□', block: '△', moves: 'right stick' };
+    return { shoot: 'hold click / Space', sprint: 'Shift', d: 'right-click', steal: 'click / R', block: 'F', moves: 'J L I K U O' };
+  }
+
+  // Unit vectors: toward the rim, and to the camera's right.
+  dirs(x, z) {
+    const rx = this.rim.x - x;
+    const rz = this.rim.z - z;
+    const rl = Math.hypot(rx, rz) || 1;
+    const yaw = this.game.camYaw;
+    return { ux: rx / rl, uz: rz / rl, d: rl, sx: -Math.cos(yaw), sz: Math.sin(yaw) };
+  }
+
+  // ---- Your buttons (main.js, before you move; they're taken off the action list) ----
   input(dt, a) {
     const game = this.game;
-    const fire = a.fire;
-    const steal = a.reload;
-    const block = a.dealYes;
-    a.fire = a.firePressed = a.aim = a.aimPressed = a.melee = a.reload = a.dealYes = false;
-    this.stealT = Math.max(0, this.stealT - dt);
-    this.beatT = Math.max(0, (this.beatT || 0) - dt);
-    this.blockT = Math.max(0, this.blockT - dt);
     const p = game.player;
-    const [px, pz] = p.pos();
+    const Y = this.you;
     const opp = this.opp;
-    // Shooting: hold, let go at the top.
-    if (this.has === 'you' && this.g.ball.mode === 'held') {
-      if (fire) {
-        this.meter = this.meter || { t: 0 };
-        this.meter.t += dt;
-      } else if (this.meter) {
-        const v = this.meterValue();
-        this.meter = null;
-        this.shoot(v);
-      }
-    } else this.meter = null;
-    // Defense.
-    if (this.has === 'opp' && this.g.ball.mode === 'held' && opp.standing) {
-      const d = dist(px, pz, opp.x, opp.z);
-      if (steal && this.stealT <= 0) {
-        this.stealT = 1.4;
-        this.armsUp = 0.35;
-        if (d < 1.5 && Math.random() < 0.22) {
-          game.hud.toast('Picked his pocket!', '#7ee081');
-          this.give('you');
-          this.cleared = false; // (take it back)
-        } else if (d < 2.5) this.beatT = 1.6; // (reached and missed: he's by you, an open look)
-      }
-      if (block && this.blockT <= 0) {
-        this.blockT = 1.2;
-        this.jumpT = 0.5;
-        if (opp.hp.phase === 'shoot' && opp.hp.t < 0.3 && d < 1.6 && Math.random() < 0.3) {
-          // Swatted: the ball goes loose.
-          const b = this.g.ball;
-          b.mode = 'loose';
-          b.holder = null;
-          b.vx = (opp.x - px) * 2;
-          b.vz = (opp.z - pz) * 2;
-          b.vy = 2;
-          opp.hp.phase = 'walk';
-          this.has = null;
-          this.lastShooter = 'opp'; // (so it's yours to take back if you get it)
-          game.hud.toast('Get that outta here!', '#7ee081');
+    const hp = opp.hp;
+    const b = this.g.ball;
+    const shootHeld = a.bShoot;
+    const stealHit = a.bSteal;
+    const blockHit = a.bBlock;
+    const intense = a.bIntense;
+    let sprint = a.bSprint;
+    const stick = this.proStick(dt, a);
+    a.fire = a.firePressed = a.aim = a.aimPressed = a.melee = a.reload = a.dealYes = a.enter = a.crouch = false;
+    // On the controller the right stick is the Pro Stick: the camera looks down the court.
+    if (game.input.mode === 'pad' && !game.input.touchMode) {
+      a.lookX = a.lookY = 0;
+      const want = Math.atan2(-this.rim.dx, -this.rim.dz);
+      game.camYaw = lerpAngle(game.camYaw, want, Math.min(1, dt * 2.5));
+    }
+    this.clock += dt;
+    Y.stealT = Math.max(0, Y.stealT - dt);
+    Y.blockT = Math.max(0, Y.blockT - dt);
+    Y.jumpT = Math.max(0, Y.jumpT - dt);
+    Y.beatT = Math.max(0, Y.beatT - dt);
+    const [px, pz] = p.pos();
+    const D = this.dirs(px, pz);
+    const moving = Math.hypot(a.moveX, a.moveY) > 0.3;
+    // Energy.
+    if (Y.st < 0.12) sprint = false;
+    if (sprint && moving) Y.st = Math.max(0, Y.st - dt * 0.09);
+    else Y.st = Math.min(1, Y.st + dt * (moving ? 0.04 : 0.08));
+    // On the floor (ankles): nothing.
+    if (Y.fallT > 0) {
+      Y.fallT -= dt;
+      a.moveX = a.moveY = 0;
+      a.sprint = false;
+      this.prevShoot = shootHeld;
+      return;
+    }
+    Y.intense = false;
+    hp.boxed = false;
+    // ---- Offense ----
+    if (this.has === 'you' && b.mode === 'held') {
+      if (this.shot) this.shooting(dt, a, shootHeld, stick);
+      else {
+        // A dribble move (Pro Stick) or a size-up.
+        if (stick && !Y.move) this.startMove(stick.kind, stick.side);
+        Y.sizeUp = !!a.bSizeUp || this.psHoldUp;
+        if (Y.sizeUp && !Y.move) {
+          Y.rhythm = Math.min(0.3, Y.rhythm + dt * 0.25);
+          a.moveX = a.moveY = 0;
+        } else if (this.clock - Y.lastMoveEnd > 1.5) Y.rhythm = Math.max(0, Y.rhythm - dt * 0.2);
+        if (Y.move) {
+          this.doMove(dt, a);
+          sprint = true; // (a move's a burst)
         }
+        // The shot (on the press).
+        if (shootHeld && !this.prevShoot && !this.shot) this.startShot(a, sprint, moving, D);
       }
+    } else {
+      if (this.shot) this.shot = null;
+      Y.move = null;
+      Y.sizeUp = false;
+    }
+    // ---- Defense ----
+    if (this.has === 'opp' || b.mode !== 'held') {
+      const dO = dist(px, pz, opp.x, opp.z);
+      if (intense && this.has === 'opp') {
+        Y.intense = true;
+        sprint = false;
+        a.moveX *= 0.85;
+        a.moveY *= 0.85;
+      }
+      // Box out: intense D while the shot's up or the ball's loose.
+      hp.boxed = intense && b.mode !== 'held' && dO < 1.7;
+      if (stealHit && this.has === 'opp' && Y.stealT <= 0) this.trySteal(dO);
+      if (blockHit && Y.blockT <= 0) {
+        Y.blockT = 0.9;
+        Y.jumpT = 0.55;
+        if (this.has === 'opp' && hp.state === 'shoot') this.tryBlock(dO);
+      }
+    }
+    // Beaten off the dribble: a step slow.
+    if (Y.beatT > 0) {
+      a.moveX *= 0.35;
+      a.moveY *= 0.35;
+      sprint = false;
+    }
+    // Tired: slower.
+    const k = 0.75 + 0.25 * Y.st;
+    a.moveX *= k;
+    a.moveY *= k;
+    a.sprint = sprint;
+    this.prevShoot = shootHeld;
+  }
+
+  // The right stick (controller): a quick flick is a move; held up, a size-up.
+  // Keyboard and touch send their moves straight in (a.bMove).
+  proStick(dt, a) {
+    if (a.bMove) return a.bMove;
+    const ps = this.you.ps;
+    const x = a.bStickX || 0;
+    const y = a.bStickY || 0;
+    const m = Math.hypot(x, y);
+    this.psHoldUp = false;
+    if (m > 0.7) {
+      if (!ps.on) Object.assign(ps, { on: true, t: 0, x, y });
+      else ps.t += dt;
+      if (ps.t > 0.3 && ps.y < -0.6) this.psHoldUp = true;
+      return null;
+    }
+    if (m < 0.3 && ps.on) {
+      ps.on = false;
+      if (ps.t > 0.3) return null;
+      const ang = Math.atan2(ps.x, -ps.y); // 0 = up, + = right
+      const s = Math.sign(ang) || 1;
+      const A = Math.abs(ang);
+      if (A < 0.5) return { kind: 'hesi', side: 0 };
+      if (A < 1.1) return { kind: 'behind', side: s };
+      if (A < 2.0) return { kind: 'cross', side: s };
+      if (A < 2.6) return { kind: 'spin', side: s };
+      return { kind: 'step', side: 0 };
+    }
+    return null;
+  }
+
+  startMove(kind, side) {
+    const Y = this.you;
+    const M = MOVES[kind];
+    if (!M || this.shot) return;
+    if (!side) side = kind === 'cross' || kind === 'behind' || kind === 'spin' ? -Y.hand || 1 : 0;
+    const chain = this.clock - Y.lastMoveEnd < 0.7;
+    Y.combo = chain ? Math.min(3, Y.combo + 1) : 0;
+    Y.move = { kind, side, t: 0, T: M.T * (1.15 - 0.15 * Y.st) };
+    Y.st = Math.max(0, Y.st - 0.04);
+    if (side) Y.hand = side;
+    Y.sizeUp = false;
+    this.react(kind, Y.combo, Y.rhythm);
+    Y.rhythm = 0;
+  }
+
+  // His read on your move: beaten, on the floor, picked, or he stays with you.
+  react(kind, combo, rhythm) {
+    const game = this.game;
+    const opp = this.opp;
+    const hp = opp.hp;
+    const [px, pz] = game.player.pos();
+    const d = dist(px, pz, opp.x, opp.z);
+    if (d > 3.5 || hp.fallT > 0) return;
+    const M = MOVES[kind];
+    const def = 1.45 - this.r / 100;
+    if (kind === 'step') {
+      if (Math.random() < 0.65 * def * 1.2) hp.lagT = 0.7; // (he doesn't close out in time)
+      return;
+    }
+    // Into him, the risky ones can get picked.
+    if (M.risk && d < 1.0 && Math.random() < M.risk * (this.r / 75)) {
+      game.hud.toast(`${opp.ballName} picked your pocket`, '#ff8080');
+      this.give('opp');
+      this.cleared = false;
+      this.lastShooter = 'you';
+      return;
+    }
+    const p = (M.beat + combo * 0.1 + rhythm) * def * (0.6 + 0.4 * this.you.st) * (0.8 + 0.2 * (1 - hp.st));
+    if (Math.random() < p) {
+      const already = hp.beatT > 0;
+      hp.beatT = 0.75;
+      if ((combo >= 1 || rhythm >= 0.15 || already) && Math.random() < 0.3) {
+        hp.fallT = 1.2;
+        game.hud.toast(`ANKLE BREAKER! ${opp.ballName}'s on the floor`, '#7ee081');
+        for (const q of this.g.players) if (q.hp.role === 'watch') q.hp.cheerT = 1.2;
+      } else game.hud.toast(`${M.name}: you got by him`, '#7ee081');
     }
   }
 
-  // The shot meter: up over 0.7 s, then back down (0..1).
-  meterValue() {
-    if (!this.meter) return 0;
-    const t = this.meter.t % 1.4;
-    return t < 0.7 ? t / 0.7 : 1 - (t - 0.7) / 0.7;
+  // A move in progress: the burst (it steers you), the ball switching hands.
+  doMove(dt, a) {
+    const game = this.game;
+    const Y = this.you;
+    const mv = Y.move;
+    mv.t += dt;
+    const [px, pz] = game.player.pos();
+    const D = this.dirs(px, pz);
+    let wx = 0;
+    let wz = 0;
+    const s = mv.side;
+    if (mv.kind === 'cross' || mv.kind === 'behind') {
+      wx = D.sx * s * 0.85 + D.ux * 0.5;
+      wz = D.sz * s * 0.85 + D.uz * 0.5;
+    } else if (mv.kind === 'spin') {
+      const k = mv.t / mv.T;
+      wx = D.sx * s * (1 - k) + D.ux * (0.4 + k);
+      wz = D.sz * s * (1 - k) + D.uz * (0.4 + k);
+    } else if (mv.kind === 'hesi') {
+      if (mv.t > 0.2) {
+        wx = D.ux;
+        wz = D.uz;
+      }
+    } else if (mv.kind === 'step') {
+      wx = -D.ux;
+      wz = -D.uz;
+    }
+    const L = Math.hypot(wx, wz);
+    if (L > 0.01) {
+      // (world direction -> stick, camera-relative)
+      const fx = Math.sin(game.camYaw);
+      const fz = Math.cos(game.camYaw);
+      a.moveY = (wx * fx + wz * fz) / L;
+      a.moveX = (wx * -fz + wz * fx) / L;
+      a.bSprint = true;
+    } else a.moveX = a.moveY = 0;
+    if (mv.t >= mv.T) {
+      Y.lastMoveEnd = this.clock;
+      Y.lastMove = mv.kind;
+      Y.move = null;
+    }
   }
 
-  // Your shot: timing, distance, his hand in your face.
-  shoot(v) {
+  // ---- Your shot ----
+  startShot(a, sprint, moving, D) {
+    const Y = this.you;
+    const game = this.game;
+    const p = game.player;
+    const toward = moving && (p.moveX * D.ux + p.moveZ * D.uz) > 0.5 && p.speed > 2.5;
+    let type = 'jumper';
+    if (D.d < 2.4 && sprint && toward) type = 'dunk';
+    else if (D.d < 3.6 && toward) type = 'layup';
+    else if (D.d < 5.8 && sprint && toward) type = 'floater';
+    const stepback = Y.move?.kind === 'step' || (Y.lastMove === 'step' && this.clock - Y.lastMoveEnd < 0.5);
+    Y.move = null;
+    this.shot = { type, t: 0, T: SHOTS[type].T, W: SHOTS[type].W, d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false };
+    Y.jumpT = type === 'jumper' ? 0 : 0.5; // (a jumper jumps when it's let go... the layups go up now)
+    Y.st = Math.max(0, Y.st - 0.02);
+    // He closes out.
+    this.opp.hp.closeT = 1;
+  }
+
+  shooting(dt, a, held, stick) {
+    const s = this.shot;
+    s.t += dt;
+    a.moveX = a.moveY = 0;
+    a.bSprint = false;
+    // Euro step: a Pro Stick move during the layup gather.
+    if (s.type === 'layup' && stick && !s.euro && s.t < 0.3) {
+      s.euro = true;
+      this.game.hud.toast('Euro step', '#ffd23f');
+    }
+    if (s.type === 'dunk') {
+      if (s.t >= s.T) this.resolveYou(0);
+      return;
+    }
+    if (!held || s.t >= s.T + LATE) {
+      // A quick tap on a jumper: a pump fake.
+      if (s.type === 'jumper' && s.t < 0.12 && !s.stepback) return this.pumpFake();
+      // (let go sometime during the last frame: count it from the middle of it)
+      this.resolveYou(held ? s.t - s.T : s.t - dt / 2 - s.T);
+    }
+  }
+
+  pumpFake() {
+    const game = this.game;
+    const hp = this.opp.hp;
+    this.shot = null;
+    this.you.jumpT = 0;
+    hp.closeT = 0;
+    const [px, pz] = game.player.pos();
+    if (dist(px, pz, this.opp.x, this.opp.z) < 2.6 && hp.fallT <= 0 && hp.beatT <= 0 && Math.random() < 0.6 - (this.r - 60) / 100) {
+      hp.jumpT = 0.7;
+      hp.beatT = 0.85;
+      game.hud.toast(`${this.opp.ballName} bit on the pump fake`, '#7ee081');
+    }
+  }
+
+  // The green window right now (it shrinks when he's on you, on the run, from deep, tired).
+  windowNow() {
+    const s = this.shot;
     const game = this.game;
     const [px, pz] = game.player.pos();
-    const rim = this.rim;
-    const d = dist(px, pz, rim.x, rim.z);
-    const q = v >= 0.82 ? 1.25 : v >= 0.55 ? 0.75 : 0.3;
     const opp = this.opp;
-    const close = dist(opp.x, opp.z, px, pz) < 1.6 && dist(opp.x, opp.z, rim.x, rim.z) < d;
-    let pr = this.base(d) * q * (close ? 0.5 : 1);
-    pr = Math.max(0.03, Math.min(0.95, pr));
-    const make = Math.random() < pr;
-    this.launchShot(px, pz, 2.3, make, 'you', d > ARC ? 2 : 1);
-    this.jumpT = 0.5;
-    game.hud.toast(v >= 0.82 ? 'Perfect release' : v >= 0.55 ? 'Good release' : 'Bad release', v >= 0.82 ? '#7ee081' : v >= 0.55 ? '#ffd23f' : '#ff8080');
+    const hp = opp.hp;
+    const lv = this.openness(px, pz, opp.x, opp.z, hp.beatT > 0.2 || hp.fallT > 0, (hp.jumpT || 0) > 0);
+    let w = s.W * OPEN_WINDOW[lv];
+    if (s.d0 > 8) w *= 0.6;
+    if (s.type === 'jumper' && s.sprint) w *= 0.6;
+    else if (s.type === 'jumper' && s.onRun) w *= 0.85;
+    if (s.stepback) w *= 0.9;
+    if (this.you.st < 0.4) w *= 0.75;
+    if (game.input.touchMode) w *= 1.4;
+    return { w, lv };
   }
 
-  base(d) {
-    return d < 2 ? 0.72 : Math.max(0.28, 0.78 - d * 0.055);
+  resolveYou(e) {
+    const game = this.game;
+    const s = this.shot;
+    const opp = this.opp;
+    const hp = opp.hp;
+    const [px, pz] = game.player.pos();
+    const { w, lv } = this.windowNow();
+    this.shot = null;
+    let make;
+    let grade = '';
+    let green = false;
+    if (s.type === 'dunk') {
+      // At the rim: a contact dunk if he's there.
+      const contact = lv >= 3;
+      if (contact && Math.random() < 0.15 * (this.r / 75)) return this.swatted(px, pz, `${opp.ballName} STUFFED the dunk!`, 'you');
+      make = Math.random() < (contact ? 0.6 : 0.95);
+      grade = make ? (contact ? 'POSTERIZED HIM!' : 'Slam!') : 'Rimmed it out';
+    } else {
+      const m = Math.abs(e) - w / 2;
+      green = m <= 0;
+      const when = e < 0 ? 'Early' : 'Late';
+      grade = green ? 'EXCELLENT' : m < 0.06 ? `Slightly ${when}` : m < 0.16 ? when : `Very ${when}`;
+      const tm = green ? 1 : m < 0.06 ? 0.7 : m < 0.16 ? 0.4 : 0.12;
+      // His contest: a block on a heavy contest.
+      const blockP = { jumper: 0.1, layup: 0.2, floater: 0.12 }[s.type] * (this.r / 75) * (s.euro ? 0.5 : 1);
+      if (lv >= 2 && (hp.jumpT || 0) > 0 && Math.random() < blockP) return this.swatted(px, pz, `Blocked by ${opp.ballName}`, 'you');
+      const base = s.type === 'layup' ? 0.82 : s.type === 'floater' ? 0.55 : this.base(s.d0);
+      make = green || Math.random() < base * tm * OPEN_MAKE[lv] * (0.7 + 0.3 * this.you.st);
+    }
+    // A foul on the shot: and-one if it goes, your ball again if not.
+    this.foulOnShot = lv >= 3 && Math.random() < 0.08;
+    game.hud.toast(`${grade} · ${OPEN[lv]}`, green || (s.type === 'dunk' && make) ? '#7ee081' : make ? '#ffd23f' : '#ff8080');
+    if (s.type === 'dunk') {
+      this.g.ball.x = px;
+      this.g.ball.z = pz;
+      this.g.ball.y = 2.6;
+      this.launch(make, 'you', s.pts, 0.18);
+    } else this.launch(make, 'you', s.pts);
+    this.you.jumpT = Math.max(this.you.jumpT, 0.55);
   }
 
-  launchShot(x, z, y, make, by, pts) {
+  swatted(x, z, text, shooter) {
+    const b = this.g.ball;
+    this.shot = null;
+    b.mode = 'loose';
+    b.holder = null;
+    b.y = Math.max(b.y, 2);
+    b.vx = (b.x - x) * 3 + rand(-2, 2);
+    b.vz = (b.z - z) * 3 + rand(-2, 2);
+    b.vy = 2;
+    this.has = null;
+    this.lastShooter = shooter; // (whoever gets it back: the other one's a defensive board)
+    this.game.hud.toast(text, shooter === 'you' ? '#ff8080' : '#7ee081');
+  }
+
+  // The ball goes up from whoever's shooting.
+  launch(make, by, pts, T) {
     const b = this.g.ball;
     const rim = this.rim;
-    b.x = x;
-    b.z = z;
-    b.y = y;
+    const shooter = by === 'you' ? this.game.player.pos() : [this.opp.x, this.opp.z];
+    const h = by === 'you' ? this.game.player.heading : this.opp.heading;
+    if (!T) {
+      b.x = shooter[0] + Math.sin(h) * 0.3;
+      b.z = shooter[1] + Math.cos(h) * 0.3;
+      b.y = 2.4;
+    }
     const miss = make ? 0 : rand(0.22, 0.4);
     const a = rand(0, Math.PI * 2);
-    const d = dist(x, z, rim.x, rim.z);
-    this.H.launch(b, rim.x + Math.cos(a) * miss, rim.y + 0.08, rim.z + Math.sin(a) * miss * 0.6, 0.75 + d * 0.06);
+    const d = dist(b.x, b.z, rim.x, rim.z);
+    this.H.launch(b, rim.x + Math.cos(a) * miss, rim.y + 0.08, rim.z + Math.sin(a) * miss * 0.6, T || 0.75 + d * 0.06);
     b.kind = 'shot';
     b.make = make;
-    this.shot = { by, pts, counts: this.cleared };
+    this.flight = { by, pts, counts: this.cleared, foul: this.foulOnShot };
+    this.foulOnShot = false;
     this.has = null;
+  }
+
+  // ---- Your defense ----
+  trySteal(d) {
+    const game = this.game;
+    const Y = this.you;
+    const opp = this.opp;
+    const hp = opp.hp;
+    const b = this.g.ball;
+    const [px, pz] = game.player.pos();
+    Y.stealT = 0.7;
+    Y.armsT = 0.35;
+    const again = this.clock - Y.lastSteal < 1.2;
+    Y.lastSteal = this.clock;
+    const dB = dist(px, pz, b.x, b.z);
+    if (d > 1.6 || dB > 1.7) return;
+    // From behind or reaching twice: a foul. Into a move: the best chance.
+    const behind = ((px - opp.x) * Math.sin(opp.heading) + (pz - opp.z) * Math.cos(opp.heading)) < -0.3;
+    const foulP = 0.1 + (again ? 0.2 : 0) + (behind ? 0.15 : 0);
+    if (Math.random() < foulP) {
+      game.hud.toast(`Reach-in foul. ${opp.ballName} keeps it`, '#ff8080');
+      hp.state = 'walk';
+      hp.plan = { spot: null };
+      return;
+    }
+    const p = (0.08 + (hp.state === 'move' ? 0.25 : 0) + (dB < 1 ? 0.06 : 0)) * (1.3 - this.r / 100);
+    if (Math.random() < p) {
+      game.hud.toast('Stolen!', '#7ee081');
+      this.give('you');
+      this.cleared = false;
+      this.lastShooter = 'opp';
+      return;
+    }
+    Y.beatT = Math.max(Y.beatT, 0.35); // (gambled and missed: off balance)
+  }
+
+  tryBlock(d) {
+    const game = this.game;
+    const opp = this.opp;
+    const hp = opp.hp;
+    const [px, pz] = game.player.pos();
+    if (d > 1.8) return;
+    const front = ((px - opp.x) * (this.rim.x - opp.x) + (pz - opp.z) * (this.rim.z - opp.z)) > 0;
+    const timing = Math.abs(hp.t - hp.rel) < 0.2 ? 1 : 0.5;
+    const base = { jumper: 0.35, layup: 0.45, floater: 0.4, dunk: 0.2 }[hp.shot] || 0.3;
+    if (Math.random() < 0.08 + (front ? 0 : 0.25)) {
+      hp.fouled = true; // (and-one if it goes in, his ball again if not)
+      game.hud.toast('Foul on the shot', '#ff8080');
+      return;
+    }
+    if (hp.t <= hp.rel && Math.random() < base * timing * (front ? 1 : 0.6)) {
+      hp.state = 'read';
+      hp.t = 0;
+      this.swatted(opp.x, opp.z, 'Get that outta here! BLOCKED', 'opp');
+      for (const q of this.g.players) if (q.hp.role === 'watch') q.hp.cheerT = 1;
+    }
   }
 
   // ---- The match, every frame (hoops.js hands the group over) ----
@@ -234,14 +649,18 @@ export class Streetball {
     const game = this.game;
     const b = this.g.ball;
     const H = this.H;
-    const [px, pz] = game.player.pos();
-    // Called off / forfeits.
     const opp = this.opp;
+    const hp = opp.hp;
+    const [px, pz] = game.player.pos();
     if (opp.removed || opp.state !== 'play') return this.end('off');
     const P = H.site.pad;
     const off = px < P.x0 - 1 || px > P.x1 + 1 || pz < P.z0 - 1 || pz > P.z1 + 1;
     this.outT = off ? this.outT + dt : 0;
     if (this.outT > 2.5 || game.player.vehicle || game.stars > 0 || game.wastedT > 0 || game.bustedT > 0) return this.end('forfeit');
+    for (const k of ['beatT', 'fallT', 'lagT', 'jumpT', 'closeT', 'stealT']) hp[k] = Math.max(0, (hp[k] || 0) - dt);
+    // His energy.
+    if (hp.state === 'drive' || hp.state === 'move' || (this.has !== 'opp' && opp.speed > 3.5)) hp.st = Math.max(0, hp.st - dt * 0.07);
+    else hp.st = Math.min(1, hp.st + dt * 0.06);
     // The ball.
     if (b.mode === 'flight') {
       b.t += dt;
@@ -251,9 +670,9 @@ export class Streetball {
       const t = Math.min(b.t, b.T);
       b.y = b.p0[1] + b.vy0 * t - 0.5 * G * t * t;
       if (b.t >= b.T) this.landed();
+      if (!this.active) return; // (that was the game-winner: the scoreboard's gone)
     } else if (b.mode === 'loose') {
       H.roll(b, dt);
-      // After a basket: a dead ball, then it's checked.
       if (this.dead) {
         this.dead.t -= dt;
         if (this.dead.t <= 0) {
@@ -261,87 +680,157 @@ export class Streetball {
           this.dead = null;
           this.give(who, true);
         }
-      // Whoever gets to it first.
-      } else if (dist(px, pz, b.x, b.z) < 1.0 && b.y < 1.5) {
-        const def = this.lastShooter === 'opp';
-        this.give('you');
-        if (def) this.cleared = false;
-      } else if (dist(opp.x, opp.z, b.x, b.z) < 0.8 && b.y < 1.4) {
-        const def = this.lastShooter === 'you';
-        this.give('opp');
-        if (def) {
-          this.cleared = false;
-          this.oppPlan = { spot: null, setT: 0 };
+      } else {
+        // Rebounds: you reach further jumping for it (△), he's slower boxed out.
+        const Y = this.you;
+        const yourReach = Y.jumpT > 0 ? 1.4 : 0.95;
+        const yourTop = Y.jumpT > 0 ? 2.8 : 1.5;
+        const hisReach = hp.boxed ? 0.45 : (hp.jumpT || 0) > 0 ? 1.35 : 0.95;
+        if (Y.fallT <= 0 && dist(px, pz, b.x, b.z) < yourReach && b.y < yourTop) {
+          const def = this.lastShooter === 'opp';
+          this.give('you');
+          if (def) this.cleared = false;
+        } else if (hp.fallT <= 0 && dist(opp.x, opp.z, b.x, b.z) < hisReach && b.y < 1.6) {
+          const def = this.lastShooter === 'you';
+          this.give('opp');
+          if (def) {
+            this.cleared = false;
+            hp.plan = { spot: null };
+          }
         }
       }
     }
-    // Taking it back past the arc after a defensive board.
+    // Taking it back past the arc.
     const holder = this.has === 'you' ? [px, pz] : this.has === 'opp' ? [opp.x, opp.z] : null;
     if (holder && !this.cleared && dist(holder[0], holder[1], this.rim.x, this.rim.z) > ARC + 0.3) this.cleared = true;
-    // The ball in hand.
-    if (b.mode === 'held') {
-      if (this.has === 'you') {
-        const p = game.player;
-        const h = p.heading;
-        const fx = Math.sin(h);
-        const fz = Math.cos(h);
-        this.dribble = (this.dribble || 0) + dt * 9;
-        if (this.meter) {
-          b.x = px + fx * 0.3;
-          b.z = pz + fz * 0.3;
-          b.y = 1.3 + this.meterValue() * 0.9;
-        } else {
-          b.x = px + fx * 0.4 - fz * 0.3;
-          b.z = pz + fz * 0.4 + fx * 0.3;
-          b.y = 0.18 + Math.abs(Math.sin(this.dribble)) * 0.8;
-        }
-      } else if (this.has === 'opp') {
-        const hp = opp.hp;
-        const fx = Math.sin(opp.heading);
-        const fz = Math.cos(opp.heading);
-        if (hp.phase === 'walk') {
-          hp.dribble = (hp.dribble || 0) + dt * 9;
-          b.x = opp.x + fx * 0.4 - fz * 0.3;
-          b.z = opp.z + fz * 0.4 + fx * 0.3;
-          b.y = 0.18 + Math.abs(Math.sin(hp.dribble)) * 0.8;
-        } else {
-          const up = hp.phase === 'shoot' ? Math.min(1, hp.t / 0.25) : 0;
-          b.x = opp.x + fx * 0.3;
-          b.z = opp.z + fz * 0.3;
-          b.y = 1.2 + up + (hp.jump || 0);
+    // His reach-ins on you.
+    if (this.has === 'you' && b.mode === 'held' && !this.shot && hp.fallT <= 0 && hp.beatT <= 0) {
+      hp.stealT2 = (hp.stealT2 ?? rand(2, 4)) - dt;
+      if (hp.stealT2 <= 0 && dist(px, pz, opp.x, opp.z) < 1.25) {
+        hp.stealT2 = rand(2.2, 4.5);
+        hp.armsT = 0.35;
+        const exposed = this.you.move && MOVES[this.you.move.kind].risk ? 0.15 : 0;
+        const r = Math.random();
+        if (r < 0.12) game.hud.toast(`Reach-in on ${opp.ballName}`, '#9fc3ff');
+        else if (r < 0.12 + (0.06 + exposed) * (this.r / 75)) {
+          game.hud.toast(`${opp.ballName} poked it away!`, '#ff8080');
+          this.give('opp');
+          this.cleared = false;
+          this.lastShooter = 'you';
         }
       }
     }
+    this.carry(dt);
     b.mesh.position.set(b.x, b.y, b.z);
     if (b.mode !== 'held') b.mesh.rotation.x += dt * 9;
-    const kb = game.input.mode === 'kb';
-    const hint = this.has === 'you' && !this.cleared ? 'Take it back past the arc'
-      : this.has === 'opp' ? `${kb ? 'R' : '□'} steal · ${kb ? 'E' : '✕'} block`
-      : this.has === 'you' ? `Hold ${game.input.label('fire')}, let go in the green` : 'Loose ball!';
-    game.hud.sport?.(this.board(), this.meter ? this.meterValue() : null, hint);
+    this.hud();
+  }
+
+  // The ball in somebody's hands.
+  carry(dt) {
+    const game = this.game;
+    const b = this.g.ball;
+    if (b.mode !== 'held') return;
+    if (this.has === 'you') {
+      const p = game.player;
+      const [px, pz] = p.pos();
+      const fx = Math.sin(p.heading);
+      const fz = Math.cos(p.heading);
+      const Y = this.you;
+      this.dribble = (this.dribble || 0) + dt * (Y.sizeUp ? 12 : 9);
+      if (this.shot) {
+        const k = Math.min(1, this.shot.t / this.shot.T);
+        b.x = px + fx * 0.3;
+        b.z = pz + fz * 0.3;
+        b.y = 1.3 + k * 1.0 + (Y.jumpT > 0 ? 0.3 : 0);
+      } else {
+        // (the hand it's in: a crossover takes it across in front)
+        let side = Y.hand;
+        if (Y.move && Y.move.side) {
+          const k = Math.min(1, Y.move.t / (Y.move.T * 0.6));
+          side = -Y.move.side + 2 * Y.move.side * k;
+        }
+        const rx = -fz;
+        const rz = fx;
+        b.x = px + fx * 0.4 - rx * 0.32 * side;
+        b.z = pz + fz * 0.4 - rz * 0.32 * side;
+        b.y = 0.18 + Math.abs(Math.sin(this.dribble)) * (Y.sizeUp ? 0.55 : 0.8);
+      }
+    } else if (this.has === 'opp') {
+      const opp = this.opp;
+      const hp = opp.hp;
+      const fx = Math.sin(opp.heading);
+      const fz = Math.cos(opp.heading);
+      if (hp.state === 'shoot') {
+        const up = Math.min(1, hp.t / Math.max(0.1, hp.rel));
+        b.x = opp.x + fx * 0.3;
+        b.z = opp.z + fz * 0.3;
+        b.y = 1.2 + up + (hp.jump || 0);
+      } else {
+        hp.dribble = (hp.dribble || 0) + dt * 9;
+        const side = hp.state === 'move' && hp.mv?.side ? hp.mv.side : 1;
+        b.x = opp.x + fx * 0.4 + fz * 0.3 * side;
+        b.z = opp.z + fz * 0.4 - fx * 0.3 * side;
+        b.y = 0.18 + Math.abs(Math.sin(hp.dribble)) * 0.8;
+      }
+    }
+  }
+
+  hud() {
+    const game = this.game;
+    if (!this.active) return;
+    const K = this.keys();
+    let meter = null;
+    if (this.shot && this.shot.type !== 'dunk') {
+      const s = this.shot;
+      const { w } = this.windowNow();
+      const span = s.T + LATE;
+      meter = { v: s.t / span, lo: (s.T - w / 2) / span, hi: (s.T + w / 2) / span };
+    }
+    let hint = '';
+    if (this.you.fallT > 0) hint = 'Ankles broken...';
+    else if (this.has === 'you' && !this.cleared) hint = 'Take it back past the arc';
+    else if (this.has === 'you') hint = this.shot ? 'Let go in the green' : `${K.shoot} shoot (tap: pump fake) · ${K.sprint} sprint · moves: ${K.moves}`;
+    else if (this.has === 'opp') hint = `${K.d} intense D · ${K.steal} steal · ${K.block} block`;
+    else if (!this.dead) hint = `Rebound! ${K.block} jump · ${K.d} box out`;
+    game.hud.sport?.(this.board(), meter, hint, this.you.st);
   }
 
   landed() {
     const game = this.game;
     const b = this.g.ball;
-    const s = this.shot;
-    this.shot = null;
+    const s = this.flight;
+    this.flight = null;
     this.lastShooter = s ? s.by : null;
     b.mode = 'loose';
+    const hp = this.opp.hp;
+    const foul = s && (s.foul || (s.by === 'opp' && hp.fouled));
+    hp.fouled = false;
     if (b.make) {
       b.x = this.rim.x;
       b.z = this.rim.z;
       b.vx = b.vz = 0;
       b.vy = -1.5;
+      game.sfx?.swish?.();
       if (s && s.counts) {
-        this.score[s.by] += s.pts;
-        game.hud.toast(s.by === 'you' ? `Bucket! +${s.pts}` : `${this.opp.ballName} scores${s.pts > 1 ? ' from deep' : ''}`, s.by === 'you' ? '#7ee081' : '#ff8080');
+        const pts = s.pts + (foul ? 1 : 0);
+        this.score[s.by] += pts;
+        const who = s.by === 'you' ? 'You' : this.opp.ballName;
+        game.hud.toast(foul ? `AND ONE! ${who} +${pts}` : s.by === 'you' ? `Bucket! +${pts}` : `${who} scores${s.pts > 1 ? ' from deep' : ''}`, s.by === 'you' ? '#7ee081' : '#ff8080');
         for (const q of this.g.players) if (q.hp.role === 'watch') q.hp.cheerT = 0.9;
       } else if (s) game.hud.toast("Doesn't count: take it back first", '#ffd23f');
-      if (this.score.you >= TO || this.score.opp >= TO) return this.end(this.score.you >= TO ? 'win' : 'lose');
-      // The other one checks it at the top (a moment to let it drop through).
+      if (this.score.you >= this.to || this.score.opp >= this.to) return this.end(this.score.you >= this.to ? 'win' : 'lose');
       this.dead = { who: s && s.by === 'you' ? 'opp' : 'you', t: 0.9 };
       this.has = null;
+      return;
+    }
+    // Fouled on a miss: the shooter's ball again.
+    if (foul) {
+      this.dead = { who: s.by, t: 0.9 };
+      this.has = null;
+      game.hud.toast(`Foul. ${s.by === 'you' ? 'Your' : `${this.opp.ballName}'s`} ball`, '#9fc3ff');
+      b.vx = b.vz = 0;
+      b.vy = 1;
       return;
     }
     const side = rand(-1, 1);
@@ -359,9 +848,9 @@ export class Streetball {
     const rim = this.rim;
     const b = this.g.ball;
     const hp = p.hp;
-    hp.jump = 0;
+    hp.jump = (hp.jumpT || 0) > 0 ? Math.sin(Math.min(1, hp.jumpT / 0.6) * Math.PI) * 0.5 : 0;
     const face = (x, z) => {
-      p.heading = lerpAngle(p.heading, Math.atan2(x - p.x, z - p.z), Math.min(1, dt * 7));
+      p.heading = lerpAngle(p.heading, Math.atan2(x - p.x, z - p.z), Math.min(1, dt * 8));
     };
     if (p !== this.opp) {
       // Watching from the side.
@@ -370,119 +859,298 @@ export class Streetball {
       face(b.x, b.z);
       return { speed: 0 };
     }
-    // A dead ball after a basket: back to the top if it's his, or back on D.
+    // On the floor.
+    if (hp.fallT > 0) return { speed: 0 };
+    const tired = 0.7 + 0.3 * hp.st;
+    const slow = hp.beatT > 0 ? 0.3 : 1;
+    // A dead ball after a basket: back to the top if it's his, back on D if not.
     if (this.dead) {
       const [tx, tz] = this.dead.who === 'opp' ? this.topOfKey() : [rim.x + rim.dx * 3, rim.z + rim.dz * 3];
       if (dist(p.x, p.z, tx, tz) > 0.4) return { tx, tz, speed: 2.4 };
       face(px, pz);
       return { speed: 0 };
     }
-    // Loose ball: go get it.
-    if (b.mode === 'loose' || (b.mode === 'flight' && b.T - b.t < 0.3)) return { tx: b.x + b.vx * 0.3, tz: b.z + b.vz * 0.3, speed: 3.8 };
-    if (this.has === 'opp') {
-      const plan = this.oppPlan || (this.oppPlan = { spot: null, setT: 0 });
-      hp.t += dt;
-      if (hp.phase === 'walk') {
-        if (plan.clearing && this.cleared) {
-          plan.clearing = false; // (taken back: now find a shot)
-          plan.spot = null;
-          hp.t = 0;
-        }
-        if (!plan.spot) {
-          // A spot to shoot from (past the arc first if he has to take it back).
-          plan.clearing = !this.cleared;
-          const r = this.cleared ? rand(1.5, 7.5) : rand(7.3, 8.5);
-          const ang = rand(-1.1, 1.1);
-          plan.spot = this.onCourt(rim.x + (rim.dx * Math.cos(ang) - rim.dz * Math.sin(ang)) * r, rim.z + (rim.dz * Math.cos(ang) + rim.dx * Math.sin(ang)) * r);
-        }
-        if (dist(p.x, p.z, ...plan.spot) > 0.45 && hp.t < 4.5) return { tx: plan.spot[0], tz: plan.spot[1], speed: 3.0 };
-        if (plan.clearing) {
-          // (the spot got pulled in by the sideline: straight out instead)
-          plan.spot = this.onCourt(rim.x + rim.dx * 8.2, rim.z + rim.dz * 8.2);
-          hp.t = 0;
-          return { speed: 0 };
-        }
-        hp.phase = 'set';
-        hp.t = 0;
-        hp.setT = rand(0.3, 0.8);
-        return { speed: 0 };
-      }
-      if (hp.phase === 'set') {
-        face(rim.x, rim.z);
-        if (hp.t > hp.setT) {
-          hp.phase = 'shoot';
-          hp.t = 0;
-        }
-        return { speed: 0 };
-      }
-      if (hp.phase === 'shoot') {
-        face(rim.x, rim.z);
-        hp.jump = hp.t < 0.5 ? Math.sin((Math.PI * hp.t) / 0.5) * 0.45 : 0;
-        if (hp.t >= 0.25 && b.mode === 'held' && this.has === 'opp') {
-          const d = dist(p.x, p.z, rim.x, rim.z);
-          const contested = dist(px, pz, p.x, p.z) < 1.6 && !(this.beatT > 0);
-          const make = Math.random() < this.base(d) * 1.1 * (contested ? 0.55 : 1);
-          this.launchShot(p.x + Math.sin(p.heading) * 0.3, p.z + Math.cos(p.heading) * 0.3, 2.3 + hp.jump, make, 'opp', d > ARC ? 2 : 1);
-        }
-        if (hp.t > 0.7) {
-          hp.phase = 'walk';
-          hp.t = 0;
-        }
-        return { speed: 0 };
-      }
+    // Loose ball or a shot coming down: go get it (unless you've boxed him out).
+    if (b.mode === 'loose' || (b.mode === 'flight' && b.T - b.t < 0.35)) {
+      if (dist(p.x, p.z, b.x, b.z) < 2 && b.y > 1.2 && Math.random() < dt * 4 && !hp.jumpT) hp.jumpT = 0.6;
+      return { tx: b.x + b.vx * 0.3, tz: b.z + b.vz * 0.3, speed: (hp.boxed ? 1.6 : 3.9) * tired };
     }
-    // Defending: between you and the basket, a step off you.
-    if (this.has === 'you') {
+    if (this.has === 'opp') return this.offense(p, dt, face, tired);
+    // Defending you: between you and the basket.
+    if (this.has === 'you' || b.mode === 'flight') {
       const d = dist(px, pz, rim.x, rim.z) || 1;
-      const k = Math.min(1.3, d * 0.5);
+      // (closing out on a shot; sagging off a long way out; caught behind a step-back)
+      let gap = d > ARC + 2 ? 2.2 : 1.4;
+      if (hp.lagT > 0) gap = 3.2;
+      if (hp.closeT > 0 && this.shot) {
+        gap = 0.9;
+        // Up for the contest as you release.
+        const s = this.shot;
+        if (!hp.jumpT && hp.beatT <= 0 && s.type !== 'dunk' && s.t > s.T - 0.2 && dist(p.x, p.z, px, pz) < 2.2 && Math.random() < 0.4 + this.r / 200) hp.jumpT = 0.6;
+      }
+      const k = Math.min(gap, d * 0.5);
       const tx = px + ((rim.x - px) / d) * k;
       const tz = pz + ((rim.z - pz) / d) * k;
       face(px, pz);
-      if (dist(p.x, p.z, tx, tz) > 0.3) return { tx, tz, speed: 3.6 };
-      // A swipe at the ball now and then.
-      this.oppSwipeT = (this.oppSwipeT ?? rand(2, 4)) - dt;
-      if (this.oppSwipeT <= 0 && dist(p.x, p.z, px, pz) < 1.4 && !this.meter) {
-        this.oppSwipeT = rand(2.5, 5);
-        if (Math.random() < 0.18) {
-          game.hud.toast(`${p.ballName} pokes it away!`, '#ff8080');
-          this.give('opp');
-          this.cleared = false;
-        }
-      }
+      if (dist(p.x, p.z, tx, tz) > 0.25) return { tx, tz, speed: 4.2 * tired * slow };
       return { speed: 0 };
     }
     face(b.x, b.z);
     return { speed: 0 };
   }
 
+  // His possession: walk it up, read you, make a move, drive, shoot.
+  offense(p, dt, face, tired) {
+    const game = this.game;
+    const [px, pz] = game.player.pos();
+    const rim = this.rim;
+    const hp = p.hp;
+    const Y = this.you;
+    hp.t += dt;
+    hp.holdT = (hp.holdT || 0) + dt;
+    const dR = dist(p.x, p.z, rim.x, rim.z);
+    const dY = dist(p.x, p.z, px, pz);
+    // Are you between him and the basket?
+    const between = dY < 2.6 && ((px - p.x) * (rim.x - p.x) + (pz - p.z) * (rim.z - p.z)) / ((dY || 1) * (dR || 1)) > 0.5 && Y.fallT <= 0 && Y.beatT <= 0;
+    const plan = hp.plan || (hp.plan = { spot: null });
+    if (hp.state === 'walk') {
+      if (!this.cleared && !plan.spot) plan.spot = this.onCourt(rim.x + rim.dx * 8.2, rim.z + rim.dz * 8.2);
+      if (plan.spot && dist(p.x, p.z, ...plan.spot) > 0.5 && hp.t < 5) return { tx: plan.spot[0], tz: plan.spot[1], speed: 3 * tired };
+      if (!this.cleared) {
+        plan.spot = this.onCourt(rim.x + rim.dx * 8.5, rim.z + rim.dz * 8.5);
+        hp.t = 0;
+        return { speed: 0 };
+      }
+      plan.spot = null;
+      hp.state = 'read';
+      hp.t = 0;
+      hp.next = rand(0.3, 0.8);
+    }
+    if (hp.state === 'read') {
+      face(rim.x, rim.z);
+      if (hp.t < hp.next) return { speed: 0 };
+      hp.t = 0;
+      hp.next = rand(0.35, 0.8);
+      const shooter = hp.style === 'shooter' ? 1.4 : hp.style === 'slasher' ? 0.6 : 1;
+      if (!between && dR < 11) return this.goDrive(hp);
+      if (dY > 2.4 && dR < 8.6 && Math.random() < 0.55 * shooter) return this.goShoot(p, hp, 'jumper');
+      if (dY <= 2.6) return this.goMove(p, hp);
+      if (hp.holdT > 7 || Math.random() < 0.3) return dR < 8.6 ? this.goShoot(p, hp, 'jumper') : this.goDrive(hp);
+      // Walk him down a step or two.
+      const [tx, tz] = this.onCourt(p.x + (rim.x - p.x) * 0.25, p.z + (rim.z - p.z) * 0.25);
+      hp.state = 'jab';
+      hp.to = [tx, tz];
+      return { speed: 0 };
+    }
+    if (hp.state === 'jab') {
+      if (dist(p.x, p.z, ...hp.to) > 0.4 && hp.t < 1.5) return { tx: hp.to[0], tz: hp.to[1], speed: 2.4 * tired };
+      hp.state = 'read';
+      hp.t = 0;
+      return { speed: 0 };
+    }
+    if (hp.state === 'move') {
+      const mv = hp.mv;
+      const ux = (rim.x - p.x) / (dR || 1);
+      const uz = (rim.z - p.z) / (dR || 1);
+      let tx = p.x;
+      let tz = p.z;
+      if (mv.kind === 'step') {
+        tx -= ux * 3;
+        tz -= uz * 3;
+      } else if (mv.kind === 'hesi') {
+        if (hp.t > 0.2) {
+          tx += ux * 3;
+          tz += uz * 3;
+        }
+      } else {
+        tx += (-uz * mv.side * 0.85 + ux * 0.5) * 3;
+        tz += (ux * mv.side * 0.85 + uz * 0.5) * 3;
+      }
+      if (hp.t >= mv.T) {
+        hp.lastMoveEnd = this.clock;
+        if (mv.kind === 'step') return this.goShoot(p, hp, 'jumper', true);
+        if (mv.beat) return this.goDrive(hp);
+        hp.state = 'read';
+        hp.t = 0;
+        hp.next = rand(0.15, 0.4);
+        return { speed: 0 };
+      }
+      [tx, tz] = this.onCourt(tx, tz);
+      return { tx, tz, speed: 6.5 * tired };
+    }
+    if (hp.state === 'drive') {
+      // At the rim: dunk or lay it in.
+      if (dR < 2.4) {
+        const clear = dY > 1.3 || Y.beatT > 0 || Y.fallT > 0;
+        return this.goShoot(p, hp, this.r > 70 && clear && Math.random() < 0.5 ? 'dunk' : 'layup');
+      }
+      // Cut off: you're square in front of him in intense D.
+      const front = ((px - p.x) * (rim.x - p.x) + (pz - p.z) * (rim.z - p.z)) > 0;
+      if (Y.intense && dY < 1.0 && front && Y.beatT <= 0 && !hp.cutOnce) {
+        hp.cutOnce = true; // (once a drive: after that he goes around or pulls up)
+        hp.st = Math.max(0, hp.st - 0.03);
+        if (Math.random() < 0.15) {
+          const b = this.g.ball;
+          b.mode = 'loose';
+          b.holder = null;
+          b.vx = rand(-2, 2);
+          b.vz = rand(-2, 2);
+          b.vy = 1;
+          this.has = null;
+          this.lastShooter = 'opp';
+          game.hud.toast('Cut him off: he lost it!', '#7ee081');
+        } else game.hud.toast('Cut off', '#9fc3ff');
+        // Next he goes to a move or pulls up.
+        if (this.has === 'opp') {
+          if (Math.random() < 0.5) return this.goMove(p, hp);
+          if (dR < 8.6) return this.goShoot(p, hp, 'jumper');
+        }
+        hp.state = 'read';
+        hp.t = 0;
+        hp.next = rand(0.3, 0.6);
+        return { speed: 0 };
+      }
+      if (hp.t > 3) {
+        hp.state = 'read';
+        hp.t = 0;
+        return { speed: 0 };
+      }
+      return { tx: rim.x + rim.dx * 0.8, tz: rim.z + rim.dz * 0.8, speed: 5 * tired };
+    }
+    if (hp.state === 'shoot') {
+      face(rim.x, rim.z);
+      if (!hp.jumpT && hp.t > hp.rel - 0.2) hp.jumpT = 0.6;
+      const b = this.g.ball;
+      if (hp.t >= hp.rel && b.mode === 'held' && this.has === 'opp') this.resolveHim(p, hp);
+      if (hp.t > hp.rel + 0.45) {
+        hp.state = 'read';
+        hp.t = 0;
+      }
+      return { speed: 0 };
+    }
+    hp.state = 'read';
+    return { speed: 0 };
+  }
+
+  goDrive(hp) {
+    hp.state = 'drive';
+    hp.cutOnce = false;
+    hp.t = 0;
+    return { speed: 0 };
+  }
+
+  goMove(p, hp) {
+    const game = this.game;
+    const kind = pick(hp.style === 'shooter' ? ['step', 'step', 'hesi', 'cross'] : ['cross', 'behind', 'spin', 'hesi', 'step']);
+    const chain = this.clock - (hp.lastMoveEnd ?? -9) < 0.8;
+    hp.combo = chain ? Math.min(3, hp.combo + 1) : 0;
+    hp.state = 'move';
+    hp.t = 0;
+    const M = MOVES[kind];
+    hp.mv = { kind, side: Math.random() < 0.5 ? -1 : 1, T: M.T, beat: false };
+    hp.st = Math.max(0, hp.st - 0.04);
+    if (kind === 'step') return { speed: 0 };
+    // Does it beat you? Less if you're in intense D, more if you're tired.
+    const Y = this.you;
+    const pr = (M.beat + hp.combo * 0.1) * (this.r / 75) * (Y.intense ? 0.7 : 1) * (1.2 - 0.4 * Y.st);
+    if (Math.random() < pr) {
+      hp.mv.beat = true;
+      Y.beatT = 0.7;
+      if (hp.combo >= 1 && Math.random() < 0.25) {
+        Y.fallT = 1.1;
+        game.hud.toast(`${p.ballName} broke your ankles`, '#ff8080');
+        for (const q of this.g.players) if (q.hp.role === 'watch') q.hp.cheerT = 1.2;
+      } else game.hud.toast(`${M.name}: ${p.ballName} got by you`, '#ff8080');
+    }
+    return { speed: 0 };
+  }
+
+  goShoot(p, hp, type, stepback = false) {
+    hp.state = 'shoot';
+    hp.shot = type;
+    hp.t = 0;
+    hp.rel = type === 'jumper' ? 0.32 : type === 'dunk' ? 0.35 : 0.28;
+    hp.stepback = stepback;
+    hp.jumpT = 0;
+    return { speed: 0 };
+  }
+
+  // His shot goes up.
+  resolveHim(p, hp) {
+    const game = this.game;
+    const [px, pz] = game.player.pos();
+    const Y = this.you;
+    const lv = this.openness(p.x, p.z, px, pz, Y.beatT > 0.2 || Y.fallT > 0, Y.jumpT > 0);
+    const d = dist(p.x, p.z, this.rim.x, this.rim.z);
+    const r = this.r;
+    let make;
+    if (hp.shot === 'dunk') make = Math.random() < (lv >= 3 ? 0.6 : 0.95);
+    else if (hp.shot === 'layup') make = Math.random() < (0.55 + (r - 60) / 100) * OPEN_MAKE[lv] * (0.75 + 0.25 * hp.st);
+    else {
+      const green = Math.random() < (0.1 + (r - 60) * 0.008) * OPEN_WINDOW[lv] * (hp.stepback ? 0.9 : 1);
+      make = green || Math.random() < this.base(d) * 0.7 * OPEN_MAKE[lv] * (0.7 + 0.3 * hp.st);
+    }
+    const pts = d > ARC ? 2 : 1;
+    if (hp.shot === 'dunk') {
+      const b = this.g.ball;
+      b.x = p.x;
+      b.z = p.z;
+      b.y = 2.6;
+      this.launch(make, 'opp', pts, 0.18);
+      game.hud.toast(make ? `${p.ballName} throws it down` : `${p.ballName} rims out the dunk`, make ? '#ff8080' : '#7ee081');
+    } else this.launch(make, 'opp', pts);
+  }
+
   pose(p) {
     const hp = p.hp;
     const c = p.char;
+    if (p === this.opp && hp.fallT > 0) {
+      // On the floor: sat down hard.
+      const y = crouchPose(c, 1);
+      c.armL.rotation.x = c.armR.rotation.x = 0.6;
+      return y - 0.35;
+    }
     if (p === this.opp && this.has === 'opp') {
-      if (hp.phase === 'walk') c.armR.rotation.x = -0.5 - Math.abs(Math.cos(hp.dribble || 0)) * 0.35;
-      else if (hp.phase === 'shoot') c.armL.rotation.x = c.armR.rotation.x = -1.4 - Math.min(1, hp.t / 0.25) * 1.5;
-      else c.armL.rotation.x = c.armR.rotation.x = -1.3;
+      if (hp.state === 'shoot') c.armL.rotation.x = c.armR.rotation.x = -1.4 - Math.min(1, hp.t / Math.max(0.1, hp.rel)) * 1.5;
+      else c.armR.rotation.x = -0.5 - Math.abs(Math.cos(hp.dribble || 0)) * 0.35;
     } else if (p === this.opp) {
-      c.armL.rotation.x = c.armR.rotation.x = -1.0; // (hands up on defense)
+      // Hands up on defense; a swipe; up for a contest or a rebound.
+      c.armL.rotation.x = c.armR.rotation.x = hp.jumpT > 0 ? -2.8 : hp.armsT > 0 ? -1.6 : -1.0;
+      if (!hp.jumpT && this.has === 'you') return 0.06 + crouchPose(c, 0.25);
     } else if (hp.cheerT > 0) c.armR.rotation.x = -2.9;
     return 0.06 + (hp.jump || 0);
   }
 
-  // Your arms (main.js, after you move).
+  // Your arms and stance (main.js, after you move).
   late(dt) {
     const game = this.game;
     const p = game.player;
     const c = p.char;
+    const Y = this.you;
     p.showWeapon('fists');
-    this.jumpT = Math.max(0, (this.jumpT || 0) - dt);
-    this.armsUp = Math.max(0, (this.armsUp || 0) - dt);
+    Y.armsT = Math.max(0, (Y.armsT || 0) - dt);
+    if (Y.fallT > 0) {
+      const y = crouchPose(c, 1);
+      c.armL.rotation.x = c.armR.rotation.x = 0.6;
+      c.group.position.y += y - 0.35;
+      return;
+    }
+    // Intense D: square to him, low.
+    if (Y.intense) {
+      p.heading = Math.atan2(this.opp.x - p.x, this.opp.z - p.z);
+      c.group.rotation.y = p.heading;
+      c.group.position.y += crouchPose(c, 0.3);
+    }
     if (this.has === 'you' && this.g.ball.mode === 'held') {
-      if (this.meter) c.armL.rotation.x = c.armR.rotation.x = -1.4 - this.meterValue() * 1.4;
-      else c.armR.rotation.x = -0.5 - Math.abs(Math.cos(this.dribble || 0)) * 0.35;
-    } else if (this.jumpT > 0 || this.armsUp > 0) {
-      c.armL.rotation.x = c.armR.rotation.x = -2.8;
-    } else if (this.has === 'opp') c.armL.rotation.x = c.armR.rotation.x = -1.0;
-    if (this.jumpT > 0) c.group.position.y += Math.sin((this.jumpT / 0.5) * Math.PI) * 0.45;
+      if (this.shot) {
+        const k = Math.min(1, this.shot.t / this.shot.T);
+        c.armL.rotation.x = c.armR.rotation.x = -1.4 - k * 1.4;
+      } else c.armR.rotation.x = -0.5 - Math.abs(Math.cos(this.dribble || 0)) * 0.35;
+      if (Y.sizeUp) c.group.position.y += crouchPose(c, 0.35);
+    } else if (Y.jumpT > 0) c.armL.rotation.x = c.armR.rotation.x = -2.8;
+    else if (Y.armsT > 0) c.armR.rotation.x = -1.6;
+    else if (this.has === 'opp') c.armL.rotation.x = c.armR.rotation.x = -1.0;
+    if (Y.jumpT > 0) c.group.position.y += Math.sin((Y.jumpT / 0.55) * Math.PI) * 0.5;
   }
 
   // ---- Over ----
@@ -491,9 +1159,10 @@ export class Streetball {
     const name = this.opp?.ballName || 'He';
     const bet = this.bet;
     if (how === 'win') {
+      const cred = this.r >= 82 ? 12 : 8;
       game.cash += bet * 2;
-      game.cred += 8;
-      game.hud.toast(`You beat ${name} ${this.score.you}-${this.score.opp}${bet ? ` · +$${bet}` : ''} · +8 cred`, '#7ee081');
+      game.cred += cred;
+      game.hud.toast(`You beat ${name} ${this.score.you}-${this.score.opp}${bet ? ` · +$${bet}` : ''} · +${cred} cred`, '#7ee081');
     } else if (how === 'lose') {
       game.hud.toast(`${name} wins ${this.score.opp}-${this.score.you}${bet ? ` · -$${bet}` : ''}`, '#ff8080');
     } else if (how === 'forfeit') {
@@ -503,8 +1172,9 @@ export class Streetball {
       game.hud.toast('Game called off', '#9fc3ff');
     }
     this.active = false;
-    this.meter = null;
+    this.shot = null;
     this.dead = null;
+    this.flight = null;
     const g = this.g;
     if (g) {
       g.match = null;

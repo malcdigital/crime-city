@@ -169,8 +169,10 @@ export class Hud {
     this.drawMinimap(game, dt);
   }
 
-  // A pickup game: the score up top, the shot meter, what your buttons do (streetball.js).
-  sport(board, meter = null, hint = '') {
+  // A pickup game: the score up top, the shot meter, what your buttons do, your energy
+  // (streetball.js, gridiron.js). `meter`: a number 0..1 (the green zone at the top), or
+  // { v, lo, hi } with the green zone from lo to hi.
+  sport(board, meter = null, hint = '', energy = null) {
     let el = this.sportEl;
     if (!board) {
       if (el) el.classList.add('hidden');
@@ -179,7 +181,7 @@ export class Hud {
     if (!el) {
       el = this.sportEl = document.createElement('div');
       el.id = 'sport';
-      el.innerHTML = '<div class="sb"></div><div class="sm"><div class="sweet"></div><div class="fill"></div></div><div class="sh"></div>';
+      el.innerHTML = '<div class="sb"></div><div class="sm"><div class="sweet"></div><div class="fill"></div></div><div class="sh"></div><div class="se"><span>ENERGY</span><div class="eb"><div class="ef"></div></div></div>';
       document.body.appendChild(el);
     }
     el.classList.remove('hidden');
@@ -187,11 +189,22 @@ export class Hud {
     const m = el.querySelector('.sm');
     m.classList.toggle('hidden', meter == null);
     if (meter != null) {
+      const M = typeof meter === 'number' ? { v: meter, lo: 0.82, hi: 1 } : meter;
       const f = m.querySelector('.fill');
-      f.style.width = `${Math.round(meter * 100)}%`;
-      f.classList.toggle('good', meter >= 0.82);
+      const sw = m.querySelector('.sweet');
+      f.style.width = `${Math.round(Math.min(1, M.v) * 100)}%`;
+      sw.style.left = `${(M.lo * 100).toFixed(1)}%`;
+      sw.style.width = `${((M.hi - M.lo) * 100).toFixed(1)}%`;
+      f.classList.toggle('good', M.v >= M.lo && M.v <= M.hi);
     }
     el.querySelector('.sh').textContent = hint || '';
+    const e = el.querySelector('.se');
+    e.classList.toggle('hidden', energy == null);
+    if (energy != null) {
+      const ef = e.querySelector('.ef');
+      ef.style.width = `${Math.round(energy * 100)}%`;
+      ef.classList.toggle('low', energy < 0.3);
+    }
   }
 
   toast(text, color = '#8ff08f') {
