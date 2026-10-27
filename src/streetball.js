@@ -84,13 +84,51 @@ const MOVES = {
 };
 // How the ball changes hands: in front of you (a crossover), down under you (between the legs)
 // or round your back. Returns [side (-1 your left .. 1 your right), forward, height].
-const HANDOFF = { cross: 'front', spin: 'front', behind: 'behind', legs: 'legs' };
+const HANDOFF = { cross: 'front', spin: 'spin', behind: 'behind', legs: 'legs' };
 const SHUFFLES = new Set(['cross', 'legs', 'behind']); // (the hand switches you shuffle out of, not turn)
+const LOCKED = new Set(['cross', 'legs', 'behind', 'hesi']); // (moves that keep you facing the way you were)
+// A spin: the facing during it (a full turn toward the new hand's side, eased in and out).
+const spinHeading = (mv, k) => mv.h0 - (mv.to || 1) * Math.PI * 2 * (k * k * (3 - 2 * k));
+// Names for moves strung together (shown when you chain them).
+const MOVE_WORDS = { cross: 'crossover', behind: 'behind the back', legs: 'between the legs', spin: 'spin', hesi: 'hesi', step: 'step-back' };
+function comboName(chain) {
+  const n = chain.length;
+  const a = chain[n - 2];
+  const b = chain[n - 1];
+  if (b === 'cross' && a === 'cross') return n >= 3 && chain[n - 3] === 'cross' ? 'Triple crossover' : 'Double crossover';
+  if (a === 'hesi' && b === 'cross') return 'Hesi crossover';
+  const w = MOVE_WORDS[a] || a;
+  return `${w[0].toUpperCase()}${w.slice(1)} into ${MOVE_WORDS[b] || b}`;
+}
+// Smoothing between poses (yours and his): every joint eases to where this frame's pose puts it
+// (about 0.1 s to settle), so moves, stances and shots blend instead of snapping.
+const JOINTS = ['armL', 'armR', 'legL', 'legR', 'kneeL', 'kneeR'];
+function smoothJoints(c, dt) {
+  const s = c.group.userData.sm || (c.group.userData.sm = {});
+  const k = Math.min(1, dt * 22);
+  for (const j of JOINTS) {
+    const r = c[j].rotation;
+    const p = s[j];
+    if (p) {
+      r.x = p.x + (r.x - p.x) * k;
+      r.z = p.z + (r.z - p.z) * k;
+    }
+    s[j] = { x: r.x, z: r.z };
+  }
+  const g = c.group.rotation;
+  if (s.g) {
+    g.x = s.g.x + (g.x - s.g.x) * k;
+    g.z = s.g.z + (g.z - s.g.z) * k;
+  }
+  s.g = { x: g.x, z: g.z };
+  return s;
+}
 function handoff(kind, from, to, k) {
   const s = from + (to - from) * k;
   const m = Math.sin(Math.PI * k);
   const low = Math.abs(Math.cos(Math.PI * k)) * 0.55;
   if (kind === 'legs') return [s, 0.4 - 0.45 * m, 0.18 + low];
+  if (kind === 'spin') return [s, 0.12, 0.78]; // (pulled in tight at the hip and carried round)
   if (kind === 'behind') return [s, 0.4 - 0.78 * m, 0.25 + low + m * 0.4];
   return [s, 0.42 + 0.06 * m, 0.18 + low];
 }
@@ -270,6 +308,7 @@ export class Streetball {
     this.clock = 0;
     this.you = { st: 1, beatT: 0, fallT: 0, jumpT: 0, move: null, combo: 0, lastMoveEnd: -9, rhythm: 0, hand: 1, stealT: 0, lastSteal: -9, blockT: 0, intense: false, ps: { on: false, t: 0, x: 0, y: 0 }, sizeUp: false };
     g.match = this;
+    game.player.char.group.userData.sm = opp.char.group.userData.sm = null; // (no leftover pose to ease from)
     // Everyone else at that basket steps off and watches from the side.
     const C = H.site.court;
     const side = g.players.filter((q) => q !== opp);
@@ -327,6 +366,7 @@ export class Streetball {
     }
     const [px, pz] = game.player.pos();
     this.g = { rim, players: [], match: this, ball: { mesh, x: px, y: 1, z: pz, vx: 0, vy: 0, vz: 0, mode: 'held', holder: 'you', t: 0 } };
+    game.player.char.group.userData.sm = null;
     this.give('you');
     game.hud.toast(`Shooting around. ${game.input.label('interact')} to put the ball down`, '#ffd23f');
   }
@@ -947,8 +987,16 @@ export class Streetball {
       } else {
         // A dribble move (Pro Stick) or a size-up.
         Y.stickIdle = Math.hypot(a.moveX, a.moveY) < 0.2;
-        // (a move can cut a hesitation short, any but another hesitation)
-        if (stick && (!Y.move || (Y.move.kind === 'hesi' && Y.move.t > 0.08))) this.startMove(stick.kind, stick.side, sprint);
+        // Combos: a flick during a move goes in the queue and fires the moment it ends; a quick
+        // crossover can be cut a little past halfway (so left-right is a double crossover), and a
+        // hesitation by any move but another hesitation.
+        if (stick) {
+          const mv = Y.move;
+          const cut = !mv || (mv.kind === 'hesi' && mv.t > 0.08) || (!mv.big && mv.kind === 'cross' && mv.t > mv.T * 0.55);
+          if (cut) this.startMove(stick.kind, stick.side, sprint);
+          else Y.queued = { kind: stick.kind, side: stick.side, big: sprint, t: 0.35 };
+        }
+        if (Y.queued && (Y.queued.t -= dt) <= 0) Y.queued = null;
         Y.sizeUp = !!a.bSizeUp || this.psHoldUp;
         if (Y.sizeUp && !Y.move) {
           Y.rhythm = Math.min(0.3, Y.rhythm + dt * 0.25);
@@ -956,8 +1004,15 @@ export class Streetball {
         } else if (this.clock - Y.lastMoveEnd > 1.5) Y.rhythm = Math.max(0, Y.rhythm - dt * 0.2);
         if (Y.move) {
           const big = Y.move.big;
+          const quickCross = !big && Y.move.kind === 'cross';
           this.doMove(dt, a);
-          sprint = big; // (with R2 a move's a burst; without, it's a quick one on the spot)
+          sprint = big || quickCross; // (with R2 a move's a burst; a quick crossover's a quick shuffle)
+          // (the next one in the combo, straight away)
+          if (!Y.move && Y.queued) {
+            const q = Y.queued;
+            Y.queued = null;
+            this.startMove(q.kind, q.side, q.big);
+          }
         }
         // Facing up: hold L2 (right-click) and you stay square to the basket whichever way you
         // go: backing up is a low shuffle, sideways a side-step (slower, no sprint). Without it,
@@ -1072,13 +1127,15 @@ export class Streetball {
     const chain = this.clock - Y.lastMoveEnd < 0.7;
     Y.combo = chain ? Math.min(3, Y.combo + 1) : 0;
     Y.swap = null;
+    Y.chainKinds = chain ? Y.chainKinds || [Y.lastMove] : [];
     const from = Y.hand;
     let to = switches ? Math.sign((D.sx * side) * rx + (D.sz * side) * rz) || -Y.hand : Y.hand;
     // (a crossover flicked toward the hand that's already got it: a hesitation that way)
     if (kind === 'cross' && to === from) kind = 'hesi';
     if (kind === 'hesi') to = from;
     if (Y.move) {
-      if (kind === 'hesi') return; // (out of a hesitation into anything but another)
+      if (kind === 'hesi' && Y.move.kind === 'hesi') return; // (out of a hesitation into anything but another)
+      Y.lastMove = Y.move.kind;
       Y.lastMoveEnd = this.clock;
       Y.move = null;
     }
@@ -1086,6 +1143,10 @@ export class Streetball {
     const quick = !big && (kind === 'cross' || kind === 'hesi');
     const T = quick ? (kind === 'cross' ? 0.2 : 0.28) : kind === 'hesi' ? 0.36 : M.T;
     Y.move = { kind, side, t: 0, T: T * (1.15 - 0.15 * Y.st), from, to, big: !quick, h0: p.heading };
+    if (chain) {
+      Y.chainKinds.push(kind);
+      this.game.hud.toast(comboName(Y.chainKinds), '#ffd23f');
+    } else Y.chainKinds = [kind];
     Y.st = Math.max(0, Y.st - 0.027);
     Y.hand = to;
     Y.sizeUp = false;
@@ -1145,7 +1206,7 @@ export class Streetball {
       // (quick crossover: just a little step to that side, right where you are)
       wx = D.sx * s;
       wz = D.sz * s;
-      mag = 0.7 * handleDist(this.handle);
+      mag = 0.59 * handleDist(this.handle); // (~0.9 m at a 90 handle)
     } else if (!mv.big && mv.kind === 'hesi') {
       // (quick hesitation: a hitch on the spot)
     } else if (mv.kind === 'cross' || mv.kind === 'behind' || mv.kind === 'legs') {
@@ -1172,7 +1233,7 @@ export class Streetball {
       if (mv.kind !== 'hesi' && (mv.big || mv.kind !== 'cross')) mag = Math.min(1, handleDist(this.handle)); // (how far it carries: your handle)
       a.moveY = ((wx * fx + wz * fz) / L) * mag;
       a.moveX = ((wx * -fz + wz * fx) / L) * mag;
-      a.bSprint = mv.big;
+      a.bSprint = mv.big || mv.kind === 'cross';
     } else a.moveX = a.moveY = 0;
     if (mv.t >= mv.T) {
       Y.lastMoveEnd = this.clock;
@@ -1180,8 +1241,8 @@ export class Streetball {
       Y.move = null;
       // (after a crossover you square back up to the basket, unless you're steering somewhere;
       // a moment's hold on the facing first, so the last step doesn't twist you round)
-      if (mv.kind === 'cross' || mv.kind === 'legs' || mv.kind === 'behind') Y.squareT = 0.4;
-      if (SHUFFLES.has(mv.kind) || mv.kind === 'hesi') Y.holdH = { h: mv.h0, t: 0.12 };
+      if (mv.kind === 'cross' || mv.kind === 'legs' || mv.kind === 'behind' || mv.kind === 'spin') Y.squareT = 0.4;
+      if (LOCKED.has(mv.kind) || mv.kind === 'spin') Y.holdH = { h: mv.h0, t: 0.12 };
     }
   }
 
@@ -2182,6 +2243,8 @@ export class Streetball {
         if (mv.beat) return this.goDrive(hp);
         // (out of a hesitation he goes straight into something else)
         if (mv.kind === 'hesi' && Math.random() < 0.6) return this.goMove(p, hp, true);
+        // (a quick crossover often goes straight back the other way: a double crossover)
+        if (mv.kind === 'cross' && !mv.big && Math.random() < 0.45) return this.goMove(p, hp, true, 'cross');
         hp.state = 'read';
         hp.t = 0;
         // (the quick ones come in bunches)
@@ -2191,7 +2254,7 @@ export class Streetball {
       if (quick === -1) return { speed: 0 };
       if (quick === 1) {
         [tx, tz] = this.onCourt(tx, tz);
-        return { tx, tz, speed: 3.0 * dk };
+        return { tx, tz, speed: 4.5 * dk };
       }
       if (quick === 2) {
         const k = Math.min(1, hp.t / mv.T);
@@ -2351,14 +2414,14 @@ export class Streetball {
     return { speed: 0 };
   }
 
-  goMove(p, hp, noHesi = false) {
+  goMove(p, hp, noHesi = false, force = null) {
     const game = this.game;
-    let kind = pick(hp.style === 'shooter' ? ['step', 'step', 'hesi', 'cross', 'cross'] : ['cross', 'cross', 'behind', 'spin', 'hesi', 'step', 'legs']);
+    let kind = force || pick(hp.style === 'shooter' ? ['step', 'step', 'hesi', 'cross', 'cross'] : ['cross', 'cross', 'behind', 'spin', 'hesi', 'step', 'legs']);
     // (like yours: a crossover toward the hand that's got it is a hesitation; the crossover and
     // hesitation are quick little ones or, like you holding R2, the big burst versions)
-    if (kind === 'cross' && Math.random() < 0.2 && !noHesi) kind = 'hesi';
+    if (kind === 'cross' && Math.random() < 0.2 && !noHesi && !force) kind = 'hesi';
     if (kind === 'hesi' && noHesi) kind = 'cross';
-    const big = kind !== 'cross' && kind !== 'hesi' ? true : Math.random() < (hp.style === 'slasher' ? 0.6 : hp.style === 'shooter' ? 0.3 : 0.45);
+    const big = force === 'cross' ? false : kind !== 'cross' && kind !== 'hesi' ? true : Math.random() < (hp.style === 'slasher' ? 0.6 : hp.style === 'shooter' ? 0.3 : 0.45);
     const chain = this.clock - (hp.lastMoveEnd ?? -9) < 0.8;
     hp.combo = chain ? Math.min(3, hp.combo + 1) : 0;
     hp.state = 'move';
@@ -2466,6 +2529,22 @@ export class Streetball {
   }
 
   pose(p) {
+    const y = this.poseRaw(p);
+    if (p !== this.opp) return y;
+    // (his joints, height and facing eased the same way as yours)
+    const c = p.char;
+    const s = c.group.userData.sm || (c.group.userData.sm = {});
+    const dt = Math.min(0.1, Math.max(0.001, this.clock - (s.t ?? this.clock - 1 / 60)));
+    s.t = this.clock;
+    smoothJoints(c, dt);
+    const yy = s.yo != null ? s.yo + (y - s.yo) * Math.min(1, dt * 30) : y;
+    s.yo = yy;
+    if (s.h != null) p.heading = s.h + wrapAngle(p.heading - s.h) * Math.min(1, dt * 25);
+    s.h = p.heading;
+    return yy;
+  }
+
+  poseRaw(p) {
     const hp = p.hp;
     const c = p.char;
     c.legL.rotation.z = c.legR.rotation.z = 0;
@@ -2525,8 +2604,11 @@ export class Streetball {
         (hp.ballSide < 0 ? c.armL : c.armR).rotation.x = hp.behindK ? 0.9 * hp.behindK : -0.5 - Math.abs(Math.cos(hp.dribble || 0)) * 0.35; // (the hand with the ball)
         // The stance and the moves' footwork (the same as yours).
         const mv = hp.state === 'move' ? { ...hp.mv, t: hp.t, ai: true } : null; // (ai: his hop height is in hp.jump)
-        if (mv && SHUFFLES.has(mv.kind)) {
+        if (mv && LOCKED.has(mv.kind)) {
           p.heading = mv.h0;
+          c.group.rotation.y = p.heading;
+        } else if (mv?.kind === 'spin') {
+          p.heading = spinHeading(mv, Math.min(1, mv.t / mv.T));
           c.group.rotation.y = p.heading;
         }
         const sp = Math.hypot(hp.vx || 0, hp.vz || 0);
@@ -2561,6 +2643,20 @@ export class Streetball {
     // (the body's right: (-cos h, sin h))
     const rx = -Math.cos(h);
     const rz = Math.sin(h);
+    if (mv && mv.kind === 'spin') {
+      // (pivoting round: low, the ball tucked at the hip, the free elbow out wide)
+      const k = Math.min(1, mv.t / mv.T);
+      const ball = (mv.from || 1) + ((mv.to || 1) - (mv.from || 1)) * k >= 0 ? c.armR : c.armL;
+      const elbow = ball === c.armR ? c.armL : c.armR;
+      ball.rotation.x = -0.35;
+      elbow.rotation.x = -1.1;
+      elbow.rotation.z = ball === c.armR ? 0.7 : -0.7;
+      const dl = bendLeg(c.legL, c.kneeL, 0.55, 1.0);
+      const dr = bendLeg(c.legR, c.kneeR, 0.45 + 0.25 * Math.sin(Math.PI * 2 * k), 0.8);
+      c.legL.rotation.z = 0.15;
+      c.legR.rotation.z = -0.15 - 0.2 * Math.sin(Math.PI * k);
+      return -Math.min(dl, dr);
+    }
     if (mv && SHUFFLES.has(mv.kind)) {
       const k = Math.min(1, mv.t / mv.T);
       const side = mv.to || 1;
@@ -2648,6 +2744,18 @@ export class Streetball {
 
   // Your arms and stance (main.js, after you move).
   late(dt) {
+    this.lateRaw(dt);
+    // (easing every joint toward this frame's pose, and the height and facing too)
+    const c = this.game.player.char;
+    const s = smoothJoints(c, dt);
+    const g = c.group;
+    if (s.y != null) g.position.y = s.y + (g.position.y - s.y) * Math.min(1, dt * 30);
+    if (s.ry != null) g.rotation.y = s.ry + wrapAngle(g.rotation.y - s.ry) * Math.min(1, dt * 25);
+    s.y = g.position.y;
+    s.ry = g.rotation.y;
+  }
+
+  lateRaw(dt) {
     const game = this.game;
     const p = game.player;
     const c = p.char;
@@ -2723,8 +2831,11 @@ export class Streetball {
           free.rotation.x = -0.6;
         } else {
           // The stance and the moves' footwork (the same for him).
-          if (Y.move && SHUFFLES.has(Y.move.kind)) {
+          if (Y.move && LOCKED.has(Y.move.kind)) {
             p.heading = Y.move.h0; // (no turning: you shuffle out, facing the same way)
+            c.group.rotation.y = p.heading;
+          } else if (Y.move?.kind === 'spin') {
+            p.heading = spinHeading(Y.move, Math.min(1, Y.move.t / Y.move.T));
             c.group.rotation.y = p.heading;
           }
           c.group.position.y += this.dribblePose(c, p.heading, Y.move, p.speed, this.ballSide ?? Y.hand, Y.sizeUp);
