@@ -252,6 +252,9 @@ export class Input {
     a.bSprint = a.sprint || this.btnVal(PAD.R2) > 0.3;
     a.bIntense = this.rmb || this.btnVal(PAD.L2) > 0.3;
     a.bBlock = this.hit('KeyF') || this.btnHit(PAD.TRIANGLE);
+    // Shooting around: ✕ / Q / PASS passes (tap: whoever you face; hold: lock on, let go to pass).
+    a.bPass = this.btn(PAD.CROSS) || k('KeyQ');
+    a.bSprintNoX = k('ShiftLeft') || k('ShiftRight') || this.btnVal(PAD.R2) > 0.3 || !!(this.touchMode && this.touch.sprint);
     a.bStickX = this.touchMode ? 0 : this.axis(2);
     a.bStickY = this.touchMode ? 0 : this.axis(3);
     const mv = [['KeyJ', 'cross', -1], ['KeyL', 'cross', 1], ['KeyI', 'hesi', 0], ['KeyK', 'step', 0], ['KeyU', 'spin', -1], ['KeyO', 'spin', 1], ['KeyB', 'behind', -1], ['KeyN', 'behind', 1]];

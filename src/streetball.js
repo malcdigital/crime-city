@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { dist, rand, pick, lerpAngle, clamp } from './util.js';
 import { crouchPose } from './character.js';
 import { ballMesh } from './court.js';
@@ -297,8 +298,6 @@ export class Streetball {
     this.check = { off, stage: off === 'you' ? 'ready' : 'wait', t: 0 };
     b.mode = 'held';
     b.holder = off === 'you' ? 'you' : opp;
-    // (the camera behind you, looking at him)
-    game.camYaw = p.heading;
     if (why) game.hud.toast(why, '#9fc3ff');
   }
 
@@ -326,6 +325,220 @@ export class Streetball {
       this.give(off, true);
       this.game.hud.toast("Ball's in", '#ffd23f');
     }
+  }
+
+  // ---- Passing (shooting around) ----
+  // Anyone on the court who hasn't got a ball: people shooting around who are waiting, people
+  // watching, passers-by on the court. (Other players too, once there's multiplayer.)
+  passTargets() {
+    const game = this.game;
+    const P = this.H.site.pad;
+    const [px, pz] = game.player.pos();
+    const busy = new Set();
+    for (const H of game.hoops || []) for (const g of H.groups) if (g.ball.holder && g.ball.holder !== 'you') busy.add(g.ball.holder);
+    return game.peds.peds.filter((q) => !q.removed && q.standing && !q.kid && q.state !== 'flee' && !busy.has(q)
+      && q.x > P.x0 && q.x < P.x1 && q.z > P.z0 && q.z < P.z1 && dist(px, pz, q.x, q.z) < 22 && dist(px, pz, q.x, q.z) > 1);
+  }
+
+  // Who you're facing (your body first, then the camera).
+  facingTarget(list) {
+    const game = this.game;
+    const p = game.player;
+    const [px, pz] = p.pos();
+    let best = null;
+    let bs = -Infinity;
+    for (const yaw of [p.heading, game.camYaw]) {
+      for (const q of list) {
+        const d = dist(px, pz, q.x, q.z) || 1;
+        const c = ((q.x - px) * Math.sin(yaw) + (q.z - pz) * Math.cos(yaw)) / d;
+        const s = c - d * 0.01;
+        if (c > 0.5 && s > bs) {
+          bs = s;
+          best = q;
+        }
+      }
+      if (best) return best;
+    }
+    return null;
+  }
+
+  // The next one over on screen (dir 1: to the right).
+  nextOver(cur, dir, list) {
+    const cam = this.game.camera;
+    const v = new THREE.Vector3();
+    v.set(cur.x, 1.3, cur.z).project(cam);
+    const x0 = v.x;
+    let best = null;
+    let bs = Infinity;
+    for (const q of list) {
+      if (q === cur) continue;
+      v.set(q.x, 1.3, q.z).project(cam);
+      if (v.z > 1) continue;
+      const dx = (v.x - x0) * dir;
+      if (dx > 0.01 && dx < bs) {
+        bs = dx;
+        best = q;
+      }
+    }
+    return best;
+  }
+
+  // ✕ held: locked on (the arrow over him); flick or swipe to change who; let go and it's thrown.
+  // Returns true while it's taking your buttons.
+  passing(dt, a) {
+    const game = this.game;
+    const b = this.g.ball;
+    const held = a.bPass;
+    const can = this.has === 'you' && b.mode === 'held' && !this.shot && !this.you.move;
+    if (!this.pass) {
+      if (held && !this.prevPass && can) {
+        const list = this.passTargets();
+        this.pass = { target: this.facingTarget(list) || list[0] || null, acc: 0, flick: false };
+        if (!this.pass.target) {
+          this.pass = null;
+          game.hud.toast('Nobody to pass to', '#9fc3ff');
+        }
+      }
+      this.prevPass = held;
+      if (!this.pass) {
+        this.passMarkShow(null);
+        return false;
+      }
+    }
+    this.prevPass = held;
+    const P = this.pass;
+    const list = this.passTargets();
+    if (P.target && !list.includes(P.target)) P.target = this.facingTarget(list);
+    // Picking: the right stick on a controller, the camera (mouse / swipe) otherwise.
+    let dir = 0;
+    if (game.input.mode === 'pad' && !game.input.touchMode) {
+      const x = a.bStickX || 0;
+      if (Math.abs(x) > 0.6 && !P.flick) {
+        dir = Math.sign(x);
+        P.flick = true;
+      } else if (Math.abs(x) < 0.3) P.flick = false;
+    } else {
+      P.acc += a.lookX;
+      if (Math.abs(P.acc) > 0.06) {
+        dir = P.acc < 0 ? 1 : -1;
+        P.acc = 0;
+      }
+    }
+    a.lookX = a.lookY = 0;
+    if (dir && P.target) P.target = this.nextOver(P.target, dir, list) || P.target;
+    // Face him while you pick (you can still walk).
+    if (P.target) {
+      const p = game.player;
+      p.heading = Math.atan2(P.target.x - p.x, P.target.z - p.z);
+    }
+    this.passMarkShow(P.target);
+    if (!held) {
+      // Let go: it's on its way.
+      this.pass = null;
+      this.passMarkShow(null);
+      if (P.target && can) this.throwPass(P.target);
+      return false;
+    }
+    return true;
+  }
+
+  passMarkShow(q) {
+    if (!this.passMark) {
+      const m = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.36, 4), new THREE.MeshBasicMaterial({ color: 0xffd23f }));
+      m.rotation.x = Math.PI;
+      this.game.scene.add(m);
+      this.passMark = m;
+    }
+    this.passMark.visible = !!q;
+    if (q) this.passMark.position.set(q.x, 2.55 + Math.sin(this.game.time * 6) * 0.07, q.z);
+  }
+
+  throwPass(q) {
+    const game = this.game;
+    const b = this.g.ball;
+    const p = game.player;
+    const [px, pz] = p.pos();
+    const d = dist(px, pz, q.x, q.z);
+    b.x = px + Math.sin(p.heading) * 0.35;
+    b.z = pz + Math.cos(p.heading) * 0.35;
+    b.y = 1.25;
+    // (lead him a little if he's walking)
+    const T = 0.25 + d / 15;
+    const sp = q.speed || 0;
+    this.H.launch(b, q.x + Math.sin(q.heading) * sp * T, 1.2, q.z + Math.cos(q.heading) * sp * T, T);
+    b.kind = 'pass';
+    b.to = q;
+    this.has = null;
+    this.you.armsT = 0.3;
+  }
+
+  // He catches it (or it gets away and rolls).
+  passArrive() {
+    const b = this.g.ball;
+    const q = b.to;
+    if (q && !q.removed && q.standing && dist(q.x, q.z, b.x, b.z) < 1.6) {
+      b.mode = 'held';
+      b.holder = q;
+      this.has = 'npc';
+      this.npc = { q, t: 0, hold: rand(0.6, 1.2) };
+      return;
+    }
+    b.mode = 'loose';
+    b.vx = rand(-1, 1);
+    b.vz = rand(-1, 1);
+    b.vy = -1;
+  }
+
+  // His pass back: yours if you're there for it.
+  backArrive() {
+    const b = this.g.ball;
+    const [px, pz] = this.game.player.pos();
+    if (dist(px, pz, b.x, b.z) < 2) return this.give('you');
+    b.mode = 'loose';
+    b.vx = rand(-1, 1);
+    b.vz = rand(-1, 1);
+    b.vy = -1;
+  }
+
+  // Whoever you passed to: a look at the basket, then he shoots it or gives it back.
+  npcBall(dt) {
+    const N = this.npc;
+    if (this.has !== 'npc' || !N) return;
+    const game = this.game;
+    const b = this.g.ball;
+    const q = N.q;
+    N.t += dt;
+    if (q.removed || !q.standing || q.state === 'flee') {
+      this.npc = null;
+      b.mode = 'loose';
+      b.vx = rand(-1, 1);
+      b.vz = rand(-1, 1);
+      b.vy = 0;
+      this.has = null;
+      return;
+    }
+    if (N.t < N.hold) return;
+    this.npc = null;
+    const rim = this.rim;
+    const dR = dist(q.x, q.z, rim.x, rim.z);
+    if (dR < 8.5 && Math.random() < 0.5) {
+      // Puts it up himself (you rebound it).
+      const make = Math.random() < this.base(dR) * 0.8;
+      const miss = make ? 0 : rand(0.22, 0.4);
+      const ang = rand(0, Math.PI * 2);
+      b.y = 2.2;
+      this.H.launch(b, rim.x + Math.cos(ang) * miss, rim.y + 0.08, rim.z + Math.sin(ang) * miss * 0.6, 0.75 + dR * 0.06);
+      b.kind = 'npcShot';
+      b.make = make;
+      this.has = null;
+      return;
+    }
+    // Back to you.
+    const [px, pz] = game.player.pos();
+    b.y = 1.25;
+    this.H.launch(b, px, 1.2, pz, 0.25 + dist(q.x, q.z, px, pz) / 15);
+    b.kind = 'back';
+    this.has = null;
   }
 
   // ---- Helpers ----
@@ -406,7 +619,13 @@ export class Streetball {
     const stealHit = a.bSteal;
     const blockHit = a.bBlock;
     const intense = a.bIntense;
-    let sprint = a.bSprint;
+    let sprint = this.solo ? a.bSprintNoX : a.bSprint; // (shooting around, ✕ passes)
+    if (this.solo && this.passing(dt, a)) {
+      a.fire = a.firePressed = a.aim = a.aimPressed = a.melee = a.reload = a.dealYes = a.enter = a.crouch = false;
+      a.sprint = sprint;
+      this.prevShoot = a.bShoot;
+      return;
+    }
     const stick = this.proStick(dt, a);
     const checkHit = a.dealYes || (a.interactHeld && !game.interactWasHeld && !this.solo) || (shootHeld && !this.prevShoot);
     if (this.solo && a.interactHeld && !game.interactWasHeld) {
@@ -417,9 +636,7 @@ export class Streetball {
     // On the controller the right stick is the Pro Stick: the camera looks down the court.
     if (game.input.mode === 'pad' && !game.input.touchMode) {
       a.lookX = a.lookY = 0;
-      // (down the court at the basket; on defense, behind you looking at him)
-      const [qx, qz] = game.player.pos();
-      const want = this.has === 'opp' || (this.check && !this.solo) ? Math.atan2(this.opp.x - qx, this.opp.z - qz) : Math.atan2(-this.rim.dx, -this.rim.dz);
+      const want = Math.atan2(-this.rim.dx, -this.rim.dz); // (down the court at the basket)
       game.camYaw = lerpAngle(game.camYaw, want, Math.min(1, dt * 2.5));
     }
     // Checking it up: nobody moves.
@@ -854,7 +1071,10 @@ export class Streetball {
     const off = px < P.x0 - 1 || px > P.x1 + 1 || pz < P.z0 - 1 || pz > P.z1 + 1;
     this.outT = off ? this.outT + dt : 0;
     if (this.outT > 2.5 || game.player.vehicle || game.stars > 0 || game.wastedT > 0 || game.bustedT > 0) return this.end(this.solo ? 'done' : 'forfeit');
-    if (this.solo) this.cleared = true;
+    if (this.solo) {
+      this.cleared = true;
+      this.npcBall(dt);
+    }
     // Checking it up: the defender holds it a moment and checks it back; he checks it to you.
     const C = this.check;
     if (C) {
@@ -873,6 +1093,11 @@ export class Streetball {
     else hp.st = Math.min(1, hp.st + dt * 0.06);
     // The ball.
     if (b.mode === 'flight') {
+      // (a pass goes to his hands, wherever he's moved to)
+      if (b.kind === 'pass' && b.to && !b.to.removed) {
+        b.p1[0] = b.to.x;
+        b.p1[2] = b.to.z;
+      }
       b.t += dt;
       const k = Math.min(1, b.t / b.T);
       b.x = b.p0[0] + (b.p1[0] - b.p0[0]) * k;
@@ -881,6 +1106,8 @@ export class Streetball {
       b.y = b.p0[1] + b.vy0 * t - 0.5 * G * t * t;
       if (b.t >= b.T) {
         if (b.kind === 'check') this.checkArrive();
+        else if (b.kind === 'pass') this.passArrive();
+        else if (b.kind === 'back') this.backArrive();
         else this.landed();
       }
       if (!this.active) return; // (that was the game-winner: the scoreboard's gone)
@@ -944,6 +1171,13 @@ export class Streetball {
     const game = this.game;
     const b = this.g.ball;
     if (b.mode !== 'held') return;
+    if (this.has === 'npc') {
+      const q = b.holder;
+      b.x = q.x + Math.sin(q.heading) * 0.35;
+      b.z = q.z + Math.cos(q.heading) * 0.35;
+      b.y = 1.2;
+      return;
+    }
     if (this.has === 'check') {
       // (held at the chest, face to face)
       const h = b.holder === 'you' ? this.game.player : this.opp;
@@ -1016,7 +1250,10 @@ export class Streetball {
       const S = this.stats;
       const pct = S.att ? ` (${Math.round((S.made / S.att) * 100)}%)` : '';
       const put = `${game.input.label('interact')} put it down`;
-      hint = this.has === 'you' ? (this.shot ? 'Let go in the green' : `${K.shoot} shoot · moves: ${K.moves} · ${put}`) : `Go get it · ${put}`;
+      const pk = game.input.touchMode ? 'PASS' : game.input.mode === 'pad' ? '✕' : 'Q';
+      if (this.pass) hint = `Passing to ${this.pass.target ? 'him' : 'nobody'}: ${game.input.mode === 'pad' ? 'flick the right stick' : 'move the camera'} to pick, let go to pass`;
+      else if (this.has === 'npc') hint = 'He\'s got it...';
+      else hint = this.has === 'you' ? (this.shot ? 'Let go in the green' : `${K.shoot} shoot · ${pk} pass (hold to pick who) · moves: ${K.moves} · ${put}`) : `Go get it · ${put}`;
       game.hud.sport?.(`SHOOTAROUND · ${S.made}/${S.att}${pct} · streak ${S.streak} (best ${S.best})`, meter, hint, this.you.st);
       return;
     }
@@ -1038,19 +1275,22 @@ export class Streetball {
     b.mode = 'loose';
     if (this.solo) {
       const S = this.stats;
-      S.att += 1;
+      const mine = b.kind === 'shot'; // (not his shot after your pass)
+      if (mine) S.att += 1;
       if (b.make) {
-        S.made += 1;
-        S.streak += 1;
-        S.best = Math.max(S.best, S.streak);
+        if (mine) {
+          S.made += 1;
+          S.streak += 1;
+          S.best = Math.max(S.best, S.streak);
+        }
         b.x = this.rim.x;
         b.z = this.rim.z;
         b.vx = b.vz = 0;
         b.vy = -1.5;
         game.sfx?.swish?.();
-        if (S.streak >= 3) game.hud.toast(`${S.streak} straight!`, '#7ee081');
+        if (mine && S.streak >= 3) game.hud.toast(`${S.streak} straight!`, '#7ee081');
       } else {
-        S.streak = 0;
+        if (mine) S.streak = 0;
         const side = rand(-1, 1);
         const sp = rand(1.5, 3.2);
         const L = Math.hypot(side, 1);
@@ -1443,6 +1683,8 @@ export class Streetball {
     this.check = null;
     this.flight = null;
     const g = this.g;
+    if (this.passMark) this.passMark.visible = false;
+    this.pass = null;
     if (this.solo) {
       this.solo = false;
       game.scene.remove(g.ball.mesh);

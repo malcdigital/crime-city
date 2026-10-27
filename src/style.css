@@ -380,6 +380,7 @@ body.touch #sport .sb { font-size: 13px; padding: 4px 10px; }
 #touch .tb-bshoot { right: 22px; bottom: 26px; }
 #touch .tb-bblock { right: 26px; bottom: 120px; }
 #touch .tb-bd { right: 116px; bottom: 14px; }
+#touch .tb-bpass { right: 116px; bottom: 14px; }
 #touch .tb-bcross { right: 196px; bottom: 30px; }
 #touch .tb-bhesi { right: 112px; bottom: 96px; }
 #touch .tb-bstep { right: 196px; bottom: 98px; }

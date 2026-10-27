@@ -38,6 +38,7 @@ const BUTTONS = [
   // Pickup basketball (streetball.js): NBA 2K style.
   ['bshoot', 'SHOOT', B.SQUARE, ['ball'], 'hold', 'big red txt'],
   ['bblock', '△', B.TRIANGLE, ['ball'], 'hold', 'sm'],
+  ['bpass', 'PASS', B.CROSS, ['ball'], 'hold', 'mid txt'],
   ['bd', 'D', B.L2, ['ball'], 'hold', 'mid txt'],
   ['bcross', 'CROSS', 18, ['ball'], 'hold', 'sm txt'],
   ['bhesi', 'HESI', 19, ['ball'], 'hold', 'sm txt'],
@@ -330,6 +331,8 @@ export class TouchControls {
       b.bshoot.el.querySelector('.tl').textContent = off || game.sport.has !== 'opp' ? 'SHOOT' : 'STEAL';
       b.bblock.hint.textContent = game.sport.has === 'opp' ? 'block' : 'rebound';
       for (const id of ['bcross', 'bhesi', 'bstep', 'bspin']) b[id].el.classList.toggle('hidden', !off);
+      b.bpass.el.classList.toggle('hidden', !(off && game.sport.solo)); // (passing: shooting around)
+      b.bd.el.classList.toggle('hidden', !!game.sport.solo);
     }
     // FIRE is dimmed until you aim (a gun only fires while aiming).
     const fire = this.el.buttons.fire;
