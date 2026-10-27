@@ -124,6 +124,7 @@ export class Football {
   }
 
   clear() {
+    if (this.match) this.match.end('off');
     for (const p of [...this.players, ...this.fans]) if (!p.removed) p.dispose();
     this.players = [];
     this.fans = [];
@@ -153,7 +154,7 @@ export class Football {
     }
     this.wrs = this.wrs.filter((p) => this.players.includes(p));
     this.dbs = this.dbs.filter((p) => this.players.includes(p));
-    if (!this.players.includes(this.qb)) {
+    if (!this.match && !this.players.includes(this.qb)) {
       // Somebody else plays quarterback.
       this.qb = this.wrs.shift() || null;
       if (this.qb) {
@@ -163,7 +164,8 @@ export class Football {
       for (const db of this.dbs) if (!this.wrs.includes(db.fb.mark)) db.fb.mark = this.wrs[0] || null;
     }
     this.t += dt;
-    if (this.qb) this.runPhase(dt);
+    if (this.match) this.match.phase(dt); // (you're the quarterback: gridiron.js)
+    else if (this.qb) this.runPhase(dt);
 
     // The ball.
     if (b.mode === 'flight') {
@@ -200,6 +202,8 @@ export class Football {
       b.x = Math.max(F.x0 - 2, Math.min(F.x1 + 2, b.x));
       b.z = Math.max(F.z0 - 2, Math.min(F.z1 + 2, b.z));
       b.mesh.rotation.x += dt * 6 * Math.hypot(b.vx, b.vz);
+    } else if (b.holder === 'you') {
+      if (this.match) this.match.carry(b);
     } else if (b.holder) {
       const p = b.holder;
       const fx = Math.sin(p.heading);
@@ -359,6 +363,7 @@ export class Football {
 
   arrived() {
     const b = this.ball;
+    if (this.match && b.kind === 'pass') return this.match.arrived();
     const r = b.to;
     const near = r && this.players.includes(r) && dist(r.x, r.z, b.x, b.z) < 2.6;
     const sure = b.kind === 'toss' ? 0.97 : 0.75;
@@ -402,11 +407,19 @@ export class Football {
       return { speed: 0 };
     }
     if (!b) return { speed: 0 };
+    if (f.role === 'bench') {
+      // (their quarterback, watching you from the sideline)
+      const sx = this.site.field.x0 - 1.6;
+      const sz = this.los + 2;
+      if (dist(p.x, p.z, sx, sz) > 0.6) return { tx: sx, tz: sz, speed: JOG };
+      faceAt(b.x, b.z);
+      return { speed: 0 };
+    }
     const goTo = (x, z, speed) => (dist(p.x, p.z, x, z) > 0.45 ? { tx: x, tz: z, speed } : null);
     const ph = this.phase;
     // The ball's loose: the nearest offensive player goes and gets it.
     if (b.mode === 'loose' && f.role !== 'db') {
-      const off = this.players.filter((q) => q.fb.role !== 'db');
+      const off = this.players.filter((q) => q.fb.role !== 'db' && q.fb.role !== 'bench');
       let best = null;
       for (const q of off) if (!best || dist(q.x, q.z, b.x, b.z) < dist(best.x, best.z, b.x, b.z)) best = q;
       if (best === p) {
@@ -463,12 +476,19 @@ export class Football {
       return { speed: 0 };
     }
     // Defensive back: stay with his man during the play, otherwise line up across from him.
-    const m = f.mark;
+    // (you scrambling with it: the nearest back comes for you)
+    const M = this.match;
+    if (M && M.scramble && b.holder === 'you') {
+      const [px, pz] = this.game.player.pos();
+      return { tx: px, tz: pz, speed: 6.4 };
+    }
+    // (after a catch every back goes for the ball carrier)
+    const m = ph === 'run' && b.holder && b.holder !== 'you' && b.holder.fb?.role === 'wr' ? b.holder : f.mark;
     if ((ph === 'play' || ph === 'run') && m && this.players.includes(m)) {
       const lead = 0.6;
       const tx = m.x + Math.sin(m.heading) * lead * (m.speed > 0 ? 1 : 0);
       const tz = m.z + Math.cos(m.heading) * lead * (m.speed > 0 ? 1 : 0) - 0.8;
-      const g = goTo(tx, tz, ph === 'run' && b.holder === m ? RUN * 0.95 : COVER);
+      const g = goTo(tx, tz, ph === 'run' && b.holder === m ? (this.match ? RUN * 1.05 : RUN * 0.95) : COVER);
       if (g) return g;
       faceAt(m.x, m.z);
       return { speed: 0 };

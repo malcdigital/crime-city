@@ -292,7 +292,7 @@ export class TouchControls {
     else if (this.latched || game.inventory?.open) ctx = 'strip';
     else if (game.stop) ctx = 'stop'; // (pulled over: go quietly, bribe, or fight)
     else if (game.player.vehicle) ctx = 'car';
-    else if (game.sport?.active) ctx = 'ball'; // (one-on-one: shoot, steal, block)
+    else if (game.sport?.active || game.gridiron?.active) ctx = 'ball'; // (a pickup game: shoot / throw, steal, block / hike)
     this.carSpeed = game.player.vehicle ? Math.abs(game.player.vehicle.speed) : 0;
     if (ctx !== this.ctx) {
       // New screen: let go of everything (a held AIM must not become a held BRAKE).
@@ -311,6 +311,12 @@ export class TouchControls {
       }
     }
     if (ctx === 'stop') this.el.buttons.fight.hint.textContent = game.player.vehicle ? 'floor it' : 'fight';
+    if (ctx === 'ball') {
+      const qb = !!game.gridiron?.active; // (football: throw and hike; no steal)
+      this.el.buttons.fire.hint.textContent = qb ? 'throw' : 'shoot';
+      this.el.buttons.cross.hint.textContent = qb ? 'hike' : 'block';
+      this.el.buttons.reload.el.classList.toggle('hidden', qb);
+    }
     // FIRE is dimmed until you aim (a gun only fires while aiming).
     const fire = this.el.buttons.fire;
     if (fire) fire.el.classList.toggle('dim', ctx === 'foot' && !game.aimingNow && !game.arsenal?.current()?.melee);

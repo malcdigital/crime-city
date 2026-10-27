@@ -11,6 +11,7 @@ import { Transit } from './transit.js';
 import { Hoops } from './hoops.js';
 import { Football } from './football.js';
 import { Streetball } from './streetball.js';
+import { Gridiron } from './gridiron.js';
 import { Playground } from './playground.js';
 import { noteCrime } from './safety.js';
 import { Pursuit, LOW_RANGE } from './pursuit.js';
@@ -124,6 +125,7 @@ class Game {
     this.hoops = this.city.courts.map((site) => new Hoops(this, site)); // (people shooting hoops at each court)
     this.football = new Football(this); // (football practice at Harbor Field)
     this.sport = new Streetball(this); // (one-on-one with somebody at the courts)
+    this.gridiron = new Gridiron(this); // (quarterback a drive at Harbor Field)
     this.playground = new Playground(this); // (kids at the Market St playground, people by the statue)
     this.pursuit = new Pursuit(this); // (police tactics, lying low, the radio)
     this.justice = new Justice(this); // (charges, booking, bail, jail time, your record)
@@ -1480,6 +1482,11 @@ class Game {
     }
   }
 
+  // The pickup game you're in, if any (basketball at the courts, football at Harbor Field).
+  pickupGame() {
+    return this.sport.active ? this.sport : this.gridiron.active ? this.gridiron : null;
+  }
+
   handleInteractions(dt, a) {
     const p = this.player;
     const input = this.input;
@@ -1550,8 +1557,9 @@ class Game {
     }
 
     // A pickup game at the courts: no weapons while you're playing.
-    if (this.sport.active) return;
+    if (this.pickupGame()) return;
     this.sport.offer(a);
+    this.gridiron.offer(a);
 
     // Weapons.
     if (a.slot === 0 || a.slot === 1) this.arsenal.selectSlot(a.slot);
@@ -2169,8 +2177,9 @@ class Game {
     this.market.update(dt);
     this.president.update(dt);
     this.arsenal.update(dt);
-    if (this.sport.active && !p.vehicle) this.sport.input(dt, a); // (the ball's in play: FIRE shoots, no guns)
-    const gun = !this.arsenal.current().melee && !this.sport.active;
+    const pickup = this.pickupGame();
+    if (pickup && !p.vehicle) pickup.input(dt, a); // (a pickup game: FIRE shoots or throws, no guns)
+    const gun = !this.arsenal.current().melee && !pickup;
     this.aimingNow = !p.vehicle && !p.busy && gun && a.aim;
     // Crouch: toggle with C / L3; sprinting stands you up; aiming pops you up out of cover.
     // One button (C / L3): next to a wall, crate or car it puts you in cover (and you stay
@@ -2217,7 +2226,7 @@ class Game {
       let faceYaw = combat ? this.camYaw : null;
       if (combat && this.lockTarget) faceYaw = Math.atan2(this.lockTarget.x - p.x, this.lockTarget.z - p.z);
       p.updateOnFoot(dt, a, this.camYaw, faceYaw);
-      if (this.sport.active) this.sport.late(dt);
+      if (pickup) pickup.late(dt);
     }
 
     this.traffic.update(dt);
