@@ -315,17 +315,22 @@ export class Football {
     if (this.qb) this.qb.fb.home = [F.cx, this.los + 5];
     this.wrs.forEach((w, k) => (w.fb.home = homes[k]));
     this.dbs.forEach((d, k) => (d.fb.home = [homes[k][0] + (k ? -1 : 1), this.los - 6]));
+    // (in a game: a back behind the quarterback, a linebacker over the middle)
+    if (this.rb) this.rb.fb.home = [F.cx - 1.6, this.los + 7];
+    if (this.lb) this.lb.fb.home = [F.cx + 0.5, this.los - 4.5];
   }
 
-  // A route from where he lines up: go, slant, out, curl or post.
-  route(w) {
+  // A route from where he lines up: go, slant, out, curl or post (any, or the one the play
+  // calls); the back runs a flat (out to the side, then up the sideline).
+  route(w, want = null) {
     const F = this.site.field;
     const [hx, hz] = w.fb.home;
     const side = hx < F.cx ? -1 : 1; // toward his sideline
     const cx = (x) => Math.max(F.x0 + 1.2, Math.min(F.x1 - 1.2, x));
     const cz = (z) => Math.max(F.z0 + 2, z);
-    const kind = pick(['go', 'slant', 'out', 'curl', 'post']);
+    const kind = want || pick(['go', 'slant', 'out', 'curl', 'post']);
     const pts = {
+      flat: [[hx + side * 7, hz - 3], [hx + side * 8, hz - 12]],
       go: [[hx, hz - 26]],
       slant: [[hx, hz - 5], [hx - side * 9, hz - 15]],
       out: [[hx, hz - 11], [hx + side * 7, hz - 11]],
@@ -424,6 +429,7 @@ export class Football {
     const faceAt = (x, z) => face(Math.atan2(x - p.x, z - p.z));
     f.throwT = Math.max(0, (f.throwT || 0) - dt);
     f.relT = Math.max(0, (f.relT || 0) - dt);
+    f.beatT = Math.max(0, (f.beatT || 0) - dt);
     f.cheerT = Math.max(0, (f.cheerT || 0) - dt);
     // Down on the turf (a dive or a tackle): lunging forward a moment, then getting up.
     if (f.downT > 0) {
@@ -484,7 +490,12 @@ export class Football {
       face(Math.PI);
       return { speed: 0 };
     }
-    if (f.role === 'wr') {
+    if (f.role === 'lb') return this.driveLB(p, f, b, goTo, faceAt, face);
+    if (f.role === 'rb' && this.match) {
+      const r = this.driveRB(p, f, b, goTo, faceAt, face);
+      if (r) return r;
+    }
+    if (f.role === 'wr' || f.role === 'rb') {
       if (ph === 'play' && f.route && !(b.holder === p)) {
         const pt = f.route[f.leg];
         if (pt) {
@@ -513,10 +524,16 @@ export class Football {
     const M = this.match;
     if (M && M.scramble && b.holder === 'you') {
       const [px, pz] = this.game.player.pos();
+      if (f.beatT > 0) return { speed: 0 }; // (juked: caught flat-footed)
       return { tx: px, tz: pz, speed: 6.4 };
     }
+    if (M && M.biteT > 0) {
+      // (play action: biting on the fake, a step up)
+      faceAt(this.game.player.pos()[0], this.game.player.pos()[1]);
+      return { speed: 0 };
+    }
     // (after a catch every back goes for the ball carrier)
-    const m = ph === 'run' && b.holder && b.holder !== 'you' && b.holder.fb?.role === 'wr' ? b.holder : f.mark;
+    const m = ph === 'run' && b.holder && b.holder !== 'you' && (b.holder.fb?.role === 'wr' || b.holder.fb?.role === 'rb') ? b.holder : f.mark;
     if ((ph === 'play' || ph === 'run') && m && this.players.includes(m)) {
       const lead = 0.6;
       const tx = m.x + Math.sin(m.heading) * lead * (m.speed > 0 ? 1 : 0);
@@ -529,6 +546,52 @@ export class Football {
     const g = goTo(...f.home, JOG);
     if (g) return g;
     face(0);
+    return { speed: 0 };
+  }
+
+  // The back, in a game (gridiron.js): on a run play he comes for the handoff; on a pass he runs
+  // his flat like a receiver (null: the receiver code takes it from there).
+  driveRB(p, f, b, goTo, faceAt, face) {
+    const M = this.match;
+    if (this.phase !== 'play') return null;
+    if (M.play?.run && !M.handed) {
+      // (to the quarterback's side for the handoff, timed to meet him)
+      const [qx, qz] = this.game.player.pos();
+      const side = M.play.run === 'toss' ? 1 : 0.6;
+      const g = goTo(qx + side, qz - 0.3, 5.2);
+      if (g) return g;
+      faceAt(qx, qz - 5);
+      return { speed: 0 };
+    }
+    if (M.play?.run && M.handed) {
+      // (after the handoff: carrying out the fake into the line, then back)
+      if (M.t < 1.6) return goTo(p.x, this.los - 1, 3) || { speed: 0 };
+      return goTo(...f.home, JOG) || { speed: 0 };
+    }
+    return null;
+  }
+
+  // The linebacker, in a game: over the middle; on a pass he drops into a zone and breaks on the
+  // ball; on a run (or you scrambling) he comes downhill for the carrier.
+  driveLB(p, f, b, goTo, faceAt, face) {
+    const M = this.match;
+    const [px, pz] = this.game.player.pos();
+    if (!M || !(this.phase === 'play' || this.phase === 'run')) {
+      const g = goTo(...f.home, JOG);
+      if (g) return g;
+      face(0);
+      return { speed: 0 };
+    }
+    if (f.beatT > 0) return { speed: 0 };
+    if (M.biteT > 0) return goTo(f.home[0], this.los - 2, 3) || { speed: 0 }; // (biting on the fake)
+    const carrier = b.holder === 'you' ? (M.scramble ? [px, pz] : null) : b.holder && b.holder !== this.qb ? [b.holder.x, b.holder.z] : null;
+    if (carrier) return { tx: carrier[0], tz: carrier[1], speed: 6.2 };
+    if (b.mode === 'flight' && b.kind === 'pass' && dist(p.x, p.z, b.p1[0], b.p1[2]) < 7) return { tx: b.p1[0], tz: b.p1[2], speed: 5.6 };
+    // (the zone: 8 m off the line, shading toward the ball)
+    const zx = Math.max(this.site.field.x0 + 4, Math.min(this.site.field.x1 - 4, (f.home[0] + px) / 2));
+    const g = goTo(zx, this.los - 8, 4.2);
+    if (g) return g;
+    faceAt(px, pz);
     return { speed: 0 };
   }
 
@@ -558,6 +621,12 @@ export class Football {
       return y + layoutPose(c, k, f.dive);
     }
     if (this.phase === 'set' && p.speed === 0) y += f.role === 'qb' ? qbStance(c) : crouchPose(c, 0.35); // (in their stance)
+    if (f.beatT > 0) {
+      // (juked: off balance, arms flailing)
+      c.group.rotation.x = -0.25;
+      c.armL.rotation.x = -1.8;
+      c.armR.rotation.x = -0.6;
+    }
     if (!b) return y;
     if (b.holder === p) {
       if (f.throwT > 0) throwPose(c, 1 - Math.max(0, f.throwT - 0.12) / 0.23, 0); // (winding up)

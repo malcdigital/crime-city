@@ -48,6 +48,11 @@ const BUTTONS = [
   // Football (gridiron.js): ✕ hikes; then □ ✕ ○ △ throw to the receiver with that button
   // over his head (tap: bullet, hold: lob).
   ['qfire', 'FIRE', B.R2, [], 'hold', 'big red'],
+  // (PLAY at the line picks the play; after the snap it's R1: the back. Running with it: moves.)
+  ['qr1', 'PLAY', B.R1, ['qb'], 'hold', 'mid txt'],
+  ['rjuke', 'JUKE', 18, ['qb'], 'hold', 'sm txt'],
+  ['rspin', 'SPIN', 21, ['qb'], 'hold', 'sm txt'],
+  ['rstiff', 'STIFF', 20, ['qb'], 'hold', 'sm txt'],
   ['tri', '△', B.TRIANGLE, ['foot', 'car', 'map', 'qb'], 'hold', 'sm'],
   ['crouch', 'DUCK', B.L3, ['foot'], 'hold', 'sm txt'],
   ['weapon', 'GUN', B.L1, ['foot', 'strip'], 'weapon', 'sm txt'],
@@ -334,7 +339,17 @@ export class TouchControls {
       }
     }
     if (ctx === 'stop') this.el.buttons.fight.hint.textContent = game.player.vehicle ? 'floor it' : 'fight';
-    if (ctx === 'qb') this.el.buttons.cross.hint.textContent = game.gridiron?.state === 'line' ? 'hike' : '';
+    if (ctx === 'qb') {
+      const M = game.gridiron;
+      const b = this.el.buttons;
+      const line = M?.state === 'line';
+      const running = M?.state === 'play' && M.scramble && game.football?.ball?.holder === 'you';
+      b.cross.hint.textContent = line ? 'hike' : '';
+      for (const id of ['reload', 'cross', 'circle', 'tri']) b[id].el.classList.toggle('hidden', running);
+      for (const id of ['rjuke', 'rspin', 'rstiff']) b[id].el.classList.toggle('hidden', !running);
+      b.qr1.el.classList.toggle('hidden', running);
+      b.qr1.el.querySelector('.tl').textContent = line ? 'PLAY' : 'R1';
+    }
     if (ctx === 'ball') {
       // (on defense: SHOOT is steal, the moves are hidden)
       const off = game.sport.has === 'you';

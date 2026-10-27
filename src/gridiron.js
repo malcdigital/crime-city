@@ -29,6 +29,19 @@ const DOWNS = ['1st', '2nd', '3rd', '4th'];
 const ICONS = ['□', '✕', '○', '△', 'R1'];
 const ICON_COLORS = ['#ff79c6', '#6fa8ff', '#ff6b6b', '#3ddc97', '#ffd23f'];
 const BULLET = 0.22; // (held longer than this it's a lob)
+// The playbook (pick one at the line: L1 / R1, keyboard Z / X, PLAY on a phone).
+// routes: one per receiver in order (null: he picks); run: a handoff to the back (dive: up the
+// middle, toss: outside); pa: play action (a fake handoff first, the defense bites).
+const PLAYS = [ // (L1 / R1 on the controller)
+  { name: 'Freelance', routes: [null, null, null] },
+  { name: 'Slants', routes: ['slant', 'slant', 'slant'] },
+  { name: 'Four Verticals', routes: ['go', 'go', 'go'] },
+  { name: 'Curls', routes: ['curl', 'curl', 'curl'] },
+  { name: 'Smash', routes: ['curl', 'post', 'out'] },
+  { name: 'HB Dive', routes: ['go', 'go', 'go'], run: 'dive' },
+  { name: 'HB Toss', routes: ['out', 'out', 'out'], run: 'toss' },
+  { name: 'PA Deep', routes: ['go', 'post', 'go'], pa: true },
+];
 
 export class Gridiron {
   constructor(game) {
@@ -106,6 +119,24 @@ export class Gridiron {
       fb.dbs.push(d);
       this.extra.push(d);
     }
+    // A running back on your side and a linebacker on theirs.
+    const add = (role, x, z, shirt) => {
+      const q = game.peds.addAt(x, z);
+      q.state = 'play';
+      q.act = fb;
+      q.keep = true;
+      q.sidewalk = false;
+      setShirt(q.char, shirt);
+      q.fb = { role, home: [x, z], t: 0 };
+      q.heading = role === 'lb' ? 0 : Math.PI;
+      fb.players.push(q);
+      this.extra.push(q);
+      return q;
+    };
+    const F = fb.site.field;
+    fb.rb = add('rb', F.cx - 1.6, this.los + 7, 0x2e7d32);
+    fb.lb = add('lb', F.cx + 0.5, this.los - 4.5, 0x22416e);
+    this.playI = this.playI || 0;
     fb.los = this.los;
     fb.setHomes();
     // The ball's yours.
@@ -147,6 +178,15 @@ export class Gridiron {
     const b = fb.ball;
     const [px, pz] = game.player.pos();
     if (this.state === 'line') {
+      // The play: D-pad ← / → (Z / X, or PLAY on a phone) before the snap.
+      // (L1 / R1 on the controller: the D-pad's the phone)
+      const R0 = a.qbR || [];
+      const step = (game.input.btnHit?.(4) || game.input.hit?.('KeyZ') ? -1 : 0) + ((R0[4] && !this.prevR[4]) || game.input.hit?.('KeyX') ? 1 : 0);
+      this.prevR = R0.slice();
+      if (step) {
+        this.playI = (this.playI + step + PLAYS.length) % PLAYS.length;
+        game.hud.toast(`Play: ${PLAYS[this.playI].name}`, '#ffd23f');
+      }
       // Behind the line, near the middle, everyone set: ✕ hikes it.
       const ready = fb.phase === 'set' || (fb.phase === 'reset' && fb.players.every((q) => q.fb.role === 'bench' || q.fb.role === 'fan' || dist(q.x, q.z, ...q.fb.home) < 1.5));
       const spot = pz > this.los + 1 && pz < this.los + 8 && Math.abs(px - fb.site.field.cx) < 6;
@@ -156,6 +196,13 @@ export class Gridiron {
     }
     const R = a.qbR || [];
     const pad = game.input.mode === 'pad' && !game.input.touchMode;
+    // Running with it (after a handoff, or scrambling): juke, spin, stiff-arm.
+    if (this.state === 'play' && b.holder === 'you' && this.scramble) {
+      this.runMoves(dt, a, pad);
+      this.prevR = R.slice();
+      this.prevFire = fire;
+      return;
+    }
     if (this.state === 'play' && b.holder === 'you' && !this.scramble) {
       // A receiver's button (or, with a mouse, a click on the man you're looking at): tap for a
       // bullet, hold for a lob; it goes when you let go.
@@ -183,7 +230,7 @@ export class Gridiron {
       else a.sprint = a.sprint && !R[1];
       // The drop-back: three quick steps back off the snap, facing downfield (the stick takes
       // over whenever you push it).
-      if (this.t < 0.7 && Math.hypot(a.moveX, a.moveY) < 0.2) {
+      if (this.t < (this.play?.run ? 0.25 : 0.7) && Math.hypot(a.moveX, a.moveY) < 0.2) {
         const yaw = game.camYaw;
         a.moveY = Math.cos(yaw) * 0.75; // (world +z: back from the line)
         a.moveX = Math.sin(yaw) * 0.75;
@@ -212,14 +259,124 @@ export class Gridiron {
     this.sacked = false;
     fb.phase = 'play';
     fb.t = 0;
-    for (const w of fb.wrs) {
-      w.fb.route = fb.route(w);
-      w.fb.leg = 0;
-    }
+    for (const w of fb.wrs) w.fb.leg = 0;
     fb.target = null;
     this.prevR = [true, true, true, true, true]; // (the ✕ that hiked it isn't a throw)
     this.press = null;
-    this.game.hud.toast('Hike!', '#ffd23f');
+    // The play: the routes it calls, the back's job, the fake.
+    const P = (this.play = PLAYS[this.playI || 0]);
+    fb.wrs.forEach((w, k) => (w.fb.route = fb.route(w, P.routes[k] || null)));
+    this.handed = false;
+    this.runMove = null;
+    if (fb.rb && fb.players.includes(fb.rb)) {
+      fb.rb.fb.leg = 0;
+      fb.rb.fb.route = P.run ? null : P.pa ? fb.route(fb.rb, 'flat').map(([x, z]) => [x, z - 2]) : fb.route(fb.rb, 'flat');
+    }
+    this.biteT = P.pa ? 0.9 : 0; // (play action: they bite on the fake)
+    fb.biteT = this.biteT;
+    this.game.hud.toast(P.run ? `Hike! ${P.name}` : 'Hike!', '#ffd23f');
+  }
+
+  // Everyone on defense (the backs and the linebacker), still on the field.
+  defenders() {
+    const fb = this.fb;
+    const d = fb.dbs.slice();
+    if (fb.lb && fb.players.includes(fb.lb)) d.push(fb.lb);
+    return d;
+  }
+
+  // The handoff: the back meets you and takes it, and from here you're him (you swap places:
+  // you run with it, he carries on as the quarterback after the fake).
+  handoff() {
+    const game = this.game;
+    const fb = this.fb;
+    const rb = fb.rb;
+    const p = game.player;
+    const [px, pz] = p.pos();
+    const rx = rb.x;
+    const rz = rb.z;
+    rb.x = px;
+    rb.z = pz;
+    p.x = rx;
+    p.z = rz;
+    p.heading = Math.PI;
+    this.handed = true;
+    this.scramble = true; // (a runner now: no throwing)
+    this.carrier = true;
+    game.hud.toast(`Handoff · ${game.input.mode === 'kb' && !game.input.touchMode ? 'J / L juke · U spin · K stiff-arm' : game.input.touchMode ? 'JUKE · SPIN · STIFF' : 'right stick ← → juke · ↓ spin · □ stiff-arm'}`, '#ffd23f');
+  }
+
+  // Your moves with the ball: a juke (a quick cut to one side: whoever's closing in front grabs
+  // air and dives at nothing), a spin (through a tackle coming at you) and a stiff-arm (shoves
+  // down whoever gets into your hands).
+  runMoves(dt, a, pad) {
+    const game = this.game;
+    const p = game.player;
+    if (pad) a.lookX = a.lookY = 0; // (the right stick's for moves now)
+    const R = a.qbR || [];
+    if (this.moveCd > 0) this.moveCd -= dt;
+    let want = null;
+    // (the right stick, flicked)
+    const sx = pad ? a.rsX || 0 : 0;
+    const sy = pad ? a.rsY || 0 : 0;
+    const flick = Math.hypot(sx, sy) > 0.75;
+    if (flick && !this.flicked) want = Math.abs(sx) > Math.abs(sy) ? { kind: 'juke', side: sx > 0 ? 1 : -1 } : sy > 0 ? { kind: 'spin' } : null;
+    this.flicked = Math.hypot(sx, sy) > 0.4;
+    if (a.bMove) {
+      if (a.bMove.kind === 'cross') want = { kind: 'juke', side: a.bMove.side || (a.moveX < 0 ? -1 : 1) };
+      else if (a.bMove.kind === 'spin') want = { kind: 'spin' };
+      else if (a.bMove.kind === 'step') want = { kind: 'stiff' };
+    }
+    if (pad && R[0] && !this.prevR[0]) want = { kind: 'stiff' };
+    if (want && !this.runMove && !(this.moveCd > 0)) {
+      this.runMove = { ...want, t: 0, T: want.kind === 'juke' ? 0.28 : want.kind === 'spin' ? 0.45 : 0.6, h0: p.heading };
+      this.moveCd = 0.35;
+      const [px, pz] = p.pos();
+      const near = this.defenders().filter((q) => !(q.fb.downT > 0) && dist(q.x, q.z, px, pz) < (want.kind === 'juke' ? 3 : 1.8));
+      for (const q of near) {
+        if (want.kind === 'juke' && Math.random() < 0.65) {
+          // (he dives at where you were)
+          q.fb.beatT = 1.2;
+          q.fb.dive = true;
+          q.fb.diveTo = [px, pz];
+          q.fb.downT = q.fb.downLen = 1.0;
+        } else if (want.kind === 'spin' && Math.random() < 0.55) q.fb.beatT = 0.8;
+      }
+      if (want.kind !== 'stiff') game.hud.toast(want.kind === 'juke' ? 'Juke!' : 'Spin!', '#ffd23f');
+    }
+    const M = this.runMove;
+    if (M) {
+      M.t += dt;
+      if (M.kind === 'juke') {
+        // (the cut: a quick shove sideways)
+        const k = 1.2 / M.T;
+        const rx = -Math.cos(p.heading) * M.side;
+        const rz = Math.sin(p.heading) * M.side;
+        p.x += rx * k * dt;
+        p.z += rz * k * dt;
+      }
+      if (M.kind === 'stiff') {
+        // (anybody getting into your hands goes down, mostly)
+        const [px, pz] = p.pos();
+        for (const q of this.defenders()) {
+          if (q.fb.downT > 0 || q.fb.stiffed) continue;
+          if (dist(q.x, q.z, px, pz) < 1.3) {
+            q.fb.stiffed = true;
+            if (Math.random() < 0.55) {
+              q.fb.dive = false;
+              q.fb.downT = q.fb.downLen = 1.2;
+              q.fb.beatT = 1.4;
+              game.hud.toast('STIFF ARM!', '#7ee081');
+            }
+          }
+        }
+      }
+      if (M.t >= M.T) {
+        this.runMove = null;
+        for (const q of this.defenders()) q.fb.stiffed = false;
+      }
+    }
+    a.sprint = true; // (running with it: full speed)
   }
 
   // Who you're looking toward.
@@ -297,11 +454,11 @@ export class Gridiron {
     const w = b.to;
     const dW = w && fb.players.includes(w) ? dist(w.x, w.z, b.x, b.z) : 99;
     let db = null;
-    for (const q of fb.dbs) if (!db || dist(q.x, q.z, b.x, b.z) < dist(db.x, db.z, b.x, b.z)) db = q;
+    for (const q of this.defenders()) if (!db || dist(q.x, q.z, b.x, b.z) < dist(db.x, db.z, b.x, b.z)) db = q;
     const dD = db ? dist(db.x, db.z, b.x, b.z) : 99;
     // A bullet: a back sitting on the line of it (the last two thirds) can jump it.
     if (b.style === 'bullet') {
-      for (const q of fb.dbs) {
+      for (const q of this.defenders()) {
         const [x0, , z0] = b.p0;
         const [x1, , z1] = b.p1;
         const L2 = (x1 - x0) ** 2 + (z1 - z0) ** 2 || 1;
@@ -383,12 +540,16 @@ export class Gridiron {
       // Lining up (football.js 'reset': everyone walks to their spot).
       if (fb.phase === 'reset' && fb.players.every((q) => q.fb.role === 'bench' || dist(q.x, q.z, ...q.fb.home) < 0.7)) fb.phase = 'set';
     } else if (this.state === 'play') {
+      if (this.biteT > 0) this.biteT -= dt;
+      fb.biteT = this.biteT;
+      // The handoff: the back gets to you.
+      if (this.play?.run && !this.handed && b.holder === 'you' && fb.rb && fb.players.includes(fb.rb) && this.t > 0.25 && dist(fb.rb.x, fb.rb.z, px, pz) < 1.3) this.handoff();
       if (b.holder === 'you') {
         // Scrambling past the line.
         if (pz < this.los) this.scramble = true;
         if (pz <= this.goal) return this.touchdown('you');
-        const tackler = fb.dbs.find((q) => dist(q.x, q.z, px, pz) < 0.9);
-        if (this.scramble && tackler) {
+        const tackler = this.defenders().find((q) => !(q.fb.downT > 0) && !(q.fb.beatT > 0) && dist(q.x, q.z, px, pz) < 0.9);
+        if (this.scramble && tackler && !(this.runMove?.kind === 'spin' && Math.random() < 0.5)) {
           game.hud.toast(`Brought down at the ${this.yardLine(pz)}`, '#ffd23f');
           fb.tackle(null, tackler);
           this.downT = 1.1; // (you hit the turf too)
@@ -404,7 +565,7 @@ export class Gridiron {
       const h = b.holder;
       if (!h || h === 'you') return this.over(this.los);
       if (h.z <= this.goal) return this.touchdown(h);
-      const tackler = fb.dbs.find((q) => dist(q.x, q.z, h.x, h.z) < 0.9);
+      const tackler = this.defenders().find((q) => !(q.fb.downT > 0) && !(q.fb.beatT > 0) && dist(q.x, q.z, h.x, h.z) < 0.9);
       if (tackler) fb.tackle(h, tackler);
       if (tackler || this.t > 7 || (h.fb.runTo && dist(h.x, h.z, ...h.fb.runTo) < 0.6)) {
         game.hud.toast(`Brought down at the ${this.yardLine(h.z)}`, '#ffd23f');
@@ -434,8 +595,11 @@ export class Gridiron {
     this.updateIcons();
     let hint = '';
     const keys = kb ? '1-4' : '□ ✕ ○ △';
-    if (this.state === 'line') hint = this.ready ? `${kb ? 'E' : '✕'} hike · then each receiver's button throws to him` : 'Get behind the line, in the middle';
-    else if (this.state === 'play' && b.holder === 'you') hint = this.scramble ? 'Run it in!' : this.t > SACK - 1.5 ? 'Pocket collapsing: throw it!' : `${keys}: tap a bullet, hold a lob · left stick leads him${kb ? ' · or click the man you look at' : ''}`;
+    const pk = game.input.touchMode ? 'PLAY' : kb ? 'Z / X' : 'L1 / R1';
+    const playName = PLAYS[this.playI || 0].name;
+    if (this.state === 'line') hint = `Play: ${playName} (${pk} to change) · ${this.ready ? `${kb ? 'E' : '✕'} hike` : 'get behind the line, in the middle'}`;
+    else if (this.state === 'play' && this.carrier && b.holder === 'you') hint = kb && !game.input.touchMode ? 'Run! J / L juke · U spin · K stiff-arm' : game.input.touchMode ? 'Run! JUKE · SPIN · STIFF' : 'Run! right stick ← → juke · ↓ spin · □ stiff-arm';
+    else if (this.state === 'play' && b.holder === 'you') hint = this.scramble ? (kb && !game.input.touchMode ? 'Run it in! J / L juke · U spin · K stiff-arm' : 'Run it in! juke · spin · stiff-arm') : this.t > SACK - 1.5 ? 'Pocket collapsing: throw it!' : `${keys}: tap a bullet, hold a lob · left stick leads him${kb ? ' · or click the man you look at' : ''}`;
     // (holding a button: how far toward a lob)
     const meter = this.press ? Math.min(1, this.press.t / 0.5) : null;
     game.hud.sport?.(this.board(), meter, hint);
@@ -497,6 +661,11 @@ export class Gridiron {
     this.meter = null;
     this.press = null;
     this.dropping = false;
+    this.carrier = false;
+    this.handed = false;
+    this.runMove = null;
+    this.biteT = 0;
+    fb.biteT = 0;
     fb.phase = 'dead';
     fb.t = 0;
     if (z != null) this.los = Math.max(this.goal + YD, Math.min(fb.site.field.z1 - 1, z));
@@ -517,7 +686,7 @@ export class Gridiron {
     const game = this.game;
     for (const f of this.fb.fans) f.fb.cheerT = 2.5;
     for (const q of this.fb.wrs) q.fb.cheerT = 2;
-    game.hud.toast(who === 'you' ? 'TOUCHDOWN! You took it in yourself' : 'TOUCHDOWN!', '#7ee081');
+    game.hud.toast(who === 'you' ? (this.carrier ? 'TOUCHDOWN! Took the handoff to the house' : 'TOUCHDOWN! You took it in yourself') : 'TOUCHDOWN!', '#7ee081');
     this.end('td');
   }
 
@@ -586,7 +755,7 @@ export class Gridiron {
     this.press = null;
     // (the extra back goes home)
     for (const d of this.extra || []) {
-      fb.players.splice(fb.players.indexOf(d), 1);
+      if (fb.players.includes(d)) fb.players.splice(fb.players.indexOf(d), 1);
       if (fb.dbs.includes(d)) fb.dbs.splice(fb.dbs.indexOf(d), 1);
       if (fb.ball?.holder === d) fb.loose();
       d.keep = false;
@@ -595,6 +764,7 @@ export class Gridiron {
       if (d.state === 'play' && !d.removed) d.resumeWalking();
     }
     this.extra = [];
+    fb.rb = fb.lb = null;
     // Their quarterback takes it back (or someone else does if he's gone: football.js).
     const q = this.bench;
     if (q && fb.players.includes(q)) {
