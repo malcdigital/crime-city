@@ -230,6 +230,7 @@ export class Vehicle {
       const lb = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.18, 0.35), this.lightB);
       lb.position.set(0.4, top, -0.2);
       g.add(lr, lb);
+      this.livery = [stripe, lr, lb];
     }
     // Front doors on hinges (every car). The car faces +z, so its right side is local -x.
     // side: -1 = driver (left), +1 = passenger (right).
@@ -411,6 +412,24 @@ export class Vehicle {
   }
 
   // New paint: swap the body color (body panels and doors share one material per color).
+  // A police car without its markings (a dirty cop's unmarked car): no stripe, no light bar,
+  // doors the body color.
+  setUnmarked(on) {
+    if (!this.livery) return;
+    for (const m of this.livery) m.visible = !on;
+    const white = lam(0xf2f2f2);
+    const body = lam(this.color);
+    for (const d of Object.values(this.doors || {})) {
+      d.pivot.traverse((m) => {
+        if (!m.isMesh) return;
+        if (on && m.material === white) m.material = body;
+        else if (!on && m.material === body) m.material = white;
+      });
+    }
+    this.unmarked = on;
+    if (on) this.siren = false;
+  }
+
   repaint(color) {
     const from = lam(this.color);
     const to = lam(color);

@@ -116,6 +116,28 @@ export class Officer {
     let face = null;
 
     if (this.state !== 'chase') this.crouched = false;
+    if (this.script && this.standing) {
+      // Scripted (a traffic stop, stopscene.js): walk to a spot, then stand there facing a
+      // point, in a pose.
+      const S = this.script;
+      this.crouched = false;
+      const far = dist(this.x, this.z, S.x, S.z);
+      if (far > 0.25) {
+        tx = S.x;
+        tz = S.z;
+        speed = Math.min(S.speed || 1.7, far * 3);
+      } else face = Math.atan2(S.fx - this.x, S.fz - this.z);
+      if (speed > 0) {
+        const h = navStep(this, tx, tz, speed, dt, game, 0.35);
+        if (h !== null) this.heading = lerpAngle(this.heading, h, Math.min(1, dt * 10));
+      }
+      if (face !== null) this.heading = lerpAngle(this.heading, face, Math.min(1, dt * 8));
+      this.phase += dt * speed * 3.2;
+      animateWalk(this.char, this.phase, Math.min(1, speed / 2));
+      S.pose?.(this.char, game.time, speed);
+      this.place();
+      return;
+    }
     if (this.state === 'down') {
       this.t -= dt;
       if (this.t <= 0) {

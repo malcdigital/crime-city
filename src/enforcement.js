@@ -1,6 +1,7 @@
 import { CFG } from './config.js';
 import { segmentBlocked } from './collision.js';
 import { dist } from './util.js';
+import { StopScene } from './stopscene.js';
 
 // Traffic enforcement. Run a red light or speed (over 55 in the city's 45 zone) where a patrol
 // car can see you, and it lights you up:
@@ -149,12 +150,27 @@ export class Enforcement {
       if (p.stillT > 1.2) {
         p.stage = 'stopped';
         p.t = 0;
+        p.scene = new StopScene(game, { unit: u }); // (he walks up to your window)
+        if (!p.scene.officer) p.scene = null;
         return;
       }
       if (p.t > 22 || d > 120) this.flee(u);
       return;
     }
-    // Pulled over.
+    if (p.stage === 'done') {
+      // Ticket written: back to the car, then off on patrol.
+      if (u.mounted) u.resumePatrol();
+      return;
+    }
+    // Pulled over: he walks up first.
+    if (p.scene) {
+      if (p.scene.update(dt) === 'fled') return this.flee(u);
+      if (!p.scene.ready) {
+        p.t = 0;
+        game.prompt = '🚨 The officer is walking up to your window… stay put';
+        return;
+      }
+    }
     const fine = p.vio.fine;
     const held = game.drugs.holding();
     game.prompt = `Officer: "License and registration. You ${p.vio.label}." Ticket $${fine}. ${pad ? '✕' : 'E'} pay it · drive off to run`;
@@ -163,6 +179,7 @@ export class Enforcement {
       p.searched = true;
       if (Math.random() < 0.35) {
         game.hud.toast('"I smell something. Step out the car."', '#ff8080');
+        p.scene?.end();
         u.pull = null;
         u.joinChase();
         game.crime('possession', px, pz);
@@ -184,7 +201,8 @@ export class Enforcement {
     if (game.property) game.property.treasury += paid;
     game.hud.toast(paid === fine ? `Ticket paid: -$${fine}` : `Ticket: paid $${paid} (all you had)`, '#9fc3ff');
     game.president?.win?.(0.5, 'Traffic enforcement');
-    u.resumePatrol();
+    u.pull.scene?.end();
+    u.pull.stage = 'done'; // (he walks back to his car first)
     this.cool = 60;
     game.save();
   }
@@ -192,6 +210,7 @@ export class Enforcement {
   flee(u) {
     const game = this.game;
     const [px, pz] = game.player.pos();
+    u.pull?.scene?.end();
     u.pull = null;
     u.joinChase();
     game.crime('fleeStop', px, pz);

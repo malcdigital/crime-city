@@ -57,7 +57,8 @@ export class Pursuit {
     this.t -= dt;
     if (this.t <= 0) {
       this.t = 0.5;
-      this.assign();
+      if (game.stop) for (const u of game.police.units) u.role = 'tail'; // (pulled over: no ramming)
+      else this.assign();
     }
     this.chatter(dt);
     if (this.pitCheck) this.pitCheck(dt);

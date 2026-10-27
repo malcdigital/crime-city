@@ -13,6 +13,7 @@ import { Football } from './football.js';
 import { Playground } from './playground.js';
 import { noteCrime } from './safety.js';
 import { Pursuit, LOW_RANGE } from './pursuit.js';
+import { StopScene } from './stopscene.js';
 import { Parking } from './parking.js';
 import { Props } from './props.js';
 import { Enforcement } from './enforcement.js';
@@ -1777,7 +1778,10 @@ class Game {
     else if (!dirty && Math.random() < 0.5) name = CLEAN_NAMES[Math.floor(Math.random() * CLEAN_NAMES.length)];
     const shown = tells.filter((t) => t !== 'name');
     this.stop = { dirty, tells: shown, name, t: 0 };
-    this.holdFire(30);
+    // He walks up to your window (or to you) first: see stopscene.js.
+    const scene = new StopScene(this, { tells: shown, dirty });
+    if (scene.officer) this.stop.scene = scene;
+    this.holdFire(45);
     this.bustPressure = 0;
     if (this.player.vehicle) this.player.vehicle.speed *= 0.3;
     this.hud.toast(`Pulled over${name ? ` by Officer ${name}` : ''}`, '#9fc3ff');
@@ -1786,9 +1790,27 @@ class Game {
   updateStop(dt, a) {
     const s = this.stop;
     if (!s) return;
-    s.t += dt;
     const pad = this.input.mode === 'pad';
     const who = s.name ? `Officer ${s.name}` : 'The officer';
+    if (s.scene) {
+      const r = s.scene.update(dt);
+      if (r === 'fled') {
+        // Took off while he was walking up.
+        this.stop = null;
+        this.holdFireUntil = 0;
+        s.scene.end();
+        const [px, pz] = this.player.pos();
+        if (!s.dirty) this.fled(px, pz);
+        this.hud.toast(this.player.vehicle ? 'You pulled off on him!' : 'You ran!', '#ff8080');
+        return;
+      }
+      if (!s.scene.ready) {
+        this.prompt = `${who} is walking up${this.player.vehicle ? ' to your window' : ''}… stay put · ${pad ? '□' : 'R'} ${this.player.vehicle ? 'floor it' : 'jump him'}`;
+        if (a.dealFight) this.fightStop(s, who); // (you don't have to wait for him)
+        return;
+      }
+    }
+    s.t += dt;
     const details = s.tells.length ? ` (${s.tells.join(' · ')})` : '';
     const inCar = !!this.player.vehicle;
     this.prompt = `${who}${details}: "Hands where I can see em." — ${pad ? '✕' : 'E'} go quietly · ${pad ? '○' : 'Q'} offer a bribe · ${pad ? '□' : 'R'} ${inCar ? 'floor it' : 'fight'}`;
@@ -1798,6 +1820,7 @@ class Game {
     const bribe = a.dealNo && !quiet;
     if (!quiet && !bribe) return;
     this.stop = null;
+    s.scene?.end();
     this.holdFireUntil = 0;
     if (!s.dirty) {
       if (bribe) this.hud.toast(`"You just made it worse."`, '#ff8080');
@@ -1830,6 +1853,7 @@ class Game {
   // Fighting your way out of a stop (see above).
   fightStop(s, who) {
     this.stop = null;
+    s.scene?.end();
     this.holdFireUntil = 0;
     const p = this.player;
     const [px, pz] = p.pos();
