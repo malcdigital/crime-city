@@ -1602,7 +1602,7 @@ export class Streetball {
     const at = { mx: ((v.x + 1) / 2) * W, my: ((1 - v.y) / 2) * H };
     v.set(px, 0.02, pz).project(cam);
     at.ex = ((v.x + 1) / 2) * W;
-    at.ey = ((1 - v.y) / 2) * H + 18; // (a little below his feet)
+    at.ey = ((1 - v.y) / 2) * H + 34; // (well below his feet)
     game.hud.sportFloat(at, meter, this.you.st);
   }
 
