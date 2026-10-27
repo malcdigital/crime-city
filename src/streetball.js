@@ -2225,10 +2225,20 @@ export class Streetball {
     const r = this.r;
     let make;
     if (hp.shot === 'dunk') make = Math.random() < (lv >= 3 ? 0.6 : 0.95);
-    else if (hp.shot === 'layup') make = Math.random() < (0.55 + (r - 60) / 100) * OPEN_MAKE[lv] * (0.75 + 0.25 * hp.st);
     else {
-      const green = Math.random() < (0.1 + (r - 60) * 0.008) * OPEN_WINDOW[lv] * (hp.stepback ? 0.9 : 1);
-      make = green || Math.random() < this.base(d) * 0.7 * OPEN_MAKE[lv] * (0.7 + 0.3 * hp.st);
+      // The same green windows as yours. His timing's off by a random amount that depends on
+      // his rating (typically ~90 ms at 60 OVR, ~60 ms at 90), and it's green when that lands
+      // inside the window for this shot, shrunk the same ways yours is.
+      let w = greenWindow(hp.shot, d) * OPEN_WINDOW[lv];
+      if (hp.stepback) w *= 0.9;
+      if (hp.st < 0.4) w *= 0.75;
+      const u = 1 - Math.random();
+      const e = ((150 - r) / 1000) * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * Math.random());
+      const m = Math.abs(e) - w / 2;
+      const green = m <= 0 && (d <= 14 || Math.random() < 0.5);
+      const tm = green ? 1 : m < 0.06 ? 0.7 : m < 0.16 ? 0.4 : 0.12;
+      const base = hp.shot === 'layup' ? 0.82 : hp.shot === 'floater' ? 0.55 : this.base(d);
+      make = green || Math.random() < base * tm * OPEN_MAKE[lv] * (0.7 + 0.3 * hp.st);
     }
     const pts = d > ARC ? 2 : 1;
     if (hp.shot === 'dunk') {
