@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { dist, rand, pick, lerpAngle, clamp, wrapAngle } from './util.js';
-import { crouchPose } from './character.js';
+import { crouchPose, bendLeg } from './character.js';
 import { ballMesh } from './court.js';
 import { CFG } from './config.js';
 
@@ -2435,6 +2435,16 @@ export class Streetball {
         c.legL.rotation.z = 0.3 * (this.legsK || 0);
         c.legR.rotation.z = -0.3 * (this.legsK || 0);
         if (this.legsK) c.group.position.y += crouchPose(c, 0.3 * this.legsK);
+        // Back-pedaling: a low shuffle backward, short steps, each foot reaching back.
+        if (Y.backpedal && p.speed > 0.3 && !this.legsK) {
+          Y.bpPhase = (Y.bpPhase || 0) + dt * (4 + p.speed * 2.2);
+          const sw = Math.sin(Y.bpPhase);
+          const dl = bendLeg(c.legL, c.kneeL, 0.45 - 0.4 * sw, 0.8 + 0.35 * Math.max(0, Math.cos(Y.bpPhase)));
+          const dr = bendLeg(c.legR, c.kneeR, 0.45 + 0.4 * sw, 0.8 + 0.35 * Math.max(0, -Math.cos(Y.bpPhase)));
+          c.group.position.y -= Math.min(dl, dr);
+          const free = (this.ballSide ?? Y.hand) < 0 ? c.armR : c.armL; // (the other arm out, for balance)
+          free.rotation.x = -0.6;
+        }
       }
       if (Y.sizeUp) c.group.position.y += crouchPose(c, 0.35);
     } else if (Y.jumpT > 0) c.armL.rotation.x = c.armR.rotation.x = -2.8;

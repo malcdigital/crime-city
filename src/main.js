@@ -2136,6 +2136,13 @@ class Game {
     }
     this.gpsLine.update(dt, this.gps, w);
     // Inventory strip (hold L1 / Tab) gets the D-pad and face buttons while it's open.
+    // No inventory strip or weapon swaps in a pickup game (it closes if it was open).
+    if (this.pickupGame()) {
+      this.inventory.holdT = 0;
+      this.inventory.open = false;
+      a.stripHeld = a.giveHeld = a.dropHeld = a.nextWeapon = a.prevWeapon = false;
+      a.slot = -1;
+    }
     if (this.wastedT <= 0 && this.bustedT <= 0 && !this.hud.phoneOpen) this.inventory.update(dt, a);
     // Phone: D-pad → (or T) takes it out. While it's out the D-pad, ✕ and ○ work the phone
     // (see phone.js); T / Create puts it away.
