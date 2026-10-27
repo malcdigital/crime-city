@@ -169,6 +169,8 @@ export class Soldier extends GangFighter {
         else this.route = null;
         if (dist(this.x, this.z, gx, gz) > 3) this.move(dt, gx, gz, 4.6, null);
         else this.move(dt, this.x, this.z, 0, null);
+      } else if (this.alertIdle(dt)) {
+        // (heard shots: on guard)
       } else if (dist(this.x, this.z, this.homeX, this.homeZ) > 1) this.move(dt, this.homeX, this.homeZ, 1.6, null);
       else this.move(dt, this.x, this.z, 0, null);
     }

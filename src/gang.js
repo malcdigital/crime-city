@@ -208,6 +208,30 @@ export class GangFighter {
     }
   }
 
+  // Heard shots (main.js gunshot): on alert for a while - gun up, looking that way, the
+  // jumpy ones crouched.
+  hear(x, z, secs = 12) {
+    if (!this.standing) return;
+    const fresh = !(this.alertUntil > this.game.time);
+    this.alertUntil = this.game.time + secs;
+    this.alertAt = [x, z];
+    if (fresh) this.alertCrouch = this.heart < 0.5 && Math.random() < 0.7;
+  }
+
+  // On alert and not fighting: stand (or crouch) your ground facing the sound. Returns true
+  // if that's what this frame was.
+  alertIdle(dt) {
+    if (!(this.alertUntil > this.game.time) || !this.alertAt) {
+      if (this.alertCrouch) this.crouched = this.alertCrouch = false; // (stand back up)
+      return false;
+    }
+    const [ax, az] = this.alertAt;
+    this.move(dt, this.x, this.z, 0, Math.atan2(ax - this.x, az - this.z));
+    this.char.armR.rotation.x = -1.4;
+    this.crouched = !!this.alertCrouch;
+    return true;
+  }
+
   onHurt() {}
   onDeath() {}
   giveUp() {
@@ -566,7 +590,9 @@ export class RivalMember extends GangFighter {
       if (this.state === 'fight') this.endFight();
       this.heart = Math.min(this.baseHeart, this.heart + dt * 0.02);
       this.char.armR.rotation.x = -0.3;
-      if (dist(this.x, this.z, this.homeX, this.homeZ) > 1) this.move(dt, this.homeX, this.homeZ, 1.6, null);
+      if (this.alertIdle(dt)) {
+        // (heard shots: on guard)
+      } else if (dist(this.x, this.z, this.homeX, this.homeZ) > 1) this.move(dt, this.homeX, this.homeZ, 1.6, null);
       else this.move(dt, this.x, this.z, 0, dPlayer < 25 ? Math.atan2(px - this.x, pz - this.z) : null);
     }
     this.animate(dt);

@@ -265,6 +265,12 @@ export class Officer {
       this.char.armR.rotation.x = -1.45;
       this.char.armL.rotation.x = -1.2;
     }
+    // Heard shots (main.js gunshot): gun out, turned toward them.
+    if (this.alertUntil > game.time && this.standing && !game.lethal) {
+      this.char.armR.rotation.x = -1.45;
+      this.char.armL.rotation.x = -1.2;
+      if (speed === 0 && this.alertAt) this.heading = lerpAngle(this.heading, Math.atan2(this.alertAt[0] - this.x, this.alertAt[1] - this.z), Math.min(1, dt * 6));
+    }
     this.place();
   }
 
@@ -572,7 +578,9 @@ export class PoliceUnit {
     // or speeding pulls you over (enforcement.js).
     if (this.patrol) {
       if (game.stars > 0 && d < 260) this.joinChase();
-      else if (!this.pull) {
+      else if (this.check) {
+        // (heard shots: driving over to check it out - below)
+      } else if (!this.pull) {
         c.siren = false;
         this.patrol.update(dt, game);
         return;
@@ -661,6 +669,41 @@ export class PoliceUnit {
         this.dismountAll();
       }
       this.to = null;
+    } else if (this.check && this.patrol) {
+      // Shots fired nearby: lights on, drive over and look around.
+      const k = this.check;
+      k.t -= dt;
+      c.siren = true;
+      const dk = dist(c.x, c.z, k.x, k.z);
+      if (dk > 25) {
+        this.navigate(k.x, k.z, false, 2);
+        tx = this.to.x;
+        tz = this.to.z;
+        desired = maxS * 0.8;
+        if (dist(c.x, c.z, tx, tz) < 22) desired = Math.min(desired, 12);
+      } else {
+        tx = k.x;
+        tz = k.z;
+        desired = dk > 8 ? 4 : 0;
+        if (!k.arrived) {
+          k.arrived = true;
+          k.t = Math.min(k.t, 18);
+        }
+      }
+      // Find the shooter there: you, soon after the shots, in plain sight.
+      if (game.time - (game.lastShot ?? -99) < 40 && d < 50 && game.canSeePlayer(c, 1.4, 50, false)) {
+        this.check = null;
+        game.pursuit?.radio(`Unit ${this.callsign}: I've got the shooter on ${streetAt(px, pz) || 'scene'}!`, true);
+        game.crime('gunfire', px, pz);
+        if (game.stars < 1) {
+          game.heat = Math.max(game.heat, CFG.STAR_HEAT[0]);
+          game.stars = 1; // (they've got you for it)
+        }
+        this.joinChase();
+      } else if (k.t <= 0) {
+        this.check = null;
+        this.resumePatrol();
+      }
     } else if (this.pull) {
       // Pulling you over: lights on, up behind your car.
       c.siren = true;

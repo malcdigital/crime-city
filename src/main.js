@@ -683,11 +683,14 @@ class Game {
     const [px, pz] = this.player.pos();
     this.scareNearby(px, pz, 45, true);
     this.heardShot(px, pz);
+    this.gunshot(px, pz, 'player');
     if (dist(px, pz, this.city.gangHome.x, this.city.gangHome.z) < 30) this.gang.anger();
     else if (this.gang.angry && this.gang.members.some((r) => r.alive && dist(r.x, r.z, px, pz) < 50)) this.gang.anger();
+    // (a cop who can see where the shots came from, up to 70 m, is a witness too)
+    const sees = (x, z) => !segmentBlocked(x, z, px, pz, this.city.los);
     const witnesses = this.peds.peds.some((p) => p.standing && dist(p.x, p.z, px, pz) < 30)
-      || this.police.officers().some((o) => o.standing && dist(o.x, o.z, px, pz) < 45)
-      || this.police.units.some((u) => dist(u.car.x, u.car.z, px, pz) < 45);
+      || this.police.officers().some((o) => o.standing && (dist(o.x, o.z, px, pz) < 45 || (dist(o.x, o.z, px, pz) < 70 && sees(o.x, o.z))))
+      || this.police.units.some((u) => !u.carLost && (dist(u.car.x, u.car.z, px, pz) < 45 || (dist(u.car.x, u.car.z, px, pz) < 70 && sees(u.car.x, u.car.z))));
     if (witnesses && this.time - this.lastGunfireCrime > 5 && !this.turfWars.gangBusiness(px, pz)) {
       this.lastGunfireCrime = this.time;
       this.storyEvent(null, px, pz, `Armed shooter on the loose on ${streetAt(px, pz)}`);
@@ -719,6 +722,7 @@ class Game {
     const [px, pz] = this.player.pos();
     this.sfx.shotAt(kind, dist(shooter.x, shooter.z, px, pz));
     this.scareNearby(shooter.x, shooter.z, 40, true);
+    this.gunshot(shooter.x, shooter.z, shooter);
     if (!hit) {
       this.effects.impact(tx, ty, tz);
       return;
@@ -736,6 +740,7 @@ class Game {
 
   npcShoot(shooter, dmg, kind, acc = 1) {
     if (this.wastedT > 0 || this.bustedT > 0) return;
+    if (shooter.x !== undefined) this.gunshot(shooter.x, shooter.z, shooter);
     const [px, pz] = this.player.pos();
     const d = dist(shooter.x, shooter.z, px, pz);
     const h = shooter.heading;
@@ -829,6 +834,52 @@ class Game {
     if (dist(px, pz, viewer.sawAt[0], viewer.sawAt[1]) > 3.5) return false;
     if (dist(viewer.x, viewer.z, px, pz) > range * 1.2) return false;
     return !segmentBlocked(viewer.x, viewer.z, px, pz, this.city.los);
+  }
+
+  // Shots fired at (x, z) - by you ('player') or anyone else. Everyone who hears them reacts,
+  // hit or not:
+  // - gang members (and the Kings at their corner) go on alert: gun up, facing the sound, the
+  //   jumpy ones crouched; rivals who can see you were the shooter come for you.
+  // - officers on foot draw and turn toward it.
+  // - patrol cars that hear it (up to ~170 m) drive over with their lights on to look around;
+  //   if they find you there soon after, they know it was you. (Gang wars are left to the gangs,
+  //   and cops' own shots don't send anyone.)
+  gunshot(x, z, shooter) {
+    const byYou = shooter === 'player';
+    const R = byYou ? 55 : 45;
+    const [px, pz] = this.player.pos();
+    const clear = (ax, az, bx, bz) => !segmentBlocked(ax, az, bx, bz, this.city.los);
+    for (const s of this.turfWars.soldiers) {
+      if (s === shooter || !s.alive || !s.standing) continue;
+      const d = dist(s.x, s.z, x, z);
+      if (d > R) continue;
+      s.hear(x, z);
+      if (byYou && s.gangId !== 'crew' && !s.war && dist(s.x, s.z, px, pz) < 45 && clear(s.x, s.z, px, pz)) this.turfWars.aggro(s.gangId, s.x, s.z, 30);
+    }
+    for (const m of this.gang.members) {
+      if (m === shooter || !m.alive || !m.standing) continue;
+      const d = dist(m.x, m.z, x, z);
+      if (d > R) continue;
+      m.hear(x, z);
+      if (byYou && dist(m.x, m.z, px, pz) < 45 && clear(m.x, m.z, px, pz)) this.gang.anger();
+    }
+    for (const o of this.police.officers()) {
+      if (!o.standing || o === shooter || dist(o.x, o.z, x, z) > R) continue;
+      o.alertUntil = this.time + 10;
+      o.alertAt = [x, z];
+    }
+    // Patrol cars come to check it out.
+    if (shooter?.isCop || (byYou && this.stars > 0)) return;
+    if (!byYou && this.turfWars.gangBusiness(x, z)) return;
+    let sent = null;
+    for (const u of this.police.units) {
+      if (!u.patrol || u.pull || u.check || u.carLost || u.allDead) continue;
+      if (dist(u.car.x, u.car.z, x, z) > 170) continue;
+      u.check = { x, z, t: 35 };
+      if (!sent) sent = u;
+      else break; // (two at most)
+    }
+    if (sent) this.pursuit?.radio(`Dispatch: shots fired near ${streetAt(x, z) || districtAt(x, z)}. Unit ${sent.callsign} responding.`);
   }
 
   // Police nearby hear gunfire and know roughly where it came from.
