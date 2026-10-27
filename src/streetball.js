@@ -2482,7 +2482,7 @@ export class Streetball {
           if (this.has === 'opp') {
             (hp.ballSide < 0 ? c.armL : c.armR).rotation.x = -0.5 - Math.abs(Math.cos(hp.dribble || 0)) * 0.35;
             (hp.ballSide < 0 ? c.armR : c.armL).rotation.x = -0.6; // (the other arm out)
-          } else c.armL.rotation.x = c.armR.rotation.x = -1.0; // (hands up on D)
+          } else this.defenseArms(c, false); // (on D: one hand up, one low)
           return 0.06 + drop;
         }
       }
@@ -2518,9 +2518,14 @@ export class Streetball {
         return 0.06 + (hp.jump || 0) + this.dribblePose(c, p.heading, mv, sp, hp.ballSide ?? hp.hand ?? 1, false);
       }
     } else if (p === this.opp) {
-      // Hands up on defense; a swipe; up for a contest or a rebound.
+      // On D: his stance and slides (the same as yours); up for a contest or a rebound.
+      if (!hp.jumpT && this.has === 'you') {
+        const [qx, qz] = this.game.player.pos();
+        p.heading = Math.atan2(qx - p.x, qz - p.z); // (always facing you: slides, not runs)
+        c.group.rotation.y = p.heading;
+        return 0.06 + this.defensePose(c, p.heading, hp.vx || 0, hp.vz || 0, this.clock * (4 + Math.hypot(hp.vx || 0, hp.vz || 0) * 2.2), hp.armsT > 0);
+      }
       c.armL.rotation.x = c.armR.rotation.x = hp.jumpT > 0 ? -2.8 : hp.armsT > 0 ? -1.6 : -1.0;
-      if (!hp.jumpT && this.has === 'you') return 0.06 + crouchPose(c, 0.25);
     } else if (hp.cheerT > 0) c.armR.rotation.x = -2.9;
     return 0.06 + (hp.jump || 0);
   }
@@ -2570,6 +2575,41 @@ export class Streetball {
     }
     if (speed < 0.6 || sizeUp) return crouchPose(c, sizeUp ? 0.38 : 0.28); // (the stance)
     return 0;
+  }
+
+  // Defense, yours and his: a wide base, knees bent deep, one hand up to bother the shot and one
+  // low and out to poke at the ball. Sliding sideways the feet push apart and come back together
+  // (they never cross), low, leaning a little into the slide; backing up it's the backward
+  // shuffle. (h: his facing; vx, vz: how he's moving; ph: the step phase; swipe: reaching in.)
+  defensePose(c, h, vx, vz, ph, swipe) {
+    this.defenseArms(c, swipe);
+    const sp = Math.hypot(vx, vz);
+    const fwd = sp > 0 ? (vx * Math.sin(h) + vz * Math.cos(h)) / sp : 0;
+    const lat = sp > 0 ? (vx * -Math.cos(h) + vz * Math.sin(h)) / sp : 0;
+    if (sp > 0.5 && fwd < -0.5) return this.shuffleLegs(c, ph); // (backing up)
+    if (sp > 0.5 && Math.abs(lat) > 0.5) {
+      // (the slide: push out, bring together, never crossing)
+      const spread = 0.16 + 0.28 * Math.abs(Math.sin(ph));
+      const dl = bendLeg(c.legL, c.kneeL, 0.65, 1.15);
+      const dr = bendLeg(c.legR, c.kneeR, 0.65, 1.15);
+      c.legL.rotation.z = spread;
+      c.legR.rotation.z = -spread;
+      c.group.rotation.z = Math.sign(lat) * 0.08;
+      return -Math.min(dl, dr);
+    }
+    // (set: wide and low)
+    const dl = bendLeg(c.legL, c.kneeL, 0.75, 1.3);
+    const dr = bendLeg(c.legR, c.kneeR, 0.75, 1.3);
+    c.legL.rotation.z = 0.22;
+    c.legR.rotation.z = -0.22;
+    return -Math.min(dl, dr);
+  }
+
+  defenseArms(c, swipe) {
+    c.armR.rotation.x = -2.5; // (high hand)
+    c.armR.rotation.z = -0.15;
+    c.armL.rotation.x = swipe ? -1.6 : -0.9; // (low hand, out to the ball)
+    c.armL.rotation.z = 0.45;
   }
 
   // The backward shuffle's legs (knees bent, short steps reaching back) at step phase ph;
@@ -2630,20 +2670,17 @@ export class Streetball {
     }
     // Intense D (L2): your back to the basket, square to the play, low. Retreating toward the
     // rim it's the backward shuffle.
-    if (Y.intense) {
-      p.heading = Math.atan2(p.x - this.rim.x, p.z - this.rim.z);
-      c.group.rotation.y = p.heading;
-      const [qx, qz] = p.pos();
-      const tx = this.rim.x - qx;
-      const tz = this.rim.z - qz;
-      const tl = Math.hypot(tx, tz) || 1;
-      const vx = p.vx || 0;
-      const vz = p.vz || 0;
-      const sp = Math.hypot(vx, vz);
-      if (sp > 0.5 && (vx * tx + vz * tz) / (sp * tl) > 0.3) {
+    // Without it you just run to get back, but standing on him you're still in your stance.
+    if (this.has === 'opp' && Y.fallT <= 0 && !(Y.jumpT > 0)) {
+      if (Y.intense) {
+        p.heading = Math.atan2(p.x - this.rim.x, p.z - this.rim.z);
+        c.group.rotation.y = p.heading;
+      }
+      const sp = Math.hypot(p.vx || 0, p.vz || 0);
+      if (Y.intense || sp < 0.6) {
         Y.bpPhase = (Y.bpPhase || 0) + dt * (4 + sp * 2.2);
-        c.group.position.y += this.shuffleLegs(c, Y.bpPhase);
-      } else c.group.position.y += crouchPose(c, 0.3);
+        c.group.position.y += this.defensePose(c, p.heading, p.vx || 0, p.vz || 0, Y.bpPhase, Y.armsT > 0);
+      }
     }
     if (this.has === 'you' && this.g.ball.mode === 'held') {
       if (this.shot) {
@@ -2670,7 +2707,6 @@ export class Streetball {
       }
     } else if (Y.jumpT > 0) c.armL.rotation.x = c.armR.rotation.x = -2.8;
     else if (Y.armsT > 0) c.armR.rotation.x = -1.6;
-    else if (this.has === 'opp') c.armL.rotation.x = c.armR.rotation.x = -1.0;
     // Off the floor: the shot's own jump, coming down after it, or a block / rebound jump.
     if (this.shot && this.shot.approach && this.shot.t < this.shot.approach.T && this.has === 'you') {
       // (gathered: ball at the chest, two hands, on the run)
