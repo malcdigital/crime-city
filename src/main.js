@@ -1654,6 +1654,12 @@ class Game {
 
   // ---- Camera ----
 
+  // A short camera shake (amount in meters, fading out over dur seconds).
+  shakeCamera(amt, dur) {
+    this.camShakeAmt = amt;
+    this.camShakeDur = this.camShakeT = dur;
+  }
+
   updateCamera(dt, a) {
     this.camYaw += a.lookX;
     this.camPitch = clamp(this.camPitch + a.lookY, this.player.vehicle ? -0.5 : -1.3, 1.0);
@@ -1759,7 +1765,13 @@ class Game {
       top = Math.max(baseY + 1.2, Math.min(top, hard));
       if (cy > top) cy = top;
     }
-    const shake = v ? v.crash * 0.01 : 0;
+    // (a car crash, or a dunk: shakeCamera)
+    let shake = v ? v.crash * 0.01 : 0;
+    if (this.camShakeT > 0) {
+      this.camShakeT -= dt;
+      shake += this.camShakeAmt * Math.max(0, this.camShakeT / this.camShakeDur);
+      cy += rand(-shake, shake) * 0.6;
+    }
     // (never under the ground, or under the freeway deck you're up on)
     const floor = Math.max(this.city.groundY(cx, cz), this.highway.floorBelow(cx, cz, ty) ?? -1e9);
     this.camera.position.set(cx + rand(-shake, shake), Math.max(floor + 0.6, cy), cz + rand(-shake, shake));

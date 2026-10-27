@@ -50,7 +50,7 @@ const _axis = new THREE.Vector3();
 // Shots: T = seconds to the perfect release, W = green window (seconds, its full width).
 // (NBA 2K's green window is about 40-60 ms; ours is wider for a browser and a phone screen.)
 const SHOTS = {
-  jumper: { T: 0.6, W: 0.08 },
+  jumper: { T: 0.5, W: 0.08 }, // (a quick jump: the top of it is the release)
   layup: { T: 0.45, W: 0.13 },
   floater: { T: 0.45, W: 0.09 },
   dunk: { T: 0.42, W: 0 },
@@ -62,6 +62,9 @@ const LATE = 0.35; // (held this long past the top it goes up anyway: very late)
 function greenWindow(type, d) {
   if (type === 'layup') return 0.2;
   if (type === 'floater') return 0.12;
+  return jumperWindow(d) * 1.15; // (+15% since the jump got quicker: a three is now ~92 ms)
+}
+function jumperWindow(d) {
   if (d <= 2) return 0.15;
   if (d <= 4.5) return 0.15 - (d - 2) * 0.012;
   if (d <= ARC) return 0.12 - ((d - 4.5) / (ARC - 4.5)) * 0.04;
@@ -667,6 +670,16 @@ export class Streetball {
     const b = this.g.ball;
     let q = null;
     for (const c of this.passTargets()) if (!q || dist(c.x, c.z, b.x, b.z) < dist(q.x, q.z, b.x, b.z)) q = c;
+    // Somebody with a ball closer to you than anybody can get to yours: he gives you his and
+    // his group goes and gets the loose one.
+    const [px, pz] = game.player.pos();
+    let hg = null;
+    for (const G of this.H.groups) {
+      const h = G.ball.holder;
+      if (G.ball.mode !== 'held' || !h || h === 'you' || h.removed || h.state !== 'play') continue;
+      if (!hg || dist(h.x, h.z, px, pz) < dist(hg.ball.holder.x, hg.ball.holder.z, px, pz)) hg = G;
+    }
+    if (hg && (!q || dist(hg.ball.holder.x, hg.ball.holder.z, px, pz) < dist(q.x, q.z, b.x, b.z))) return this.swapWith(hg);
     if (!q) return game.hud.toast('Nobody around to get it', '#9fc3ff');
     this.fetch = { q, saved: { act: q.act, state: q.state, keep: q.keep, sidewalk: q.sidewalk }, t: 0 };
     q.act = this;
@@ -674,6 +687,30 @@ export class Streetball {
     q.keep = true;
     q.sidewalk = false;
     game.hud.toast('"Aye, grab that for me!"', '#ffd23f');
+  }
+
+  // His ball comes to you; yours (where it lies) becomes his group's, and they go get it.
+  swapWith(G) {
+    const game = this.game;
+    const mine = this.g.ball;
+    const his = G.ball;
+    const h = his.holder;
+    const old = { mesh: mine.mesh, x: mine.x, y: mine.y, z: mine.z, vx: mine.vx, vy: mine.vy, vz: mine.vz };
+    // (the balls trade places: the one in his hands is yours now)
+    mine.mesh = his.mesh;
+    mine.x = his.x;
+    mine.y = Math.max(1.1, his.y);
+    mine.z = his.z;
+    his.mesh = old.mesh;
+    Object.assign(his, { x: old.x, y: old.y, z: old.z, vx: old.vx, vy: old.vy, vz: old.vz, mode: 'loose', holder: null });
+    his.mesh.position.set(his.x, his.y, his.z);
+    if (h.hp?.role === 'hold') this.H.toWait(h);
+    h.heading = Math.atan2(game.player.pos()[0] - h.x, game.player.pos()[1] - h.z);
+    const [px, pz] = game.player.pos();
+    this.H.launch(mine, px, 1.2, pz, 0.25 + dist(h.x, h.z, px, pz) / 15);
+    mine.kind = 'back';
+    this.has = null;
+    game.hud.toast('"Here, take mine"', '#ffd23f');
   }
 
   fetchDrive(p, dt) {
@@ -1410,6 +1447,7 @@ export class Streetball {
       make = Math.random() < (contact ? 0.6 : s.oop ? 0.88 : 0.95);
       const name = { two: 'Two-hand slam!', one: 'One-hand jam!', windmill: 'WINDMILL!', tomahawk: 'Tomahawk!' }[this.you.dunk?.style] || 'Slam!';
       grade = make ? (contact ? 'POSTERIZED HIM!' : s.oop ? `ALLEY-OOP! ${name}` : name) : 'Rimmed it out';
+      game.shakeCamera?.(make ? 0.14 : 0.07, 0.4); // (the rim rattles)
       if (this.you.dunk) this.you.dunk.hangs = make; // (hang on the rim after a make)
     } else {
       const m = Math.abs(e) - w / 2;
@@ -1693,7 +1731,7 @@ export class Streetball {
         return;
       }
       if (this.shot) {
-        const k = Math.min(1, this.shot.t / this.shot.T);
+        const k = Math.min(1, this.shot.t / (this.shot.type === 'jumper' ? this.shot.T / 1.5 : this.shot.T));
         b.x = px + fx * 0.3;
         b.z = pz + fz * 0.3;
         b.y = 1.3 + k * 1.0 + this.shotHeight(this.shot);
@@ -2246,6 +2284,7 @@ export class Streetball {
       b.y = Math.max(b.y, this.rim.y + 0.15);
       this.launch(make, 'opp', pts, 0.14);
       game.hud.toast(make ? `${p.ballName} throws it down` : `${p.ballName} rims out the dunk`, make ? '#ff8080' : '#7ee081');
+      game.shakeCamera?.(make ? 0.07 : 0.04, 0.3);
     } else this.launch(make, 'opp', pts);
   }
 
@@ -2262,6 +2301,11 @@ export class Streetball {
       const y = crouchPose(c, 1);
       c.armL.rotation.x = c.armR.rotation.x = 0.6;
       return y - 0.35;
+    }
+    if (p === this.opp && this.has === 'opp' && hp.state === 'move' && hp.mv?.kind === 'step') {
+      // (his step-back: facing the basket while he hops back)
+      p.heading = Math.atan2(this.rim.x - p.x, this.rim.z - p.z);
+      c.group.rotation.y = p.heading;
     }
     if (p === this.opp && this.has === 'opp') {
       if (hp.state === 'shoot' && hp.appr && hp.t < hp.appr.T) c.armL.rotation.x = c.armR.rotation.x = -1.3; // (gathered)
@@ -2304,6 +2348,11 @@ export class Streetball {
       c.group.position.y += this.dunkHeight();
       return;
     }
+    // A step-back: hopping back, still facing the basket.
+    if (Y.move?.kind === 'step' && this.has === 'you') {
+      p.heading = Math.atan2(this.rim.x - p.x, this.rim.z - p.z);
+      c.group.rotation.y = p.heading;
+    }
     // Intense D: square to him, low.
     if (Y.intense) {
       p.heading = Math.atan2(this.opp.x - p.x, this.opp.z - p.z);
@@ -2312,7 +2361,7 @@ export class Streetball {
     }
     if (this.has === 'you' && this.g.ball.mode === 'held') {
       if (this.shot) {
-        const k = Math.min(1, this.shot.t / this.shot.T);
+        const k = Math.min(1, this.shot.t / (this.shot.type === 'jumper' ? this.shot.T / 1.5 : this.shot.T)); // (arms up quick on a jumper)
         c.armL.rotation.x = c.armR.rotation.x = -1.4 - k * 1.4;
         c.group.rotation.y = p.heading; // (squaring up to the basket)
       } else {
