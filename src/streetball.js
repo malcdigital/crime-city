@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { dist, rand, pick, lerpAngle, clamp, wrapAngle } from './util.js';
 import { crouchPose } from './character.js';
 import { ballMesh } from './court.js';
+import { CFG } from './config.js';
+
+const SHOT_NAMES = { jumper: 'Jump shot', layup: 'Layup', floater: 'Floater', dunk: 'Dunk' };
 
 // One-on-one at a basketball court against one of the people shooting there (hoops.js),
 // played like NBA 2K's Blacktop.
@@ -911,6 +914,7 @@ export class Streetball {
     this.shot = { type, t: 0, T: SHOTS[type].T + turnT, W: SHOTS[type].W, d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false, pivot, turnT };
     Y.jumpT = 0;
     Y.fall = null; // (the jump's timed to the shot: the top of it is the perfect release)
+    if (CFG.SHOT_TYPE_DEBUG) game.hud.toast(`[test] ${SHOT_NAMES[type]}${stepback ? ' (step-back)' : ''}${pivot ? ' (turnaround)' : ''}`, '#c9a7ff');
     if (type === 'dunk') {
       this.shot.T = 0.55;
       this.startDunk(0);
@@ -1054,6 +1058,7 @@ export class Streetball {
     this.startDunk(0.22); // (you've already left the floor)
     const D = this.you.dunk;
     this.shot = { type: 'dunk', t: 0, T: D.rise - D.t, W: 0, d0: d, pts: 1, oop: true, turnT: 0 };
+    if (CFG.SHOT_TYPE_DEBUG) game.hud.toast('[test] Alley-oop dunk', '#c9a7ff');
     this.opp.hp.closeT = 1;
   }
 
@@ -1877,6 +1882,7 @@ export class Streetball {
   }
 
   goShoot(p, hp, type, stepback = false) {
+    if (CFG.SHOT_TYPE_DEBUG) this.game.hud.toast(`[test] ${p.ballName}: ${SHOT_NAMES[type]}${stepback ? ' (step-back)' : ''}`, '#c9a7ff');
     hp.state = 'shoot';
     hp.shot = type;
     hp.t = 0;

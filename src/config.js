@@ -18,6 +18,9 @@ export const CFG = {
   // Testing switch: start on foot here instead ([x, z, heading in degrees], or null; it beats
   // START_IN_CAR and your safehouse). Right now: the Ledger Ave courts, at the sideline.
   START_ON_FOOT: [1210, 733, 90],
+  // Testing switch: basketball shows which shot it picked as each one starts (Jump shot, Layup,
+  // Floater, Dunk, Alley-oop), yours and his.
+  SHOT_TYPE_DEBUG: true,
   // Testing switch: the interchange editor in the pause menu (reshape the ramps, then drive them).
   RAMP_EDITOR: true,
 
