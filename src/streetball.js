@@ -1965,6 +1965,9 @@ export class Streetball {
       face(px, pz);
       return { speed: 0 };
     }
+    // Just let a shot go: he finishes the jump (the follow-through, the fade, hanging on the
+    // rim after a dunk) before he goes anywhere.
+    if (hp.state === 'shoot' && this.has !== 'opp' && hp.t <= hp.rel + 0.6) return this.offense(p, dt, face, tired);
     // Loose ball or a shot coming down: go get it (unless you've boxed him out).
     if (b.mode === 'loose' || (b.mode === 'flight' && b.T - b.t < 0.35)) {
       if (dist(p.x, p.z, b.x, b.z) < 2 && b.y > 1.2 && Math.random() < dt * 4 && !hp.jumpT) hp.jumpT = 0.6;
@@ -2072,6 +2075,12 @@ export class Streetball {
         return { speed: 0 };
       }
       [tx, tz] = this.onCourt(tx, tz);
+      if (mv.kind === 'step') {
+        // A push off and a little hop back: quick out, settling as he lands.
+        const k = Math.min(1, hp.t / mv.T);
+        hp.jump = 0.14 * Math.sin(Math.PI * k);
+        return { tx, tz, speed: 7.5 * (1 - 0.75 * k) * tired };
+      }
       return { tx, tz, speed: 6.5 * tired };
     }
     if (hp.state === 'drive') {
@@ -2170,6 +2179,16 @@ export class Streetball {
       if (hp.t > hp.rel + 0.45) {
         hp.state = 'read';
         hp.t = 0;
+        hp.fade = false;
+        p.char.group.rotation.x = 0;
+      }
+      if (hp.fade && hp.shot === 'jumper' && hp.t > st - 0.05 && hp.t < hp.rel + 0.3) {
+        // (drifting back through the jump: quickest on the way up, easing off coming down)
+        const k = Math.min(1, (hp.t - (st - 0.05)) / 0.6);
+        const ux = (rim.x - p.x) / (dR || 1);
+        const uz = (rim.z - p.z) / (dR || 1);
+        const [tx, tz] = this.onCourt(p.x - ux * 2, p.z - uz * 2);
+        return { tx, tz, speed: 2.2 * (1 - k) };
       }
       return { speed: 0 };
     }
@@ -2226,6 +2245,9 @@ export class Streetball {
   goShoot(p, hp, type, stepback = false) {
     hp.state = 'shoot';
     hp.shot = type;
+    // A fadeaway: always off a step-back, sometimes when you're right on him.
+    const [qx, qz] = this.game.player.pos();
+    hp.fade = type === 'jumper' && (stepback || (dist(p.x, p.z, qx, qz) < 1.6 && Math.random() < 0.4));
     hp.t = 0;
     hp.rel = type === 'jumper' ? 0.32 : type === 'dunk' ? 0.5 : 0.28;
     // Layups and dunks: the same footwork as yours. The gather, two steps (a dunk from 1-2 m:
@@ -2258,7 +2280,7 @@ export class Streetball {
     const [px, pz] = game.player.pos();
     const Y = this.you;
     p.heading = Math.atan2(this.rim.x - p.x, this.rim.z - p.z); // (square to the rim at the release)
-    const lv = this.openness(p.x, p.z, px, pz, Y.beatT > 0.2 || Y.fallT > 0, Y.jumpT > 0);
+    let lv = this.openness(p.x, p.z, px, pz, Y.beatT > 0.2 || Y.fallT > 0, Y.jumpT > 0);
     const d = dist(p.x, p.z, this.rim.x, this.rim.z);
     const r = this.r;
     let make;
@@ -2267,8 +2289,10 @@ export class Streetball {
       // The same green windows as yours. His timing's off by a random amount that depends on
       // his rating (typically ~90 ms at 60 OVR, ~60 ms at 90), and it's green when that lands
       // inside the window for this shot, shrunk the same ways yours is.
+      if (hp.fade) lv = Math.max(0, lv - 1); // (fading away from your hand)
       let w = greenWindow(hp.shot, d) * OPEN_WINDOW[lv];
       if (hp.stepback) w *= 0.9;
+      if (hp.fade) w *= 0.9; // (harder to shoot going backward)
       if (hp.st < 0.4) w *= 0.75;
       const u = 1 - Math.random();
       const e = ((150 - r) / 1000) * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * Math.random());
@@ -2302,10 +2326,14 @@ export class Streetball {
       c.armL.rotation.x = c.armR.rotation.x = 0.6;
       return y - 0.35;
     }
-    if (p === this.opp && this.has === 'opp' && hp.state === 'move' && hp.mv?.kind === 'step') {
-      // (his step-back: facing the basket while he hops back)
+    const fading = hp.state === 'shoot' && hp.fade && hp.shot === 'jumper';
+    if (p === this.opp && this.has !== 'you' && ((hp.state === 'move' && hp.mv?.kind === 'step') || fading)) {
+      // (his step-back or fadeaway: turning smoothly to face the basket while he goes back)
+      // (held on the basket: the walk would otherwise turn him to where he's going, backward)
       p.heading = Math.atan2(this.rim.x - p.x, this.rim.z - p.z);
       c.group.rotation.y = p.heading;
+      // (leaning back on the fade, most at the top of the jump)
+      if (fading) c.group.rotation.x = -0.25 * Math.min(1, (hp.jump || 0) / 0.45);
     }
     if (p === this.opp && this.has === 'opp') {
       if (hp.state === 'shoot' && hp.appr && hp.t < hp.appr.T) c.armL.rotation.x = c.armR.rotation.x = -1.3; // (gathered)
