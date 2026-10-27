@@ -85,6 +85,7 @@ const MOVES = {
 // How the ball changes hands: in front of you (a crossover), down under you (between the legs)
 // or round your back. Returns [side (-1 your left .. 1 your right), forward, height].
 const HANDOFF = { cross: 'front', spin: 'front', behind: 'behind', legs: 'legs' };
+const SHUFFLES = new Set(['cross', 'legs', 'behind']); // (the hand switches you shuffle out of, not turn)
 function handoff(kind, from, to, k) {
   const s = from + (to - from) * k;
   const m = Math.sin(Math.PI * k);
@@ -1078,7 +1079,7 @@ export class Streetball {
     const M = MOVES[kind];
     const quick = !big && (kind === 'cross' || kind === 'hesi');
     const T = quick ? (kind === 'cross' ? 0.2 : 0.28) : M.T;
-    Y.move = { kind, side, t: 0, T: T * (1.15 - 0.15 * Y.st), from, to, big: !quick };
+    Y.move = { kind, side, t: 0, T: T * (1.15 - 0.15 * Y.st), from, to, big: !quick, h0: p.heading };
     Y.st = Math.max(0, Y.st - 0.027);
     Y.hand = to;
     Y.sizeUp = false;
@@ -1171,8 +1172,10 @@ export class Streetball {
       Y.lastMoveEnd = this.clock;
       Y.lastMove = mv.kind;
       Y.move = null;
-      // (after a crossover you square back up to the basket, unless you're steering somewhere)
+      // (after a crossover you square back up to the basket, unless you're steering somewhere;
+      // a moment's hold on the facing first, so the last step doesn't twist you round)
       if (mv.kind === 'cross' || mv.kind === 'legs' || mv.kind === 'behind') Y.squareT = 0.4;
+      if (SHUFFLES.has(mv.kind) || mv.kind === 'hesi') Y.holdH = { h: mv.h0, t: 0.12 };
     }
   }
 
@@ -2358,7 +2361,7 @@ export class Streetball {
     const rz = Math.sin(p.heading);
     const sideFor = Math.sign(((-uz / ul) * rx + (ux / ul) * rz) * to) || 1;
     const T = big ? M.T : kind === 'cross' ? 0.2 : 0.28;
-    hp.mv = { kind, side: switches ? sideFor : Math.random() < 0.5 ? -1 : 1, T, beat: false, from: hp.hand, to, big };
+    hp.mv = { kind, side: switches ? sideFor : Math.random() < 0.5 ? -1 : 1, T, beat: false, from: hp.hand, to, big, h0: p.heading };
     hp.hand = to;
     hp.st = Math.max(0, hp.st - 0.04);
     if (kind === 'step') return { speed: 0 };
@@ -2451,6 +2454,8 @@ export class Streetball {
     const hp = p.hp;
     const c = p.char;
     c.legL.rotation.z = c.legR.rotation.z = 0;
+    c.armL.rotation.z = c.armR.rotation.z = 0;
+    c.group.rotation.z = 0;
     if (this.fetch && p === this.fetch.q) {
       if (this.g.ball.holder === p) c.armL.rotation.x = c.armR.rotation.x = -1.2;
       return 0.04;
@@ -2503,16 +2508,68 @@ export class Streetball {
       else if (hp.state === 'shoot') c.armL.rotation.x = c.armR.rotation.x = -1.4 - Math.min(1, hp.t / Math.max(0.1, hp.rel)) * 1.5;
       else {
         (hp.ballSide < 0 ? c.armL : c.armR).rotation.x = hp.behindK ? 0.9 * hp.behindK : -0.5 - Math.abs(Math.cos(hp.dribble || 0)) * 0.35; // (the hand with the ball)
-        c.legL.rotation.z = 0.3 * (hp.legsK || 0);
-        c.legR.rotation.z = -0.3 * (hp.legsK || 0);
+        // The stance and the moves' footwork (the same as yours).
+        const mv = hp.state === 'move' ? { ...hp.mv, t: hp.t } : null;
+        if (mv && SHUFFLES.has(mv.kind)) {
+          p.heading = mv.h0;
+          c.group.rotation.y = p.heading;
+        }
+        const sp = Math.hypot(hp.vx || 0, hp.vz || 0);
+        return 0.06 + (hp.jump || 0) + this.dribblePose(c, p.heading, mv, sp, hp.ballSide ?? hp.hand ?? 1, false);
       }
-      if (hp.state === 'move' && hp.mv?.kind === 'hesi' && !hp.mv.big) return 0.06 + crouchPose(c, 0.35 * Math.sin(Math.PI * Math.min(1, hp.t / hp.mv.T))); // (his hitch: a dip)
     } else if (p === this.opp) {
       // Hands up on defense; a swipe; up for a contest or a rebound.
       c.armL.rotation.x = c.armR.rotation.x = hp.jumpT > 0 ? -2.8 : hp.armsT > 0 ? -1.6 : -1.0;
       if (!hp.jumpT && this.has === 'you') return 0.06 + crouchPose(c, 0.25);
     } else if (hp.cheerT > 0) c.armR.rotation.x = -2.9;
     return 0.06 + (hp.jump || 0);
+  }
+
+  // Dribbling, yours and his: the stance and the moves' footwork. Moves the legs, arms and lean
+  // on c and returns the height change (the caller adds it).
+  //   Standing with it: knees bent, low, the off arm out in front guarding the ball.
+  //   A crossover (and between the legs, behind the back): no turning; a side shuffle out to
+  //   the new hand's side, the lead leg reaching, the trail leg following, leaning into it (one
+  //   step on a quick one, two on a big one).
+  //   A hesitation: a hard step out to the ball's side, the lead leg wide and bent, the weight
+  //   over it and leaning that way (on a big one, then the burst).
+  dribblePose(c, h, mv, speed, ballSide, sizeUp) {
+    const right = ballSide >= 0;
+    const free = right ? c.armL : c.armR;
+    free.rotation.x = -0.8; // (the off arm up in front)
+    free.rotation.z = right ? 0.2 : -0.2;
+    // (the body's right: (-cos h, sin h))
+    const rx = -Math.cos(h);
+    const rz = Math.sin(h);
+    if (mv && SHUFFLES.has(mv.kind)) {
+      const k = Math.min(1, mv.t / mv.T);
+      const side = mv.to || 1;
+      const ph = k * Math.PI * (mv.big ? 2 : 1);
+      const spread = 0.1 + 0.32 * Math.abs(Math.sin(ph)) + (mv.kind === 'legs' ? 0.15 : 0);
+      const dl = bendLeg(c.legL, c.kneeL, 0.5, 0.9);
+      const dr = bendLeg(c.legR, c.kneeR, 0.5, 0.9);
+      c.legL.rotation.z = spread;
+      c.legR.rotation.z = -spread;
+      c.group.rotation.z = side * 0.12 * Math.sin(Math.PI * k);
+      return -Math.min(dl, dr);
+    }
+    if (mv && mv.kind === 'hesi') {
+      const k = Math.min(1, mv.t / mv.T);
+      const side = mv.from || 1;
+      // (the step out, held a moment; on a big one it's over before the burst)
+      const s = Math.sin(Math.PI * Math.min(1, k * (mv.big ? 1.7 : 1)));
+      const lead = side > 0 ? [c.legR, c.kneeR] : [c.legL, c.kneeL];
+      const trail = side > 0 ? [c.legL, c.kneeL] : [c.legR, c.kneeR];
+      const dl = bendLeg(lead[0], lead[1], 0.35 + 0.35 * s, 0.6 + 0.7 * s);
+      const dt2 = bendLeg(trail[0], trail[1], 0.3, 0.55);
+      lead[0].rotation.z = -side * 0.5 * s;
+      c.group.rotation.z = side * 0.18 * s;
+      c.group.position.x += rx * side * 0.3 * s;
+      c.group.position.z += rz * side * 0.3 * s;
+      return -Math.min(dl, dt2);
+    }
+    if (speed < 0.6 || sizeUp) return crouchPose(c, sizeUp ? 0.38 : 0.28); // (the stance)
+    return 0;
   }
 
   // The backward shuffle's legs (knees bent, short steps reaching back) at step phase ph;
@@ -2532,6 +2589,8 @@ export class Streetball {
     const Y = this.you;
     p.showWeapon('fists');
     c.legL.rotation.z = c.legR.rotation.z = 0;
+    c.armL.rotation.z = c.armR.rotation.z = 0;
+    c.group.rotation.z = 0;
     c.group.rotation.x = 0;
     Y.armsT = Math.max(0, (Y.armsT || 0) - dt);
     if (Y.fallT > 0) {
@@ -2549,6 +2608,13 @@ export class Streetball {
       c.group.position.y += this.dunkHeight();
       return;
     }
+    if (Y.holdH && Y.holdH.t > 0) {
+      Y.holdH.t -= dt;
+      if (Y.stickIdle && this.has === 'you') {
+        p.heading = Y.holdH.h;
+        c.group.rotation.y = p.heading;
+      }
+    }
     // Squaring back up after a crossover (the left stick left alone).
     if (Y.squareT > 0) {
       Y.squareT -= dt;
@@ -2557,8 +2623,6 @@ export class Streetball {
         c.group.rotation.y = p.heading;
       }
     }
-    // A quick hesitation: a dip on the spot.
-    if (Y.move?.kind === 'hesi' && !Y.move.big && this.has === 'you') c.group.position.y += crouchPose(c, 0.35 * Math.sin(Math.PI * Math.min(1, Y.move.t / Y.move.T)));
     // A step-back or a back-pedal: going back, still facing the basket.
     if ((Y.move?.kind === 'step' || (Y.squareUp && !this.shot)) && this.has === 'you') {
       p.heading = Math.atan2(this.rim.x - p.x, this.rim.z - p.z);
@@ -2589,19 +2653,21 @@ export class Streetball {
       } else {
         const arm = (this.ballSide ?? Y.hand) < 0 ? c.armL : c.armR; // (the hand with the ball)
         arm.rotation.x = this.behindK ? 0.9 * this.behindK : -0.5 - Math.abs(Math.cos(this.dribble || 0)) * 0.35;
-        // (between the legs: feet apart, down a little)
-        c.legL.rotation.z = 0.3 * (this.legsK || 0);
-        c.legR.rotation.z = -0.3 * (this.legsK || 0);
-        if (this.legsK) c.group.position.y += crouchPose(c, 0.3 * this.legsK);
         // Back-pedaling: a low shuffle backward, short steps, each foot reaching back.
-        if (Y.backpedal && p.speed > 0.3 && !this.legsK) {
+        if (Y.backpedal && p.speed > 0.3) {
           Y.bpPhase = (Y.bpPhase || 0) + dt * (4 + p.speed * 2.2);
           c.group.position.y += this.shuffleLegs(c, Y.bpPhase);
           const free = (this.ballSide ?? Y.hand) < 0 ? c.armR : c.armL; // (the other arm out, for balance)
           free.rotation.x = -0.6;
+        } else {
+          // The stance and the moves' footwork (the same for him).
+          if (Y.move && SHUFFLES.has(Y.move.kind)) {
+            p.heading = Y.move.h0; // (no turning: you shuffle out, facing the same way)
+            c.group.rotation.y = p.heading;
+          }
+          c.group.position.y += this.dribblePose(c, p.heading, Y.move, p.speed, this.ballSide ?? Y.hand, Y.sizeUp);
         }
       }
-      if (Y.sizeUp) c.group.position.y += crouchPose(c, 0.35);
     } else if (Y.jumpT > 0) c.armL.rotation.x = c.armR.rotation.x = -2.8;
     else if (Y.armsT > 0) c.armR.rotation.x = -1.6;
     else if (this.has === 'opp') c.armL.rotation.x = c.armR.rotation.x = -1.0;
