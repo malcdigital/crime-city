@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { dist, rand, pick, lerpAngle, clamp } from './util.js';
+import { dist, rand, pick, lerpAngle, clamp, wrapAngle } from './util.js';
 import { crouchPose } from './character.js';
 import { ballMesh } from './court.js';
 
@@ -81,14 +81,21 @@ export class Streetball {
       const C = H.site.court;
       const P = H.site.pad;
       const alongZ = C.z1 - C.z0 > C.x1 - C.x0;
+      // (a random 3 to 6 of them, anywhere along either sideline)
       const spots = [];
-      if (alongZ) {
-        const L = C.z1 - C.z0;
-        for (const [x, f] of [[(C.x0 + P.x0) / 2, 0.3], [(C.x0 + P.x0) / 2 + 0.4, 0.62], [(C.x1 + P.x1) / 2, 0.42], [(C.x1 + P.x1) / 2 - 0.3, 0.8]]) spots.push([x, C.z0 + L * f]);
-      } else {
-        const L = C.x1 - C.x0;
-        for (const [z, f] of [[(C.z0 + P.z0) / 2, 0.3], [(C.z0 + P.z0) / 2 + 0.4, 0.62], [(C.z1 + P.z1) / 2, 0.42], [(C.z1 + P.z1) / 2 - 0.3, 0.8]]) spots.push([C.x0 + L * f, z]);
+      for (const f of [0.15, 0.3, 0.45, 0.6, 0.75, 0.88]) {
+        for (const side of [0, 1]) {
+          const j = rand(-0.03, 0.03);
+          const off = rand(-0.5, 0.5);
+          if (alongZ) spots.push([side ? (C.x1 + P.x1) / 2 + off : (C.x0 + P.x0) / 2 + off, C.z0 + (C.z1 - C.z0) * (f + j)]);
+          else spots.push([C.x0 + (C.x1 - C.x0) * (f + j), side ? (C.z1 + P.z1) / 2 + off : (C.z0 + P.z0) / 2 + off]);
+        }
       }
+      for (let i = spots.length - 1; i > 0; i--) {
+        const k = Math.floor(Math.random() * (i + 1));
+        [spots[i], spots[k]] = [spots[k], spots[i]];
+      }
+      spots.length = 3 + Math.floor(Math.random() * 4);
       for (const [x, z] of spots) {
         const mesh = ballMesh();
         mesh.position.set(x, 0.18, z);
@@ -522,7 +529,8 @@ export class Streetball {
     const rim = this.rim;
     const dR = dist(q.x, q.z, rim.x, rim.z);
     if (dR < 8.5 && Math.random() < 0.5) {
-      // Puts it up himself (you rebound it).
+      // Puts it up himself (you rebound it), squared up to the rim.
+      q.heading = Math.atan2(rim.x - q.x, rim.z - q.z);
       const make = Math.random() < this.base(dR) * 0.8;
       const miss = make ? 0 : rand(0.22, 0.4);
       const ang = rand(0, Math.PI * 2);
@@ -766,12 +774,24 @@ export class Streetball {
     const Y = this.you;
     const M = MOVES[kind];
     if (!M || this.shot) return;
-    if (!side) side = kind === 'cross' || kind === 'behind' || kind === 'spin' ? -Y.hand || 1 : 0;
+    // (Y.hand: the hand the ball's in, 1 right, -1 left. The moves that switch hands take it to
+    // the side you're going: a crossover to the right ends in your right hand.)
+    const p = this.game.player;
+    const rx = -Math.cos(p.heading);
+    const rz = Math.sin(p.heading);
+    const D = this.dirs(...p.pos());
+    const switches = kind === 'cross' || kind === 'behind' || kind === 'spin';
+    if (switches && !side) {
+      // (no way given: the other hand, whichever way that is on screen)
+      side = Math.sign((rx * D.sx + rz * D.sz) * -Y.hand) || 1;
+    }
     const chain = this.clock - Y.lastMoveEnd < 0.7;
     Y.combo = chain ? Math.min(3, Y.combo + 1) : 0;
-    Y.move = { kind, side, t: 0, T: M.T * (1.15 - 0.15 * Y.st) };
+    const from = Y.hand;
+    const to = switches ? Math.sign((D.sx * side) * rx + (D.sz * side) * rz) || -Y.hand : Y.hand;
+    Y.move = { kind, side, t: 0, T: M.T * (1.15 - 0.15 * Y.st), from, to };
     Y.st = Math.max(0, Y.st - 0.04);
-    if (side) Y.hand = side;
+    Y.hand = to;
     Y.sizeUp = false;
     this.react(kind, Y.combo, Y.rhythm);
     Y.rhythm = 0;
@@ -866,7 +886,13 @@ export class Streetball {
     else if (D.d < 5.8 && sprint && toward) type = 'floater';
     const stepback = Y.move?.kind === 'step' || (Y.lastMove === 'step' && this.clock - Y.lastMoveEnd < 0.5);
     Y.move = null;
-    this.shot = { type, t: 0, T: SHOTS[type].T, W: SHOTS[type].W, d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false };
+    // Square up: a small turn happens on the way up; facing away (over ~70°) you pivot on your
+    // foot first, which takes a moment (half a turn ~0.35 s), and the meter waits for it.
+    const off = Math.abs(wrapAngle(Math.atan2(D.ux, D.uz) - p.heading));
+    const pivot = off > 1.2;
+    const turnT = pivot ? off / 9 : 0;
+    this.shot = { type, t: 0, T: SHOTS[type].T + turnT, W: SHOTS[type].W, d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false, pivot, turnT };
+    if (pivot) game.hud.toast('Pivot', '#9fc3ff');
     Y.jumpT = type === 'jumper' ? 0 : 0.5; // (a jumper jumps when it's let go... the layups go up now)
     Y.st = Math.max(0, Y.st - 0.02);
     // He closes out.
@@ -877,6 +903,13 @@ export class Streetball {
     const s = this.shot;
     s.t += dt;
     a.moveX = a.moveY = 0;
+    // Turning to the basket: pivoting on the floor first if he's facing away, then in the air.
+    const p = this.game.player;
+    const [px, pz] = p.pos();
+    const want = Math.atan2(this.rim.x - px, this.rim.z - pz);
+    const d = wrapAngle(want - p.heading);
+    const rate = s.t < s.turnT ? 9 : 14;
+    p.heading += Math.sign(d) * Math.min(Math.abs(d), rate * dt);
     a.bSprint = false;
     // Euro step: a Pro Stick move during the layup gather.
     if (s.type === 'layup' && stick && !s.euro && s.t < 0.3) {
@@ -922,6 +955,7 @@ export class Streetball {
     if (s.type === 'jumper' && s.sprint) w *= 0.6;
     else if (s.type === 'jumper' && s.onRun) w *= 0.85;
     if (s.stepback) w *= 0.9;
+    if (s.pivot) w *= 0.85; // (a turnaround's harder)
     if (this.you.st < 0.4) w *= 0.75;
     if (game.input.touchMode) w *= 1.4;
     return { w, lv };
@@ -1202,14 +1236,14 @@ export class Streetball {
       } else {
         // (the hand it's in: a crossover takes it across in front)
         let side = Y.hand;
-        if (Y.move && Y.move.side) {
+        if (Y.move && Y.move.from !== Y.move.to) {
           const k = Math.min(1, Y.move.t / (Y.move.T * 0.6));
-          side = -Y.move.side + 2 * Y.move.side * k;
+          side = Y.move.from + (Y.move.to - Y.move.from) * k;
         }
-        const rx = -fz;
-        const rz = fx;
-        b.x = px + fx * 0.4 - rx * 0.32 * side;
-        b.z = pz + fz * 0.4 - rz * 0.32 * side;
+        this.ballSide = side;
+        // (your right: (-fz, fx))
+        b.x = px + fx * 0.4 - fz * 0.32 * side;
+        b.z = pz + fz * 0.4 + fx * 0.32 * side;
         b.y = 0.18 + Math.abs(Math.sin(this.dribble)) * (Y.sizeUp ? 0.55 : 0.8);
       }
     } else if (this.has === 'opp') {
@@ -1224,9 +1258,12 @@ export class Streetball {
         b.y = 1.2 + up + (hp.jump || 0);
       } else {
         hp.dribble = (hp.dribble || 0) + dt * 9;
-        const side = hp.state === 'move' && hp.mv?.side ? hp.mv.side : 1;
-        b.x = opp.x + fx * 0.4 + fz * 0.3 * side;
-        b.z = opp.z + fz * 0.4 - fx * 0.3 * side;
+        hp.hand = hp.hand || 1;
+        let side = hp.hand;
+        if (hp.state === 'move' && hp.mv && hp.mv.from !== hp.mv.to) side = hp.mv.from + (hp.mv.to - hp.mv.from) * Math.min(1, hp.t / (hp.mv.T * 0.6));
+        hp.ballSide = side;
+        b.x = opp.x + fx * 0.4 - fz * 0.3 * side;
+        b.z = opp.z + fz * 0.4 + fx * 0.3 * side;
         b.y = 0.18 + Math.abs(Math.sin(hp.dribble)) * 0.8;
       }
     }
@@ -1549,7 +1586,19 @@ export class Streetball {
     hp.state = 'move';
     hp.t = 0;
     const M = MOVES[kind];
-    hp.mv = { kind, side: Math.random() < 0.5 ? -1 : 1, T: M.T, beat: false };
+    hp.hand = hp.hand || 1;
+    const switches = kind === 'cross' || kind === 'behind' || kind === 'spin';
+    // (the moves that switch hands go toward the new hand's side: right hand, his right)
+    const to = switches ? -hp.hand : hp.hand;
+    const ux = (this.rim.x - p.x) || 1e-6;
+    const uz = this.rim.z - p.z;
+    const ul = Math.hypot(ux, uz) || 1;
+    // (offense() moves him along (-uz, ux) * side: match it to his right hand when to = 1)
+    const rx = -Math.cos(p.heading);
+    const rz = Math.sin(p.heading);
+    const sideFor = Math.sign(((-uz / ul) * rx + (ux / ul) * rz) * to) || 1;
+    hp.mv = { kind, side: switches ? sideFor : Math.random() < 0.5 ? -1 : 1, T: M.T, beat: false, from: hp.hand, to };
+    hp.hand = to;
     hp.st = Math.max(0, hp.st - 0.04);
     if (kind === 'step') return { speed: 0 };
     // Does it beat you? Less if you're in intense D, more if you're tired.
@@ -1572,6 +1621,9 @@ export class Streetball {
     hp.shot = type;
     hp.t = 0;
     hp.rel = type === 'jumper' ? 0.32 : type === 'dunk' ? 0.35 : 0.28;
+    // (squaring up first: a pivot if he's facing away)
+    const off = Math.abs(wrapAngle(Math.atan2(this.rim.x - p.x, this.rim.z - p.z) - p.heading));
+    hp.rel += Math.max(0, off - 0.4) / 9;
     hp.stepback = stepback;
     hp.jumpT = 0;
     return { speed: 0 };
@@ -1582,6 +1634,7 @@ export class Streetball {
     const game = this.game;
     const [px, pz] = game.player.pos();
     const Y = this.you;
+    p.heading = Math.atan2(this.rim.x - p.x, this.rim.z - p.z); // (square to the rim at the release)
     const lv = this.openness(p.x, p.z, px, pz, Y.beatT > 0.2 || Y.fallT > 0, Y.jumpT > 0);
     const d = dist(p.x, p.z, this.rim.x, this.rim.z);
     const r = this.r;
@@ -1614,7 +1667,7 @@ export class Streetball {
     }
     if (p === this.opp && this.has === 'opp') {
       if (hp.state === 'shoot') c.armL.rotation.x = c.armR.rotation.x = -1.4 - Math.min(1, hp.t / Math.max(0.1, hp.rel)) * 1.5;
-      else c.armR.rotation.x = -0.5 - Math.abs(Math.cos(hp.dribble || 0)) * 0.35;
+      else (hp.ballSide < 0 ? c.armL : c.armR).rotation.x = -0.5 - Math.abs(Math.cos(hp.dribble || 0)) * 0.35; // (the hand with the ball)
     } else if (p === this.opp) {
       // Hands up on defense; a swipe; up for a contest or a rebound.
       c.armL.rotation.x = c.armR.rotation.x = hp.jumpT > 0 ? -2.8 : hp.armsT > 0 ? -1.6 : -1.0;
@@ -1647,7 +1700,8 @@ export class Streetball {
       if (this.shot) {
         const k = Math.min(1, this.shot.t / this.shot.T);
         c.armL.rotation.x = c.armR.rotation.x = -1.4 - k * 1.4;
-      } else c.armR.rotation.x = -0.5 - Math.abs(Math.cos(this.dribble || 0)) * 0.35;
+        c.group.rotation.y = p.heading; // (squaring up to the basket)
+      } else ((this.ballSide ?? Y.hand) < 0 ? c.armL : c.armR).rotation.x = -0.5 - Math.abs(Math.cos(this.dribble || 0)) * 0.35; // (the hand with the ball)
       if (Y.sizeUp) c.group.position.y += crouchPose(c, 0.35);
     } else if (Y.jumpT > 0) c.armL.rotation.x = c.armR.rotation.x = -2.8;
     else if (Y.armsT > 0) c.armR.rotation.x = -1.6;
