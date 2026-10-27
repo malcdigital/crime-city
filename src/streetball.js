@@ -4,6 +4,8 @@ import { crouchPose } from './character.js';
 import { ballMesh } from './court.js';
 import { CFG } from './config.js';
 
+const px0 = (p) => p.pos()[0];
+const pz0 = (p) => p.pos()[1];
 const SHOT_NAMES = { jumper: 'Jump shot', layup: 'Layup', floater: 'Floater', dunk: 'Dunk' };
 
 // One-on-one at a basketball court against one of the people shooting there (hoops.js),
@@ -650,7 +652,10 @@ export class Streetball {
     // On the controller the right stick is the Pro Stick: the camera looks down the court.
     if (game.input.mode === 'pad' && !game.input.touchMode) {
       a.lookX = a.lookY = 0;
-      const want = Math.atan2(-this.rim.dx, -this.rim.dz); // (down the court at the basket)
+      // (at the basket from wherever you are: aimed at a spot just behind the rim, so from the top
+      // of the key it's straight down the court and from a corner it still has the hoop in view)
+      const [qx, qz] = game.player.pos();
+      const want = Math.atan2(this.rim.x - this.rim.dx * 1.5 - qx, this.rim.z - this.rim.dz * 1.5 - qz);
       game.camYaw = lerpAngle(game.camYaw, want, Math.min(1, dt * 2.5));
     }
     // Checking it up: nobody moves.
@@ -700,10 +705,16 @@ export class Streetball {
     }
     Y.intense = false;
     hp.boxed = false;
+    // (how you've been moving lately: for telling a drive to the rim)
+    Y.vx = (Y.vx || 0) + ((p.vx || 0) - (Y.vx || 0)) * Math.min(1, dt * 8);
+    Y.vz = (Y.vz || 0) + ((p.vz || 0) - (Y.vz || 0)) * Math.min(1, dt * 8);
+    this.approaching = false;
     // ---- Offense ----
     if (this.has === 'you' && b.mode === 'held') {
-      if (this.shot) this.shooting(dt, a, shootHeld, stick);
-      else {
+      if (this.shot) {
+        this.shooting(dt, a, shootHeld, stick);
+        if (this.approaching) sprint = true;
+      } else {
         // A dribble move (Pro Stick) or a size-up.
         if (stick && !Y.move) this.startMove(stick.kind, stick.side);
         Y.sizeUp = !!a.bSizeUp || this.psHoldUp;
@@ -716,6 +727,7 @@ export class Streetball {
           sprint = true; // (a move's a burst)
         }
         // Keep it in the outside hand, away from trouble.
+        // (the steps into a layup or dunk are a run)
         if (!Y.move && !Y.sizeUp) this.protect(dt);
         // The shot (on the press).
         if (shootHeld && !this.prevShoot && !this.shot) this.startShot(a, sprint, moving, D);
@@ -899,11 +911,17 @@ export class Streetball {
     const Y = this.you;
     const game = this.game;
     const p = game.player;
-    const toward = moving && (p.moveX * D.ux + p.moveZ * D.uz) > 0.5 && p.speed > 2.5;
+    // Driving at the rim: how fast you've actually been going its way (the last ~0.2 s).
+    const toward = Y.vx * D.ux + Y.vz * D.uz > 2.2;
+    // The left stick right now, on the court: pulled back away from the rim = a floater.
+    const yaw = game.camYaw;
+    const sx = Math.sin(yaw) * a.moveY - Math.cos(yaw) * a.moveX;
+    const sz = Math.cos(yaw) * a.moveY + Math.sin(yaw) * a.moveX;
+    const pullBack = Math.hypot(sx, sz) > 0.4 && (sx * D.ux + sz * D.uz) / Math.hypot(sx, sz) < -0.4;
     let type = 'jumper';
-    if (D.d < 2.4 && sprint && toward) type = 'dunk';
-    else if (D.d < 3.6 && toward) type = 'layup';
-    else if (D.d < 5.8 && sprint && toward) type = 'floater';
+    if (toward && pullBack && D.d > 1.5 && D.d < 6.5) type = 'floater';
+    else if (D.d <= 3 && sprint && toward) type = 'dunk';
+    else if (D.d <= 4 && toward) type = 'layup';
     const stepback = Y.move?.kind === 'step' || (Y.lastMove === 'step' && this.clock - Y.lastMoveEnd < 0.5);
     Y.move = null;
     // Square up: a small turn happens on the way up; facing away (over ~70°) you pivot on your
@@ -912,13 +930,24 @@ export class Streetball {
     const pivot = off > 1.2;
     const turnT = pivot ? off / 9 : 0;
     this.shot = { type, t: 0, T: SHOTS[type].T + turnT, W: SHOTS[type].W, d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false, pivot, turnT };
+    // Layups and dunks: the gather, then the steps (the gather doesn't count as one: two are
+    // allowed), then up off the last one. A layup goes up off the foot opposite the shooting
+    // hand. A dunk from close in is a jump stop (both feet), from 1-2 m one step, beyond that two.
+    let how = '';
+    if (type === 'layup' || type === 'dunk') {
+      const steps = type === 'layup' ? 2 : D.d > 2 ? 2 : D.d > 1 ? 1 : 0;
+      const T = steps ? 0.14 + steps * 0.17 : 0.15; // (gather + steps, or the jump stop)
+      // (where you go up from: about a meter out for a layup, 1.3 m for a dunk, or right here)
+      const out = type === 'layup' ? 1.1 : 1.3;
+      const go = steps ? Math.max(0, D.d - out) : 0;
+      this.shot.approach = { T, steps, tx: px0(p) + D.ux * go, tz: pz0(p) + D.uz * go };
+      how = steps ? ` (gather + ${steps} step${steps > 1 ? 's' : ''})` : ' (jump stop)';
+      if (type === 'layup') this.shot.T = T + 0.3; // (then up: the top of the jump is the release)
+      else this.shot.T = T + 0.55;
+    }
     Y.jumpT = 0;
     Y.fall = null; // (the jump's timed to the shot: the top of it is the perfect release)
-    if (CFG.SHOT_TYPE_DEBUG) game.hud.toast(`[test] ${SHOT_NAMES[type]}${stepback ? ' (step-back)' : ''}${pivot ? ' (turnaround)' : ''}`, '#c9a7ff');
-    if (type === 'dunk') {
-      this.shot.T = 0.55;
-      this.startDunk(0);
-    }
+    if (CFG.SHOT_TYPE_DEBUG) game.hud.toast(`[test] ${SHOT_NAMES[type]}${how}${stepback ? ' (step-back)' : ''}${pivot ? ' (turnaround)' : ''}`, '#c9a7ff');
     Y.st = Math.max(0, Y.st - 0.02);
     // He closes out.
     this.opp.hp.closeT = 1;
@@ -928,6 +957,32 @@ export class Streetball {
     const s = this.shot;
     s.t += dt;
     a.moveX = a.moveY = 0;
+    // The gather and the steps: you carry on to where you go up from, at the pace that gets you
+    // there in time. Then the dunk takes over from the takeoff.
+    const A = s.approach;
+    if (A && !this.you.dunk) {
+      const p = this.game.player;
+      const [px, pz] = p.pos();
+      if (s.t < A.T) {
+        const r = dist(px, pz, A.tx, A.tz);
+        if (r > 0.05) {
+          const v = Math.min(8, r / Math.max(0.04, A.T - s.t));
+          const wx = (A.tx - px) / r;
+          const wz = (A.tz - pz) / r;
+          const yaw = this.game.camYaw;
+          const fx = Math.sin(yaw);
+          const fz = Math.cos(yaw);
+          const len = Math.min(1, v / 7.5);
+          a.moveY = (wx * fx + wz * fz) * len;
+          a.moveX = (wx * -fz + wz * fx) * len;
+          this.approaching = true;
+        }
+      } else if (s.type === 'dunk') {
+        // Up: from here to the rim.
+        this.startDunk(0);
+        this.you.dunk.rise = s.T - s.t;
+      }
+    }
     // Turning to the basket: pivoting on the floor first if he's facing away, then in the air.
     const p = this.game.player;
     const [px, pz] = p.pos();
@@ -957,7 +1012,7 @@ export class Streetball {
   // at the perfect release, then coming down if you're still holding it.
   shotHeight(s) {
     const H = s.type === 'jumper' ? 0.45 : 0.55;
-    const g0 = s.turnT + 0.08;
+    const g0 = s.approach ? s.approach.T : s.turnT + 0.08;
     if (s.t < g0) return 0;
     const up = s.T - g0;
     const k = (s.t - g0) / Math.max(0.05, up);
@@ -1542,7 +1597,7 @@ export class Streetball {
     const at = { mx: ((v.x + 1) / 2) * W, my: ((1 - v.y) / 2) * H };
     v.set(px, 0.02, pz).project(cam);
     at.ex = ((v.x + 1) / 2) * W;
-    at.ey = ((1 - v.y) / 2) * H + 6;
+    at.ey = ((1 - v.y) / 2) * H + 18; // (a little below his feet)
     game.hud.sportFloat(at, meter, this.you.st);
   }
 
@@ -1981,7 +2036,10 @@ export class Streetball {
     else if (Y.armsT > 0) c.armR.rotation.x = -1.6;
     else if (this.has === 'opp') c.armL.rotation.x = c.armR.rotation.x = -1.0;
     // Off the floor: the shot's own jump, coming down after it, or a block / rebound jump.
-    if (this.shot && this.shot.type !== 'dunk' && this.has === 'you') {
+    if (this.shot && this.shot.approach && this.shot.t < this.shot.approach.T && this.has === 'you') {
+      // (gathered: ball at the chest, two hands, on the run)
+      c.armL.rotation.x = c.armR.rotation.x = -1.3;
+    } else if (this.shot && this.shot.type !== 'dunk' && this.has === 'you') {
       const s = this.shot;
       const h = this.shotHeight(s);
       c.group.position.y += h > 0 ? h : s.t > s.turnT ? crouchPose(c, 0.3) : 0; // (the gather: a dip, then up)

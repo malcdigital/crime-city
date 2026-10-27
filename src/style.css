@@ -33,7 +33,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #shot-meter .sweet { position: absolute; left: 0; right: 0; background: rgba(126,224,129,.5); border-top: 1px solid #7ee081; border-bottom: 1px solid #7ee081; }
 #shot-meter .fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: #ffd23f; }
 #shot-meter .fill.good { background: #7ee081; }
-#energy-float { position: fixed; z-index: 6; width: 54px; height: 5px; transform: translate(-50%, 0); background: rgba(0,0,0,.55); border-radius: 3px; overflow: hidden; pointer-events: none; }
+#energy-float { position: fixed; z-index: 6; width: 70px; height: 5px; transform: translate(-50%, 0); background: rgba(0,0,0,.55); border-radius: 3px; overflow: hidden; pointer-events: none; }
 #energy-float .ef { height: 100%; width: 100%; background: #4fc3f7; }
 #energy-float .ef.low { background: #ff8a65; }
 #shot-meter.hidden, #energy-float.hidden { display: none; }
