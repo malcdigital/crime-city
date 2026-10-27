@@ -93,6 +93,11 @@ function handoff(kind, from, to, k) {
   if (kind === 'behind') return [s, 0.4 - 0.78 * m, 0.25 + low + m * 0.4];
   return [s, 0.42 + 0.06 * m, 0.18 + low];
 }
+// Ball handling (55-99), yours and his: how far the dribble moves carry (a 60 handle goes about
+// 70% as far as a 90) and how well they work (beating a man, keeping the ball).
+const handleDist = (h) => clamp(0.7 + (h - 60) / 100, 0.6, 1.1);
+const handleEff = (h) => clamp(0.6 + (h - 60) / 75, 0.5, 1.15);
+const HANDLE_KEY = 'crimecity.handle.v1';
 const OPEN = ['Wide Open', 'Open', 'Contested', 'Heavily Contested'];
 const OPEN_WINDOW = [1, 1, 0.7, 0.45]; // (green window)
 const OPEN_MAKE = [1.08, 1, 0.75, 0.45]; // (a white release's chance)
@@ -105,6 +110,25 @@ export class Streetball {
     this.toI = 0;
     this.shot = null;
     this.spares = this.placeSpares();
+    // Your ball handling: starts at 72, grows as your moves beat people (saved).
+    this.handle = 72;
+    try {
+      const v = Number(localStorage.getItem(HANDLE_KEY));
+      if (v >= 55 && v <= 99) this.handle = v;
+    } catch {
+      // (storage unavailable)
+    }
+  }
+
+  gainHandle(x) {
+    const before = Math.floor(this.handle);
+    this.handle = Math.min(99, this.handle + x);
+    if (Math.floor(this.handle) > before) this.game.hud.toast(`Ball handling up: ${Math.floor(this.handle)}`, '#7ee081');
+    try {
+      localStorage.setItem(HANDLE_KEY, String(this.handle));
+    } catch {
+      // (storage unavailable)
+    }
   }
 
   // Spare balls lying around each court: along both sidelines, between the lines and the fence.
@@ -261,9 +285,10 @@ export class Streetball {
     hp.lagT = 0;
     hp.combo = 0;
     hp.style = pick(['slasher', 'shooter', 'balanced']);
+    hp.handle = Math.round(clamp(this.r + (hp.style === 'slasher' ? 5 : hp.style === 'shooter' ? -3 : 0) + rand(-6, 6), 55, 99));
     this.solo = false;
     this.checkup(Math.random() < 0.5 ? 'you' : 'opp');
-    game.hud.toast(`One-on-one with ${opp.ballName} (${this.r} OVR)${bet ? ` · $${bet} on it` : ''}. First to ${to}`, '#ffd23f');
+    game.hud.toast(`One-on-one with ${opp.ballName} (${this.r} OVR, handle ${hp.handle} vs your ${Math.floor(this.handle)})${bet ? ` · $${bet} on it` : ''}. First to ${to}`, '#ffd23f');
   }
 
   // ---- Shooting around on your own ----
@@ -1076,18 +1101,20 @@ export class Streetball {
       return;
     }
     // Into him, the risky ones can get picked.
-    if (M.risk && d < 1.0 && Math.random() < M.risk * (this.r / 75)) {
+    if (M.risk && d < 1.0 && Math.random() < M.risk * (this.r / 75) * (1.4 - this.handle / 100)) {
       game.hud.toast(`${opp.ballName} picked your pocket`, '#ff8080');
       this.give('opp');
       this.cleared = false;
       this.lastShooter = 'you';
       return;
     }
-    const p = (M.beat * (big ? 1 : 0.6) + combo * 0.1 + rhythm) * def * (0.6 + 0.4 * this.you.st) * (0.8 + 0.2 * (1 - hp.st)); // (the quick ones beat him less on their own, more in a chain)
+    const p = (M.beat * (big ? 1 : 0.6) + combo * 0.1 + rhythm) * def * handleEff(this.handle) * (0.6 + 0.4 * this.you.st) * (0.8 + 0.2 * (1 - hp.st)); // (the quick ones beat him less on their own, more in a chain)
     if (Math.random() < p) {
       const already = hp.beatT > 0;
       hp.beatT = 0.75;
+      this.gainHandle(0.25);
       if ((combo >= 1 || rhythm >= 0.15 || already) && Math.random() < 0.3) {
+        this.gainHandle(0.5);
         hp.fallT = 1.2;
         game.hud.toast(`ANKLE BREAKER! ${opp.ballName}'s on the floor`, '#7ee081');
         for (const q of this.g.players) if (q.hp.role === 'watch') q.hp.cheerT = 1.2;
@@ -1111,7 +1138,7 @@ export class Streetball {
       // (quick crossover: just a little step to that side, right where you are)
       wx = D.sx * s;
       wz = D.sz * s;
-      mag = 0.35;
+      mag = 0.35 * handleDist(this.handle);
     } else if (!mv.big && mv.kind === 'hesi') {
       // (quick hesitation: a hitch on the spot)
     } else if (mv.kind === 'cross' || mv.kind === 'behind' || mv.kind === 'legs') {
@@ -1135,6 +1162,7 @@ export class Streetball {
       // (world direction -> stick, camera-relative)
       const fx = Math.sin(game.camYaw);
       const fz = Math.cos(game.camYaw);
+      if (mv.big || (mv.kind !== 'cross' && mv.kind !== 'hesi')) mag = Math.min(1, handleDist(this.handle)); // (how far it carries: your handle)
       a.moveY = ((wx * fx + wz * fz) / L) * mag;
       a.moveX = ((wx * -fz + wz * fx) / L) * mag;
       a.bSprint = mv.big;
@@ -1879,7 +1907,7 @@ export class Streetball {
       else if (this.fetch) hint = 'He\'s getting it for you';
       else if (this.g.ball.mode === 'loose' && dist(...game.player.pos(), this.g.ball.x, this.g.ball.z) > 7) hint = `Go get it, grab another ball, or ${pk} get somebody to fetch it · ${put}`;
       else hint = this.has === 'you' ? (this.shot ? 'Let go in the green' : `${K.shoot} shoot · ${pk} pass (hold to pick who) · ${K.d} hold: face up · ${K.block} off the glass · moves: ${K.moves} · ${put}`) : `Go get it · ${put}`;
-      game.hud.sport?.(`SHOOTAROUND · ${S.made}/${S.att}${pct} · streak ${S.streak} (best ${S.best})`, null, hint, null);
+      game.hud.sport?.(`SHOOTAROUND · ${S.made}/${S.att}${pct} · streak ${S.streak} (best ${S.best}) · handle ${Math.floor(this.handle)}`, null, hint, null);
       this.floatHud(meter);
       return;
     }
@@ -2119,14 +2147,22 @@ export class Streetball {
       const uz = (rim.z - p.z) / (dR || 1);
       let tx = p.x;
       let tz = p.z;
+      const dk = handleDist(hp.handle || this.r); // (how far it carries: his handle)
+      let quick = 0;
       if (mv.kind === 'step') {
         tx -= ux * 3;
         tz -= uz * 3;
+      } else if (mv.kind === 'hesi' && !mv.big) {
+        quick = -1; // (a hitch on the spot)
       } else if (mv.kind === 'hesi') {
         if (hp.t > 0.2) {
           tx += ux * 3;
           tz += uz * 3;
         }
+      } else if (mv.kind === 'cross' && !mv.big) {
+        tx += -uz * mv.side * 2;
+        tz += ux * mv.side * 2;
+        quick = 1; // (a little step to that side)
       } else {
         tx += (-uz * mv.side * 0.85 + ux * 0.5) * 3;
         tz += (ux * mv.side * 0.85 + uz * 0.5) * 3;
@@ -2137,17 +2173,23 @@ export class Streetball {
         if (mv.beat) return this.goDrive(hp);
         hp.state = 'read';
         hp.t = 0;
-        hp.next = rand(0.15, 0.4);
+        // (the quick ones come in bunches)
+        hp.next = !mv.big && Math.random() < 0.5 ? 0.05 : rand(0.15, 0.4);
         return { speed: 0 };
+      }
+      if (quick === -1) return { speed: 0 };
+      if (quick === 1) {
+        [tx, tz] = this.onCourt(tx, tz);
+        return { tx, tz, speed: 1.5 * dk };
       }
       [tx, tz] = this.onCourt(tx, tz);
       if (mv.kind === 'step') {
         // A push off and a little hop back: quick out, settling as he lands.
         const k = Math.min(1, hp.t / mv.T);
         hp.jump = 0.14 * Math.sin(Math.PI * k);
-        return { tx, tz, speed: 7.5 * (1 - 0.75 * k) * tired };
+        return { tx, tz, speed: 7.5 * (1 - 0.75 * k) * tired * dk };
       }
-      return { tx, tz, speed: 6.5 * tired };
+      return { tx, tz, speed: 7.5 * tired * dk }; // (the same burst speed as yours)
     }
     if (hp.state === 'drive') {
       // Close enough to finish: a layup from 5 m, a dunk from 3.8 m (he makes up his mind at 5).
@@ -2294,7 +2336,11 @@ export class Streetball {
 
   goMove(p, hp) {
     const game = this.game;
-    const kind = pick(hp.style === 'shooter' ? ['step', 'step', 'hesi', 'cross'] : ['cross', 'behind', 'spin', 'hesi', 'step', 'legs']);
+    let kind = pick(hp.style === 'shooter' ? ['step', 'step', 'hesi', 'cross', 'cross'] : ['cross', 'cross', 'behind', 'spin', 'hesi', 'step', 'legs']);
+    // (like yours: a crossover toward the hand that's got it is a hesitation; the crossover and
+    // hesitation are quick little ones or, like you holding R2, the big burst versions)
+    if (kind === 'cross' && Math.random() < 0.2) kind = 'hesi';
+    const big = kind !== 'cross' && kind !== 'hesi' ? true : Math.random() < (hp.style === 'slasher' ? 0.6 : hp.style === 'shooter' ? 0.3 : 0.45);
     const chain = this.clock - (hp.lastMoveEnd ?? -9) < 0.8;
     hp.combo = chain ? Math.min(3, hp.combo + 1) : 0;
     hp.state = 'move';
@@ -2311,13 +2357,14 @@ export class Streetball {
     const rx = -Math.cos(p.heading);
     const rz = Math.sin(p.heading);
     const sideFor = Math.sign(((-uz / ul) * rx + (ux / ul) * rz) * to) || 1;
-    hp.mv = { kind, side: switches ? sideFor : Math.random() < 0.5 ? -1 : 1, T: M.T, beat: false, from: hp.hand, to };
+    const T = big ? M.T : kind === 'cross' ? 0.2 : 0.28;
+    hp.mv = { kind, side: switches ? sideFor : Math.random() < 0.5 ? -1 : 1, T, beat: false, from: hp.hand, to, big };
     hp.hand = to;
     hp.st = Math.max(0, hp.st - 0.04);
     if (kind === 'step') return { speed: 0 };
     // Does it beat you? Less if you're in intense D, more if you're tired.
     const Y = this.you;
-    const pr = (M.beat + hp.combo * 0.1) * (this.r / 75) * (Y.intense ? 0.7 : 1) * (1.2 - 0.4 * Y.st);
+    const pr = (M.beat * (big ? 1 : 0.6) + hp.combo * 0.1) * handleEff(hp.handle || this.r) * (Y.intense ? 0.7 : 1) * (1.2 - 0.4 * Y.st);
     if (Math.random() < pr) {
       hp.mv.beat = true;
       Y.beatT = 0.7;
@@ -2459,6 +2506,7 @@ export class Streetball {
         c.legL.rotation.z = 0.3 * (hp.legsK || 0);
         c.legR.rotation.z = -0.3 * (hp.legsK || 0);
       }
+      if (hp.state === 'move' && hp.mv?.kind === 'hesi' && !hp.mv.big) return 0.06 + crouchPose(c, 0.35 * Math.sin(Math.PI * Math.min(1, hp.t / hp.mv.T))); // (his hitch: a dip)
     } else if (p === this.opp) {
       // Hands up on defense; a swipe; up for a contest or a rebound.
       c.armL.rotation.x = c.armR.rotation.x = hp.jumpT > 0 ? -2.8 : hp.armsT > 0 ? -1.6 : -1.0;
