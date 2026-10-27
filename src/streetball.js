@@ -1023,9 +1023,13 @@ export class Streetball {
       const [qx, qz] = game.player.pos();
       game.camYaw = lerpAngle(game.camYaw, Math.atan2(this.rim.x - this.rim.dx * 1.5 - qx, this.rim.z - this.rim.dz * 1.5 - qz), Math.min(1, dt * 5));
     }
-    // On the controller the right stick is the Pro Stick: the camera looks down the court.
-    if (game.input.mode === 'pad' && !game.input.touchMode) {
-      a.lookX = a.lookY = 0;
+    // On the controller the right stick is the Pro Stick: the camera looks down the court. On a
+    // phone the same (dragging to look still works: it goes back to the basket a moment after).
+    const touch = game.input.touchMode;
+    if (touch && (a.lookX || a.lookY)) this.camHold = 1.2;
+    else this.camHold = Math.max(0, (this.camHold || 0) - dt);
+    if (game.input.mode === 'pad' && (!touch || this.camHold <= 0)) {
+      if (!touch) a.lookX = a.lookY = 0;
       // (at the basket from wherever you are: aimed at a spot just behind the rim, so from the top
       // of the key it's straight down the court and from a corner it still has the hoop in view)
       const [qx, qz] = game.player.pos();
