@@ -69,6 +69,52 @@ export class Streetball {
     this.betI = 2;
     this.toI = 0;
     this.shot = null;
+    this.spares = this.placeSpares();
+  }
+
+  // Spare balls lying around each court: along both sidelines, between the lines and the fence.
+  // Walk up to one and pick it up to shoot around; put it down and it stays where you left it.
+  placeSpares() {
+    const list = [];
+    for (const H of this.game.hoops || []) {
+      const C = H.site.court;
+      const P = H.site.pad;
+      const alongZ = C.z1 - C.z0 > C.x1 - C.x0;
+      const spots = [];
+      if (alongZ) {
+        const L = C.z1 - C.z0;
+        for (const [x, f] of [[(C.x0 + P.x0) / 2, 0.3], [(C.x0 + P.x0) / 2 + 0.4, 0.62], [(C.x1 + P.x1) / 2, 0.42], [(C.x1 + P.x1) / 2 - 0.3, 0.8]]) spots.push([x, C.z0 + L * f]);
+      } else {
+        const L = C.x1 - C.x0;
+        for (const [z, f] of [[(C.z0 + P.z0) / 2, 0.3], [(C.z0 + P.z0) / 2 + 0.4, 0.62], [(C.z1 + P.z1) / 2, 0.42], [(C.z1 + P.z1) / 2 - 0.3, 0.8]]) spots.push([C.x0 + L * f, z]);
+      }
+      for (const [x, z] of spots) {
+        const mesh = ballMesh();
+        mesh.position.set(x, 0.18, z);
+        mesh.rotation.set(rand(0, 6), rand(0, 6), 0);
+        this.game.scene.add(mesh);
+        list.push({ H, mesh, home: [x, z] });
+      }
+    }
+    return list;
+  }
+
+  nearSpare() {
+    const [px, pz] = this.game.player.pos();
+    let best = null;
+    for (const sp of this.spares) {
+      if (!sp.mesh.visible) continue;
+      const d = dist(px, pz, sp.mesh.position.x, sp.mesh.position.z);
+      if (d < 1.6 && (!best || d < best.d)) best = { sp, d };
+    }
+    return best?.sp || null;
+  }
+
+  // The basket to shoot at: the nearest one nobody's using (or just the nearest).
+  soloRim(H) {
+    const [px, pz] = this.game.player.pos();
+    const rims = [...H.site.hoops].sort((a, b) => dist(px, pz, a.x, a.z) - dist(px, pz, b.x, b.z));
+    return rims.find((rim) => !H.groups.some((g) => g.rim === rim && g.players.length)) || rims[0];
   }
 
   // ---- Joining (main.js handleInteractions, on foot) ----
@@ -111,10 +157,10 @@ export class Streetball {
     const game = this.game;
     if (this.active || game.player.vehicle || game.stars > 0 || game.stop || game.time < (this.again || 0)) return;
     const near = this.nearGame();
-    const free = this.freeBasket();
-    if (free && (!near || free.d < near.d)) {
+    const spare = this.nearSpare();
+    if (spare) {
       game.prompt = `Pick up the ball and shoot around: ${game.input.label('interact')}`;
-      if (a.interactHeld && !game.interactWasHeld) this.startSolo(free.H, free.rim);
+      if (a.interactHeld && !game.interactWasHeld) this.startSolo(spare.H, this.soloRim(spare.H), spare);
       return;
     }
     if (!near) return;
@@ -181,8 +227,10 @@ export class Streetball {
   // ---- Shooting around on your own ----
   // The same ball handling and shot meter, no opponent: you rebound your own misses. A stand-in
   // "opponent" stays far off the court so everything that looks for him finds nobody.
-  startSolo(H, rim) {
+  startSolo(H, rim, spare = null) {
     const game = this.game;
+    this.spare = spare;
+    if (spare) spare.mesh.visible = false;
     this.active = true;
     this.solo = true;
     this.H = H;
@@ -206,7 +254,6 @@ export class Streetball {
     game.scene.add(mesh);
     const [px, pz] = game.player.pos();
     this.g = { rim, players: [], match: this, ball: { mesh, x: px, y: 1, z: pz, vx: 0, vy: 0, vz: 0, mode: 'held', holder: 'you', t: 0 } };
-    H.site.ball.visible = false;
     this.give('you');
     game.hud.toast(`Shooting around. ${game.input.label('interact')} to put the ball down`, '#ffd23f');
   }
@@ -1399,7 +1446,18 @@ export class Streetball {
     if (this.solo) {
       this.solo = false;
       game.scene.remove(g.ball.mesh);
-      this.H.site.ball.visible = !this.H.active;
+      // (the ball's left where you put it down; walk off with it and it's back where it was)
+      const sp = this.spare;
+      if (sp) {
+        const [px, pz] = game.player.pos();
+        const P = this.H.site.pad;
+        const onPad = px > P.x0 && px < P.x1 && pz > P.z0 && pz < P.z1;
+        const fx = Math.sin(game.player.heading);
+        const fz = Math.cos(game.player.heading);
+        sp.mesh.position.set(onPad ? px + fx * 0.6 : sp.home[0], 0.18, onPad ? pz + fz * 0.6 : sp.home[1]);
+        sp.mesh.visible = true;
+        this.spare = null;
+      }
       game.hud.sport?.(null);
       return;
     }
