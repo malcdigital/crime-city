@@ -95,6 +95,7 @@ export class Hoops {
 
   clear() {
     for (const g of this.groups) {
+      if (g.match) g.match.end('off');
       for (const p of g.players) if (!p.removed) p.dispose();
       this.game.scene.remove(g.ball.mesh);
     }
@@ -178,6 +179,7 @@ export class Hoops {
   // ---- One basket's game ----
   step(g, dt) {
     const b = g.ball;
+    if (g.match) return g.match.step(dt); // (you're playing him one-on-one: streetball.js)
     // Anyone who got scared off, hurt or killed is out (and drops the ball).
     for (const p of [...g.players]) {
       if (p.state === 'play' && !p.removed) continue;
@@ -311,6 +313,7 @@ export class Hoops {
   drive(p, dt) {
     const h = p.hp;
     const g = h.g;
+    if (g.match) return g.match.drive(p, dt);
     const { rim } = g;
     const b = g.ball;
     const face = (x, z) => {
@@ -403,6 +406,7 @@ export class Hoops {
   // Arms and the jump (peds.js calls this after the walk animation; returns the height offset).
   pose(p) {
     const h = p.hp;
+    if (h.g.match) return h.g.match.pose(p);
     const c = p.char;
     const b = h.g.ball;
     if (h.role === 'hold' && b.holder === p) {

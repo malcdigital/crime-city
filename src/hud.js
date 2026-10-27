@@ -169,6 +169,31 @@ export class Hud {
     this.drawMinimap(game, dt);
   }
 
+  // A pickup game: the score up top, the shot meter, what your buttons do (streetball.js).
+  sport(board, meter = null, hint = '') {
+    let el = this.sportEl;
+    if (!board) {
+      if (el) el.classList.add('hidden');
+      return;
+    }
+    if (!el) {
+      el = this.sportEl = document.createElement('div');
+      el.id = 'sport';
+      el.innerHTML = '<div class="sb"></div><div class="sm"><div class="sweet"></div><div class="fill"></div></div><div class="sh"></div>';
+      document.body.appendChild(el);
+    }
+    el.classList.remove('hidden');
+    el.querySelector('.sb').textContent = board;
+    const m = el.querySelector('.sm');
+    m.classList.toggle('hidden', meter == null);
+    if (meter != null) {
+      const f = m.querySelector('.fill');
+      f.style.width = `${Math.round(meter * 100)}%`;
+      f.classList.toggle('good', meter >= 0.82);
+    }
+    el.querySelector('.sh').textContent = hint || '';
+  }
+
   toast(text, color = '#8ff08f') {
     const el = $('toast');
     el.textContent = text;

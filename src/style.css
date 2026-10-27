@@ -18,6 +18,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 /* Losing the police: a meter that fills while they can't see you (pursuit.js). */
 #evade { position: relative; width: 150px; height: 16px; margin: 4px 0 0 auto; border-radius: 8px; background: rgba(0,0,0,.45); overflow: hidden; border: 1px solid rgba(255,255,255,.25); }
 #evade-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: linear-gradient(90deg, #3b7bff, #7ee0ff); transition: width .25s linear; }
+#sport { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 6; text-align: center; pointer-events: none; color: #fff; text-shadow: 0 1px 3px #000; font-weight: 800; }
+#sport.hidden, #sport .hidden { display: none; }
+#sport .sb { background: rgba(0,0,0,.55); border: 1px solid rgba(255,210,63,.6); border-radius: 8px; padding: 5px 14px; font-size: 15px; letter-spacing: .05em; white-space: nowrap; }
+#sport .sm { position: relative; width: 180px; height: 12px; margin: 6px auto 0; background: rgba(0,0,0,.5); border: 1px solid rgba(255,255,255,.35); border-radius: 6px; overflow: hidden; }
+#sport .sweet { position: absolute; left: 82%; right: 0; top: 0; bottom: 0; background: rgba(126,224,129,.35); }
+#sport .fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: #ffd23f; }
+#sport .fill.good { background: #7ee081; }
+#sport .sh { margin-top: 4px; font-size: 11px; font-weight: 700; opacity: .9; }
+body.touch #sport { top: 58px; }
+body.touch #sport .sb { font-size: 13px; padding: 4px 10px; }
 #evade-label { position: relative; display: block; text-align: center; font-size: 10px; font-weight: 800; letter-spacing: .08em; line-height: 16px; color: #fff; text-shadow: 0 1px 2px #000; }
 #evade.low #evade-bar { background: linear-gradient(90deg, #2e7d32, #7ee081); }
 /* Police radio chatter. */
