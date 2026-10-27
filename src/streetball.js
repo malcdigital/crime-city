@@ -947,7 +947,8 @@ export class Streetball {
       } else {
         // A dribble move (Pro Stick) or a size-up.
         Y.stickIdle = Math.hypot(a.moveX, a.moveY) < 0.2;
-        if (stick && !Y.move) this.startMove(stick.kind, stick.side, sprint);
+        // (a move can cut a hesitation short, any but another hesitation)
+        if (stick && (!Y.move || (Y.move.kind === 'hesi' && Y.move.t > 0.08))) this.startMove(stick.kind, stick.side, sprint);
         Y.sizeUp = !!a.bSizeUp || this.psHoldUp;
         if (Y.sizeUp && !Y.move) {
           Y.rhythm = Math.min(0.3, Y.rhythm + dt * 0.25);
@@ -1076,9 +1077,14 @@ export class Streetball {
     // (a crossover flicked toward the hand that's already got it: a hesitation that way)
     if (kind === 'cross' && to === from) kind = 'hesi';
     if (kind === 'hesi') to = from;
+    if (Y.move) {
+      if (kind === 'hesi') return; // (out of a hesitation into anything but another)
+      Y.lastMoveEnd = this.clock;
+      Y.move = null;
+    }
     const M = MOVES[kind];
     const quick = !big && (kind === 'cross' || kind === 'hesi');
-    const T = quick ? (kind === 'cross' ? 0.2 : 0.28) : M.T;
+    const T = quick ? (kind === 'cross' ? 0.2 : 0.28) : kind === 'hesi' ? 0.36 : M.T;
     Y.move = { kind, side, t: 0, T: T * (1.15 - 0.15 * Y.st), from, to, big: !quick, h0: p.heading };
     Y.st = Math.max(0, Y.st - 0.027);
     Y.hand = to;
@@ -1139,7 +1145,7 @@ export class Streetball {
       // (quick crossover: just a little step to that side, right where you are)
       wx = D.sx * s;
       wz = D.sz * s;
-      mag = 0.35 * handleDist(this.handle);
+      mag = 0.7 * handleDist(this.handle);
     } else if (!mv.big && mv.kind === 'hesi') {
       // (quick hesitation: a hitch on the spot)
     } else if (mv.kind === 'cross' || mv.kind === 'behind' || mv.kind === 'legs') {
@@ -1150,10 +1156,10 @@ export class Streetball {
       wx = D.sx * s * (1 - k) + D.ux * (0.4 + k);
       wz = D.sz * s * (1 - k) + D.uz * (0.4 + k);
     } else if (mv.kind === 'hesi') {
-      if (mv.t > 0.2) {
-        wx = D.ux;
-        wz = D.uz;
-      }
+      // (R2: a hop out to the ball's side, ~1.2 m at a 90 handle)
+      wx = -Math.cos(mv.h0) * mv.from;
+      wz = Math.sin(mv.h0) * mv.from;
+      mag = (1.2 * handleDist(this.handle)) / (7.5 * mv.T);
     } else if (mv.kind === 'step') {
       wx = -D.ux;
       wz = -D.uz;
@@ -1163,7 +1169,7 @@ export class Streetball {
       // (world direction -> stick, camera-relative)
       const fx = Math.sin(game.camYaw);
       const fz = Math.cos(game.camYaw);
-      if (mv.big || (mv.kind !== 'cross' && mv.kind !== 'hesi')) mag = Math.min(1, handleDist(this.handle)); // (how far it carries: your handle)
+      if (mv.kind !== 'hesi' && (mv.big || mv.kind !== 'cross')) mag = Math.min(1, handleDist(this.handle)); // (how far it carries: your handle)
       a.moveY = ((wx * fx + wz * fz) / L) * mag;
       a.moveX = ((wx * -fz + wz * fx) / L) * mag;
       a.bSprint = mv.big;
@@ -2158,10 +2164,10 @@ export class Streetball {
       } else if (mv.kind === 'hesi' && !mv.big) {
         quick = -1; // (a hitch on the spot)
       } else if (mv.kind === 'hesi') {
-        if (hp.t > 0.2) {
-          tx += ux * 3;
-          tz += uz * 3;
-        }
+        // (a hop out to the ball's side)
+        tx += -Math.cos(mv.h0) * mv.from * 2;
+        tz += Math.sin(mv.h0) * mv.from * 2;
+        quick = 2;
       } else if (mv.kind === 'cross' && !mv.big) {
         tx += -uz * mv.side * 2;
         tz += ux * mv.side * 2;
@@ -2174,6 +2180,8 @@ export class Streetball {
         hp.lastMoveEnd = this.clock;
         if (mv.kind === 'step') return this.goShoot(p, hp, 'jumper', true);
         if (mv.beat) return this.goDrive(hp);
+        // (out of a hesitation he goes straight into something else)
+        if (mv.kind === 'hesi' && Math.random() < 0.6) return this.goMove(p, hp, true);
         hp.state = 'read';
         hp.t = 0;
         // (the quick ones come in bunches)
@@ -2183,7 +2191,13 @@ export class Streetball {
       if (quick === -1) return { speed: 0 };
       if (quick === 1) {
         [tx, tz] = this.onCourt(tx, tz);
-        return { tx, tz, speed: 1.5 * dk };
+        return { tx, tz, speed: 3.0 * dk };
+      }
+      if (quick === 2) {
+        const k = Math.min(1, hp.t / mv.T);
+        hp.jump = 0.18 * Math.sin(Math.PI * k);
+        [tx, tz] = this.onCourt(tx, tz);
+        return { tx, tz, speed: ((1.2 * dk) / mv.T) * tired };
       }
       [tx, tz] = this.onCourt(tx, tz);
       if (mv.kind === 'step') {
@@ -2337,12 +2351,13 @@ export class Streetball {
     return { speed: 0 };
   }
 
-  goMove(p, hp) {
+  goMove(p, hp, noHesi = false) {
     const game = this.game;
     let kind = pick(hp.style === 'shooter' ? ['step', 'step', 'hesi', 'cross', 'cross'] : ['cross', 'cross', 'behind', 'spin', 'hesi', 'step', 'legs']);
     // (like yours: a crossover toward the hand that's got it is a hesitation; the crossover and
     // hesitation are quick little ones or, like you holding R2, the big burst versions)
-    if (kind === 'cross' && Math.random() < 0.2) kind = 'hesi';
+    if (kind === 'cross' && Math.random() < 0.2 && !noHesi) kind = 'hesi';
+    if (kind === 'hesi' && noHesi) kind = 'cross';
     const big = kind !== 'cross' && kind !== 'hesi' ? true : Math.random() < (hp.style === 'slasher' ? 0.6 : hp.style === 'shooter' ? 0.3 : 0.45);
     const chain = this.clock - (hp.lastMoveEnd ?? -9) < 0.8;
     hp.combo = chain ? Math.min(3, hp.combo + 1) : 0;
@@ -2360,7 +2375,7 @@ export class Streetball {
     const rx = -Math.cos(p.heading);
     const rz = Math.sin(p.heading);
     const sideFor = Math.sign(((-uz / ul) * rx + (ux / ul) * rz) * to) || 1;
-    const T = big ? M.T : kind === 'cross' ? 0.2 : 0.28;
+    const T = big ? (kind === 'hesi' ? 0.36 : M.T) : kind === 'cross' ? 0.2 : 0.28;
     hp.mv = { kind, side: switches ? sideFor : Math.random() < 0.5 ? -1 : 1, T, beat: false, from: hp.hand, to, big, h0: p.heading };
     hp.hand = to;
     hp.st = Math.max(0, hp.st - 0.04);
@@ -2509,7 +2524,7 @@ export class Streetball {
       else {
         (hp.ballSide < 0 ? c.armL : c.armR).rotation.x = hp.behindK ? 0.9 * hp.behindK : -0.5 - Math.abs(Math.cos(hp.dribble || 0)) * 0.35; // (the hand with the ball)
         // The stance and the moves' footwork (the same as yours).
-        const mv = hp.state === 'move' ? { ...hp.mv, t: hp.t } : null;
+        const mv = hp.state === 'move' ? { ...hp.mv, t: hp.t, ai: true } : null; // (ai: his hop height is in hp.jump)
         if (mv && SHUFFLES.has(mv.kind)) {
           p.heading = mv.h0;
           c.group.rotation.y = p.heading;
@@ -2557,6 +2572,16 @@ export class Streetball {
       c.legR.rotation.z = -spread;
       c.group.rotation.z = side * 0.12 * Math.sin(Math.PI * k);
       return -Math.min(dl, dr);
+    }
+    if (mv && mv.kind === 'hesi' && mv.big) {
+      // (the hop out: knees tucked a little, off the floor, leaning out)
+      const k = Math.min(1, mv.t / mv.T);
+      const dl = bendLeg(c.legL, c.kneeL, 0.45, 0.85);
+      const dr = bendLeg(c.legR, c.kneeR, 0.45, 0.85);
+      c.legL.rotation.z = 0.18;
+      c.legR.rotation.z = -0.18;
+      c.group.rotation.z = (mv.from || 1) * 0.15 * Math.sin(Math.PI * k);
+      return -Math.min(dl, dr) + (mv.ai ? 0 : 0.18 * Math.sin(Math.PI * k));
     }
     if (mv && mv.kind === 'hesi') {
       const k = Math.min(1, mv.t / mv.T);
