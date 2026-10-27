@@ -331,7 +331,7 @@ export class TouchControls {
       b.bshoot.el.querySelector('.tl').textContent = off || game.sport.has !== 'opp' ? 'SHOOT' : 'STEAL';
       b.bblock.hint.textContent = game.sport.has === 'opp' ? 'block' : off ? 'oop' : 'rebound';
       for (const id of ['bcross', 'bhesi', 'bstep', 'bspin']) b[id].el.classList.toggle('hidden', !off);
-      b.bpass.el.classList.toggle('hidden', !(off && game.sport.solo)); // (passing: shooting around)
+      b.bpass.el.classList.toggle('hidden', !(game.sport.solo && (off || game.sport.g?.ball?.mode === 'loose'))); // (passing / a fetch: shooting around)
       b.bd.el.classList.toggle('hidden', !!game.sport.solo);
     }
     // FIRE is dimmed until you aim (a gun only fires while aiming).
