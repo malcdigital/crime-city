@@ -930,17 +930,21 @@ export class Streetball {
           this.doMove(dt, a);
           sprint = true; // (a move's a burst)
         }
-        // Back-pedaling: the stick pulled away from the basket, you shuffle back still facing it
-        // (slower, no sprint).
-        Y.backpedal = false;
+        // Facing up: hold L2 (right-click) and you stay square to the basket whichever way you
+        // go: backing up is a low shuffle, sideways a side-step (slower, no sprint). Without it,
+        // going away from the basket you just turn and go. (On a phone the back-pedal's automatic.)
+        Y.backpedal = Y.squareUp = false;
         if (!Y.move && !Y.sizeUp && Math.hypot(a.moveX, a.moveY) > 0.3) {
           const yaw = game.camYaw;
           const wx = Math.sin(yaw) * a.moveY - Math.cos(yaw) * a.moveX;
           const wz = Math.cos(yaw) * a.moveY + Math.sin(yaw) * a.moveX;
-          if ((wx * D.ux + wz * D.uz) / Math.hypot(wx, wz) < -0.3) {
-            Y.backpedal = true;
-            a.moveX *= 0.65;
-            a.moveY *= 0.65;
+          const away = (wx * D.ux + wz * D.uz) / Math.hypot(wx, wz) < -0.3;
+          if (a.bIntense || (game.input.touchMode && away)) {
+            Y.squareUp = true;
+            Y.backpedal = away;
+            const k = away ? 0.65 : 0.8;
+            a.moveX *= k;
+            a.moveY *= k;
             sprint = false;
           }
         }
@@ -1854,7 +1858,7 @@ export class Streetball {
       else if (this.has === 'npc') hint = 'He\'s got it...';
       else if (this.fetch) hint = 'He\'s getting it for you';
       else if (this.g.ball.mode === 'loose' && dist(...game.player.pos(), this.g.ball.x, this.g.ball.z) > 7) hint = `Go get it, grab another ball, or ${pk} get somebody to fetch it · ${put}`;
-      else hint = this.has === 'you' ? (this.shot ? 'Let go in the green' : `${K.shoot} shoot · ${pk} pass (hold to pick who) · ${K.block} off the glass · moves: ${K.moves} · ${put}`) : `Go get it · ${put}`;
+      else hint = this.has === 'you' ? (this.shot ? 'Let go in the green' : `${K.shoot} shoot · ${pk} pass (hold to pick who) · ${K.d} hold: face up · ${K.block} off the glass · moves: ${K.moves} · ${put}`) : `Go get it · ${put}`;
       game.hud.sport?.(`SHOOTAROUND · ${S.made}/${S.att}${pct} · streak ${S.streak} (best ${S.best})`, null, hint, null);
       this.floatHud(meter);
       return;
@@ -1862,7 +1866,7 @@ export class Streetball {
     if (C) hint = C.stage === 'ready' ? `${ck} check it up` : C.stage === 'youHold' ? `${ck} check it back` : 'Checking it up...';
     else if (this.you.fallT > 0) hint = 'Ankles broken...';
     else if (this.has === 'you' && !this.cleared) hint = 'Take it back past the arc';
-    else if (this.has === 'you') hint = this.shot ? 'Let go in the green' : `${K.shoot} shoot (tap: pump fake) · ${K.sprint} sprint · ${K.block} off the glass · moves: ${K.moves}`;
+    else if (this.has === 'you') hint = this.shot ? 'Let go in the green' : `${K.shoot} shoot (tap: pump fake) · ${K.sprint} sprint · ${K.d} hold: face up · ${K.block} off the glass · moves: ${K.moves}`;
     else if (this.has === 'opp') hint = `${K.d} intense D · ${K.steal} steal · ${K.block} block`;
     else if (this.g.ball.kind === 'oop' || this.g.ball.kind === 'oop2') hint = 'Get under it: go up and get it';
     else if (!this.dead) hint = `Rebound! ${K.block} jump · ${K.d} box out`;
@@ -1977,6 +1981,13 @@ export class Streetball {
       p.heading = lerpAngle(p.heading, Math.atan2(x - p.x, z - p.z), Math.min(1, dt * 8));
     };
     if (this.fetch && p === this.fetch.q) return this.fetchDrive(p, dt);
+    if (p === this.opp && dt > 0) {
+      // (how he's actually moving: for the back-pedal)
+      hp.vx = (p.x - (hp.lx ?? p.x)) / dt;
+      hp.vz = (p.z - (hp.lz ?? p.z)) / dt;
+      hp.lx = p.x;
+      hp.lz = p.z;
+    }
     if (p !== this.opp) {
       // Watching from the side.
       hp.cheerT = Math.max(0, (hp.cheerT || 0) - dt);
@@ -2355,6 +2366,28 @@ export class Streetball {
       if (this.g.ball.holder === p) c.armL.rotation.x = c.armR.rotation.x = -1.2;
       return 0.04;
     }
+    // His back-pedal: moving backward from what he's facing (the basket with the ball, you on
+    // D), he keeps facing it and shuffles back, low, like you do.
+    if (p === this.opp && hp.fallT <= 0 && !this.check && !this.dead && hp.state !== 'shoot' && hp.state !== 'move' && !(hp.jumpT > 0)) {
+      const sp = Math.hypot(hp.vx || 0, hp.vz || 0);
+      const [qx, qz] = this.game.player.pos();
+      const look = this.has === 'opp' ? [this.rim.x, this.rim.z] : this.has === 'you' ? [qx, qz] : null;
+      if (look && sp > 0.5) {
+        const fx = look[0] - p.x;
+        const fz = look[1] - p.z;
+        const fl = Math.hypot(fx, fz) || 1;
+        if ((hp.vx * fx + hp.vz * fz) / (sp * fl) < -0.3) {
+          p.heading = Math.atan2(fx, fz);
+          c.group.rotation.y = p.heading;
+          const drop = this.shuffleLegs(c, this.clock * (4 + sp * 2.2));
+          if (this.has === 'opp') {
+            (hp.ballSide < 0 ? c.armL : c.armR).rotation.x = -0.5 - Math.abs(Math.cos(hp.dribble || 0)) * 0.35;
+            (hp.ballSide < 0 ? c.armR : c.armL).rotation.x = -0.6; // (the other arm out)
+          } else c.armL.rotation.x = c.armR.rotation.x = -1.0; // (hands up on D)
+          return 0.06 + drop;
+        }
+      }
+    }
     if (p === this.opp && hp.fallT > 0) {
       // On the floor: sat down hard.
       const y = crouchPose(c, 1);
@@ -2387,6 +2420,15 @@ export class Streetball {
     return 0.06 + (hp.jump || 0);
   }
 
+  // The backward shuffle's legs (knees bent, short steps reaching back) at step phase ph;
+  // returns the height change.
+  shuffleLegs(c, ph) {
+    const sw = Math.sin(ph);
+    const dl = bendLeg(c.legL, c.kneeL, 0.45 - 0.4 * sw, 0.8 + 0.35 * Math.max(0, Math.cos(ph)));
+    const dr = bendLeg(c.legR, c.kneeR, 0.45 + 0.4 * sw, 0.8 + 0.35 * Math.max(0, -Math.cos(ph)));
+    return -Math.min(dl, dr);
+  }
+
   // Your arms and stance (main.js, after you move).
   late(dt) {
     const game = this.game;
@@ -2413,15 +2455,26 @@ export class Streetball {
       return;
     }
     // A step-back or a back-pedal: going back, still facing the basket.
-    if ((Y.move?.kind === 'step' || (Y.backpedal && !this.shot)) && this.has === 'you') {
+    if ((Y.move?.kind === 'step' || (Y.squareUp && !this.shot)) && this.has === 'you') {
       p.heading = Math.atan2(this.rim.x - p.x, this.rim.z - p.z);
       c.group.rotation.y = p.heading;
     }
-    // Intense D: square to him, low.
+    // Intense D (L2): your back to the basket, square to the play, low. Retreating toward the
+    // rim it's the backward shuffle.
     if (Y.intense) {
-      p.heading = Math.atan2(this.opp.x - p.x, this.opp.z - p.z);
+      p.heading = Math.atan2(p.x - this.rim.x, p.z - this.rim.z);
       c.group.rotation.y = p.heading;
-      c.group.position.y += crouchPose(c, 0.3);
+      const [qx, qz] = p.pos();
+      const tx = this.rim.x - qx;
+      const tz = this.rim.z - qz;
+      const tl = Math.hypot(tx, tz) || 1;
+      const vx = p.vx || 0;
+      const vz = p.vz || 0;
+      const sp = Math.hypot(vx, vz);
+      if (sp > 0.5 && (vx * tx + vz * tz) / (sp * tl) > 0.3) {
+        Y.bpPhase = (Y.bpPhase || 0) + dt * (4 + sp * 2.2);
+        c.group.position.y += this.shuffleLegs(c, Y.bpPhase);
+      } else c.group.position.y += crouchPose(c, 0.3);
     }
     if (this.has === 'you' && this.g.ball.mode === 'held') {
       if (this.shot) {
@@ -2438,10 +2491,7 @@ export class Streetball {
         // Back-pedaling: a low shuffle backward, short steps, each foot reaching back.
         if (Y.backpedal && p.speed > 0.3 && !this.legsK) {
           Y.bpPhase = (Y.bpPhase || 0) + dt * (4 + p.speed * 2.2);
-          const sw = Math.sin(Y.bpPhase);
-          const dl = bendLeg(c.legL, c.kneeL, 0.45 - 0.4 * sw, 0.8 + 0.35 * Math.max(0, Math.cos(Y.bpPhase)));
-          const dr = bendLeg(c.legR, c.kneeR, 0.45 + 0.4 * sw, 0.8 + 0.35 * Math.max(0, -Math.cos(Y.bpPhase)));
-          c.group.position.y -= Math.min(dl, dr);
+          c.group.position.y += this.shuffleLegs(c, Y.bpPhase);
           const free = (this.ballSide ?? Y.hand) < 0 ? c.armR : c.armL; // (the other arm out, for balance)
           free.rotation.x = -0.6;
         }
