@@ -1128,6 +1128,10 @@ export class Streetball {
     else if (D.d <= 5 && toward) type = 'layup';
     const stepback = Y.move?.kind === 'step' || (Y.lastMove === 'step' && this.clock - Y.lastMoveEnd < 0.5);
     Y.move = null;
+    // A fadeaway: a jumper going away from the basket (drifting back, the stick pulled back, or
+    // off a step-back).
+    const away = Y.vx * D.ux + Y.vz * D.uz < -1.2;
+    const fade = type === 'jumper' && (away || stepback || (pullBack && !toward));
     // Square up: a small turn happens on the way up; facing away (over ~70°) you pivot on your
     // foot first, which takes a moment (half a turn ~0.35 s), and the meter waits for it.
     const off = Math.abs(wrapAngle(Math.atan2(D.ux, D.uz) - p.heading));
@@ -1154,7 +1158,8 @@ export class Streetball {
     }
     Y.jumpT = 0;
     Y.fall = null; // (the jump's timed to the shot: the top of it is the perfect release)
-    if (CFG.SHOT_TYPE_DEBUG) game.hud.toast(`[test] ${SHOT_NAMES[type]}${how}${stepback ? ' (step-back)' : ''}${pivot ? ' (turnaround)' : ''}`, '#c9a7ff');
+    this.shot.fade = fade;
+    if (CFG.SHOT_TYPE_DEBUG) game.hud.toast(`[test] ${SHOT_NAMES[type]}${how}${stepback ? ' (step-back)' : ''}${fade ? ' (fadeaway)' : ''}${pivot ? ' (turnaround)' : ''}`, '#c9a7ff');
     Y.st = Math.max(0, Y.st - 0.013);
     // He closes out.
     this.opp.hp.closeT = 1;
@@ -1207,6 +1212,8 @@ export class Streetball {
     const d = wrapAngle(want - p.heading);
     const rate = s.t < s.turnT ? 9 : 14;
     p.heading += Math.sign(d) * Math.min(Math.abs(d), rate * dt);
+    // Fading: drifting back through the jump, quickest on the way up.
+    if (s.fade) this.fadeDrift(p, px, pz, Math.min(1, Math.max(0, s.t - s.turnT - 0.03) / 0.6), dt);
     a.bSprint = false;
     // Euro step: a Pro Stick move during the layup gather.
     if (s.type === 'layup' && stick && !s.euro && s.t < 0.3) {
@@ -1223,6 +1230,18 @@ export class Streetball {
       // (let go sometime during the last frame: count it from the middle of it)
       this.resolveYou(held ? s.t - s.T : s.t - dt / 2 - s.T);
     }
+  }
+
+  // (the backward drift of a fadeaway, easing off over the jump; k 0..1)
+  fadeDrift(p, px, pz, k, dt) {
+    if (k >= 1) return;
+    const rx = this.rim.x - px;
+    const rz = this.rim.z - pz;
+    const L = Math.hypot(rx, rz) || 1;
+    const v = 2.2 * (1 - k);
+    const [nx, nz] = this.onCourt(px - (rx / L) * v * dt, pz - (rz / L) * v * dt);
+    p.x = nx;
+    p.z = nz;
   }
 
   // Your height in a jump shot: a quick gather (after any pivot), up to the top of the jump right
@@ -1418,8 +1437,10 @@ export class Streetball {
     const [px, pz] = game.player.pos();
     const opp = this.opp;
     const hp = opp.hp;
-    const lv = this.openness(px, pz, opp.x, opp.z, hp.beatT > 0.2 || hp.fallT > 0, (hp.jumpT || 0) > 0);
+    let lv = this.openness(px, pz, opp.x, opp.z, hp.beatT > 0.2 || hp.fallT > 0, (hp.jumpT || 0) > 0);
+    if (s.fade) lv = Math.max(0, lv - 1); // (fading away from his hand)
     let w = s.W * OPEN_WINDOW[lv];
+    if (s.fade) w *= 0.9; // (harder going backward)
     if (s.type === 'jumper' && s.sprint) w *= 0.6;
     else if (s.type === 'jumper' && s.onRun) w *= 0.85;
     if (s.stepback) w *= 0.9;
@@ -1471,7 +1492,7 @@ export class Streetball {
       this.launch(make, 'you', s.pts);
       // Back down from wherever you let it go.
       const h = this.shotHeight(s);
-      this.you.fall = { h0: h, t: 0, T: Math.max(0.12, Math.sqrt((2 * h) / 9.8)) };
+      this.you.fall = { h0: h, t: 0, T: Math.max(0.12, Math.sqrt((2 * h) / 9.8)), fade: s.fade ? Math.min(1, Math.max(0, s.t - s.turnT - 0.03) / 0.6) : null };
     }
   }
 
@@ -2360,6 +2381,7 @@ export class Streetball {
     const Y = this.you;
     p.showWeapon('fists');
     c.legL.rotation.z = c.legR.rotation.z = 0;
+    c.group.rotation.x = 0;
     Y.armsT = Math.max(0, (Y.armsT || 0) - dt);
     if (Y.fallT > 0) {
       const y = crouchPose(c, 1);
@@ -2412,11 +2434,19 @@ export class Streetball {
       const s = this.shot;
       const h = this.shotHeight(s);
       c.group.position.y += h > 0 ? h : s.t > s.turnT ? crouchPose(c, 0.3) : 0; // (the gather: a dip, then up)
+      if (s.fade) c.group.rotation.x = -0.25 * Math.min(1, h / 0.45); // (leaning back on the fade)
       c.group.rotation.y = p.heading;
     } else if (Y.fall) {
       Y.fall.t += dt;
       const k = Math.min(1, Y.fall.t / Y.fall.T);
       c.group.position.y += Y.fall.h0 * (1 - k * k);
+      if (Y.fall.fade != null) {
+        // (still drifting back and leaning as you come down)
+        const fk = Math.min(1, Y.fall.fade + Y.fall.t / 0.6);
+        const [qx, qz] = p.pos();
+        this.fadeDrift(p, qx, qz, fk, dt);
+        c.group.rotation.x = -0.25 * (1 - k);
+      }
       if (k >= 1) Y.fall = null;
     } else if (Y.jumpT > 0) c.group.position.y += Math.sin((Y.jumpT / 0.55) * Math.PI) * 0.5;
   }
