@@ -47,6 +47,9 @@ const TARGETS = [11, 15, 21];
 const NAMES = ['Dre', 'Tank', 'Lil Mike', 'Jojo', 'Smoke', 'Ray', 'Peanut', 'Boogie', 'Shorty', 'Deuce'];
 const G = 9.8;
 const _axis = new THREE.Vector3();
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _v3 = new THREE.Vector3();
 // Shots: T = seconds to the perfect release, W = green window (seconds, its full width).
 // (NBA 2K's green window is about 40-60 ms; ours is wider for a browser and a phone screen.)
 const SHOTS = {
@@ -122,6 +125,76 @@ function smoothJoints(c, dt) {
   }
   s.g = { x: g.x, z: g.z };
   return s;
+}
+// Shot form, yours and his, from one set of keys:
+//   g: through the gather (0-1): the ball up from the dribble into both hands at the chest,
+//      knees dipping.
+//   u: through the rise (0-1): a jumper gets to the set point above the forehead (the guide
+//      hand on the side of the ball) by 60%, then the shooting arm extends to the release at
+//      the top. A layup reaches up one-handed, the knee on that side driving up; a floater is
+//      a softer, earlier one-hand push.
+//   f: seconds since the release (-1 before): the follow-through holds, the guide hand drops,
+//      then the arms come down. land: seconds since landing (-1 in the air): the knees give.
+// hand: +1 right, -1 left. Sets the arms and legs on c; returns the height change for a bend
+// on the floor and how far the ball has gone from two hands to the shooting hand (one).
+const ease = (k) => k * k * (3 - 2 * k);
+const mix = (a, b, k) => a + (b - a) * k;
+function shotForm(c, o) {
+  const { kind, hand, g, u, f = -1, air = false, land = -1, legs = true } = o;
+  const k0 = ease(Math.min(1, Math.max(0, g)));
+  // (the shot pocket: two hands on it at the chest)
+  let S = [mix(-0.7, -1.15, k0), mix(0.1, 0.38, k0)];
+  let G = [mix(-0.7, -1.15, k0), mix(0.1, 0.38, k0)];
+  let one = 0;
+  let drive = 0; // (a knee driving up: layup, floater)
+  const u1 = ease(Math.min(1, u / (kind === 'layup' ? 1 : 0.6)));
+  if (kind === 'jumper') {
+    const u2 = ease(Math.min(1, Math.max(0, (u - 0.6) / 0.4)));
+    S = [mix(mix(S[0], -2.55, u1), -2.98, u2), mix(mix(S[1], 0.28, u1), 0.12, u2)];
+    G = [mix(G[0], -2.35, u1), mix(mix(G[1], 0.52, u1), 0.6, u2)];
+    one = u1;
+  } else if (kind === 'layup') {
+    S = [mix(S[0], -2.8, u1), mix(S[1], 0.15, u1)];
+    G = [mix(G[0], -1.7, u1), mix(G[1], -0.1, u1)]; // (the off arm out, protecting it)
+    one = ease(Math.min(1, u / 0.5));
+    drive = u1;
+  } else {
+    const u3 = ease(Math.min(1, Math.max(0, (u - 0.7) / 0.3)));
+    S = [mix(S[0], -2.65, u1), mix(S[1], 0.22, u1)];
+    G = [mix(mix(G[0], -2.1, u1), -1.6, u3), mix(G[1], 0.45, u1)];
+    one = u1;
+    drive = u1 * 0.6;
+  }
+  if (f >= 0) {
+    // The follow-through: the shooting arm stays up, the guide hand comes off first.
+    one = 1;
+    const hold = kind === 'jumper' ? 0.22 : 0.12;
+    const sk = ease(Math.min(1, Math.max(0, (f - hold) / 0.23)));
+    S = [mix(S[0], -0.5, sk), mix(S[1], 0.05, sk)];
+    const gk = ease(Math.min(1, f / 0.12));
+    const gk2 = ease(Math.min(1, Math.max(0, (f - 0.12) / 0.3)));
+    G = [mix(mix(G[0], -1.5, gk), -0.5, gk2), mix(mix(G[1], 0.3, gk), 0.05, gk2)];
+    drive *= 1 - ease(Math.min(1, f / 0.25));
+  }
+  const sA = hand >= 0 ? c.armR : c.armL;
+  const gA = hand >= 0 ? c.armL : c.armR;
+  const sg = hand >= 0 ? 1 : -1; // (in toward the middle: + for the right arm, - for the left)
+  sA.rotation.x = S[0];
+  sA.rotation.z = sg * S[1];
+  gA.rotation.x = G[0];
+  gA.rotation.z = -sg * G[1];
+  if (!legs) return { y: 0, one };
+  const dL = hand >= 0 ? [c.legR, c.kneeR] : [c.legL, c.kneeL]; // (the shooting side's knee drives)
+  const tL = hand >= 0 ? [c.legL, c.kneeL] : [c.legR, c.kneeR];
+  if (air) {
+    // Up: the legs long, toes down, a little give at the knees; a layup's knee up.
+    bendLeg(dL[0], dL[1], mix(0.08, 1.35, drive), mix(0.22, 1.7, drive));
+    bendLeg(tL[0], tL[1], 0.05, 0.18);
+    return { y: 0, one };
+  }
+  if (land >= 0) return { y: crouchPose(c, 0.3 * Math.max(0, 1 - land / 0.3)), one }; // (landing soft)
+  if (f >= 0) return { y: 0, one };
+  return { y: crouchPose(c, 0.32 * k0 * (1 - u1)), one }; // (the dip, then the push up)
 }
 function handoff(kind, from, to, k) {
   const s = from + (to - from) * k;
@@ -1274,6 +1347,8 @@ export class Streetball {
     const pivot = off > 1.2;
     const turnT = pivot ? off / 9 : 0;
     this.shot = { type, t: 0, T: SHOTS[type].T + turnT, W: greenWindow(type, D.d), d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false, pivot, turnT };
+    // (a jumper off your right hand; a layup or floater off the hand the ball's in)
+    this.shot.hand = type === 'jumper' ? 1 : (this.ballSide ?? Y.hand ?? 1) >= 0 ? 1 : -1;
     // Layups and dunks: the gather, then the steps (the gather doesn't count as one: two are
     // allowed), then up off the last one. A layup goes up off the foot opposite the shooting
     // hand. A dunk from close in is a jump stop (both feet), from 1-2 m one step, beyond that two.
@@ -1628,6 +1703,7 @@ export class Streetball {
       this.launch(make, 'you', s.pts);
       // Back down from wherever you let it go.
       const h = this.shotHeight(s);
+      this.you.follow = { t: 0, kind: s.type, hand: s.hand ?? 1 };
       this.you.fall = { h0: h, t: 0, T: Math.max(0.12, Math.sqrt((2 * h) / 9.8)), fade: s.fade ? Math.min(1, Math.max(0, s.t - s.turnT - 0.03) / 0.6) : null };
     }
   }
@@ -1848,6 +1924,25 @@ export class Streetball {
     this.hud();
   }
 
+  // A shooter's ball: between his hands (one = 0) or on the shooting hand (1), from how his arms
+  // are posed (as drawn last frame).
+  shotBall(b, c, hand, one) {
+    c.group.updateMatrixWorld(true);
+    const a = (hand >= 0 ? c.armR : c.armL).localToWorld(_v1.set(0, -0.8, 0));
+    if (one < 1) {
+      const l = c.armL.localToWorld(_v2.set(0, -0.68, 0));
+      const r = c.armR.localToWorld(_v3.set(0, -0.68, 0));
+      const h = c.group.rotation.y;
+      _v2.add(r).multiplyScalar(0.5);
+      _v2.x += Math.sin(h) * 0.09;
+      _v2.z += Math.cos(h) * 0.09;
+      a.lerp(_v2, 1 - one);
+    }
+    b.x = a.x;
+    b.y = a.y;
+    b.z = a.z;
+  }
+
   // The ball in somebody's hands.
   carry(dt) {
     const game = this.game;
@@ -1888,10 +1983,8 @@ export class Streetball {
         return;
       }
       if (this.shot) {
-        const k = Math.min(1, this.shot.t / (this.shot.type === 'jumper' ? this.shot.T / 1.5 : this.shot.T));
-        b.x = px + fx * 0.3;
-        b.z = pz + fz * 0.3;
-        b.y = 1.3 + k * 1.0 + this.shotHeight(this.shot);
+        // (in the hands: both at the chest, then up on the shooting hand)
+        this.shotBall(b, game.player.char, this.shot.hand ?? 1, this.shot.one || 0);
       } else {
         // (the hand it's in: a crossover takes it across in front)
         let side = Y.hand;
@@ -1923,6 +2016,8 @@ export class Streetball {
         b.x = opp.x + fx * 0.32;
         b.z = opp.z + fz * 0.32;
         b.y = 1.2; // (gathered: at the chest)
+      } else if (hp.state === 'shoot' && hp.shot !== 'dunk') {
+        this.shotBall(b, opp.char, hp.sHand ?? 1, hp.one || 0); // (in his hands, the same as yours)
       } else if (hp.state === 'shoot') {
         const a0 = hp.appr ? hp.appr.T : 0;
         const up = Math.min(1, (hp.t - a0) / Math.max(0.1, hp.rel - a0));
@@ -2487,6 +2582,10 @@ export class Streetball {
     hp.rel += Math.max(0, off - 0.4) / 9;
     hp.stepback = stepback;
     hp.jumpT = 0;
+    // (his jumper off his strong hand, a few are lefties; a layup or floater off the ball's hand)
+    hp.lefty ??= Math.random() < 0.12;
+    hp.sHand = type === 'jumper' ? (hp.lefty ? -1 : 1) : (hp.ballSide ?? hp.hand ?? 1) >= 0 ? 1 : -1;
+    hp.one = 0;
     return { speed: 0 };
   }
 
@@ -2595,6 +2694,26 @@ export class Streetball {
       c.group.rotation.y = p.heading;
       // (leaning back on the fade, most at the top of the jump)
       if (fading) c.group.rotation.x = -0.25 * Math.min(1, (hp.jump || 0) / 0.45);
+    }
+    // His shot form (the same as yours), through the follow-through after it's gone.
+    const dunking = hp.shot === 'dunk' && !(hp.appr && hp.t < hp.appr.T);
+    if (p === this.opp && hp.state === 'shoot' && !dunking && (this.has === 'opp' || hp.t >= hp.rel)) {
+      const A = hp.appr;
+      const g0 = hp.rel - 0.25; // (off the floor)
+      const f = hp.t >= hp.rel ? hp.t - hp.rel : -1;
+      const air = (hp.jump || 0) > 0.02;
+      const r = shotForm(c, {
+        kind: hp.shot === 'dunk' ? 'layup' : hp.shot,
+        hand: hp.sHand ?? 1,
+        g: hp.t / (A ? 0.15 : 0.14),
+        u: hp.t <= g0 ? 0 : Math.min(1, (hp.t - g0) / 0.25),
+        f,
+        air,
+        land: f > 0.25 && !air ? f - 0.3 : -1,
+        legs: !(A && hp.t < A.T),
+      });
+      hp.one = r.one;
+      return 0.06 + (hp.jump || 0) + r.y;
     }
     if (p === this.opp && this.has === 'opp') {
       if (hp.state === 'shoot' && hp.appr && hp.t < hp.appr.T) c.armL.rotation.x = c.armR.rotation.x = -1.3; // (gathered)
@@ -2755,6 +2874,19 @@ export class Streetball {
     s.ry = g.rotation.y;
   }
 
+  // Your shot form this frame (arms and legs; the jump height's added below).
+  formYou(c) {
+    const s = this.shot;
+    const A = s.approach;
+    const g0 = A ? A.T : s.turnT + 0.08; // (off the floor)
+    const g = A ? s.t / 0.15 : (s.t - s.turnT) / 0.14;
+    const u = s.t <= g0 ? 0 : Math.min(1, (s.t - g0) / Math.max(0.05, s.T - g0));
+    const kind = s.type === 'dunk' ? 'layup' : s.type;
+    const r = shotForm(c, { kind, hand: s.hand ?? 1, g, u, air: this.shotHeight(s) > 0.02, legs: !(A && s.t < A.T) });
+    s.one = r.one;
+    return r;
+  }
+
   lateRaw(dt) {
     const game = this.game;
     const p = game.player;
@@ -2817,10 +2949,10 @@ export class Streetball {
     }
     if (this.has === 'you' && this.g.ball.mode === 'held') {
       if (this.shot) {
-        const k = Math.min(1, this.shot.t / (this.shot.type === 'jumper' ? this.shot.T / 1.5 : this.shot.T)); // (arms up quick on a jumper)
-        c.armL.rotation.x = c.armR.rotation.x = -1.4 - k * 1.4;
+        Y.form = this.formYou(c);
         c.group.rotation.y = p.heading; // (squaring up to the basket)
       } else {
+        Y.follow = null;
         const arm = (this.ballSide ?? Y.hand) < 0 ? c.armL : c.armR; // (the hand with the ball)
         arm.rotation.x = this.behindK ? 0.9 * this.behindK : -0.5 - Math.abs(Math.cos(this.dribble || 0)) * 0.35;
         // Back-pedaling: a low shuffle backward, short steps, each foot reaching back.
@@ -2842,15 +2974,22 @@ export class Streetball {
         }
       }
     } else if (Y.jumpT > 0) c.armL.rotation.x = c.armR.rotation.x = -2.8;
-    else if (Y.armsT > 0) c.armR.rotation.x = -1.6;
+    else if (Y.follow) {
+      // After the release: the follow-through, coming down, landing soft.
+      const F = Y.follow;
+      F.t += dt;
+      if (!Y.fall) F.land = (F.land ?? -dt) + dt;
+      const r = shotForm(c, { kind: F.kind, hand: F.hand, g: 1, u: 1, f: F.t, air: !!Y.fall, land: F.land ?? -1 });
+      c.group.position.y += r.y;
+      if (F.t > 0.45) Y.follow = null;
+    } else if (Y.armsT > 0) c.armR.rotation.x = -1.6;
     // Off the floor: the shot's own jump, coming down after it, or a block / rebound jump.
     if (this.shot && this.shot.approach && this.shot.t < this.shot.approach.T && this.has === 'you') {
-      // (gathered: ball at the chest, two hands, on the run)
-      c.armL.rotation.x = c.armR.rotation.x = -1.3;
+      // (gathered: ball at the chest, two hands, on the run; the arms are set above)
     } else if (this.shot && this.shot.type !== 'dunk' && this.has === 'you') {
       const s = this.shot;
       const h = this.shotHeight(s);
-      c.group.position.y += h > 0 ? h : s.t > s.turnT ? crouchPose(c, 0.3) : 0; // (the gather: a dip, then up)
+      c.group.position.y += h > 0 ? h : Y.form?.y || 0; // (the gather: a dip, then up)
       if (s.fade) c.group.rotation.x = -0.25 * Math.min(1, h / 0.45); // (leaning back on the fade)
       c.group.rotation.y = p.heading;
     } else if (Y.fall) {
