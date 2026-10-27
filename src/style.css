@@ -38,8 +38,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #energy-float .ef.low { background: #ff8a65; }
 #shot-meter.hidden, #energy-float.hidden { display: none; }
 #sport .sh { margin-top: 4px; font-size: 11px; font-weight: 700; opacity: .9; }
-body.touch #sport { top: 58px; }
-body.touch #sport .sb { font-size: 13px; padding: 4px 10px; }
+/* On a phone the board sits small under the minimap, out of the play (wrapping to a few short
+   lines); the control hints are on the buttons already. */
+body.touch #sport { top: 132px; left: 12px; transform: none; text-align: left; }
+body.touch #sport .sb { font-size: 11px; padding: 3px 8px; letter-spacing: .03em; white-space: normal; max-width: 170px; line-height: 1.35; }
+body.touch #sport .sh { display: none; }
 #evade-label { position: relative; display: block; text-align: center; font-size: 10px; font-weight: 800; letter-spacing: .08em; line-height: 16px; color: #fff; text-shadow: 0 1px 2px #000; }
 #evade.low #evade-bar { background: linear-gradient(90deg, #2e7d32, #7ee081); }
 /* Police radio chatter. */
