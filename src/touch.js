@@ -27,7 +27,8 @@ const PAD_DEAD = 0.18; // input.js's stick deadzone (the shaped steering skips p
 
 // [id, label, button, contexts, kind, class]
 // kind: 'hold' (pressed while touched), 'toggle' (tap on / tap off), 'fire' (hold + drag to
-// look), 'weapon' (tap = swap; long-press opens the inventory strip until the next tap).
+// look), 'weapon' (tap = swap; long-press opens the inventory strip until the next tap),
+// 'quit' (tap twice to quit the pickup game).
 const BUTTONS = [
   ['fire', 'FIRE', B.R2, ['foot'], 'fire', 'big red'],
   ['aim', 'AIM', B.L2, ['foot'], 'toggle', 'mid'],
@@ -64,6 +65,8 @@ const BUTTONS = [
   ['phone', '📱', B.CREATE, ['foot', 'car', 'phone'], 'hold', 'top'],
   ['map', 'MAP', B.TOUCHPAD, ['foot', 'car', 'map'], 'hold', 'top txt'],
   ['spawn', 'CAR', B.R3, ['foot'], 'hold', 'top txt test'],
+  // Quit the pickup game (tap, then tap SURE? to confirm: a stray tap won't forfeit the bet).
+  ['quit', 'QUIT', -1, ['ball', 'qb'], 'quit', 'top txt'],
 ];
 // What the face buttons mean here, shown small under the symbol.
 const HINTS = {
@@ -175,6 +178,12 @@ export class TouchControls {
       lx = e.clientX;
       ly = e.clientY;
       downT = e.timeStamp; // (when the finger landed, even if the page was busy)
+      if (kind === 'quit') {
+        if (this.quitArm > e.timeStamp) this.quitNow = true;
+        else this.quitArm = e.timeStamp + 2500;
+        pid = null;
+        return;
+      }
       el.classList.add('on');
       if (kind === 'toggle') {
         if (this.toggled.has(b)) this.toggled.delete(b);
@@ -333,6 +342,20 @@ export class TouchControls {
       for (const id of ['bcross', 'bhesi', 'bstep', 'bspin']) b[id].el.classList.toggle('hidden', !off);
       b.bpass.el.classList.toggle('hidden', !(game.sport.solo && (off || game.sport.g?.ball?.mode === 'loose'))); // (passing / a fetch: shooting around)
       b.bd.el.classList.toggle('hidden', !!game.sport.solo);
+    }
+    // QUIT: armed by the first tap (SURE?), quits on the second.
+    const qb = this.el.buttons.quit;
+    if (qb) {
+      const armed = this.quitArm > performance.now();
+      qb.el.querySelector('.tl').textContent = armed ? 'SURE?' : 'QUIT';
+      qb.el.classList.toggle('hot', armed);
+      if (this.quitNow) {
+        this.quitNow = false;
+        this.quitArm = 0;
+        qb.el.querySelector('.tl').textContent = 'QUIT';
+        qb.el.classList.remove('hot');
+        if (armed) game.quitPickup?.();
+      }
     }
     // FIRE is dimmed until you aim (a gun only fires while aiming).
     const fire = this.el.buttons.fire;
