@@ -258,7 +258,7 @@ function buildCourt(city, scene, cfg) {
     collide(COURT.cx - 0.2, poleZ - 0.2, COURT.cx + 0.2, poleZ + 0.2, 3.6);
   }
   // The ball, left by the free-throw line.
-  const ball = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), lam(0xd8641f));
+  const ball = ballMesh();
   ball.position.set(COURT.cx + 1.3, 0.18, COURT.cz - hl + 6.4);
   ball.castShadow = true;
   group.add(ball);
@@ -395,4 +395,40 @@ export function drawCourt(ctx, s) {
     ctx.lineWidth = Math.max(1, s * 0.5);
     ctx.strokeRect(c.x0 * s, c.z0 * s, (c.x1 - c.x0) * s, (c.z1 - c.z0) * s);
   }
+}
+
+// A basketball: regulation size (24 cm across; the rims are 46 cm), pebbled orange with the
+// black seams, so it reads as a ball next to the players.
+let BALL_MAT = null;
+export function ballMesh(r = 0.12) {
+  if (!BALL_MAT) {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 64;
+    const g = c.getContext('2d');
+    g.fillStyle = '#d8641f';
+    g.fillRect(0, 0, 128, 64);
+    g.strokeStyle = '#1a1008';
+    g.lineWidth = 2.5;
+    // (the equator, two meridians, and the two curved panels' seams)
+    g.beginPath();
+    g.moveTo(0, 32);
+    g.lineTo(128, 32);
+    for (const x of [0, 32, 64, 96]) {
+      g.moveTo(x + 0.5, 0);
+      g.lineTo(x + 0.5, 64);
+    }
+    g.stroke();
+    for (const x0 of [16, 80]) {
+      g.beginPath();
+      for (let y = 0; y <= 64; y += 2) g.lineTo(x0 + Math.sin((y / 64) * Math.PI) * 9 * (y < 32 ? 1 : 1), y);
+      g.stroke();
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    BALL_MAT = new THREE.MeshLambertMaterial({ map: tex });
+  }
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 14), BALL_MAT);
+  m.castShadow = true;
+  return m;
 }

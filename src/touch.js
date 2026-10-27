@@ -48,7 +48,7 @@ const BUTTONS = [
   ['tri', '△', B.TRIANGLE, ['foot', 'car', 'map'], 'hold', 'sm'],
   ['crouch', 'DUCK', B.L3, ['foot'], 'hold', 'sm txt'],
   ['weapon', 'GUN', B.L1, ['foot', 'strip'], 'weapon', 'sm txt'],
-  ['use', 'USE', B.UP, ['foot', 'car'], 'hold', 'pill'],
+  ['use', 'USE', B.UP, ['foot', 'car', 'ball'], 'hold', 'pill'],
   ['gas', 'GAS', B.R2, ['car'], 'hold', 'pedal green'],
   ['brake', 'BRAKE', B.L2, ['car'], 'hold', 'pedal'],
   ['hand', 'HAND\nBRAKE', B.R1, ['car'], 'hold', 'mid txt'],

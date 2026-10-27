@@ -2135,6 +2135,11 @@ class Game {
       a.sprint = a.melee = a.reload = a.dealYes = a.dealNo = a.stripHeld = false;
     } else if (a.phone) this.phone.show();
     if (this.clipPlayer.open && a.closeClip) this.clipPlayer.close();
+    // In a pickup game the sticks are for playing: no crouching (L3) or test car (R3).
+    if (this.pickupGame()) {
+      a.crouch = a.spawnCar = false;
+      this.player.crouched = false;
+    }
     if (a.spawnCar && CFG.CAR_SPAWN_KEY) this.spawnTestCar();
     this.effects.update(dt);
     this.aircam.update(dt);
@@ -2259,6 +2264,7 @@ class Game {
     if (!this.player.vehicle) this.highway.updateLayer(this.player); // walking up or down a ramp
     this.peds.update(dt);
     for (const h of this.hoops) h.update(dt);
+    if (this.sport.solo) this.sport.step(dt); // (shooting around on your own)
     this.football.update(dt);
     this.playground.update(dt);
     this.checkRunOver();

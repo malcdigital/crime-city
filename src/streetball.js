@@ -1,5 +1,6 @@
 import { dist, rand, pick, lerpAngle, clamp } from './util.js';
 import { crouchPose } from './character.js';
+import { ballMesh } from './court.js';
 
 // One-on-one at a basketball court against one of the people shooting there (hoops.js),
 // played like NBA 2K's Blacktop.
@@ -88,10 +89,34 @@ export class Streetball {
     return null;
   }
 
+  // A basket nobody's using (on the court you're standing on): yours to shoot around at.
+  freeBasket() {
+    const game = this.game;
+    const [px, pz] = game.player.pos();
+    for (const H of game.hoops || []) {
+      const P = H.site.pad;
+      if (px < P.x0 || px > P.x1 || pz < P.z0 || pz > P.z1) continue;
+      let best = null;
+      for (const rim of H.site.hoops) {
+        if (H.groups.some((g) => g.rim === rim && g.players.length)) continue;
+        const d = dist(px, pz, rim.x, rim.z);
+        if (!best || d < best.d) best = { H, rim, d };
+      }
+      return best;
+    }
+    return null;
+  }
+
   offer(a) {
     const game = this.game;
-    if (this.active || game.player.vehicle || game.stars > 0 || game.stop) return;
+    if (this.active || game.player.vehicle || game.stars > 0 || game.stop || game.time < (this.again || 0)) return;
     const near = this.nearGame();
+    const free = this.freeBasket();
+    if (free && (!near || free.d < near.d)) {
+      game.prompt = `Pick up the ball and shoot around: ${game.input.label('interact')}`;
+      if (a.interactHeld && !game.interactWasHeld) this.startSolo(free.H, free.rim);
+      return;
+    }
     if (!near) return;
     const kb = game.input.mode === 'kb';
     if (a.dealNo) {
@@ -148,8 +173,112 @@ export class Streetball {
     hp.lagT = 0;
     hp.combo = 0;
     hp.style = pick(['slasher', 'shooter', 'balanced']);
-    this.give(Math.random() < 0.5 ? 'you' : 'opp', true);
+    this.solo = false;
+    this.checkup(Math.random() < 0.5 ? 'you' : 'opp');
     game.hud.toast(`One-on-one with ${opp.ballName} (${this.r} OVR)${bet ? ` · $${bet} on it` : ''}. First to ${to}`, '#ffd23f');
+  }
+
+  // ---- Shooting around on your own ----
+  // The same ball handling and shot meter, no opponent: you rebound your own misses. A stand-in
+  // "opponent" stays far off the court so everything that looks for him finds nobody.
+  startSolo(H, rim) {
+    const game = this.game;
+    this.active = true;
+    this.solo = true;
+    this.H = H;
+    this.rim = rim;
+    this.bet = 0;
+    this.to = Infinity;
+    this.r = 75;
+    this.score = { you: 0, opp: 0 };
+    this.stats = { att: 0, made: 0, streak: 0, best: 0 };
+    this.cleared = true;
+    this.shot = null;
+    this.outT = 0;
+    this.dead = null;
+    this.check = null;
+    this.flight = null;
+    this.lastShooter = null;
+    this.clock = 0;
+    this.you = { st: 1, beatT: 0, fallT: 0, jumpT: 0, move: null, combo: 0, lastMoveEnd: -9, rhythm: 0, hand: 1, stealT: 0, lastSteal: -9, blockT: 0, intense: false, ps: { on: false, t: 0, x: 0, y: 0 }, sizeUp: false };
+    this.opp = { x: 1e5, z: 1e5, heading: 0, speed: 0, state: 'play', removed: false, ballName: '', hp: { st: 1, beatT: 0, fallT: 0, lagT: 0, jumpT: 0 } };
+    const mesh = ballMesh();
+    game.scene.add(mesh);
+    const [px, pz] = game.player.pos();
+    this.g = { rim, players: [], match: this, ball: { mesh, x: px, y: 1, z: pz, vx: 0, vy: 0, vz: 0, mode: 'held', holder: 'you', t: 0 } };
+    H.site.ball.visible = false;
+    this.give('you');
+    game.hud.toast(`Shooting around. ${game.input.label('interact')} to put the ball down`, '#ffd23f');
+  }
+
+  // ---- Check up ----
+  // Pickup ball: before the game, after every bucket and after a foul or a stoppage, you both
+  // go back to the top of the key, face to face (the one with the ball just past the arc, the
+  // defender a step in front of him). The ball goes to the defender, he checks it back, and
+  // it's live. You check it with ✕ / E (the SHOOT button on a phone).
+  checkup(off, why = '') {
+    const game = this.game;
+    const rim = this.rim;
+    const p = game.player;
+    const opp = this.opp;
+    const hp = opp.hp;
+    const b = this.g.ball;
+    const O = this.onCourt(rim.x + rim.dx * 8.2, rim.z + rim.dz * 8.2);
+    const D = this.onCourt(rim.x + rim.dx * 6.8, rim.z + rim.dz * 6.8);
+    const [yx, yz] = off === 'you' ? O : D;
+    const [hx, hz] = off === 'you' ? D : O;
+    p.x = yx;
+    p.z = yz;
+    p.speed = 0;
+    p.heading = Math.atan2(hx - yx, hz - yz);
+    opp.x = hx;
+    opp.z = hz;
+    opp.speed = 0;
+    opp.heading = Math.atan2(yx - hx, yz - hz);
+    const Y = this.you;
+    Y.move = null;
+    Y.beatT = Y.fallT = Y.jumpT = 0;
+    Y.sizeUp = false;
+    for (const k of ['beatT', 'fallT', 'lagT', 'jumpT', 'closeT']) hp[k] = 0;
+    hp.state = 'check';
+    hp.boxed = false;
+    this.shot = null;
+    this.dead = null;
+    this.flight = null;
+    this.cleared = true;
+    this.has = 'check';
+    this.check = { off, stage: off === 'you' ? 'ready' : 'wait', t: 0 };
+    b.mode = 'held';
+    b.holder = off === 'you' ? 'you' : opp;
+    // (the camera behind you, looking at him)
+    game.camYaw = p.heading;
+    if (why) game.hud.toast(why, '#9fc3ff');
+  }
+
+  // The ball going across at the check.
+  checkPass(to) {
+    const b = this.g.ball;
+    const [tx, tz] = to === 'you' ? this.game.player.pos() : [this.opp.x, this.opp.z];
+    this.H.launch(b, tx, 1.2, tz, 0.4);
+    b.kind = 'check';
+    b.to = to;
+  }
+
+  checkArrive() {
+    const b = this.g.ball;
+    const C = this.check;
+    b.mode = 'held';
+    b.holder = b.to === 'you' ? 'you' : this.opp;
+    C.t = 0;
+    if (C.stage === 'toDef') C.stage = 'defHolds';
+    else if (C.stage === 'toYou') C.stage = 'youHold';
+    else if (C.stage === 'back') {
+      // Checked: ball's in.
+      const off = C.off;
+      this.check = null;
+      this.give(off, true);
+      this.game.hud.toast("Ball's in", '#ffd23f');
+    }
   }
 
   // ---- Helpers ----
@@ -232,12 +361,35 @@ export class Streetball {
     const intense = a.bIntense;
     let sprint = a.bSprint;
     const stick = this.proStick(dt, a);
+    const checkHit = a.dealYes || (a.interactHeld && !game.interactWasHeld && !this.solo) || (shootHeld && !this.prevShoot);
+    if (this.solo && a.interactHeld && !game.interactWasHeld) {
+      this.end('done');
+      return;
+    }
     a.fire = a.firePressed = a.aim = a.aimPressed = a.melee = a.reload = a.dealYes = a.enter = a.crouch = false;
     // On the controller the right stick is the Pro Stick: the camera looks down the court.
     if (game.input.mode === 'pad' && !game.input.touchMode) {
       a.lookX = a.lookY = 0;
-      const want = Math.atan2(-this.rim.dx, -this.rim.dz);
+      // (down the court at the basket; on defense, behind you looking at him)
+      const [qx, qz] = game.player.pos();
+      const want = this.has === 'opp' || (this.check && !this.solo) ? Math.atan2(this.opp.x - qx, this.opp.z - qz) : Math.atan2(-this.rim.dx, -this.rim.dz);
       game.camYaw = lerpAngle(game.camYaw, want, Math.min(1, dt * 2.5));
+    }
+    // Checking it up: nobody moves.
+    if (this.check) {
+      this.clock += dt;
+      a.moveX = a.moveY = 0;
+      a.sprint = false;
+      const C = this.check;
+      if (checkHit && C.stage === 'ready') {
+        C.stage = 'toDef';
+        this.checkPass('opp');
+      } else if (checkHit && C.stage === 'youHold') {
+        C.stage = 'back';
+        this.checkPass('opp');
+      }
+      this.prevShoot = shootHeld;
+      return;
     }
     this.clock += dt;
     Y.stealT = Math.max(0, Y.stealT - dt);
@@ -542,7 +694,7 @@ export class Streetball {
     }
     // A foul on the shot: and-one if it goes, your ball again if not.
     this.foulOnShot = lv >= 3 && Math.random() < 0.08;
-    game.hud.toast(`${grade} · ${OPEN[lv]}`, green || (s.type === 'dunk' && make) ? '#7ee081' : make ? '#ffd23f' : '#ff8080');
+    game.hud.toast(this.solo ? grade : `${grade} · ${OPEN[lv]}`, green || (s.type === 'dunk' && make) ? '#7ee081' : make ? '#ffd23f' : '#ff8080');
     if (s.type === 'dunk') {
       this.g.ball.x = px;
       this.g.ball.z = pz;
@@ -606,9 +758,7 @@ export class Streetball {
     const behind = ((px - opp.x) * Math.sin(opp.heading) + (pz - opp.z) * Math.cos(opp.heading)) < -0.3;
     const foulP = 0.1 + (again ? 0.2 : 0) + (behind ? 0.15 : 0);
     if (Math.random() < foulP) {
-      game.hud.toast(`Reach-in foul. ${opp.ballName} keeps it`, '#ff8080');
-      hp.state = 'walk';
-      hp.plan = { spot: null };
+      this.checkup('opp', `Reach-in foul. ${opp.ballName}'s ball, check it up`);
       return;
     }
     const p = (0.08 + (hp.state === 'move' ? 0.25 : 0) + (dB < 1 ? 0.06 : 0)) * (1.3 - this.r / 100);
@@ -656,7 +806,20 @@ export class Streetball {
     const P = H.site.pad;
     const off = px < P.x0 - 1 || px > P.x1 + 1 || pz < P.z0 - 1 || pz > P.z1 + 1;
     this.outT = off ? this.outT + dt : 0;
-    if (this.outT > 2.5 || game.player.vehicle || game.stars > 0 || game.wastedT > 0 || game.bustedT > 0) return this.end('forfeit');
+    if (this.outT > 2.5 || game.player.vehicle || game.stars > 0 || game.wastedT > 0 || game.bustedT > 0) return this.end(this.solo ? 'done' : 'forfeit');
+    if (this.solo) this.cleared = true;
+    // Checking it up: the defender holds it a moment and checks it back; he checks it to you.
+    const C = this.check;
+    if (C) {
+      C.t += dt;
+      if (C.stage === 'defHolds' && C.t > 0.5) {
+        C.stage = 'back';
+        this.checkPass('you');
+      } else if (C.stage === 'wait' && C.t > 0.8) {
+        C.stage = 'toYou';
+        this.checkPass('you');
+      }
+    }
     for (const k of ['beatT', 'fallT', 'lagT', 'jumpT', 'closeT', 'stealT']) hp[k] = Math.max(0, (hp[k] || 0) - dt);
     // His energy.
     if (hp.state === 'drive' || hp.state === 'move' || (this.has !== 'opp' && opp.speed > 3.5)) hp.st = Math.max(0, hp.st - dt * 0.07);
@@ -669,7 +832,10 @@ export class Streetball {
       b.z = b.p0[2] + (b.p1[2] - b.p0[2]) * k;
       const t = Math.min(b.t, b.T);
       b.y = b.p0[1] + b.vy0 * t - 0.5 * G * t * t;
-      if (b.t >= b.T) this.landed();
+      if (b.t >= b.T) {
+        if (b.kind === 'check') this.checkArrive();
+        else this.landed();
+      }
       if (!this.active) return; // (that was the game-winner: the scoreboard's gone)
     } else if (b.mode === 'loose') {
       H.roll(b, dt);
@@ -678,7 +844,7 @@ export class Streetball {
         if (this.dead.t <= 0) {
           const who = this.dead.who;
           this.dead = null;
-          this.give(who, true);
+          this.checkup(who);
         }
       } else {
         // Rebounds: you reach further jumping for it (△), he's slower boxed out.
@@ -711,7 +877,7 @@ export class Streetball {
         hp.armsT = 0.35;
         const exposed = this.you.move && MOVES[this.you.move.kind].risk ? 0.15 : 0;
         const r = Math.random();
-        if (r < 0.12) game.hud.toast(`Reach-in on ${opp.ballName}`, '#9fc3ff');
+        if (r < 0.12) return this.checkup('you', `Reach-in on ${opp.ballName}. Check it up`);
         else if (r < 0.12 + (0.06 + exposed) * (this.r / 75)) {
           game.hud.toast(`${opp.ballName} poked it away!`, '#ff8080');
           this.give('opp');
@@ -731,6 +897,15 @@ export class Streetball {
     const game = this.game;
     const b = this.g.ball;
     if (b.mode !== 'held') return;
+    if (this.has === 'check') {
+      // (held at the chest, face to face)
+      const h = b.holder === 'you' ? this.game.player : this.opp;
+      const [hx, hz] = b.holder === 'you' ? h.pos() : [h.x, h.z];
+      b.x = hx + Math.sin(h.heading) * 0.35;
+      b.z = hz + Math.cos(h.heading) * 0.35;
+      b.y = 1.2;
+      return;
+    }
     if (this.has === 'you') {
       const p = game.player;
       const [px, pz] = p.pos();
@@ -788,7 +963,18 @@ export class Streetball {
       meter = { v: s.t / span, lo: (s.T - w / 2) / span, hi: (s.T + w / 2) / span };
     }
     let hint = '';
-    if (this.you.fallT > 0) hint = 'Ankles broken...';
+    const C = this.check;
+    const ck = game.input.touchMode ? 'SHOOT' : game.input.mode === 'pad' ? '✕' : 'E';
+    if (this.solo) {
+      const S = this.stats;
+      const pct = S.att ? ` (${Math.round((S.made / S.att) * 100)}%)` : '';
+      const put = `${game.input.label('interact')} put it down`;
+      hint = this.has === 'you' ? (this.shot ? 'Let go in the green' : `${K.shoot} shoot · moves: ${K.moves} · ${put}`) : `Go get it · ${put}`;
+      game.hud.sport?.(`SHOOTAROUND · ${S.made}/${S.att}${pct} · streak ${S.streak} (best ${S.best})`, meter, hint, this.you.st);
+      return;
+    }
+    if (C) hint = C.stage === 'ready' ? `${ck} check it up` : C.stage === 'youHold' ? `${ck} check it back` : 'Checking it up...';
+    else if (this.you.fallT > 0) hint = 'Ankles broken...';
     else if (this.has === 'you' && !this.cleared) hint = 'Take it back past the arc';
     else if (this.has === 'you') hint = this.shot ? 'Let go in the green' : `${K.shoot} shoot (tap: pump fake) · ${K.sprint} sprint · moves: ${K.moves}`;
     else if (this.has === 'opp') hint = `${K.d} intense D · ${K.steal} steal · ${K.block} block`;
@@ -803,6 +989,30 @@ export class Streetball {
     this.flight = null;
     this.lastShooter = s ? s.by : null;
     b.mode = 'loose';
+    if (this.solo) {
+      const S = this.stats;
+      S.att += 1;
+      if (b.make) {
+        S.made += 1;
+        S.streak += 1;
+        S.best = Math.max(S.best, S.streak);
+        b.x = this.rim.x;
+        b.z = this.rim.z;
+        b.vx = b.vz = 0;
+        b.vy = -1.5;
+        game.sfx?.swish?.();
+        if (S.streak >= 3) game.hud.toast(`${S.streak} straight!`, '#7ee081');
+      } else {
+        S.streak = 0;
+        const side = rand(-1, 1);
+        const sp = rand(1.5, 3.2);
+        const L = Math.hypot(side, 1);
+        b.vx = ((this.rim.dx - this.rim.dz * side) / L) * sp;
+        b.vz = ((this.rim.dz + this.rim.dx * side) / L) * sp;
+        b.vy = rand(0.8, 2.6);
+      }
+      return;
+    }
     const hp = this.opp.hp;
     const foul = s && (s.foul || (s.by === 'opp' && hp.fouled));
     hp.fouled = false;
@@ -857,6 +1067,11 @@ export class Streetball {
       hp.cheerT = Math.max(0, (hp.cheerT || 0) - dt);
       if (dist(p.x, p.z, ...hp.spot) > 0.4) return { tx: hp.spot[0], tz: hp.spot[1], speed: 1.6 };
       face(b.x, b.z);
+      return { speed: 0 };
+    }
+    // Checking it up: stand there, face to face.
+    if (this.check) {
+      face(px, pz);
       return { speed: 0 };
     }
     // On the floor.
@@ -1165,6 +1380,9 @@ export class Streetball {
       game.hud.toast(`You beat ${name} ${this.score.you}-${this.score.opp}${bet ? ` · +$${bet}` : ''} · +${cred} cred`, '#7ee081');
     } else if (how === 'lose') {
       game.hud.toast(`${name} wins ${this.score.opp}-${this.score.you}${bet ? ` · -$${bet}` : ''}`, '#ff8080');
+    } else if (how === 'done') {
+      const S = this.stats;
+      game.hud.toast(S.att ? `Shot ${S.made}/${S.att} (${Math.round((S.made / S.att) * 100)}%) · best streak ${S.best}` : 'Put the ball down', '#9fc3ff');
     } else if (how === 'forfeit') {
       game.hud.toast(`You walked off: ${name} takes it${bet ? ` · -$${bet}` : ''}`, '#ff8080');
     } else {
@@ -1172,10 +1390,19 @@ export class Streetball {
       game.hud.toast('Game called off', '#9fc3ff');
     }
     this.active = false;
+    this.again = game.time + 0.6; // (the press that ended it doesn't start another)
     this.shot = null;
     this.dead = null;
+    this.check = null;
     this.flight = null;
     const g = this.g;
+    if (this.solo) {
+      this.solo = false;
+      game.scene.remove(g.ball.mesh);
+      this.H.site.ball.visible = !this.H.active;
+      game.hud.sport?.(null);
+      return;
+    }
     if (g) {
       g.match = null;
       // Back to shooting around.

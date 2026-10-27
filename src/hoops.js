@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { lam } from './character.js';
 import { rand, dist, lerpAngle } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
+import { ballMesh } from './court.js';
 
 // People shooting hoops at the basketball courts (court.js): one of these per court.
 // When you come near, a few people turn up at each basket (more in the day and evening, a
@@ -73,8 +74,8 @@ export class Hoops {
     S.hoops.forEach((rim, i) => {
       const n = counts[i];
       if (!n) return;
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 12, 8), lam(0xd8641f));
-      mesh.castShadow = true;
+      if (this.game.sport?.solo && this.game.sport.rim === rim) return; // (you're shooting around there)
+      const mesh = ballMesh(BALL_R);
       this.game.scene.add(mesh);
       const g = { rim, players: [], ball: { mesh, x: 0, y: FLOOR, z: 0, vx: 0, vy: 0, vz: 0, mode: 'held', holder: null, t: 0 }, last: null };
       for (let k = 0; k < n; k++) {
