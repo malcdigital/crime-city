@@ -930,6 +930,20 @@ export class Streetball {
           this.doMove(dt, a);
           sprint = true; // (a move's a burst)
         }
+        // Back-pedaling: the stick pulled away from the basket, you shuffle back still facing it
+        // (slower, no sprint).
+        Y.backpedal = false;
+        if (!Y.move && !Y.sizeUp && Math.hypot(a.moveX, a.moveY) > 0.3) {
+          const yaw = game.camYaw;
+          const wx = Math.sin(yaw) * a.moveY - Math.cos(yaw) * a.moveX;
+          const wz = Math.cos(yaw) * a.moveY + Math.sin(yaw) * a.moveX;
+          if ((wx * D.ux + wz * D.uz) / Math.hypot(wx, wz) < -0.3) {
+            Y.backpedal = true;
+            a.moveX *= 0.65;
+            a.moveY *= 0.65;
+            sprint = false;
+          }
+        }
         // Keep it in the outside hand, away from trouble.
         // (the steps into a layup or dunk are a run)
         if (!Y.move && !Y.sizeUp) this.protect(dt);
@@ -2398,8 +2412,8 @@ export class Streetball {
       c.group.position.y += this.dunkHeight();
       return;
     }
-    // A step-back: hopping back, still facing the basket.
-    if (Y.move?.kind === 'step' && this.has === 'you') {
+    // A step-back or a back-pedal: going back, still facing the basket.
+    if ((Y.move?.kind === 'step' || (Y.backpedal && !this.shot)) && this.has === 'you') {
       p.heading = Math.atan2(this.rim.x - p.x, this.rim.z - p.z);
       c.group.rotation.y = p.heading;
     }
