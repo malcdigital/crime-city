@@ -482,9 +482,11 @@ export class Officer {
   }
 }
 
+let callsigns = 10;
 // A police cruiser with two officers.
 export class PoliceUnit {
   constructor(game, x, z, heading, kind = 'police') {
+    this.callsign = callsigns++; // (for the radio)
     this.game = game;
     this.kind = kind;
     this.car = new Vehicle(game.scene, kind, x, z, heading);
@@ -537,6 +539,7 @@ export class PoliceUnit {
     for (const o of this.officers) o.update(dt);
     const [px, pz] = game.player.pos();
     const d = dist(c.x, c.z, px, pz);
+    this.chasing = false;
 
     if (!this.mounted) {
       c.update(dt, { throttle: throttleFor(c, 0), steer: 0, handbrake: true }, game.city.colliders);
@@ -556,6 +559,7 @@ export class PoliceUnit {
     c.closeDoors();
 
     let tx, tz, desired;
+    let plan = null;
     const maxS = c.type.max * (0.6 + game.stars * 0.08);
     if (this.leaving || game.wastedT > 0) {
       this.leaveT += dt;
@@ -641,8 +645,14 @@ export class PoliceUnit {
       [tx, tz, desired] = game.enforce.pursue(this, dt);
     } else {
       c.siren = true;
+      this.chasing = true; // (pursuit.js gives chasing cars their jobs)
       const seesPlayer = (d < 45 && game.spots(c, 1.4, 60, false)) || (this.raid && d < 45); // a raid knows exactly where you are
-      if (seesPlayer) {
+      plan = seesPlayer && !this.raid && game.pursuit ? game.pursuit.drive(this, maxS) : null;
+      if (plan) {
+        // Cutting you off, a PIT, or boxing you in (pursuit.js).
+        [tx, tz, desired] = plan;
+        this.to = null;
+      } else if (seesPlayer) {
         const [vx, vz] = game.player.velocity();
         tx = px + vx * 0.6;
         tz = pz + vz * 0.6;
@@ -680,8 +690,10 @@ export class PoliceUnit {
     }
     // Don't plow into cars ahead (especially other cruisers parked at the scene) or officers on foot.
     const [fx, fz] = c.forward();
+    const tactic = plan && this.role && this.role !== 'tail'; // (a PIT or a box-in means getting right up on you)
     for (const o of game.vehicles) {
       if (o === c || o.removed) continue;
+      if (tactic && o === game.player.vehicle) continue;
       const ox = o.x - c.x;
       const oz = o.z - c.z;
       if (Math.abs(ox) > 18 || Math.abs(oz) > 18) continue;

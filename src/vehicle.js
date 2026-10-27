@@ -591,6 +591,9 @@ export class Vehicle {
       this.r = clamp(this.r || 0, -rMaxNow, rMaxNow);
     }
     this.dyn = true;
+    // Spun out (a police PIT, pursuit.js): for a moment the stability help is off.
+    this.spinT = Math.max(0, (this.spinT || 0) - dt);
+    const spinning = this.spinT > 0;
     const steer = clamp(steerIn, -1, 1);
     const thr = ctrl.throttle || 0;
     const driftWanted = ctrl.gas && ctrl.brake && Math.abs(steer) > 0.15 && this.vx > 8;
@@ -610,7 +613,7 @@ export class Vehicle {
     // Arcade feel: on the gas the front bites (the car turns in tight); off the gas the rear
     // holds (no snapping round when you lift); the drift (gas + brake) is its own thing.
     const muF = H.max * (H.bias + 0.5) * (1 - 0.25 * frontFlats) * (1 + 0.6 * gasAmt * (1 - drift));
-    const muR = H.max * (1.5 - H.bias) * (1 - 0.25 * rearFlats) * (1 - 0.35 * drift) * (1 + (0.45 + 0.35 * gasAmt) * (1 - drift)); // (planted on the gas too: it turns, it doesn't skid)
+    const muR = H.max * (1.5 - H.bias) * (1 - 0.25 * rearFlats) * (1 - 0.35 * drift) * (1 + (0.45 + 0.35 * gasAmt) * (1 - drift)) * (spinning ? 0.3 : 1); // (planted on the gas too: it turns, it doesn't skid; spun out, the back end is loose)
     const curve = (al, mu) => {
       // Grip (as a friction coefficient) for a slip angle: builds to the peak, then eases to
       // the sliding level.
@@ -669,7 +672,7 @@ export class Vehicle {
       }
       // Stability: outside a drift, a slide past ~8 degrees is caught (the turn rate eases
       // back toward the rate the car's path is turning, and the sideways slip bleeds off).
-      if (drift < 0.3) {
+      if (drift < 0.3 && !spinning) {
         const beta = Math.atan2(this.vy, vx);
         const over = Math.max(0, Math.abs(beta) - 0.06); // (a slide past ~3.5 degrees is caught)
         if (over > 0) {
@@ -680,7 +683,7 @@ export class Vehicle {
         }
       }
       // Angular damping, and sideways creep dies out at walking pace.
-      this.r *= Math.exp(-ddt * (0.6 + 1.0 * (1 - drift) * Math.min(1, this.vx / 20))); // stability at speed (less while drifting)
+      this.r *= Math.exp(-ddt * (spinning ? 0.35 : 0.6 + 1.0 * (1 - drift) * Math.min(1, this.vx / 20))); // stability at speed (less while drifting or spun out)
       if (this.vx < 6) this.vy *= Math.exp(-ddt * (6 - this.vx) * 1.5);
       this.heading = wrapAngle(this.heading - this.r * ddt);
       const [fx, fz] = this.forward();

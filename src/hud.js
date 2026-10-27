@@ -42,6 +42,14 @@ export class Hud {
     $('hud').classList.remove('hidden');
   }
 
+  // A line of police radio chatter under the wanted stars (pursuit.js).
+  radio(text) {
+    const el = $('radio');
+    el.textContent = `📻 ${text}`;
+    el.classList.remove('hidden', 'fade');
+    this.radioT = 4.5;
+  }
+
   set(id, value) {
     if (this.last[id] === value) return;
     this.last[id] = value;
@@ -73,6 +81,25 @@ export class Hud {
       el.innerHTML = Array.from({ length: 5 }, (_, i) => `<span class="${i < game.stars ? 'on' : ''}">★</span>`).join('');
       el.classList.toggle('flash', game.searching);
     }
+
+    // Losing the police: the meter, and lying low.
+    const P = game.pursuit;
+    if (P) {
+      const share = P.escapeShare();
+      const show = game.stars > 0 && (share > 0 || P.lyingLow);
+      $('evade').classList.toggle('hidden', !show);
+      if (show) {
+        $('evade-bar').style.width = `${Math.round(share * 100)}%`;
+        $('evade').classList.toggle('low', P.lyingLow);
+        this.set('evade-label', P.lyingLow ? 'LYING LOW' : 'LOSING THEM');
+      }
+    }
+    if (this.radioT > 0) {
+      this.radioT -= dt;
+      if (this.radioT <= 0.4) $('radio').classList.add('fade');
+      if (this.radioT <= 0) $('radio').classList.add('hidden');
+    }
+    if (game.stars === 0 && this.radioT > 0.4) this.radioT = 0.4;
 
     this.set('prompt', game.prompt || '');
     const v = game.player.vehicle;

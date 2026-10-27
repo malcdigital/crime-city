@@ -12,6 +12,7 @@ import { Hoops } from './hoops.js';
 import { Football } from './football.js';
 import { Playground } from './playground.js';
 import { noteCrime } from './safety.js';
+import { Pursuit, LOW_RANGE } from './pursuit.js';
 import { Parking } from './parking.js';
 import { Props } from './props.js';
 import { Enforcement } from './enforcement.js';
@@ -120,6 +121,7 @@ class Game {
     this.hoops = this.city.courts.map((site) => new Hoops(this, site)); // (people shooting hoops at each court)
     this.football = new Football(this); // (football practice at Harbor Field)
     this.playground = new Playground(this); // (kids at the Market St playground, people by the statue)
+    this.pursuit = new Pursuit(this); // (police tactics, lying low, the radio)
     this.police = new PoliceManager(this);
 
     // Parked cars at the curb near the start point.
@@ -797,6 +799,8 @@ class Game {
   // and a cop on foot only spots you within his field of view.
   canSeePlayer(viewer, eyeY, range, useFov) {
     const [px, pz] = this.player.pos();
+    // Lying low (pursuit.js): only spotted from close up.
+    if (this.pursuit?.lyingLow) range = Math.min(range, useFov ? LOW_RANGE.foot : LOW_RANGE.car);
     const d = dist(viewer.x, viewer.z, px, pz);
     if (d > range) return false;
     if (segmentBlocked(viewer.x, viewer.z, px, pz, this.city.los)) return false;
@@ -838,8 +842,10 @@ class Game {
     this.unseenT = 0;
   }
 
+  // The area they're combing: it widens slowly the longer they search.
   get searchRadius() {
-    return 35 + this.stars * 8;
+    const since = this.searching ? this.time - this.lastSeen : 0;
+    return 35 + this.stars * 8 + Math.min(30, since * 0.4);
   }
 
   // An officer shoots at a car's tires (front tires first).
@@ -2134,6 +2140,7 @@ class Game {
 
     this.traffic.update(dt);
     this.police.update(dt);
+    this.pursuit.update(dt);
     this.gang.update(dt);
     this.crew.update(dt);
     this.turfWars.update(dt);

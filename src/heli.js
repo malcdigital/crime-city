@@ -129,6 +129,7 @@ export class Helicopter {
     const known = game.time - game.lastSeen < 3;
     const inBeam = dist(this.aim[0], this.aim[1], px, pz) < 7;
     if (!inBeam && !(known && d2 < 70)) return false;
+    if (game.highway && !game.player.vehicle?.high && game.highway.overhead(px, pz, game.city.groundY(px, pz))) return false; // (under a freeway deck)
     const ty = game.city.groundY(px, pz) + (game.player.lowProfile ? 0.9 : 1.6);
     const dx = px - this.x, dy = ty - (this.y - 1), dz = pz - this.z;
     const len = Math.hypot(dx, dy, dz);

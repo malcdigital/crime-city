@@ -15,6 +15,14 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc3e0; fon
 #stars { font-size: 28px; letter-spacing: 3px; margin-top: 2px; color: rgba(255,255,255,.25); }
 #stars .on { color: #ffd23f; }
 #stars.flash .on { animation: flash .5s steps(2) infinite; }
+/* Losing the police: a meter that fills while they can't see you (pursuit.js). */
+#evade { position: relative; width: 150px; height: 16px; margin: 4px 0 0 auto; border-radius: 8px; background: rgba(0,0,0,.45); overflow: hidden; border: 1px solid rgba(255,255,255,.25); }
+#evade-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: linear-gradient(90deg, #3b7bff, #7ee0ff); transition: width .25s linear; }
+#evade-label { position: relative; display: block; text-align: center; font-size: 10px; font-weight: 800; letter-spacing: .08em; line-height: 16px; color: #fff; text-shadow: 0 1px 2px #000; }
+#evade.low #evade-bar { background: linear-gradient(90deg, #2e7d32, #7ee081); }
+/* Police radio chatter. */
+#radio { margin-top: 5px; max-width: 280px; margin-left: auto; font-size: 12px; font-style: italic; color: #bcd4ff; text-shadow: 0 1px 2px #000; text-align: right; transition: opacity .4s; }
+#radio.fade { opacity: 0; }
 @keyframes flash { 50% { opacity: .25; } }
 
 #news { position: absolute; top: 120px; right: 20px; width: 300px; }
@@ -430,6 +438,9 @@ body.touch #phone-body .ph-row { padding: 11px 8px; }
   #clock { font-size: 10px; }
   #bank-line { font-size: 10px; }
   #stars { font-size: 17px; letter-spacing: 1px; }
+  #evade { width: 110px; height: 13px; }
+  #evade-label { font-size: 8px; line-height: 13px; }
+  #radio { font-size: 10px; max-width: 200px; }
   #weapon { font-size: 11px; margin-top: 2px; }
   #product { font-size: 10px; }
   #minimap { left: 8px !important; top: 8px; bottom: auto !important; width: 108px; height: 108px; }
