@@ -14,6 +14,7 @@ import { Playground } from './playground.js';
 import { noteCrime } from './safety.js';
 import { Pursuit, LOW_RANGE } from './pursuit.js';
 import { StopScene } from './stopscene.js';
+import { Justice } from './jail.js';
 import { Parking } from './parking.js';
 import { Props } from './props.js';
 import { Enforcement } from './enforcement.js';
@@ -123,6 +124,7 @@ class Game {
     this.football = new Football(this); // (football practice at Harbor Field)
     this.playground = new Playground(this); // (kids at the Market St playground, people by the statue)
     this.pursuit = new Pursuit(this); // (police tactics, lying low, the radio)
+    this.justice = new Justice(this); // (charges, booking, bail, jail time, your record)
     this.police = new PoliceManager(this);
 
     // Parked cars at the curb near the start point.
@@ -386,6 +388,7 @@ class Game {
   crime(type, x, z, extra = '') {
     const c = CRIMES[type];
     noteCrime(this, type, x, z); // (people stay away from the parks for a while)
+    this.justice?.note(type); // (on your charge sheet)
     this.president.crime(type, c.label);
     this.property?.crimeType(type, x, z); // crime drags down property values there
     this.heat += c.heat;
@@ -407,6 +410,7 @@ class Game {
   }
 
   clearWanted() {
+    this.justice?.clear(); // (clear of the police: the charges go too, unless you're being booked)
     this.stars = 0;
     this.heat = 0;
     this.lethalFlag = false;
@@ -421,17 +425,11 @@ class Game {
     this.president.win(3, 'Arrests');
     const [bx, bz] = this.player.pos();
     this.endStory(`Suspect arrested on ${streetAt(bx, bz)}`, bx, bz, 'info', true);
-    let fine = Math.min(this.cash, 200 * Math.max(1, this.stars) + Math.floor(this.cash * 0.1));
-    if (opts.bribery) fine = Math.min(this.cash, fine + 500 + Math.floor((this.cash - fine) * 0.25)); // tried to bribe a straight cop
-    if (opts.resisting) fine = Math.min(this.cash, fine + 800 + Math.floor((this.cash - fine) * 0.3)); // fought the officer
-    this.cash -= fine;
-    const credLoss = opts.bribery ? 25 : opts.resisting ? 15 : 10;
-    this.cred = Math.max(0, this.cred - credLoss);
-    const charge = opts.bribery ? ' (+ bribery charge)' : opts.resisting ? ' (+ resisting arrest)' : '';
-    this.hud.busted(true, `Fined $${fine.toLocaleString('en-US')}${charge} · -${credLoss} street cred`);
+    // Cuffed, then booked at the precinct (jail.js): bail, a lawyer, or the time.
+    this.justice.start(opts);
     if (opts.bribery) this.hud.news(`Suspect charged with trying to bribe an officer on ${streetAt(bx, bz)}`, 'info');
     if (opts.resisting) this.hud.news(`Suspect charged with resisting arrest after scuffle with officer on ${streetAt(bx, bz)}`, 'info');
-    this.bustedT = 3;
+    this.bustedT = 3.2;
     this.drugs.onBusted();
     this.clearWanted();
     this.robbing = null;
@@ -439,6 +437,7 @@ class Game {
   }
 
   afterBust() {
+    if (this.justice.book()) return; // (booking: the menu takes it from here)
     this.hud.busted(false);
     this.respawnAt(this.shops.respawnPoint() || this.city.station);
   }
@@ -2165,6 +2164,7 @@ class Game {
     this.traffic.update(dt);
     this.police.update(dt);
     this.pursuit.update(dt);
+    this.justice.update();
     this.gang.update(dt);
     this.crew.update(dt);
     this.turfWars.update(dt);
