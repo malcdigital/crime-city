@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CFG } from './config.js';
 import { Vehicle } from './vehicle.js';
-import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES } from './character.js';
+import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES, straightArms } from './character.js';
 import { pushCircle, segmentBlocked } from './collision.js';
 import { steerToward, throttleFor, StuckHelper } from './driving.js';
 import { dist, pick, rand, lerpAngle } from './util.js';
@@ -37,9 +37,9 @@ export class Officer {
     if (swat) {
       // Rifle in hand, and a vest.
       const gun = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.16, 0.7), new THREE.MeshLambertMaterial({ color: 0x111111 }));
-      gun.position.set(0, -0.64, 0);
+      gun.position.set(0, -0.04, 0);
       gun.rotation.x = Math.PI / 2;
-      this.char.armR.add(gun);
+      this.char.wristR.add(gun);
       const vest = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 0.36), new THREE.MeshLambertMaterial({ color: 0x3a3f46 }));
       vest.position.set(0, 1.3, 0);
       this.char.group.add(vest);
@@ -264,11 +264,15 @@ export class Officer {
     if ((game.lethal || this.aimingTires) && this.state === 'chase') {
       this.char.armR.rotation.x = -1.45;
       this.char.armL.rotation.x = -1.2;
+      straightArms(this.char, 'R');
+      this.char.elbowL.rotation.x = -0.45;
     }
     // Heard shots (main.js gunshot): gun out, turned toward them.
     if (this.alertUntil > game.time && this.standing && !game.lethal) {
       this.char.armR.rotation.x = -1.45;
       this.char.armL.rotation.x = -1.2;
+      straightArms(this.char, 'R');
+      this.char.elbowL.rotation.x = -0.45;
       if (speed === 0 && this.alertAt) this.heading = lerpAngle(this.heading, Math.atan2(this.alertAt[0] - this.x, this.alertAt[1] - this.z), Math.min(1, dt * 6));
     }
     this.place();

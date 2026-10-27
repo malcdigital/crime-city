@@ -3,7 +3,7 @@ const _c = new THREE.Vector3();
 const _e = new THREE.Euler(0, 0, 0, 'YXZ');
 const GETUP = 1.0; // seconds to get back up after a tumble
 import { CFG } from './config.js';
-import { makeCharacter, animateWalk, setDown, crouchPose, lam } from './character.js';
+import { makeCharacter, animateWalk, setDown, crouchPose, lam, straightArms } from './character.js';
 import { pushCircle } from './collision.js';
 import { clamp, lerp, lerpAngle } from './util.js';
 
@@ -22,13 +22,13 @@ export class Player {
     // A matching set for the left hand (used when peeking out of cover to the left).
     this.gunsL = {};
     for (const [k, g] of Object.entries(this.guns)) {
-      g.position.set(0, -0.64, 0);
+      g.position.set(0, -0.04, 0); // (in the hand: off the wrist)
       g.rotation.x = Math.PI / 2;
       g.visible = false;
-      this.char.armR.add(g);
+      this.char.wristR.add(g);
       const l = g.clone();
       this.gunsL[k] = l;
-      this.char.armL.add(l);
+      this.char.wristL.add(l);
     }
     this.gunHand = 'R';
     this.weaponId = null;
@@ -308,12 +308,18 @@ export class Player {
     const combat = faceYaw !== null;
     if (this.punchT > 0) {
       this.punchT -= dt;
-      this.char.armR.rotation.x = -1.6 * Math.sin((this.punchT / 0.3) * Math.PI);
+      // (a jab: the elbow cocked, then the arm snaps out straight)
+      const k = Math.sin((this.punchT / 0.3) * Math.PI);
+      this.char.armR.rotation.x = -1.6 * k;
+      this.char.elbowR.rotation.x = -1.5 * (1 - k);
     } else if (combat && game.arsenal.current().id !== 'fists') {
       // Gun arm straight out, the other hand supporting.
       const left = this.gunHand === 'L';
       this.char.armR.rotation.x = left ? -1.2 : -1.5;
       this.char.armL.rotation.x = left ? -1.5 : -1.2;
+      // (the gun arm locked straight down the sights, the support arm bent in to it)
+      straightArms(this.char);
+      (left ? this.char.elbowR : this.char.elbowL).rotation.x = -0.45;
     }
   }
 

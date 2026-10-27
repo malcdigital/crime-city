@@ -9,7 +9,9 @@ export function lam(color) {
 const THIGH = new THREE.BoxGeometry(0.22, 0.46, 0.26);
 const SHIN = new THREE.BoxGeometry(0.2, 0.44, 0.24);
 const BODY = new THREE.BoxGeometry(0.56, 0.72, 0.32);
-const ARM = new THREE.BoxGeometry(0.16, 0.62, 0.18);
+const ARM = new THREE.BoxGeometry(0.16, 0.34, 0.18); // (the upper arm)
+const FOREARM = new THREE.BoxGeometry(0.15, 0.3, 0.17);
+const DELT = new THREE.BoxGeometry(0.2, 0.18, 0.22); // (the shoulder cap)
 const HAND = new THREE.BoxGeometry(0.14, 0.14, 0.14);
 const HEAD = new THREE.BoxGeometry(0.32, 0.34, 0.32);
 const CAP = new THREE.BoxGeometry(0.36, 0.1, 0.36);
@@ -50,12 +52,24 @@ export function makeCharacter({ shirt = 0x3366aa, pants = 0x222222, skin = 0xc68
   const [legL, kneeL] = leg(0.13);
   const [legR, kneeR] = leg(-0.13);
   add(BODY, shirt, 0, 1.26, 0);
-  const armL = pivot(0.37, 1.56);
-  add(ARM, shirt, 0, -0.3, 0, armL);
-  add(HAND, skin, 0, -0.66, 0, armL);
-  const armR = pivot(-0.37, 1.56);
-  add(ARM, shirt, 0, -0.3, 0, armR);
-  add(HAND, skin, 0, -0.66, 0, armR);
+  // Arms: the shoulder (armL / armR), the elbow and the wrist, each a pivot of its own.
+  // An elbow bends with a negative x (the forearm comes forward); a wrist the same way.
+  const arm = (x) => {
+    const sh = pivot(x, 1.56);
+    add(DELT, shirt, 0, -0.04, 0, sh);
+    add(ARM, shirt, 0, -0.16, 0, sh);
+    const el = new THREE.Group();
+    el.position.set(0, -0.32, 0);
+    sh.add(el);
+    add(FOREARM, shirt, 0, -0.14, 0, el);
+    const wr = new THREE.Group();
+    wr.position.set(0, -0.28, 0);
+    el.add(wr);
+    add(HAND, skin, 0, -0.06, 0, wr);
+    return [sh, el, wr];
+  };
+  const [armL, elbowL, wristL] = arm(0.37);
+  const [armR, elbowR, wristR] = arm(-0.37);
   add(HEAD, skin, 0, 1.8, 0);
   if (cap) {
     add(CAP, cap, 0, 2.0, 0);
@@ -63,7 +77,7 @@ export function makeCharacter({ shirt = 0x3366aa, pants = 0x222222, skin = 0xc68
   }
   if (bandana) add(BAND, bandana, 0, 1.9, 0);
 
-  return { group: g, legL, legR, kneeL, kneeR, armL, armR };
+  return { group: g, legL, legR, kneeL, kneeR, armL, armR, elbowL, elbowR, wristL, wristR };
 }
 
 export function animateWalk(c, phase, amount) {
@@ -75,6 +89,17 @@ export function animateWalk(c, phase, amount) {
   c.kneeR.rotation.x = Math.max(0, -s) * 1.1 * amount;
   c.armL.rotation.x = -s * 0.6;
   c.armR.rotation.x = s * 0.6;
+  // (elbows: a little give standing, bent near square at a run, more on the forward swing)
+  const e = 0.2 + 0.9 * amount;
+  c.elbowL.rotation.x = -e - Math.max(0, s) * 0.5;
+  c.elbowR.rotation.x = -e - Math.max(0, -s) * 0.5;
+  c.wristL.rotation.x = c.wristR.rotation.x = 0;
+}
+
+// Straight arms (for aiming a gun down them, say). Pass 'R' or 'L' for one.
+export function straightArms(c, side = '') {
+  if (side !== 'L') c.elbowR.rotation.x = c.wristR.rotation.x = 0;
+  if (side !== 'R') c.elbowL.rotation.x = c.wristL.rotation.x = 0;
 }
 
 const L1 = 0.44;
@@ -99,7 +124,7 @@ export function crouchPose(c, depth = 1, shuffle = 0) {
 // A different shirt (a team jersey, say).
 export function setShirt(c, color) {
   c.group.traverse((m) => {
-    if (m.isMesh && (m.geometry === BODY || m.geometry === ARM)) m.material = lam(color);
+    if (m.isMesh && (m.geometry === BODY || m.geometry === ARM || m.geometry === FOREARM || m.geometry === DELT)) m.material = lam(color);
   });
 }
 
@@ -107,4 +132,5 @@ export function setShirt(c, color) {
 export function setDown(c, down) {
   c.group.rotation.x = down ? -Math.PI / 2 : 0;
   if (down) c.kneeL.rotation.x = c.kneeR.rotation.x = 0;
+  if (down) straightArms(c);
 }

@@ -1,6 +1,6 @@
 import { GANG_NAME, CREW_NAME } from './config.js';
 import * as THREE from 'three';
-import { makeCharacter, setDown, crouchPose, SKIN_TONES, lam } from './character.js';
+import { makeCharacter, setDown, crouchPose, SKIN_TONES, lam, straightArms } from './character.js';
 import { pushCircle, segmentBlocked } from './collision.js';
 import { dist, pick, rand, lerpAngle, clamp } from './util.js';
 import { navStep, escapePoint } from './nav.js';
@@ -163,9 +163,9 @@ export class GangFighter {
     if (this.gunMesh) this.gunMesh.parent?.remove(this.gunMesh);
     const [w, h, l] = g.size;
     const gun = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), lam(g.color));
-    gun.position.set(0, -0.64, 0);
+    gun.position.set(0, -0.04, 0);
     gun.rotation.x = Math.PI / 2;
-    this.char.armR.add(gun);
+    this.char.wristR.add(gun);
     this.gunMesh = gun;
   }
 
@@ -228,6 +228,7 @@ export class GangFighter {
     const [ax, az] = this.alertAt;
     this.move(dt, this.x, this.z, 0, Math.atan2(ax - this.x, az - this.z));
     this.char.armR.rotation.x = -1.4;
+    straightArms(this.char, 'R');
     this.crouched = !!this.alertCrouch;
     return true;
   }
@@ -463,6 +464,7 @@ export class GangFighter {
     this.move(dt, goX, goZ, speed, face);
     const armed = !(this.behavior === 'flee' && this.fleeT > 0) && this.behavior !== 'leave' && !(this.behavior === 'hide' && !this.crouched);
     this.char.armR.rotation.x = armed ? -1.45 : -0.3;
+    if (armed) straightArms(this.char, 'R');
 
     if (canShoot && d < W.range) {
       this.fireT -= dt;
@@ -511,6 +513,10 @@ export class GangFighter {
       this.char.kneeR.rotation.x = Math.max(0, -s) * 1.1;
     }
     this.char.armL.rotation.x = this.state === 'fight' && this.behavior !== 'flee' ? -1.1 : -s * 0.6;
+    // (elbows bent with the pace; the gun arm stays straight while it's up)
+    const e = 0.2 + 0.9 * Math.min(1, this.speedNow / 2);
+    this.char.elbowL.rotation.x = this.state === 'fight' && this.behavior !== 'flee' ? -0.5 : -e;
+    this.char.elbowR.rotation.x = this.char.armR.rotation.x < -1 ? 0 : -e;
   }
 
   place() {

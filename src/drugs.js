@@ -1067,12 +1067,12 @@ export class Drugs {
     cop.fireT = 8; // holds you at gunpoint; fires if you resist (see Ped 'sting')
     if (!cop.badgeGun) {
       const gun = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.32), new THREE.MeshLambertMaterial({ color: 0x151515 }));
-      gun.position.set(0, -0.64, 0.05);
+      gun.position.set(0, -0.04, 0.05);
       gun.rotation.x = Math.PI / 2;
-      cop.char.armR.add(gun);
+      cop.char.wristR.add(gun);
       const badge = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.2, 0.03), new THREE.MeshBasicMaterial({ color: 0xf1c40f }));
-      badge.position.set(0, -0.66, 0.06);
-      cop.char.armL.add(badge);
+      badge.position.set(0, -0.06, 0.06);
+      cop.char.wristL.add(badge);
       cop.badgeGun = true;
     }
     game.crime('drugDeal', cop.x, cop.z);

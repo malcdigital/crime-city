@@ -105,7 +105,7 @@ function comboName(chain) {
 }
 // Smoothing between poses (yours and his): every joint eases to where this frame's pose puts it
 // (about 0.1 s to settle), so moves, stances and shots blend instead of snapping.
-const JOINTS = ['armL', 'armR', 'legL', 'legR', 'kneeL', 'kneeR'];
+const JOINTS = ['armL', 'armR', 'legL', 'legR', 'kneeL', 'kneeR', 'elbowL', 'elbowR', 'wristL', 'wristR'];
 function smoothJoints(c, dt) {
   const s = c.group.userData.sm || (c.group.userData.sm = {});
   const k = Math.min(1, dt * 22);
@@ -142,38 +142,48 @@ const mix = (a, b, k) => a + (b - a) * k;
 function shotForm(c, o) {
   const { kind, hand, g, u, f = -1, air = false, land = -1, legs = true } = o;
   const k0 = ease(Math.min(1, Math.max(0, g)));
-  // (the shot pocket: two hands on it at the chest)
-  let S = [mix(-0.7, -1.15, k0), mix(0.1, 0.38, k0)];
-  let G = [mix(-0.7, -1.15, k0), mix(0.1, 0.38, k0)];
+  // Each arm: [shoulder (raised forward), in toward the middle, elbow, wrist (- cocked back)].
+  const mixA = (A, B, k) => A.map((v, i) => mix(v, B[i], k));
+  const POCKET = [-0.55, 0.38, -1.25, -0.2]; // (two hands on it at the chest, elbows in)
+  let S = mixA([-0.5, 0.1, -0.5, 0], POCKET, k0);
+  let G = S.slice();
   let one = 0;
   let drive = 0; // (a knee driving up: layup, floater)
+  let flick = 0.9; // (the wrist through the ball at the release)
   const u1 = ease(Math.min(1, u / (kind === 'layup' ? 1 : 0.6)));
   if (kind === 'jumper') {
+    // The set point: elbow under the ball, forearm up, wrist cocked, the ball above the forehead;
+    // then the arm extends to the release at the top.
     const u2 = ease(Math.min(1, Math.max(0, (u - 0.6) / 0.4)));
-    S = [mix(mix(S[0], -2.55, u1), -2.98, u2), mix(mix(S[1], 0.28, u1), 0.12, u2)];
-    G = [mix(G[0], -2.35, u1), mix(mix(G[1], 0.52, u1), 0.6, u2)];
+    S = mixA(mixA(S, [-2.15, 0.3, -1.05, -0.85], u1), [-2.85, 0.12, -0.12, -0.75], u2);
+    G = mixA(mixA(G, [-1.9, 0.5, -1.1, -0.2], u1), [-1.95, 0.62, -0.95, 0], u2);
     one = u1;
+    flick = 1.1;
   } else if (kind === 'layup') {
-    S = [mix(S[0], -2.8, u1), mix(S[1], 0.15, u1)];
-    G = [mix(G[0], -1.7, u1), mix(G[1], -0.1, u1)]; // (the off arm out, protecting it)
+    S = mixA(S, [-2.7, 0.15, -0.35, -0.5], u1);
+    G = mixA(G, [-1.5, -0.1, -0.7, 0], u1); // (the off arm out, protecting it)
     one = ease(Math.min(1, u / 0.5));
     drive = u1;
+    flick = 0.7;
   } else {
     const u3 = ease(Math.min(1, Math.max(0, (u - 0.7) / 0.3)));
-    S = [mix(S[0], -2.65, u1), mix(S[1], 0.22, u1)];
-    G = [mix(mix(G[0], -2.1, u1), -1.6, u3), mix(G[1], 0.45, u1)];
+    S = mixA(S, [-2.35, 0.22, -0.7, -0.6], u1);
+    G = mixA(mixA(G, [-2.0, 0.45, -0.9, 0], u1), [-1.5, 0.4, -0.7, 0], u3);
     one = u1;
     drive = u1 * 0.6;
   }
   if (f >= 0) {
-    // The follow-through: the shooting arm stays up, the guide hand comes off first.
+    // The follow-through: the wrist snaps through (the gooseneck) and the arm stays up, the
+    // guide hand comes off first; then the arms come down.
     one = 1;
     const hold = kind === 'jumper' ? 0.22 : 0.12;
+    S = S.slice();
+    S[3] = mix(S[3], flick, ease(Math.min(1, f / 0.07)));
     const sk = ease(Math.min(1, Math.max(0, (f - hold) / 0.23)));
-    S = [mix(S[0], -0.5, sk), mix(S[1], 0.05, sk)];
+    S = mixA(S, [-0.5, 0.05, -0.4, 0], sk);
     const gk = ease(Math.min(1, f / 0.12));
     const gk2 = ease(Math.min(1, Math.max(0, (f - 0.12) / 0.3)));
-    G = [mix(mix(G[0], -1.5, gk), -0.5, gk2), mix(mix(G[1], 0.3, gk), 0.05, gk2)];
+    G = mixA(mixA(G, [-1.3, 0.3, -0.6, 0], gk), [-0.5, 0.05, -0.4, 0], gk2);
     drive *= 1 - ease(Math.min(1, f / 0.25));
   }
   const sA = hand >= 0 ? c.armR : c.armL;
@@ -183,6 +193,10 @@ function shotForm(c, o) {
   sA.rotation.z = sg * S[1];
   gA.rotation.x = G[0];
   gA.rotation.z = -sg * G[1];
+  (hand >= 0 ? c.elbowR : c.elbowL).rotation.x = S[2];
+  (hand >= 0 ? c.wristR : c.wristL).rotation.x = S[3];
+  (hand >= 0 ? c.elbowL : c.elbowR).rotation.x = G[2];
+  (hand >= 0 ? c.wristL : c.wristR).rotation.x = G[3];
   if (!legs) return { y: 0, one };
   const dL = hand >= 0 ? [c.legR, c.kneeR] : [c.legL, c.kneeL]; // (the shooting side's knee drives)
   const tL = hand >= 0 ? [c.legL, c.kneeL] : [c.legR, c.kneeR];
@@ -195,6 +209,23 @@ function shotForm(c, o) {
   if (land >= 0) return { y: crouchPose(c, 0.3 * Math.max(0, 1 - land / 0.3)), one }; // (landing soft)
   if (f >= 0) return { y: 0, one };
   return { y: crouchPose(c, 0.32 * k0 * (1 - u1)), one }; // (the dip, then the push up)
+}
+// The dribbling arm (yours and his): the shoulder and elbow push the ball down, the wrist
+// follows through it; behind the back (bk) the arm swings back round the hip.
+function dribbleArm(c, side, ph, bk) {
+  const arm = side < 0 ? c.armL : c.armR;
+  const el = side < 0 ? c.elbowL : c.elbowR;
+  const wr = side < 0 ? c.wristL : c.wristR;
+  if (bk) {
+    arm.rotation.x = 0.9 * bk;
+    el.rotation.x = -0.6 * bk;
+    wr.rotation.x = 0;
+    return;
+  }
+  const push = Math.abs(Math.cos(ph)); // (1 with the ball up in the hand, 0 at the floor)
+  arm.rotation.x = -0.35 - push * 0.2;
+  el.rotation.x = -0.35 - push * 0.6;
+  wr.rotation.x = -0.5 * push + 0.25; // (cupped on top, then pushing through)
 }
 function handoff(kind, from, to, k) {
   const s = from + (to - from) * k;
@@ -1118,6 +1149,17 @@ export class Streetball {
       Y.move = null;
       Y.sizeUp = false;
     }
+    // Coming down from a shot the stick can't turn you in the air; off a fadeaway you land and
+    // back-pedal a step (still facing the basket) before you can turn and go.
+    if (Y.fall) {
+      a.moveX = a.moveY = 0;
+      sprint = false;
+    } else if (Y.settle > 0) {
+      Y.settle -= dt;
+      a.moveX *= 0.65;
+      a.moveY *= 0.65;
+      sprint = false;
+    }
     // ---- Defense ----
     if (this.has === 'opp' || b.mode !== 'held') {
       const dO = dist(px, pz, opp.x, opp.z);
@@ -1928,14 +1970,21 @@ export class Streetball {
   // are posed (as drawn last frame).
   shotBall(b, c, hand, one) {
     c.group.updateMatrixWorld(true);
-    const a = (hand >= 0 ? c.armR : c.armL).localToWorld(_v1.set(0, -0.8, 0));
+    const h = c.group.rotation.y;
+    const fx = Math.sin(h);
+    const fz = Math.cos(h);
+    // (on the shooting hand: sat on the palm, just above the wrist)
+    const a = (hand >= 0 ? c.wristR : c.wristL).getWorldPosition(_v1);
+    a.y += 0.17;
+    a.x += fx * 0.05;
+    a.z += fz * 0.05;
     if (one < 1) {
-      const l = c.armL.localToWorld(_v2.set(0, -0.68, 0));
-      const r = c.armR.localToWorld(_v3.set(0, -0.68, 0));
-      const h = c.group.rotation.y;
+      // (between both hands, just in front of them)
+      const l = c.wristL.localToWorld(_v2.set(0, -0.06, 0));
+      const r = c.wristR.localToWorld(_v3.set(0, -0.06, 0));
       _v2.add(r).multiplyScalar(0.5);
-      _v2.x += Math.sin(h) * 0.09;
-      _v2.z += Math.cos(h) * 0.09;
+      _v2.x += fx * 0.1;
+      _v2.z += fz * 0.1;
       a.lerp(_v2, 1 - one);
     }
     b.x = a.x;
@@ -2462,6 +2511,7 @@ export class Streetball {
       if (hp.t > hp.rel + 0.45) {
         hp.state = 'read';
         hp.t = 0;
+        if (hp.fade) hp.settleUntil = this.clock + 0.35; // (a back-pedal step before he turns)
         hp.fade = false;
         p.char.group.rotation.x = 0;
       }
@@ -2673,7 +2723,7 @@ export class Streetball {
           c.group.rotation.y = p.heading;
           const drop = this.shuffleLegs(c, this.clock * (4 + sp * 2.2));
           if (this.has === 'opp') {
-            (hp.ballSide < 0 ? c.armL : c.armR).rotation.x = -0.5 - Math.abs(Math.cos(hp.dribble || 0)) * 0.35;
+            dribbleArm(c, hp.ballSide ?? 1, hp.dribble || 0, 0);
             (hp.ballSide < 0 ? c.armR : c.armL).rotation.x = -0.6; // (the other arm out)
           } else this.defenseArms(c, false); // (on D: one hand up, one low)
           return 0.06 + drop;
@@ -2685,6 +2735,13 @@ export class Streetball {
       const y = crouchPose(c, 1);
       c.armL.rotation.x = c.armR.rotation.x = 0.6;
       return y - 0.35;
+    }
+    if (p === this.opp && this.clock < (hp.settleUntil || 0)) {
+      // (landed from his fadeaway: a back-pedal step, still facing the basket)
+      p.heading = Math.atan2(this.rim.x - p.x, this.rim.z - p.z);
+      c.group.rotation.y = p.heading;
+      const sp = Math.hypot(hp.vx || 0, hp.vz || 0);
+      if (sp > 0.3) return 0.06 + this.shuffleLegs(c, this.clock * (4 + sp * 2.2));
     }
     const fading = hp.state === 'shoot' && hp.fade && hp.shot === 'jumper';
     if (p === this.opp && this.has !== 'you' && ((hp.state === 'move' && hp.mv?.kind === 'step') || fading)) {
@@ -2720,7 +2777,7 @@ export class Streetball {
       else if (hp.state === 'shoot' && hp.shot === 'dunk') c.armL.rotation.x = c.armR.rotation.x = -1.6 - Math.min(1, (hp.t - (hp.appr?.T || 0)) / (hp.rel - (hp.appr?.T || 0))) * 1.5;
       else if (hp.state === 'shoot') c.armL.rotation.x = c.armR.rotation.x = -1.4 - Math.min(1, hp.t / Math.max(0.1, hp.rel)) * 1.5;
       else {
-        (hp.ballSide < 0 ? c.armL : c.armR).rotation.x = hp.behindK ? 0.9 * hp.behindK : -0.5 - Math.abs(Math.cos(hp.dribble || 0)) * 0.35; // (the hand with the ball)
+        dribbleArm(c, hp.ballSide ?? hp.hand ?? 1, hp.dribble || 0, hp.behindK); // (the hand with the ball)
         // The stance and the moves' footwork (the same as yours).
         const mv = hp.state === 'move' ? { ...hp.mv, t: hp.t, ai: true } : null; // (ai: his hop height is in hp.jump)
         if (mv && LOCKED.has(mv.kind)) {
@@ -2757,8 +2814,10 @@ export class Streetball {
   dribblePose(c, h, mv, speed, ballSide, sizeUp) {
     const right = ballSide >= 0;
     const free = right ? c.armL : c.armR;
-    free.rotation.x = -0.8; // (the off arm up in front)
+    free.rotation.x = -0.8; // (the off arm up in front, bent, guarding the ball)
     free.rotation.z = right ? 0.2 : -0.2;
+    (right ? c.elbowL : c.elbowR).rotation.x = -0.75;
+    (right ? c.wristL : c.wristR).rotation.x = 0;
     // (the body's right: (-cos h, sin h))
     const rx = -Math.cos(h);
     const rz = Math.sin(h);
@@ -2770,6 +2829,8 @@ export class Streetball {
       ball.rotation.x = -0.35;
       elbow.rotation.x = -1.1;
       elbow.rotation.z = ball === c.armR ? 0.7 : -0.7;
+      (ball === c.armR ? c.elbowL : c.elbowR).rotation.x = -1.4; // (the free elbow out wide)
+      (ball === c.armR ? c.elbowR : c.elbowL).rotation.x = -0.9; // (the ball tucked at the hip)
       const dl = bendLeg(c.legL, c.kneeL, 0.55, 1.0);
       const dr = bendLeg(c.legR, c.kneeR, 0.45 + 0.25 * Math.sin(Math.PI * 2 * k), 0.8);
       c.legL.rotation.z = 0.15;
@@ -2850,6 +2911,9 @@ export class Streetball {
     c.armR.rotation.z = -0.15;
     c.armL.rotation.x = swipe ? -1.6 : -0.9; // (low hand, out to the ball)
     c.armL.rotation.z = 0.45;
+    c.elbowR.rotation.x = -0.25;
+    c.elbowL.rotation.x = swipe ? -0.1 : -0.45;
+    c.wristL.rotation.x = c.wristR.rotation.x = 0;
   }
 
   // The backward shuffle's legs (knees bent, short steps reaching back) at step phase ph;
@@ -2933,6 +2997,15 @@ export class Streetball {
       p.heading = Math.atan2(this.rim.x - p.x, this.rim.z - p.z);
       c.group.rotation.y = p.heading;
     }
+    // In the air after a shot, and the back-pedal step after a fadeaway: facing the basket.
+    if (Y.fall || Y.settle > 0) {
+      p.heading = Math.atan2(this.rim.x - p.x, this.rim.z - p.z);
+      c.group.rotation.y = p.heading;
+      if (!Y.fall && p.speed > 0.3) {
+        Y.bpPhase = (Y.bpPhase || 0) + dt * (4 + p.speed * 2.2);
+        c.group.position.y += this.shuffleLegs(c, Y.bpPhase);
+      }
+    }
     // Intense D (L2): your back to the basket, square to the play, low. Retreating toward the
     // rim it's the backward shuffle.
     // Without it you just run to get back, but standing on him you're still in your stance.
@@ -2953,8 +3026,7 @@ export class Streetball {
         c.group.rotation.y = p.heading; // (squaring up to the basket)
       } else {
         Y.follow = null;
-        const arm = (this.ballSide ?? Y.hand) < 0 ? c.armL : c.armR; // (the hand with the ball)
-        arm.rotation.x = this.behindK ? 0.9 * this.behindK : -0.5 - Math.abs(Math.cos(this.dribble || 0)) * 0.35;
+        dribbleArm(c, this.ballSide ?? Y.hand, this.dribble || 0, this.behindK);
         // Back-pedaling: a low shuffle backward, short steps, each foot reaching back.
         if (Y.backpedal && p.speed > 0.3) {
           Y.bpPhase = (Y.bpPhase || 0) + dt * (4 + p.speed * 2.2);
@@ -3003,7 +3075,10 @@ export class Streetball {
         this.fadeDrift(p, qx, qz, fk, dt);
         c.group.rotation.x = -0.25 * (1 - k);
       }
-      if (k >= 1) Y.fall = null;
+      if (k >= 1) {
+        if (Y.fall.fade != null) Y.settle = 0.35;
+        Y.fall = null;
+      }
     } else if (Y.jumpT > 0) c.group.position.y += Math.sin((Y.jumpT / 0.55) * Math.PI) * 0.5;
   }
 
