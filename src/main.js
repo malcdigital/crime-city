@@ -299,10 +299,10 @@ class Game {
     q.classList.toggle('hidden', !(p && g));
     if (p && g) {
       const key = this.input.touchMode ? '' : this.input.mode === 'pad' ? ' · △' : ' · F';
-      const fresh = g === this.sport && !this.sport.solo && this.sport.score.you + this.sport.score.opp === 0;
-      q.textContent = this.sport.solo
+      const fresh = this.pickupFresh();
+      q.textContent = g === this.sport && this.sport.solo
         ? `Stop shooting around${key}`
-        : `Quit the game${fresh ? ' (no score yet: your money back)' : g.bet ? ` (forfeit: -$${g.bet})` : ' (forfeit)'}${key}`;
+        : `Quit the game${fresh ? (g === this.sport ? ' (no score yet: your money back)' : ' (no snap yet: your money back)') : g.bet ? ` (forfeit: -$${g.bet})` : ' (forfeit)'}${key}`;
     }
     if (p) this.input.unlock();
     else if (this.input.mode !== 'pad' && !this.input.touch.enabled) this.input.lock();
@@ -1501,15 +1501,21 @@ class Game {
   }
 
   // Quit the pickup game you're in (from the pause menu): shooting around just stops; a game
-  // with no score yet is called off (your money back); otherwise you forfeit it.
+  // with no score (or no snap) yet is called off (your money back); otherwise you forfeit it.
   quitPickup() {
     const g = this.pickupGame();
     if (!g) return;
-    if (g === this.sport) {
-      const S = this.sport;
-      g.end(S.solo ? 'done' : S.score.you + S.score.opp === 0 ? 'off' : 'forfeit');
-    } else g.end('forfeit');
+    if (g === this.sport && this.sport.solo) g.end('done');
+    else g.end(this.pickupFresh() ? 'off' : 'forfeit');
     this.setPaused(false);
+  }
+
+  // Nothing's happened yet in the pickup game (no score in a one-on-one, no snap in football):
+  // quitting calls it off and you get your money back.
+  pickupFresh() {
+    const g = this.pickupGame();
+    if (g === this.sport) return !this.sport.solo && this.sport.score.you + this.sport.score.opp === 0;
+    return !!g && !(g.snaps > 0);
   }
 
   // The pickup game you're in, if any (basketball at the courts, football at Harbor Field).

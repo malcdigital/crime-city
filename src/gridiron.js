@@ -78,6 +78,7 @@ export class Gridiron {
     this.los = this.goal + 40 * YD;
     this.first = this.los - 10 * YD;
     this.down = 0;
+    this.snaps = 0; // (plays run: quitting before the first one gets your money back)
     this.meter = null;
     this.state = 'line';
     this.t = 0;
@@ -163,6 +164,7 @@ export class Gridiron {
   snap() {
     const fb = this.fb;
     this.state = 'play';
+    this.snaps = (this.snaps || 0) + 1;
     this.t = 0;
     this.sacked = false;
     fb.phase = 'play';
