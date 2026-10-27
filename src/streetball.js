@@ -684,7 +684,7 @@ export class Streetball {
     const moving = Math.hypot(a.moveX, a.moveY) > 0.3;
     // Energy.
     if (Y.st < 0.12) sprint = false;
-    if (sprint && moving) Y.st = Math.max(0, Y.st - dt * 0.09);
+    if (sprint && moving) Y.st = Math.max(0, Y.st - dt * 0.06); // (your energy lasts ~50% longer than his)
     else Y.st = Math.min(1, Y.st + dt * (moving ? 0.04 : 0.08));
     // On the floor (ankles): nothing.
     if (Y.fallT > 0) {
@@ -822,7 +822,7 @@ export class Streetball {
     const from = Y.hand;
     const to = switches ? Math.sign((D.sx * side) * rx + (D.sz * side) * rz) || -Y.hand : Y.hand;
     Y.move = { kind, side, t: 0, T: M.T * (1.15 - 0.15 * Y.st), from, to };
-    Y.st = Math.max(0, Y.st - 0.04);
+    Y.st = Math.max(0, Y.st - 0.027);
     Y.hand = to;
     Y.sizeUp = false;
     this.react(kind, Y.combo, Y.rhythm);
@@ -948,7 +948,7 @@ export class Streetball {
     Y.jumpT = 0;
     Y.fall = null; // (the jump's timed to the shot: the top of it is the perfect release)
     if (CFG.SHOT_TYPE_DEBUG) game.hud.toast(`[test] ${SHOT_NAMES[type]}${how}${stepback ? ' (step-back)' : ''}${pivot ? ' (turnaround)' : ''}`, '#c9a7ff');
-    Y.st = Math.max(0, Y.st - 0.02);
+    Y.st = Math.max(0, Y.st - 0.013);
     // He closes out.
     this.opp.hp.closeT = 1;
   }
@@ -1522,8 +1522,13 @@ export class Streetball {
       const hp = opp.hp;
       const fx = Math.sin(opp.heading);
       const fz = Math.cos(opp.heading);
-      if (hp.state === 'shoot') {
-        const up = Math.min(1, hp.t / Math.max(0.1, hp.rel));
+      if (hp.state === 'shoot' && hp.appr && hp.t < hp.appr.T) {
+        b.x = opp.x + fx * 0.32;
+        b.z = opp.z + fz * 0.32;
+        b.y = 1.2; // (gathered: at the chest)
+      } else if (hp.state === 'shoot') {
+        const a0 = hp.appr ? hp.appr.T : 0;
+        const up = Math.min(1, (hp.t - a0) / Math.max(0.1, hp.rel - a0));
         b.x = opp.x + fx * 0.3;
         b.z = opp.z + fz * 0.3;
         b.y = hp.shot === 'dunk' ? 1.7 + up * 1.4 + (hp.jump || 0) : 1.2 + up + (hp.jump || 0);
@@ -1817,10 +1822,14 @@ export class Streetball {
       return { tx, tz, speed: 6.5 * tired };
     }
     if (hp.state === 'drive') {
-      // At the rim: dunk or lay it in.
-      if (dR < 2.4) {
-        const clear = dY > 1.3 || Y.beatT > 0 || Y.fallT > 0;
-        return this.goShoot(p, hp, this.r > 70 && clear && Math.random() < 0.5 ? 'dunk' : 'layup');
+      // Close enough to finish: a layup from 4 m, a dunk from 3 m (he makes up his mind at 4).
+      if (dR <= 4) {
+        if (hp.wantDunk == null) {
+          const clear = dY > 1.3 || Y.beatT > 0 || Y.fallT > 0;
+          hp.wantDunk = this.r > 70 && clear && Math.random() < 0.5;
+        }
+        if (!hp.wantDunk) return this.goShoot(p, hp, 'layup');
+        if (dR <= 3) return this.goShoot(p, hp, 'dunk');
       }
       // Cut off: you're square in front of him in intense D.
       const front = ((px - p.x) * (rim.x - p.x) + (pz - p.z) * (rim.z - p.z)) > 0;
@@ -1858,8 +1867,15 @@ export class Streetball {
     if (hp.state === 'shoot' && hp.shot === 'dunk') {
       // Up to the rim, through it, hang a moment, down.
       face(rim.x, rim.z);
-      const t = hp.t;
-      const R = hp.rel;
+      const a0 = hp.appr ? hp.appr.T : 0;
+      if (hp.t < a0) {
+        // (the gather and steps to the takeoff)
+        hp.jump = 0;
+        const r = dist(p.x, p.z, hp.appr.tx, hp.appr.tz);
+        return r > 0.05 ? { tx: hp.appr.tx, tz: hp.appr.tz, speed: Math.min(8, r / Math.max(0.04, a0 - hp.t)) } : { speed: 0 };
+      }
+      const t = hp.t - a0;
+      const R = hp.rel - a0;
       hp.jump = t < R ? 0.95 * Math.sin((Math.min(1, t / R) * Math.PI) / 2) : t < R + 0.3 ? 0.95 : 0.95 * Math.max(0, 1 - ((t - R - 0.3) / 0.25) ** 2);
       const b = this.g.ball;
       if (t >= R && b.mode === 'held' && this.has === 'opp') this.resolveHim(p, hp);
@@ -1872,6 +1888,13 @@ export class Streetball {
       const az = rim.z + rim.dz * 0.45;
       if (t < R && dist(p.x, p.z, ax, az) > 0.1) return { tx: ax, tz: az, speed: Math.min(7, dist(p.x, p.z, ax, az) / Math.max(0.05, R - t)) };
       return { speed: 0 };
+    }
+    if (hp.state === 'shoot' && hp.appr && hp.t < hp.appr.T) {
+      // (the gather and steps into his layup)
+      face(rim.x, rim.z);
+      hp.jump = 0;
+      const r = dist(p.x, p.z, hp.appr.tx, hp.appr.tz);
+      return r > 0.05 ? { tx: hp.appr.tx, tz: hp.appr.tz, speed: Math.min(8, r / Math.max(0.04, hp.appr.T - hp.t)) } : { speed: 0 };
     }
     if (hp.state === 'shoot') {
       face(rim.x, rim.z);
@@ -1893,6 +1916,7 @@ export class Streetball {
 
   goDrive(hp) {
     hp.state = 'drive';
+    hp.wantDunk = null;
     hp.cutOnce = false;
     hp.t = 0;
     return { speed: 0 };
@@ -1937,11 +1961,25 @@ export class Streetball {
   }
 
   goShoot(p, hp, type, stepback = false) {
-    if (CFG.SHOT_TYPE_DEBUG) this.game.hud.toast(`[test] ${p.ballName}: ${SHOT_NAMES[type]}${stepback ? ' (step-back)' : ''}`, '#c9a7ff');
     hp.state = 'shoot';
     hp.shot = type;
     hp.t = 0;
     hp.rel = type === 'jumper' ? 0.32 : type === 'dunk' ? 0.5 : 0.28;
+    // Layups and dunks: the same footwork as yours. The gather, two steps (a dunk from 1-2 m:
+    // one; inside 1 m: a jump stop), up off the last one. The release comes after that.
+    hp.appr = null;
+    let how = '';
+    if (type === 'layup' || type === 'dunk') {
+      const rim = this.rim;
+      const dR = dist(p.x, p.z, rim.x, rim.z) || 1;
+      const steps = type === 'layup' ? 2 : dR > 2 ? 2 : dR > 1 ? 1 : 0;
+      const T = steps ? 0.14 + steps * 0.17 : 0.15;
+      const go = steps ? Math.max(0, dR - (type === 'layup' ? 1.1 : 1.3)) : 0;
+      hp.appr = { T, tx: p.x + ((rim.x - p.x) / dR) * go, tz: p.z + ((rim.z - p.z) / dR) * go };
+      hp.rel = T + (type === 'layup' ? 0.3 : 0.5);
+      how = steps ? ` (gather + ${steps} step${steps > 1 ? 's' : ''})` : ' (jump stop)';
+    }
+    if (CFG.SHOT_TYPE_DEBUG) this.game.hud.toast(`[test] ${p.ballName}: ${SHOT_NAMES[type]}${how}${stepback ? ' (step-back)' : ''}`, '#c9a7ff');
     // (squaring up first: a pivot if he's facing away)
     const off = Math.abs(wrapAngle(Math.atan2(this.rim.x - p.x, this.rim.z - p.z) - p.heading));
     hp.rel += Math.max(0, off - 0.4) / 9;
@@ -1985,7 +2023,8 @@ export class Streetball {
       return y - 0.35;
     }
     if (p === this.opp && this.has === 'opp') {
-      if (hp.state === 'shoot' && hp.shot === 'dunk') c.armL.rotation.x = c.armR.rotation.x = -1.6 - Math.min(1, hp.t / hp.rel) * 1.5;
+      if (hp.state === 'shoot' && hp.appr && hp.t < hp.appr.T) c.armL.rotation.x = c.armR.rotation.x = -1.3; // (gathered)
+      else if (hp.state === 'shoot' && hp.shot === 'dunk') c.armL.rotation.x = c.armR.rotation.x = -1.6 - Math.min(1, (hp.t - (hp.appr?.T || 0)) / (hp.rel - (hp.appr?.T || 0))) * 1.5;
       else if (hp.state === 'shoot') c.armL.rotation.x = c.armR.rotation.x = -1.4 - Math.min(1, hp.t / Math.max(0.1, hp.rel)) * 1.5;
       else (hp.ballSide < 0 ? c.armL : c.armR).rotation.x = -0.5 - Math.abs(Math.cos(hp.dribble || 0)) * 0.35; // (the hand with the ball)
     } else if (p === this.opp) {
