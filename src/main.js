@@ -219,7 +219,14 @@ class Game {
     document.getElementById('intro').classList.add('hidden');
     this.hud.show();
     this.hud.clock = () => this.clockText();
-    if (CFG.START_IN_CAR && !this.player.vehicle) {
+    if (CFG.START_ON_FOOT) {
+      // (testing: on foot at a set spot)
+      const [x, z, deg] = CFG.START_ON_FOOT;
+      this.player.x = x;
+      this.player.z = z;
+      this.player.heading = this.camYaw = (deg * Math.PI) / 180;
+      this.player.sync?.();
+    } else if (CFG.START_IN_CAR && !this.player.vehicle) {
       this.testCar = this.vehicles[0];
       const startAt = takeStartAt() || CFG.START_AT; // (just saved in the interchange editor: start there)
       if (startAt) {
@@ -239,7 +246,7 @@ class Game {
     }
     // Own a safehouse? You wake up there.
     const home = this.shops.respawnPoint();
-    if (home && !this.player.vehicle) {
+    if (home && !this.player.vehicle && !CFG.START_ON_FOOT) {
       this.player.x = home.x;
       this.player.z = home.z + 3;
       this.player.sync?.();

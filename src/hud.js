@@ -176,6 +176,7 @@ export class Hud {
     let el = this.sportEl;
     if (!board) {
       if (el) el.classList.add('hidden');
+      this.sportFloat(null);
       return;
     }
     if (!el) {
@@ -201,6 +202,43 @@ export class Hud {
     const e = el.querySelector('.se');
     e.classList.toggle('hidden', energy == null);
     if (energy != null) {
+      const ef = e.querySelector('.ef');
+      ef.style.width = `${Math.round(energy * 100)}%`;
+      ef.classList.toggle('low', energy < 0.3);
+    }
+  }
+
+  // Next to the player (basketball): the shot meter, upright, beside him; his energy, flat,
+  // under his feet. `at` has the screen points { mx, my } (beside him) and { ex, ey } (feet).
+  sportFloat(at, meter = null, energy = null) {
+    let m = this.floatMeter;
+    let e = this.floatEnergy;
+    if (!m) {
+      m = this.floatMeter = document.createElement('div');
+      m.id = 'shot-meter';
+      m.innerHTML = '<div class="sweet"></div><div class="fill"></div>';
+      e = this.floatEnergy = document.createElement('div');
+      e.id = 'energy-float';
+      e.innerHTML = '<div class="ef"></div>';
+      document.body.append(m, e);
+    }
+    const showM = !!(at && meter);
+    const showE = !!(at && energy != null);
+    m.classList.toggle('hidden', !showM);
+    e.classList.toggle('hidden', !showE);
+    if (showM) {
+      m.style.left = `${Math.round(at.mx)}px`;
+      m.style.top = `${Math.round(at.my)}px`;
+      const f = m.querySelector('.fill');
+      const sw = m.querySelector('.sweet');
+      f.style.height = `${Math.round(Math.min(1, meter.v) * 100)}%`;
+      sw.style.bottom = `${(meter.lo * 100).toFixed(1)}%`;
+      sw.style.height = `${((meter.hi - meter.lo) * 100).toFixed(1)}%`;
+      f.classList.toggle('good', meter.v >= meter.lo && meter.v <= meter.hi);
+    }
+    if (showE) {
+      e.style.left = `${Math.round(at.ex)}px`;
+      e.style.top = `${Math.round(at.ey)}px`;
       const ef = e.querySelector('.ef');
       ef.style.width = `${Math.round(energy * 100)}%`;
       ef.classList.toggle('low', energy < 0.3);

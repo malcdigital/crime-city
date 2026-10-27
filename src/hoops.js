@@ -15,6 +15,7 @@ import { ballMesh } from './court.js';
 const NEAR = 150; // they turn up when you're this close
 const FAR = 200; // and go when you're this far
 const G = 9.8;
+const _axis = new THREE.Vector3();
 const BALL_R = 0.12;
 const FLOOR = 0.06 + BALL_R; // the court's surface
 const ARRIVE = 0.4;
@@ -232,7 +233,15 @@ export class Hoops {
       }
     }
     b.mesh.position.set(b.x, b.y, b.z);
-    if (b.mode !== 'held') b.mesh.rotation.x += dt * 9;
+    if (b.mode === 'flight') b.mesh.rotation.x += dt * 9; // (backspin in the air)
+    else if (b.mode === 'loose') {
+      // Rolling: turns with how fast it's going along the ground, and stops when it stops.
+      const sp = Math.hypot(b.vx, b.vz);
+      if (sp > 0.05) {
+        _axis.set(b.vz / sp, 0, -b.vx / sp);
+        b.mesh.rotateOnWorldAxis(_axis, (sp / 0.12) * dt);
+      }
+    }
   }
 
   // The ball got where it was going.

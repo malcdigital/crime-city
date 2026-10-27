@@ -41,6 +41,7 @@ const BETS = [0, 50, 100, 250, 500];
 const TARGETS = [11, 15, 21];
 const NAMES = ['Dre', 'Tank', 'Lil Mike', 'Jojo', 'Smoke', 'Ray', 'Peanut', 'Boogie', 'Shorty', 'Deuce'];
 const G = 9.8;
+const _axis = new THREE.Vector3();
 // Shots: T = seconds to the perfect release, W = green window (seconds, its full width).
 // (NBA 2K's green window is about 40-60 ms; ours is wider for a browser and a phone screen.)
 const SHOTS = {
@@ -292,6 +293,8 @@ export class Streetball {
     opp.heading = Math.atan2(yx - hx, yz - hz);
     const Y = this.you;
     Y.move = null;
+    Y.dunk = null;
+    Y.swap = null;
     Y.beatT = Y.fallT = Y.jumpT = 0;
     Y.sizeUp = false;
     for (const k of ['beatT', 'fallT', 'lagT', 'jumpT', 'closeT']) hp[k] = 0;
@@ -683,6 +686,15 @@ export class Streetball {
       this.prevShoot = shootHeld;
       return;
     }
+    // A dunk in progress (the glide up, the hang, the drop): it moves you, not the stick.
+    if (Y.dunk) {
+      this.updateDunk(dt);
+      a.moveX = a.moveY = 0;
+      a.sprint = false;
+      if (this.shot) this.shooting(dt, a, shootHeld, null);
+      this.prevShoot = shootHeld;
+      return;
+    }
     Y.intense = false;
     hp.boxed = false;
     // ---- Offense ----
@@ -700,8 +712,12 @@ export class Streetball {
           this.doMove(dt, a);
           sprint = true; // (a move's a burst)
         }
+        // Keep it in the outside hand, away from trouble.
+        if (!Y.move && !Y.sizeUp) this.protect(dt);
         // The shot (on the press).
         if (shootHeld && !this.prevShoot && !this.shot) this.startShot(a, sprint, moving, D);
+        // △: off the backboard to yourself (an alley-oop) from 3 to 9.5 m out.
+        else if (blockHit && !this.shot && D.d > 3 && D.d < 9.5 && (this.solo || this.cleared)) this.tossOop();
       }
     } else {
       if (this.shot) this.shot = null;
@@ -787,6 +803,7 @@ export class Streetball {
     }
     const chain = this.clock - Y.lastMoveEnd < 0.7;
     Y.combo = chain ? Math.min(3, Y.combo + 1) : 0;
+    Y.swap = null;
     const from = Y.hand;
     const to = switches ? Math.sign((D.sx * side) * rx + (D.sz * side) * rz) || -Y.hand : Y.hand;
     Y.move = { kind, side, t: 0, T: M.T * (1.15 - 0.15 * Y.st), from, to };
@@ -892,8 +909,12 @@ export class Streetball {
     const pivot = off > 1.2;
     const turnT = pivot ? off / 9 : 0;
     this.shot = { type, t: 0, T: SHOTS[type].T + turnT, W: SHOTS[type].W, d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false, pivot, turnT };
-    if (pivot) game.hud.toast('Pivot', '#9fc3ff');
-    Y.jumpT = type === 'jumper' ? 0 : 0.5; // (a jumper jumps when it's let go... the layups go up now)
+    Y.jumpT = 0;
+    Y.fall = null; // (the jump's timed to the shot: the top of it is the perfect release)
+    if (type === 'dunk') {
+      this.shot.T = 0.55;
+      this.startDunk(0);
+    }
     Y.st = Math.max(0, Y.st - 0.02);
     // He closes out.
     this.opp.hp.closeT = 1;
@@ -926,6 +947,163 @@ export class Streetball {
       // (let go sometime during the last frame: count it from the middle of it)
       this.resolveYou(held ? s.t - s.T : s.t - dt / 2 - s.T);
     }
+  }
+
+  // Your height in a jump shot: a quick gather (after any pivot), up to the top of the jump right
+  // at the perfect release, then coming down if you're still holding it.
+  shotHeight(s) {
+    const H = s.type === 'jumper' ? 0.45 : 0.55;
+    const g0 = s.turnT + 0.08;
+    if (s.t < g0) return 0;
+    const up = s.T - g0;
+    const k = (s.t - g0) / Math.max(0.05, up);
+    if (k <= 1) return H * Math.sin((k * Math.PI) / 2);
+    return H * Math.max(0, Math.cos(Math.min(1, (s.t - s.T) / 0.3) * (Math.PI / 2)));
+  }
+
+  // ---- Dunks ----
+  // Gather and glide in to just in front of the rim, rise (0.55 s), throw it down, hang on the
+  // rim a moment if it went in, drop. Styles: two-hand, one-hand, windmill, tomahawk.
+  startDunk(t0) {
+    const p = this.game.player;
+    const [px, pz] = p.pos();
+    const rim = this.rim;
+    this.you.dunk = {
+      x0: px, z0: pz, ax: rim.x + rim.dx * 0.45, az: rim.z + rim.dz * 0.45,
+      style: pick(['two', 'two', 'one', 'one', 'windmill', 'tomahawk']), t: t0, rise: 0.55, hang: 0.35, drop: 0.28, hangs: false,
+    };
+  }
+
+  updateDunk(dt) {
+    const Y = this.you;
+    const D = Y.dunk;
+    const p = this.game.player;
+    D.t += dt;
+    const k = Math.min(1, D.t / D.rise);
+    const e = 1 - (1 - k) * (1 - k);
+    p.x = D.x0 + (D.ax - D.x0) * e;
+    p.z = D.z0 + (D.az - D.z0) * e;
+    p.speed = 0;
+    p.heading = Math.atan2(this.rim.x - p.x, this.rim.z - p.z);
+    const end = D.rise + (D.hangs ? D.hang : 0) + D.drop;
+    if (D.t >= end && !this.shot) Y.dunk = null;
+  }
+
+  dunkHeight() {
+    const D = this.you.dunk;
+    if (!D) return 0;
+    const H = 0.95;
+    if (D.t < D.rise) return H * Math.sin((D.t / D.rise) * Math.PI * 0.5);
+    let t = D.t - D.rise;
+    if (D.hangs) {
+      if (t < D.hang) return H;
+      t -= D.hang;
+    }
+    return H * Math.max(0, 1 - (t / D.drop) ** 2);
+  }
+
+  // Arm angles (up from hanging straight down): right, left.
+  dunkArms() {
+    const D = this.you.dunk;
+    const k = Math.min(1, D.t / D.rise);
+    if (D.t >= D.rise) return D.hangs && D.t < D.rise + D.hang ? [3.0, 3.0] : [2.0, 1.6];
+    if (D.style === 'two') return [1.2 + k * 1.9, 1.2 + k * 1.9];
+    if (D.style === 'one') return [1.2 + k * 1.9, 1.0];
+    if (D.style === 'windmill') return [0.4 + k * 2.6 + Math.sin(k * Math.PI) * 3.2, 1.0]; // (the ball goes round)
+    return [k < 0.7 ? 1.4 + (k / 0.7) * 2.4 : 3.8 - ((k - 0.7) / 0.3) * 0.8, 1.2]; // tomahawk: cocked behind the head
+  }
+
+  // ---- Alley-oop off the backboard ----
+  tossOop() {
+    const game = this.game;
+    const b = this.g.ball;
+    const p = game.player;
+    const [px, pz] = p.pos();
+    const rim = this.rim;
+    // (the glass is 0.4 m behind the rim)
+    const bx = rim.x - rim.dx * 0.3;
+    const bz = rim.z - rim.dz * 0.3;
+    b.x = px + Math.sin(p.heading) * 0.3;
+    b.z = pz + Math.cos(p.heading) * 0.3;
+    b.y = 2.0;
+    this.H.launch(b, bx, 3.5, bz, 0.4 + dist(px, pz, bx, bz) / 14);
+    b.kind = 'oop';
+    this.has = null;
+    this.oopCleared = this.cleared;
+    this.you.armsT = 0.3;
+    game.hud.toast('Off the glass!', '#ffd23f');
+  }
+
+  // Off the board and back out over the rim: catch it in the air and finish.
+  oopBounce() {
+    const b = this.g.ball;
+    const rim = this.rim;
+    this.H.launch(b, rim.x + rim.dx * 1.2, 2.9, rim.z + rim.dz * 1.2, 0.55);
+    b.kind = 'oop2';
+  }
+
+  catchOop() {
+    const game = this.game;
+    const b = this.g.ball;
+    const [px, pz] = game.player.pos();
+    const d = dist(px, pz, this.rim.x, this.rim.z);
+    b.mode = 'held';
+    b.holder = 'you';
+    this.has = 'you';
+    this.cleared = this.oopCleared ?? this.cleared;
+    this.startDunk(0.22); // (you've already left the floor)
+    const D = this.you.dunk;
+    this.shot = { type: 'dunk', t: 0, T: D.rise - D.t, W: 0, d0: d, pts: 1, oop: true, turnT: 0 };
+    this.opp.hp.closeT = 1;
+  }
+
+  // ---- Ball protection ----
+  // Turned sideways to trouble (him if he's close, otherwise the basket side), a ballhandler
+  // switches it to the outside hand, the one away from it.
+  protect(dt) {
+    const Y = this.you;
+    if (Y.swap) {
+      Y.swap.t += dt;
+      if (Y.swap.t >= Y.swap.T) Y.swap = null;
+      return;
+    }
+    if (this.clock < (Y.swapCd || 0)) return;
+    const p = this.game.player;
+    const [px, pz] = p.pos();
+    const near = !this.solo && dist(px, pz, this.opp.x, this.opp.z) < 4.5;
+    const side = this.threatSide(px, pz, p.heading, near ? this.opp.x : this.rim.x, near ? this.opp.z : this.rim.z);
+    if (Math.abs(side) > 0.6 && Math.sign(side) === Y.hand) {
+      Y.swap = { from: Y.hand, to: -Y.hand, t: 0, T: 0.25 };
+      Y.hand = -Y.hand;
+      Y.swapCd = this.clock + 0.9;
+    }
+  }
+
+  protectHim(p, dt) {
+    const hp = p.hp;
+    hp.hand = hp.hand || 1;
+    if (hp.swap) {
+      hp.swap.t += dt;
+      if (hp.swap.t >= hp.swap.T) hp.swap = null;
+      return;
+    }
+    if (this.clock < (hp.swapCd || 0)) return;
+    const [px, pz] = this.game.player.pos();
+    const near = dist(px, pz, p.x, p.z) < 4.5;
+    const side = this.threatSide(p.x, p.z, p.heading, near ? px : this.rim.x, near ? pz : this.rim.z);
+    if (Math.abs(side) > 0.6 && Math.sign(side) === hp.hand) {
+      hp.swap = { from: hp.hand, to: -hp.hand, t: 0, T: 0.25 };
+      hp.hand = -hp.hand;
+      hp.swapCd = this.clock + 0.9;
+    }
+  }
+
+  // Which side of a player (facing h) a point is on: +1 his right .. -1 his left.
+  threatSide(x, z, h, tx, tz) {
+    const vx = tx - x;
+    const vz = tz - z;
+    const L = Math.hypot(vx, vz) || 1;
+    return (vx * -Math.cos(h) + vz * Math.sin(h)) / L;
   }
 
   pumpFake() {
@@ -976,8 +1154,10 @@ export class Streetball {
       // At the rim: a contact dunk if he's there.
       const contact = lv >= 3;
       if (contact && Math.random() < 0.15 * (this.r / 75)) return this.swatted(px, pz, `${opp.ballName} STUFFED the dunk!`, 'you');
-      make = Math.random() < (contact ? 0.6 : 0.95);
-      grade = make ? (contact ? 'POSTERIZED HIM!' : 'Slam!') : 'Rimmed it out';
+      make = Math.random() < (contact ? 0.6 : s.oop ? 0.88 : 0.95);
+      const name = { two: 'Two-hand slam!', one: 'One-hand jam!', windmill: 'WINDMILL!', tomahawk: 'Tomahawk!' }[this.you.dunk?.style] || 'Slam!';
+      grade = make ? (contact ? 'POSTERIZED HIM!' : s.oop ? `ALLEY-OOP! ${name}` : name) : 'Rimmed it out';
+      if (this.you.dunk) this.you.dunk.hangs = make; // (hang on the rim after a make)
     } else {
       const m = Math.abs(e) - w / 2;
       green = m <= 0;
@@ -994,12 +1174,14 @@ export class Streetball {
     this.foulOnShot = lv >= 3 && Math.random() < 0.08;
     game.hud.toast(this.solo ? grade : `${grade} · ${OPEN[lv]}`, green || (s.type === 'dunk' && make) ? '#7ee081' : make ? '#ffd23f' : '#ff8080');
     if (s.type === 'dunk') {
-      this.g.ball.x = px;
-      this.g.ball.z = pz;
-      this.g.ball.y = 2.6;
-      this.launch(make, 'you', s.pts, 0.18);
-    } else this.launch(make, 'you', s.pts);
-    this.you.jumpT = Math.max(this.you.jumpT, 0.55);
+      this.g.ball.y = Math.max(this.g.ball.y, this.rim.y + 0.15); // (from your hands, through the rim)
+      this.launch(make, 'you', s.pts, 0.14);
+    } else {
+      this.launch(make, 'you', s.pts);
+      // Back down from wherever you let it go.
+      const h = this.shotHeight(s);
+      this.you.fall = { h0: h, t: 0, T: Math.max(0.12, Math.sqrt((2 * h) / 9.8)) };
+    }
   }
 
   swatted(x, z, text, shooter) {
@@ -1126,6 +1308,8 @@ export class Streetball {
     if (hp.state === 'drive' || hp.state === 'move' || (this.has !== 'opp' && opp.speed > 3.5)) hp.st = Math.max(0, hp.st - dt * 0.07);
     else hp.st = Math.min(1, hp.st + dt * 0.06);
     // The ball.
+    // Coming down off the glass: go up and get it.
+    if (b.mode === 'flight' && b.kind === 'oop2' && this.you.fallT <= 0 && !this.you.dunk && b.t > 0.15 && dist(px, pz, b.x, b.z) < 1.4 && b.y > 2.2 && b.y < 3.6) this.catchOop();
     if (b.mode === 'flight') {
       // (a pass goes to his hands, wherever he's moved to)
       if (b.kind === 'pass' && b.to && !b.to.removed) {
@@ -1142,6 +1326,13 @@ export class Streetball {
         if (b.kind === 'check') this.checkArrive();
         else if (b.kind === 'pass') this.passArrive();
         else if (b.kind === 'back') this.backArrive();
+        else if (b.kind === 'oop') this.oopBounce();
+        else if (b.kind === 'oop2') {
+          b.mode = 'loose';
+          b.vx = rand(-0.5, 0.5);
+          b.vz = rand(-0.5, 0.5);
+          b.vy = -1;
+        }
         else this.landed();
       }
       if (!this.active) return; // (that was the game-winner: the scoreboard's gone)
@@ -1196,7 +1387,15 @@ export class Streetball {
     }
     this.carry(dt);
     b.mesh.position.set(b.x, b.y, b.z);
-    if (b.mode !== 'held') b.mesh.rotation.x += dt * 9;
+    if (b.mode === 'flight') b.mesh.rotation.x += dt * 9; // (backspin in the air)
+    else if (b.mode === 'loose') {
+      // Rolling: turns with how fast it's going along the ground, and stops when it stops.
+      const sp = Math.hypot(b.vx, b.vz);
+      if (sp > 0.05) {
+        _axis.set(b.vz / sp, 0, -b.vx / sp);
+        b.mesh.rotateOnWorldAxis(_axis, (sp / 0.12) * dt);
+      }
+    }
     this.hud();
   }
 
@@ -1228,14 +1427,26 @@ export class Streetball {
       const fz = Math.cos(p.heading);
       const Y = this.you;
       this.dribble = (this.dribble || 0) + dt * (Y.sizeUp ? 12 : 9);
+      if (Y.dunk) {
+        // (in the hand going up: where the arm puts it)
+        const [ar, al] = this.dunkArms();
+        const th = Y.dunk.style === 'two' ? (ar + al) / 2 : ar;
+        const side = Y.dunk.style === 'two' ? 0 : 0.37;
+        const h = this.dunkHeight();
+        b.x = px + fx * (0.7 * Math.sin(th) + 0.1) - fz * side;
+        b.z = pz + fz * (0.7 * Math.sin(th) + 0.1) + fx * side;
+        b.y = 1.56 + h - 0.7 * Math.cos(th) + 0.1;
+        return;
+      }
       if (this.shot) {
         const k = Math.min(1, this.shot.t / this.shot.T);
         b.x = px + fx * 0.3;
         b.z = pz + fz * 0.3;
-        b.y = 1.3 + k * 1.0 + (Y.jumpT > 0 ? 0.3 : 0);
+        b.y = 1.3 + k * 1.0 + this.shotHeight(this.shot);
       } else {
         // (the hand it's in: a crossover takes it across in front)
         let side = Y.hand;
+        if (Y.swap) side = Y.swap.from + (Y.swap.to - Y.swap.from) * Math.min(1, Y.swap.t / Y.swap.T);
         if (Y.move && Y.move.from !== Y.move.to) {
           const k = Math.min(1, Y.move.t / (Y.move.T * 0.6));
           side = Y.move.from + (Y.move.to - Y.move.from) * k;
@@ -1255,11 +1466,12 @@ export class Streetball {
         const up = Math.min(1, hp.t / Math.max(0.1, hp.rel));
         b.x = opp.x + fx * 0.3;
         b.z = opp.z + fz * 0.3;
-        b.y = 1.2 + up + (hp.jump || 0);
+        b.y = hp.shot === 'dunk' ? 1.7 + up * 1.4 + (hp.jump || 0) : 1.2 + up + (hp.jump || 0);
       } else {
         hp.dribble = (hp.dribble || 0) + dt * 9;
         hp.hand = hp.hand || 1;
         let side = hp.hand;
+        if (hp.swap) side = hp.swap.from + (hp.swap.to - hp.swap.from) * Math.min(1, hp.swap.t / hp.swap.T);
         if (hp.state === 'move' && hp.mv && hp.mv.from !== hp.mv.to) side = hp.mv.from + (hp.mv.to - hp.mv.from) * Math.min(1, hp.t / (hp.mv.T * 0.6));
         hp.ballSide = side;
         b.x = opp.x + fx * 0.4 - fz * 0.3 * side;
@@ -1290,17 +1502,43 @@ export class Streetball {
       const pk = game.input.touchMode ? 'PASS' : game.input.mode === 'pad' ? '✕' : 'Q';
       if (this.pass) hint = `Passing to ${this.pass.target ? 'him' : 'nobody'}: ${game.input.mode === 'pad' ? 'flick the right stick' : 'move the camera'} to pick, let go to pass`;
       else if (this.has === 'npc') hint = 'He\'s got it...';
-      else hint = this.has === 'you' ? (this.shot ? 'Let go in the green' : `${K.shoot} shoot · ${pk} pass (hold to pick who) · moves: ${K.moves} · ${put}`) : `Go get it · ${put}`;
-      game.hud.sport?.(`SHOOTAROUND · ${S.made}/${S.att}${pct} · streak ${S.streak} (best ${S.best})`, meter, hint, this.you.st);
+      else hint = this.has === 'you' ? (this.shot ? 'Let go in the green' : `${K.shoot} shoot · ${pk} pass (hold to pick who) · ${K.block} off the glass · moves: ${K.moves} · ${put}`) : `Go get it · ${put}`;
+      game.hud.sport?.(`SHOOTAROUND · ${S.made}/${S.att}${pct} · streak ${S.streak} (best ${S.best})`, null, hint, null);
+      this.floatHud(meter);
       return;
     }
     if (C) hint = C.stage === 'ready' ? `${ck} check it up` : C.stage === 'youHold' ? `${ck} check it back` : 'Checking it up...';
     else if (this.you.fallT > 0) hint = 'Ankles broken...';
     else if (this.has === 'you' && !this.cleared) hint = 'Take it back past the arc';
-    else if (this.has === 'you') hint = this.shot ? 'Let go in the green' : `${K.shoot} shoot (tap: pump fake) · ${K.sprint} sprint · moves: ${K.moves}`;
+    else if (this.has === 'you') hint = this.shot ? 'Let go in the green' : `${K.shoot} shoot (tap: pump fake) · ${K.sprint} sprint · ${K.block} off the glass · moves: ${K.moves}`;
     else if (this.has === 'opp') hint = `${K.d} intense D · ${K.steal} steal · ${K.block} block`;
+    else if (this.g.ball.kind === 'oop' || this.g.ball.kind === 'oop2') hint = 'Get under it: go up and get it';
     else if (!this.dead) hint = `Rebound! ${K.block} jump · ${K.d} box out`;
-    game.hud.sport?.(this.board(), meter, hint, this.you.st);
+    game.hud.sport?.(this.board(), null, hint, null);
+    this.floatHud(meter);
+  }
+
+  // The shot meter beside you (upright) and your energy under your feet, wherever you are on
+  // screen.
+  floatHud(meter) {
+    const game = this.game;
+    const p = game.player;
+    const [px, pz] = p.pos();
+    const cam = game.camera;
+    const v = (this._v ||= new THREE.Vector3());
+    const W = innerWidth;
+    const H = innerHeight;
+    const lift = this.you.dunk ? this.dunkHeight() : this.shot && this.shot.type !== 'dunk' ? this.shotHeight(this.shot) : 0;
+    // (beside him: half a meter to his screen-right, chest high)
+    const rx = -Math.cos(game.camYaw);
+    const rz = Math.sin(game.camYaw);
+    v.set(px + rx * 0.55, 1.2 + lift, pz + rz * 0.55).project(cam);
+    if (v.z > 1) return game.hud.sportFloat(null);
+    const at = { mx: ((v.x + 1) / 2) * W, my: ((1 - v.y) / 2) * H };
+    v.set(px, 0.02, pz).project(cam);
+    at.ex = ((v.x + 1) / 2) * W;
+    at.ey = ((1 - v.y) / 2) * H + 6;
+    game.hud.sportFloat(at, meter, this.you.st);
   }
 
   landed() {
@@ -1447,6 +1685,7 @@ export class Streetball {
     const Y = this.you;
     hp.t += dt;
     hp.holdT = (hp.holdT || 0) + dt;
+    if (hp.state !== 'move' && hp.state !== 'shoot') this.protectHim(p, dt);
     const dR = dist(p.x, p.z, rim.x, rim.z);
     const dY = dist(p.x, p.z, px, pz);
     // Are you between him and the basket?
@@ -1556,9 +1795,30 @@ export class Streetball {
       }
       return { tx: rim.x + rim.dx * 0.8, tz: rim.z + rim.dz * 0.8, speed: 5 * tired };
     }
+    if (hp.state === 'shoot' && hp.shot === 'dunk') {
+      // Up to the rim, through it, hang a moment, down.
+      face(rim.x, rim.z);
+      const t = hp.t;
+      const R = hp.rel;
+      hp.jump = t < R ? 0.95 * Math.sin((Math.min(1, t / R) * Math.PI) / 2) : t < R + 0.3 ? 0.95 : 0.95 * Math.max(0, 1 - ((t - R - 0.3) / 0.25) ** 2);
+      const b = this.g.ball;
+      if (t >= R && b.mode === 'held' && this.has === 'opp') this.resolveHim(p, hp);
+      if (t > R + 0.6) {
+        hp.state = 'read';
+        hp.t = 0;
+        hp.jump = 0;
+      }
+      const ax = rim.x + rim.dx * 0.45;
+      const az = rim.z + rim.dz * 0.45;
+      if (t < R && dist(p.x, p.z, ax, az) > 0.1) return { tx: ax, tz: az, speed: Math.min(7, dist(p.x, p.z, ax, az) / Math.max(0.05, R - t)) };
+      return { speed: 0 };
+    }
     if (hp.state === 'shoot') {
       face(rim.x, rim.z);
-      if (!hp.jumpT && hp.t > hp.rel - 0.2) hp.jumpT = 0.6;
+      // (his jump's timed to the shot too: the top of it at the release)
+      const H = hp.shot === 'jumper' ? 0.45 : 0.5;
+      const st = hp.rel - 0.25;
+      hp.jump = hp.t < st ? 0 : hp.t < hp.rel ? H * Math.sin(((hp.t - st) / 0.25) * (Math.PI / 2)) : H * Math.max(0, Math.cos(Math.min(1, (hp.t - hp.rel) / 0.3) * (Math.PI / 2)));
       const b = this.g.ball;
       if (hp.t >= hp.rel && b.mode === 'held' && this.has === 'opp') this.resolveHim(p, hp);
       if (hp.t > hp.rel + 0.45) {
@@ -1620,7 +1880,7 @@ export class Streetball {
     hp.state = 'shoot';
     hp.shot = type;
     hp.t = 0;
-    hp.rel = type === 'jumper' ? 0.32 : type === 'dunk' ? 0.35 : 0.28;
+    hp.rel = type === 'jumper' ? 0.32 : type === 'dunk' ? 0.5 : 0.28;
     // (squaring up first: a pivot if he's facing away)
     const off = Math.abs(wrapAngle(Math.atan2(this.rim.x - p.x, this.rim.z - p.z) - p.heading));
     hp.rel += Math.max(0, off - 0.4) / 9;
@@ -1648,10 +1908,8 @@ export class Streetball {
     const pts = d > ARC ? 2 : 1;
     if (hp.shot === 'dunk') {
       const b = this.g.ball;
-      b.x = p.x;
-      b.z = p.z;
-      b.y = 2.6;
-      this.launch(make, 'opp', pts, 0.18);
+      b.y = Math.max(b.y, this.rim.y + 0.15);
+      this.launch(make, 'opp', pts, 0.14);
       game.hud.toast(make ? `${p.ballName} throws it down` : `${p.ballName} rims out the dunk`, make ? '#ff8080' : '#7ee081');
     } else this.launch(make, 'opp', pts);
   }
@@ -1666,7 +1924,8 @@ export class Streetball {
       return y - 0.35;
     }
     if (p === this.opp && this.has === 'opp') {
-      if (hp.state === 'shoot') c.armL.rotation.x = c.armR.rotation.x = -1.4 - Math.min(1, hp.t / Math.max(0.1, hp.rel)) * 1.5;
+      if (hp.state === 'shoot' && hp.shot === 'dunk') c.armL.rotation.x = c.armR.rotation.x = -1.6 - Math.min(1, hp.t / hp.rel) * 1.5;
+      else if (hp.state === 'shoot') c.armL.rotation.x = c.armR.rotation.x = -1.4 - Math.min(1, hp.t / Math.max(0.1, hp.rel)) * 1.5;
       else (hp.ballSide < 0 ? c.armL : c.armR).rotation.x = -0.5 - Math.abs(Math.cos(hp.dribble || 0)) * 0.35; // (the hand with the ball)
     } else if (p === this.opp) {
       // Hands up on defense; a swipe; up for a contest or a rebound.
@@ -1690,6 +1949,15 @@ export class Streetball {
       c.group.position.y += y - 0.35;
       return;
     }
+    // A dunk: up, the arms (by style), hanging on the rim, down.
+    if (Y.dunk) {
+      const [ar, al] = this.dunkArms();
+      c.armR.rotation.x = -ar;
+      c.armL.rotation.x = -al;
+      c.group.rotation.y = p.heading;
+      c.group.position.y += this.dunkHeight();
+      return;
+    }
     // Intense D: square to him, low.
     if (Y.intense) {
       p.heading = Math.atan2(this.opp.x - p.x, this.opp.z - p.z);
@@ -1706,7 +1974,18 @@ export class Streetball {
     } else if (Y.jumpT > 0) c.armL.rotation.x = c.armR.rotation.x = -2.8;
     else if (Y.armsT > 0) c.armR.rotation.x = -1.6;
     else if (this.has === 'opp') c.armL.rotation.x = c.armR.rotation.x = -1.0;
-    if (Y.jumpT > 0) c.group.position.y += Math.sin((Y.jumpT / 0.55) * Math.PI) * 0.5;
+    // Off the floor: the shot's own jump, coming down after it, or a block / rebound jump.
+    if (this.shot && this.shot.type !== 'dunk' && this.has === 'you') {
+      const s = this.shot;
+      const h = this.shotHeight(s);
+      c.group.position.y += h > 0 ? h : s.t > s.turnT ? crouchPose(c, 0.3) : 0; // (the gather: a dip, then up)
+      c.group.rotation.y = p.heading;
+    } else if (Y.fall) {
+      Y.fall.t += dt;
+      const k = Math.min(1, Y.fall.t / Y.fall.T);
+      c.group.position.y += Y.fall.h0 * (1 - k * k);
+      if (k >= 1) Y.fall = null;
+    } else if (Y.jumpT > 0) c.group.position.y += Math.sin((Y.jumpT / 0.55) * Math.PI) * 0.5;
   }
 
   // ---- Over ----

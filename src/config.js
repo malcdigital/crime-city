@@ -15,6 +15,9 @@ export const CFG = {
   // freeway (optional)], or null. Right now: on Central Ave downtown, heading north into the
   // new roundabout (Liberty Circle).
   START_AT: [904, 770, 180],
+  // Testing switch: start on foot here instead ([x, z, heading in degrees], or null; it beats
+  // START_IN_CAR and your safehouse). Right now: the Ledger Ave courts, at the sideline.
+  START_ON_FOOT: [1210, 733, 90],
   // Testing switch: the interchange editor in the pause menu (reshape the ramps, then drive them).
   RAMP_EDITOR: true,
 
