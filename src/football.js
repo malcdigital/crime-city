@@ -725,7 +725,9 @@ export function layoutPose(c, k, dive) {
   c.elbowL.rotation.x = c.elbowR.rotation.x = dive ? -0.15 : -0.9;
   c.legL.rotation.x = c.legR.rotation.x = 0;
   c.kneeL.rotation.x = c.kneeR.rotation.x = dive ? 0.3 : 0.6;
-  return -0.75 * ease(Math.min(1, k)) + 0.18;
+  // (tipped over at the feet the body already lies at the ground: lift it by its thickness so
+  // it rests on the grass instead of sinking into it)
+  return 0.2 * ease(Math.min(1, k));
 }
 
 // The quarterback's stance at the line: knees bent, hands out for the snap.
