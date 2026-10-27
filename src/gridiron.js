@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { dist, rand, pick } from './util.js';
 import { setShirt } from './character.js';
+import { throwPose, layoutPose, qbStance } from './football.js';
 
 // Quarterback a drive at Harbor Field (football.js runs the passing drill there).
 // - Join: walk onto the field while they're lining up; their quarterback offers you the ball.
@@ -180,6 +181,15 @@ export class Gridiron {
       }
       if (pad) a.sprint = fire; // (R2 sprints on the controller; ✕ is a receiver)
       else a.sprint = a.sprint && !R[1];
+      // The drop-back: three quick steps back off the snap, facing downfield (the stick takes
+      // over whenever you push it).
+      if (this.t < 0.7 && Math.hypot(a.moveX, a.moveY) < 0.2) {
+        const yaw = game.camYaw;
+        a.moveY = Math.cos(yaw) * 0.75; // (world +z: back from the line)
+        a.moveX = Math.sin(yaw) * 0.75;
+        a.sprint = false;
+        this.dropping = true;
+      } else this.dropping = false;
     } else this.press = null;
     this.prevR = R.slice();
     this.prevFire = fire;
@@ -323,12 +333,21 @@ export class Gridiron {
       game.hud.toast('INTERCEPTED', '#ff8080');
       return this.end('pick');
     }
+    const dove = w && fb.players.includes(w) && fb.diveFor(w, b.x, b.z); // (just out of reach: he lays out)
     let pr = dW < 0.8 ? 0.9 : dW < 1.6 ? 0.65 : dW < 2.5 ? 0.3 : 0;
+    if (dove) pr += 0.1;
     const cover = db && w ? dist(db.x, db.z, w.x, w.z) : 99;
     if (cover < 1.5) pr -= 0.3;
     else if (cover < 2.5) pr -= 0.15;
     if (Math.random() < pr) {
       fb.hold(w);
+      if (dove) {
+        // (a diving catch: down where he caught it)
+        for (const f of fb.fans) f.fb.cheerT = rand(1.5, 2.2);
+        game.hud.toast('DIVING CATCH!', '#7ee081');
+        if (b.z <= this.goal) return this.touchdown(w);
+        return this.over(w.z);
+      }
       fb.phase = 'run';
       fb.t = 0;
       fb.runFor = 99;
@@ -371,10 +390,13 @@ export class Gridiron {
         const tackler = fb.dbs.find((q) => dist(q.x, q.z, px, pz) < 0.9);
         if (this.scramble && tackler) {
           game.hud.toast(`Brought down at the ${this.yardLine(pz)}`, '#ffd23f');
+          fb.tackle(null, tackler);
+          this.downT = 1.1; // (you hit the turf too)
           return this.over(pz);
         }
         if (!this.scramble && this.t > SACK) {
           game.hud.toast('SACKED', '#ff8080');
+          this.downT = 1.1;
           return this.over(Math.min(this.los + 4 * YD, fb.site.field.z1 - 1));
         }
       }
@@ -383,6 +405,7 @@ export class Gridiron {
       if (!h || h === 'you') return this.over(this.los);
       if (h.z <= this.goal) return this.touchdown(h);
       const tackler = fb.dbs.find((q) => dist(q.x, q.z, h.x, h.z) < 0.9);
+      if (tackler) fb.tackle(h, tackler);
       if (tackler || this.t > 7 || (h.fb.runTo && dist(h.x, h.z, ...h.fb.runTo) < 0.6)) {
         game.hud.toast(`Brought down at the ${this.yardLine(h.z)}`, '#ffd23f');
         return this.over(h.z);
@@ -402,6 +425,7 @@ export class Gridiron {
       }
     }
     if (this.throwT > 0) this.throwT -= dt;
+    if (this.downT > 0) this.downT -= dt;
     // The arrow over who you'd throw to.
     this.target = this.state === 'play' && b.holder === 'you' && !this.scramble ? this.pickTarget() : null;
     const kb = game.input.mode === 'kb';
@@ -449,9 +473,12 @@ export class Gridiron {
     const fx = Math.sin(p.heading);
     const fz = Math.cos(p.heading);
     if (this.press) {
-      b.x = px - fx * 0.2 - fz * 0.35;
-      b.z = pz - fz * 0.2 + fx * 0.35;
-      b.y = 2.0;
+      // (in the throwing hand, by the ear)
+      p.char.group.updateMatrixWorld(true);
+      const v = p.char.wristR.localToWorld(new THREE.Vector3(0, -0.12, 0.04));
+      b.x = v.x;
+      b.y = v.y;
+      b.z = v.z;
     } else {
       b.x = px + fx * 0.15 - fz * 0.3;
       b.z = pz + fz * 0.15 + fx * 0.3;
@@ -469,6 +496,7 @@ export class Gridiron {
     this.scramble = false;
     this.meter = null;
     this.press = null;
+    this.dropping = false;
     fb.phase = 'dead';
     fb.t = 0;
     if (z != null) this.los = Math.max(this.goal + YD, Math.min(fb.site.field.z1 - 1, z));
@@ -493,19 +521,42 @@ export class Gridiron {
     this.end('td');
   }
 
-  // Your arms (main.js, after you move).
+  // Your arms and body (main.js, after you move): the stance at the line, the drop-back, the
+  // throw (the same motion as theirs: football.js), the tuck on a scramble, hitting the turf.
   late() {
     const game = this.game;
     const p = game.player;
     const c = p.char;
     p.showWeapon('fists');
     const b = this.fb.ball;
+    c.group.rotation.x = 0;
+    c.armL.rotation.z = c.armR.rotation.z = 0;
+    if (this.downT > 0) {
+      const t = 1.1 - this.downT;
+      const k = t < 0.25 ? t / 0.25 : this.downT < 0.35 ? this.downT / 0.35 : 1;
+      c.group.position.y += layoutPose(c, k, false);
+      return;
+    }
+    if (this.state === 'line' && (p.speed || 0) < 0.3 && this.ready) {
+      c.group.position.y += qbStance(c);
+      return;
+    }
     if (b.holder === 'you') {
-      if (this.press) {
-        c.armR.rotation.x = -2.9;
-        c.armL.rotation.x = -1.2;
-      } else c.armR.rotation.x = -0.7;
-    } else if (this.throwT > 0) c.armR.rotation.x = -2.2; // (follow-through)
+      if (this.dropping) {
+        p.heading = Math.PI; // (backpedaling, facing downfield)
+        c.group.rotation.y = p.heading;
+      }
+      if (this.press) throwPose(c, Math.min(1, this.press.t / 0.15), 0);
+      else if (this.scramble || (p.speed || 0) > 3) {
+        // (tucked under the arm, the elbow clamped down on it)
+        c.armR.rotation.x = -0.5;
+        c.elbowR.rotation.x = -1.6;
+      } else {
+        // (two hands on it at the chest)
+        c.armL.rotation.x = c.armR.rotation.x = -1.1;
+        c.elbowL.rotation.x = c.elbowR.rotation.x = -0.9;
+      }
+    } else if (this.throwT > 0) throwPose(c, 1, 1 - this.throwT / 0.4); // (the follow-through)
   }
 
   // ---- Over ----

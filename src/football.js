@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { lam, setShirt, bendLeg, crouchPose } from './character.js';
+// (throwPose, catchPose, layoutPose and qbStance are below: yours and theirs)
 import { rand, dist, lerpAngle, pick } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
 
@@ -278,6 +279,7 @@ export class Football {
         this.throwing = false;
         const [tx, tz] = this.throwTo;
         this.launch(tx, 1.3, tz, this.throwT, 'pass', w);
+        qb.fb.relT = 0.4; // (the follow-through)
       }
       if (this.t > 9) {
         this.phase = 'back';
@@ -333,6 +335,27 @@ export class Football {
     return pts.map(([x, z]) => [cx(x), cz(z)]);
   }
 
+  // Just out of reach (about 1-2.6 m): he lays out for it.
+  diveFor(r, x, z) {
+    const d = dist(r.x, r.z, x, z);
+    if (d < 0.95 || d > 2.6) return false;
+    r.fb.dive = true;
+    r.fb.diveTo = [x, z];
+    r.fb.downT = r.fb.downLen = 1.3;
+    r.heading = Math.atan2(x - r.x, z - r.z);
+    return true;
+  }
+
+  // Brought down: the runner and the tackler both hit the turf.
+  tackle(runner, tackler) {
+    for (const q of [runner, tackler]) {
+      if (!q || !q.fb) continue;
+      q.fb.dive = false;
+      q.fb.downT = q.fb.downLen = 1.1;
+    }
+    if (tackler && runner && runner.x != null) tackler.heading = Math.atan2(runner.x - tackler.x, runner.z - tackler.z);
+  }
+
   hold(p) {
     const b = this.ball;
     b.mode = 'held';
@@ -366,6 +389,7 @@ export class Football {
     if (this.match && b.kind === 'pass') return this.match.arrived();
     const r = b.to;
     const near = r && this.players.includes(r) && dist(r.x, r.z, b.x, b.z) < 2.6;
+    if (near && b.kind === 'pass') this.diveFor(r, b.x, b.z);
     const sure = b.kind === 'toss' ? 0.97 : 0.75;
     if (near && Math.random() < sure) {
       this.hold(r);
@@ -399,7 +423,16 @@ export class Football {
     };
     const faceAt = (x, z) => face(Math.atan2(x - p.x, z - p.z));
     f.throwT = Math.max(0, (f.throwT || 0) - dt);
+    f.relT = Math.max(0, (f.relT || 0) - dt);
     f.cheerT = Math.max(0, (f.cheerT || 0) - dt);
+    // Down on the turf (a dive or a tackle): lunging forward a moment, then getting up.
+    if (f.downT > 0) {
+      f.downT -= dt;
+      const t = (f.downLen || 1.1) - f.downT;
+      if (f.dive && t < 0.3 && f.diveTo) return { tx: f.diveTo[0], tz: f.diveTo[1], speed: 5.5 };
+      if (f.downT <= 0) f.dive = false;
+      return { speed: 0 };
+    }
     if (f.role === 'fan') {
       // Watching the ball.
       if (b) faceAt(b.x, b.z);
@@ -515,18 +548,38 @@ export class Football {
       return f.seatY - 0.9;
     }
     let y = 0.04;
-    if (this.phase === 'set' && p.speed === 0 && f.role !== 'qb') y += crouchPose(c, 0.35); // (in their stance)
+    c.group.rotation.x = 0;
+    c.armL.rotation.z = c.armR.rotation.z = 0;
+    // Down: a diving catch (laid out, then getting up) or brought down in a tackle.
+    if (f.downT > 0) {
+      const T = f.downLen || 1.1;
+      const t = T - f.downT;
+      const k = t < 0.25 ? t / 0.25 : f.downT < 0.35 ? f.downT / 0.35 : 1;
+      return y + layoutPose(c, k, f.dive);
+    }
+    if (this.phase === 'set' && p.speed === 0) y += f.role === 'qb' ? qbStance(c) : crouchPose(c, 0.35); // (in their stance)
     if (!b) return y;
     if (b.holder === p) {
-      if (f.throwT > 0) {
-        c.armR.rotation.x = -2.9;
-        c.armL.rotation.x = -1.2;
-      } else if (p.speed > 0.5) c.armR.rotation.x = -0.7;
-      else c.armL.rotation.x = c.armR.rotation.x = -1.2;
+      if (f.throwT > 0) throwPose(c, 1 - Math.max(0, f.throwT - 0.12) / 0.23, 0); // (winding up)
+      else if (p.speed > 0.5) {
+        // (tucked under the arm, the elbow clamped down on it)
+        c.armR.rotation.x = -0.5;
+        c.elbowR.rotation.x = -1.6;
+      } else {
+        c.armL.rotation.x = c.armR.rotation.x = -1.1;
+        c.elbowL.rotation.x = c.elbowR.rotation.x = -0.9;
+      }
+    } else if (f.relT > 0) {
+      throwPose(c, 1, 1 - f.relT / 0.4); // (the throw and the follow-through)
     } else if (b.mode === 'flight' && b.to === p && b.T - b.t < 0.6) {
-      c.armL.rotation.x = c.armR.rotation.x = b.kind === 'pass' ? -2.4 : -1.4; // hands up for it
-    } else if (f.role === 'db' && this.phase === 'play' && b.mode === 'flight') {
+      if (b.kind === 'pass') catchPose(c, b.style === 'lob' || b.p1[1] > 1.5);
+      else {
+        c.armL.rotation.x = c.armR.rotation.x = -1.4;
+        c.elbowL.rotation.x = c.elbowR.rotation.x = -0.8;
+      }
+    } else if (f.role === 'db' && (this.phase === 'play' || this.match) && b.mode === 'flight' && b.kind === 'pass') {
       c.armL.rotation.x = -2.6; // going for the ball
+      c.elbowL.rotation.x = -0.2;
     }
     return y;
   }
@@ -551,4 +604,66 @@ function setDownLegs(p) {
   const c = p.char;
   bendLeg(c.legL, c.kneeL, 0, 0);
   bendLeg(c.legR, c.kneeR, 0, 0);
+}
+
+// ---- Shared football poses (yours in gridiron.js, theirs here) ----
+const mix = (a, b, k) => a + (b - a) * k;
+const ease = (k) => k * k * (3 - 2 * k);
+
+// The quarterback's throw. cock (0-1): the ball coming back by the ear (the elbow up and out,
+// the front arm pointing at the target, the front foot stepping); release (0-1, over ~0.4 s):
+// the elbow leads, the forearm whips through, and the arm follows through down across the body.
+export function throwPose(c, cock, release) {
+  const k = ease(Math.min(1, cock));
+  // (cocked: the upper arm out to the side and up, the forearm back up behind the head)
+  let s = [mix(-0.7, -2.0, k), mix(0, -0.7, k), mix(-0.4, -1.9, k), mix(0, 0.5, k)];
+  let g = [mix(-0.6, -1.5, k), mix(0, 0.15, k), mix(-0.4, -0.25, k)];
+  if (release > 0) {
+    const r = Math.min(1, release);
+    const a = ease(Math.min(1, r / 0.35)); // (the whip forward)
+    const b = ease(Math.max(0, (r - 0.35) / 0.65)); // (following through, down and across)
+    s = [mix(mix(s[0], -2.4, a), -0.9, b), mix(mix(s[1], -0.2, a), 0.45, b), mix(mix(s[2], -0.2, a), -0.5, b), mix(mix(s[3], -0.6, a), -0.4, b)];
+    g = [mix(g[0], -0.5, a), mix(g[1], -0.1, a), mix(g[2], -1.5, a)]; // (the front arm tucks in)
+  }
+  c.armR.rotation.x = s[0];
+  c.armR.rotation.z = s[1];
+  c.elbowR.rotation.x = s[2];
+  c.wristR.rotation.x = s[3];
+  c.armL.rotation.x = g[0];
+  c.armL.rotation.z = g[1];
+  c.elbowL.rotation.x = g[2];
+  c.wristL.rotation.x = 0;
+  // (the step: front foot forward into the throw, back foot pushing)
+  const st = release > 0 ? 1 : k;
+  bendLeg(c.legL, c.kneeL, 0.45 * st, 0.25 * st);
+  bendLeg(c.legR, c.kneeR, -0.25 * st, 0.35 * st);
+}
+
+// Hands up for a catch: high for a lob, chest high for a bullet; the elbows bent, palms out.
+export function catchPose(c, high) {
+  c.armL.rotation.x = c.armR.rotation.x = high ? -2.7 : -2.0;
+  c.armL.rotation.z = -0.12;
+  c.armR.rotation.z = 0.12;
+  c.elbowL.rotation.x = c.elbowR.rotation.x = high ? -0.35 : -0.75;
+  c.wristL.rotation.x = c.wristR.rotation.x = -0.3;
+}
+
+// Laid out (a diving catch) or going down in a tackle: k 0..1 tipped forward onto the stomach,
+// arms out ahead for a dive. Returns the height change.
+export function layoutPose(c, k, dive) {
+  c.group.rotation.x = (Math.PI / 2) * 0.95 * ease(Math.min(1, k));
+  c.armL.rotation.x = c.armR.rotation.x = dive ? -2.95 : -2.2;
+  c.elbowL.rotation.x = c.elbowR.rotation.x = dive ? -0.15 : -0.9;
+  c.legL.rotation.x = c.legR.rotation.x = 0;
+  c.kneeL.rotation.x = c.kneeR.rotation.x = dive ? 0.3 : 0.6;
+  return -0.75 * ease(Math.min(1, k)) + 0.18;
+}
+
+// The quarterback's stance at the line: knees bent, hands out for the snap.
+export function qbStance(c) {
+  const y = crouchPose(c, 0.3);
+  c.armL.rotation.x = c.armR.rotation.x = -0.95;
+  c.elbowL.rotation.x = c.elbowR.rotation.x = -0.7;
+  c.wristL.rotation.x = c.wristR.rotation.x = 0;
+  return y;
 }
