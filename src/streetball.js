@@ -64,7 +64,19 @@ const MOVES = {
   spin: { T: 0.48, beat: 0.4, risk: 0.08, name: 'Spin' },
   hesi: { T: 0.48, beat: 0.3, risk: 0, name: 'Hesi' },
   step: { T: 0.34, beat: 0, risk: 0, name: 'Step-back' },
+  legs: { T: 0.32, beat: 0.32, risk: 0.04, name: 'Between the legs' },
 };
+// How the ball changes hands: in front of you (a crossover), down under you (between the legs)
+// or round your back. Returns [side (-1 your left .. 1 your right), forward, height].
+const HANDOFF = { cross: 'front', spin: 'front', behind: 'behind', legs: 'legs' };
+function handoff(kind, from, to, k) {
+  const s = from + (to - from) * k;
+  const m = Math.sin(Math.PI * k);
+  const low = Math.abs(Math.cos(Math.PI * k)) * 0.55;
+  if (kind === 'legs') return [s, 0.4 - 0.45 * m, 0.18 + low];
+  if (kind === 'behind') return [s, 0.4 - 0.78 * m, 0.25 + low + m * 0.4];
+  return [s, 0.42 + 0.06 * m, 0.18 + low];
+}
 const OPEN = ['Wide Open', 'Open', 'Contested', 'Heavily Contested'];
 const OPEN_WINDOW = [1, 1, 0.7, 0.45]; // (green window)
 const OPEN_MAKE = [1.08, 1, 0.75, 0.45]; // (a white release's chance)
@@ -774,7 +786,7 @@ export class Streetball {
   // The right stick (controller): a quick flick is a move; held up, a size-up.
   // Keyboard and touch send their moves straight in (a.bMove).
   proStick(dt, a) {
-    if (a.bMove) return a.bMove;
+    if (a.bMove) return a.bIntense && a.bMove.kind === 'cross' ? { kind: 'legs', side: a.bMove.side } : a.bMove;
     const ps = this.you.ps;
     const x = a.bStickX || 0;
     const y = a.bStickY || 0;
@@ -794,7 +806,7 @@ export class Streetball {
       const A = Math.abs(ang);
       if (A < 0.5) return { kind: 'hesi', side: 0 };
       if (A < 1.1) return { kind: 'behind', side: s };
-      if (A < 2.0) return { kind: 'cross', side: s };
+      if (A < 2.0) return { kind: a.bIntense ? 'legs' : 'cross', side: s }; // (L2 held: between the legs)
       if (A < 2.6) return { kind: 'spin', side: s };
       return { kind: 'step', side: 0 };
     }
@@ -811,7 +823,7 @@ export class Streetball {
     const rx = -Math.cos(p.heading);
     const rz = Math.sin(p.heading);
     const D = this.dirs(...p.pos());
-    const switches = kind === 'cross' || kind === 'behind' || kind === 'spin';
+    const switches = kind === 'cross' || kind === 'behind' || kind === 'spin' || kind === 'legs';
     if (switches && !side) {
       // (no way given: the other hand, whichever way that is on screen)
       side = Math.sign((rx * D.sx + rz * D.sz) * -Y.hand) || 1;
@@ -874,7 +886,7 @@ export class Streetball {
     let wx = 0;
     let wz = 0;
     const s = mv.side;
-    if (mv.kind === 'cross' || mv.kind === 'behind') {
+    if (mv.kind === 'cross' || mv.kind === 'behind' || mv.kind === 'legs') {
       wx = D.sx * s * 0.85 + D.ux * 0.5;
       wz = D.sz * s * 0.85 + D.uz * 0.5;
     } else if (mv.kind === 'spin') {
@@ -920,8 +932,8 @@ export class Streetball {
     const pullBack = Math.hypot(sx, sz) > 0.4 && (sx * D.ux + sz * D.uz) / Math.hypot(sx, sz) < -0.4;
     let type = 'jumper';
     if (toward && pullBack && D.d > 1.5 && D.d < 6.5) type = 'floater';
-    else if (D.d <= 3 && sprint && toward) type = 'dunk';
-    else if (D.d <= 4 && toward) type = 'layup';
+    else if (D.d <= 3.8 && sprint && toward) type = 'dunk';
+    else if (D.d <= 5 && toward) type = 'layup';
     const stepback = Y.move?.kind === 'step' || (Y.lastMove === 'step' && this.clock - Y.lastMoveEnd < 0.5);
     Y.move = null;
     // Square up: a small turn happens on the way up; facing away (over ~70°) you pivot on your
@@ -935,11 +947,14 @@ export class Streetball {
     // hand. A dunk from close in is a jump stop (both feet), from 1-2 m one step, beyond that two.
     let how = '';
     if (type === 'layup' || type === 'dunk') {
-      const steps = type === 'layup' ? 2 : D.d > 2 ? 2 : D.d > 1 ? 1 : 0;
-      const T = steps ? 0.14 + steps * 0.17 : 0.15; // (gather + steps, or the jump stop)
-      // (where you go up from: about a meter out for a layup, 1.3 m for a dunk, or right here)
-      const out = type === 'layup' ? 1.1 : 1.3;
-      const go = steps ? Math.max(0, D.d - out) : 0;
+      const steps = type === 'layup' ? 2 : D.d > 2.5 ? 2 : D.d > 1.2 ? 1 : 0;
+      // (where you go up from: 1.5 m out for a layup, 1.6 m for a dunk, or right here)
+      const out = type === 'layup' ? 1.5 : 1.6;
+      // (at the speed you were already going: the steps keep your momentum; close in, you just
+      // go up nearer the rim rather than slowing down)
+      const sp = Math.max(4.5, Math.hypot(Y.vx, Y.vz));
+      const T = steps ? clamp((D.d - out) / sp, 0.25, 0.7) : 0.15;
+      const go = steps ? clamp(sp * T, 0, D.d - (type === 'layup' ? 0.9 : 0.7)) : 0;
       this.shot.approach = { T, steps, tx: px0(p) + D.ux * go, tz: pz0(p) + D.uz * go };
       how = steps ? ` (gather + ${steps} step${steps > 1 ? 's' : ''})` : ' (jump stop)';
       if (type === 'layup') this.shot.T = T + 0.3; // (then up: the top of the jump is the release)
@@ -966,7 +981,7 @@ export class Streetball {
       if (s.t < A.T) {
         const r = dist(px, pz, A.tx, A.tz);
         if (r > 0.05) {
-          const v = Math.min(8, r / Math.max(0.04, A.T - s.t));
+          const v = Math.min(8.5, r / Math.max(0.04, A.T - s.t));
           const wx = (A.tx - px) / r;
           const wz = (A.tz - pz) / r;
           const yaw = this.game.camYaw;
@@ -981,6 +996,16 @@ export class Streetball {
         // Up: from here to the rim.
         this.startDunk(0);
         this.you.dunk.rise = s.T - s.t;
+      } else if (s.type === 'layup' && s.t < s.T) {
+        // In the air, still carrying in toward the rim (to about half a meter out).
+        const fx = this.rim.x + this.rim.dx * 0.6;
+        const fz = this.rim.z + this.rim.dz * 0.6;
+        const r = dist(px, pz, fx, fz);
+        if (r > 0.05) {
+          const step = Math.min(r, (r / Math.max(0.05, s.T - s.t)) * dt);
+          p.x += ((fx - px) / r) * step;
+          p.z += ((fz - pz) / r) * step;
+        }
       }
     }
     // Turning to the basket: pivoting on the floor first if he's facing away, then in the air.
@@ -1120,39 +1145,53 @@ export class Streetball {
   // ---- Ball protection ----
   // Turned sideways to trouble (him if he's close, otherwise the basket side), a ballhandler
   // switches it to the outside hand, the one away from it.
+  // How he switches depends on which way he turned: toward the trouble, behind the back (the
+  // ball never crosses in front of it); away from it, a crossover in front or between the legs.
   protect(dt) {
     const Y = this.you;
+    const p = this.game.player;
+    const [px, pz] = p.pos();
+    const near = !this.solo && dist(px, pz, this.opp.x, this.opp.z) < 4.5;
+    const tx = near ? this.opp.x : this.rim.x;
+    const tz = near ? this.opp.z : this.rim.z;
     if (Y.swap) {
       Y.swap.t += dt;
       if (Y.swap.t >= Y.swap.T) Y.swap = null;
       return;
     }
     if (this.clock < (Y.swapCd || 0)) return;
-    const p = this.game.player;
-    const [px, pz] = p.pos();
-    const near = !this.solo && dist(px, pz, this.opp.x, this.opp.z) < 4.5;
-    const side = this.threatSide(px, pz, p.heading, near ? this.opp.x : this.rim.x, near ? this.opp.z : this.rim.z);
+    const side = this.threatSide(px, pz, p.heading, tx, tz);
     if (Math.abs(side) > 0.6 && Math.sign(side) === Y.hand) {
-      Y.swap = { from: Y.hand, to: -Y.hand, t: 0, T: 0.25 };
+      Y.swap = this.switchHands(Y.hand, px, pz, p.heading, tx, tz);
       Y.hand = -Y.hand;
       Y.swapCd = this.clock + 0.9;
     }
   }
 
+  // (the trouble still out in front: he turned toward it, so round the back; behind him: he
+  // turned away, so a crossover in front or between the legs is safe)
+  switchHands(hand, x, z, h, tx, tz) {
+    const ahead = (tx - x) * Math.sin(h) + (tz - z) * Math.cos(h) > 0;
+    const kind = ahead ? 'behind' : Math.random() < 0.5 ? 'front' : 'legs';
+    return { from: hand, to: -hand, t: 0, T: kind === 'behind' ? 0.32 : kind === 'legs' ? 0.3 : 0.25, kind };
+  }
+
   protectHim(p, dt) {
     const hp = p.hp;
     hp.hand = hp.hand || 1;
+    const [px, pz] = this.game.player.pos();
+    const near = dist(px, pz, p.x, p.z) < 4.5;
+    const tx = near ? px : this.rim.x;
+    const tz = near ? pz : this.rim.z;
     if (hp.swap) {
       hp.swap.t += dt;
       if (hp.swap.t >= hp.swap.T) hp.swap = null;
       return;
     }
     if (this.clock < (hp.swapCd || 0)) return;
-    const [px, pz] = this.game.player.pos();
-    const near = dist(px, pz, p.x, p.z) < 4.5;
-    const side = this.threatSide(p.x, p.z, p.heading, near ? px : this.rim.x, near ? pz : this.rim.z);
+    const side = this.threatSide(p.x, p.z, p.heading, tx, tz);
     if (Math.abs(side) > 0.6 && Math.sign(side) === hp.hand) {
-      hp.swap = { from: hp.hand, to: -hp.hand, t: 0, T: 0.25 };
+      hp.swap = this.switchHands(hp.hand, p.x, p.z, p.heading, tx, tz);
       hp.hand = -hp.hand;
       hp.swapCd = this.clock + 0.9;
     }
@@ -1506,16 +1545,24 @@ export class Streetball {
       } else {
         // (the hand it's in: a crossover takes it across in front)
         let side = Y.hand;
-        if (Y.swap) side = Y.swap.from + (Y.swap.to - Y.swap.from) * Math.min(1, Y.swap.t / Y.swap.T);
-        if (Y.move && Y.move.from !== Y.move.to) {
-          const k = Math.min(1, Y.move.t / (Y.move.T * 0.6));
-          side = Y.move.from + (Y.move.to - Y.move.from) * k;
+        let fwd = 0.4;
+        let y = 0.18 + Math.abs(Math.sin(this.dribble)) * (Y.sizeUp ? 0.55 : 0.8);
+        // (changing hands: in front, between the legs or behind the back)
+        let path = null;
+        if (Y.swap) path = [Y.swap.kind, Y.swap.from, Y.swap.to, Math.min(1, Y.swap.t / Y.swap.T)];
+        else if (Y.move && Y.move.from !== Y.move.to) path = [HANDOFF[Y.move.kind] || 'front', Y.move.from, Y.move.to, Math.min(1, Y.move.t / (Y.move.T * 0.6))];
+        this.legsK = this.behindK = 0;
+        if (path) {
+          [side, fwd, y] = handoff(...path);
+          const m = Math.sin(Math.PI * path[3]);
+          if (path[0] === 'legs') this.legsK = m;
+          if (path[0] === 'behind') this.behindK = m;
         }
         this.ballSide = side;
         // (your right: (-fz, fx))
-        b.x = px + fx * 0.4 - fz * 0.32 * side;
-        b.z = pz + fz * 0.4 + fx * 0.32 * side;
-        b.y = 0.18 + Math.abs(Math.sin(this.dribble)) * (Y.sizeUp ? 0.55 : 0.8);
+        b.x = px + fx * fwd - fz * 0.32 * side;
+        b.z = pz + fz * fwd + fx * 0.32 * side;
+        b.y = y;
       }
     } else if (this.has === 'opp') {
       const opp = this.opp;
@@ -1536,12 +1583,22 @@ export class Streetball {
         hp.dribble = (hp.dribble || 0) + dt * 9;
         hp.hand = hp.hand || 1;
         let side = hp.hand;
-        if (hp.swap) side = hp.swap.from + (hp.swap.to - hp.swap.from) * Math.min(1, hp.swap.t / hp.swap.T);
-        if (hp.state === 'move' && hp.mv && hp.mv.from !== hp.mv.to) side = hp.mv.from + (hp.mv.to - hp.mv.from) * Math.min(1, hp.t / (hp.mv.T * 0.6));
+        let fwd = 0.4;
+        let y = 0.18 + Math.abs(Math.sin(hp.dribble)) * 0.8;
+        let path = null;
+        if (hp.swap) path = [hp.swap.kind, hp.swap.from, hp.swap.to, Math.min(1, hp.swap.t / hp.swap.T)];
+        else if (hp.state === 'move' && hp.mv && hp.mv.from !== hp.mv.to) path = [HANDOFF[hp.mv.kind] || 'front', hp.mv.from, hp.mv.to, Math.min(1, hp.t / (hp.mv.T * 0.6))];
+        hp.legsK = hp.behindK = 0;
+        if (path) {
+          [side, fwd, y] = handoff(...path);
+          const m = Math.sin(Math.PI * path[3]);
+          if (path[0] === 'legs') hp.legsK = m;
+          if (path[0] === 'behind') hp.behindK = m;
+        }
         hp.ballSide = side;
-        b.x = opp.x + fx * 0.4 - fz * 0.3 * side;
-        b.z = opp.z + fz * 0.4 + fx * 0.3 * side;
-        b.y = 0.18 + Math.abs(Math.sin(hp.dribble)) * 0.8;
+        b.x = opp.x + fx * fwd - fz * 0.3 * side;
+        b.z = opp.z + fz * fwd + fx * 0.3 * side;
+        b.y = y;
       }
     }
   }
@@ -1822,14 +1879,14 @@ export class Streetball {
       return { tx, tz, speed: 6.5 * tired };
     }
     if (hp.state === 'drive') {
-      // Close enough to finish: a layup from 4 m, a dunk from 3 m (he makes up his mind at 4).
-      if (dR <= 4) {
+      // Close enough to finish: a layup from 5 m, a dunk from 3.8 m (he makes up his mind at 5).
+      if (dR <= 5) {
         if (hp.wantDunk == null) {
           const clear = dY > 1.3 || Y.beatT > 0 || Y.fallT > 0;
           hp.wantDunk = this.r > 70 && clear && Math.random() < 0.5;
         }
         if (!hp.wantDunk) return this.goShoot(p, hp, 'layup');
-        if (dR <= 3) return this.goShoot(p, hp, 'dunk');
+        if (dR <= 3.8) return this.goShoot(p, hp, 'dunk');
       }
       // Cut off: you're square in front of him in intense D.
       const front = ((px - p.x) * (rim.x - p.x) + (pz - p.z) * (rim.z - p.z)) > 0;
@@ -1896,6 +1953,16 @@ export class Streetball {
       const r = dist(p.x, p.z, hp.appr.tx, hp.appr.tz);
       return r > 0.05 ? { tx: hp.appr.tx, tz: hp.appr.tz, speed: Math.min(8, r / Math.max(0.04, hp.appr.T - hp.t)) } : { speed: 0 };
     }
+    if (hp.state === 'shoot' && hp.shot === 'layup' && hp.appr && hp.t < hp.rel) {
+      // (in the air, still carrying in toward the rim)
+      face(rim.x, rim.z);
+      const st = hp.rel - 0.25;
+      hp.jump = hp.t < st ? 0 : 0.5 * Math.sin(((hp.t - st) / 0.25) * (Math.PI / 2));
+      const fx = rim.x + rim.dx * 0.6;
+      const fz = rim.z + rim.dz * 0.6;
+      const r = dist(p.x, p.z, fx, fz);
+      return r > 0.05 ? { tx: fx, tz: fz, speed: Math.min(8, r / Math.max(0.05, hp.rel - hp.t)) } : { speed: 0 };
+    }
     if (hp.state === 'shoot') {
       face(rim.x, rim.z);
       // (his jump's timed to the shot too: the top of it at the release)
@@ -1924,14 +1991,14 @@ export class Streetball {
 
   goMove(p, hp) {
     const game = this.game;
-    const kind = pick(hp.style === 'shooter' ? ['step', 'step', 'hesi', 'cross'] : ['cross', 'behind', 'spin', 'hesi', 'step']);
+    const kind = pick(hp.style === 'shooter' ? ['step', 'step', 'hesi', 'cross'] : ['cross', 'behind', 'spin', 'hesi', 'step', 'legs']);
     const chain = this.clock - (hp.lastMoveEnd ?? -9) < 0.8;
     hp.combo = chain ? Math.min(3, hp.combo + 1) : 0;
     hp.state = 'move';
     hp.t = 0;
     const M = MOVES[kind];
     hp.hand = hp.hand || 1;
-    const switches = kind === 'cross' || kind === 'behind' || kind === 'spin';
+    const switches = kind === 'cross' || kind === 'behind' || kind === 'spin' || kind === 'legs';
     // (the moves that switch hands go toward the new hand's side: right hand, his right)
     const to = switches ? -hp.hand : hp.hand;
     const ux = (this.rim.x - p.x) || 1e-6;
@@ -1972,9 +2039,10 @@ export class Streetball {
     if (type === 'layup' || type === 'dunk') {
       const rim = this.rim;
       const dR = dist(p.x, p.z, rim.x, rim.z) || 1;
-      const steps = type === 'layup' ? 2 : dR > 2 ? 2 : dR > 1 ? 1 : 0;
-      const T = steps ? 0.14 + steps * 0.17 : 0.15;
-      const go = steps ? Math.max(0, dR - (type === 'layup' ? 1.1 : 1.3)) : 0;
+      const steps = type === 'layup' ? 2 : dR > 2.5 ? 2 : dR > 1.2 ? 1 : 0;
+      const sp = Math.max(4.5, p.speed || 0);
+      const T = steps ? clamp((dR - (type === 'layup' ? 1.5 : 1.6)) / sp, 0.25, 0.7) : 0.15; // (keeping his speed)
+      const go = steps ? clamp(sp * T, 0, dR - (type === 'layup' ? 0.9 : 0.7)) : 0;
       hp.appr = { T, tx: p.x + ((rim.x - p.x) / dR) * go, tz: p.z + ((rim.z - p.z) / dR) * go };
       hp.rel = T + (type === 'layup' ? 0.3 : 0.5);
       how = steps ? ` (gather + ${steps} step${steps > 1 ? 's' : ''})` : ' (jump stop)';
@@ -2016,6 +2084,7 @@ export class Streetball {
   pose(p) {
     const hp = p.hp;
     const c = p.char;
+    c.legL.rotation.z = c.legR.rotation.z = 0;
     if (p === this.opp && hp.fallT > 0) {
       // On the floor: sat down hard.
       const y = crouchPose(c, 1);
@@ -2026,7 +2095,11 @@ export class Streetball {
       if (hp.state === 'shoot' && hp.appr && hp.t < hp.appr.T) c.armL.rotation.x = c.armR.rotation.x = -1.3; // (gathered)
       else if (hp.state === 'shoot' && hp.shot === 'dunk') c.armL.rotation.x = c.armR.rotation.x = -1.6 - Math.min(1, (hp.t - (hp.appr?.T || 0)) / (hp.rel - (hp.appr?.T || 0))) * 1.5;
       else if (hp.state === 'shoot') c.armL.rotation.x = c.armR.rotation.x = -1.4 - Math.min(1, hp.t / Math.max(0.1, hp.rel)) * 1.5;
-      else (hp.ballSide < 0 ? c.armL : c.armR).rotation.x = -0.5 - Math.abs(Math.cos(hp.dribble || 0)) * 0.35; // (the hand with the ball)
+      else {
+        (hp.ballSide < 0 ? c.armL : c.armR).rotation.x = hp.behindK ? 0.9 * hp.behindK : -0.5 - Math.abs(Math.cos(hp.dribble || 0)) * 0.35; // (the hand with the ball)
+        c.legL.rotation.z = 0.3 * (hp.legsK || 0);
+        c.legR.rotation.z = -0.3 * (hp.legsK || 0);
+      }
     } else if (p === this.opp) {
       // Hands up on defense; a swipe; up for a contest or a rebound.
       c.armL.rotation.x = c.armR.rotation.x = hp.jumpT > 0 ? -2.8 : hp.armsT > 0 ? -1.6 : -1.0;
@@ -2042,6 +2115,7 @@ export class Streetball {
     const c = p.char;
     const Y = this.you;
     p.showWeapon('fists');
+    c.legL.rotation.z = c.legR.rotation.z = 0;
     Y.armsT = Math.max(0, (Y.armsT || 0) - dt);
     if (Y.fallT > 0) {
       const y = crouchPose(c, 1);
@@ -2069,7 +2143,14 @@ export class Streetball {
         const k = Math.min(1, this.shot.t / this.shot.T);
         c.armL.rotation.x = c.armR.rotation.x = -1.4 - k * 1.4;
         c.group.rotation.y = p.heading; // (squaring up to the basket)
-      } else ((this.ballSide ?? Y.hand) < 0 ? c.armL : c.armR).rotation.x = -0.5 - Math.abs(Math.cos(this.dribble || 0)) * 0.35; // (the hand with the ball)
+      } else {
+        const arm = (this.ballSide ?? Y.hand) < 0 ? c.armL : c.armR; // (the hand with the ball)
+        arm.rotation.x = this.behindK ? 0.9 * this.behindK : -0.5 - Math.abs(Math.cos(this.dribble || 0)) * 0.35;
+        // (between the legs: feet apart, down a little)
+        c.legL.rotation.z = 0.3 * (this.legsK || 0);
+        c.legR.rotation.z = -0.3 * (this.legsK || 0);
+        if (this.legsK) c.group.position.y += crouchPose(c, 0.3 * this.legsK);
+      }
       if (Y.sizeUp) c.group.position.y += crouchPose(c, 0.35);
     } else if (Y.jumpT > 0) c.armL.rotation.x = c.armR.rotation.x = -2.8;
     else if (Y.armsT > 0) c.armR.rotation.x = -1.6;

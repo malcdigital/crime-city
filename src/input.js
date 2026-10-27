@@ -245,7 +245,8 @@ export class Input {
     //   box out, △ block / rebound, right stick = Pro Stick dribble moves (the camera follows).
     // Keyboard: hold left-click or Space to shoot / left-click or R to steal, Shift sprint,
     //   right-click intense D, F block / rebound, moves: J / L crossover, I hesitation (hold:
-    //   size-up), K step-back, U / O spin, B / N behind the back.
+    //   size-up), K step-back, U / O spin, B / N behind the back, H between the legs (or right-click
+//   with J / L). Controller: L2 held with a sideways flick = between the legs.
     // Touch: SHOOT (□), BLOCK (△), D (L2) and the CROSS / HESI / STEP / SPIN buttons.
     a.bShoot = this.lmb || k('Space') || this.btn(PAD.SQUARE);
     a.bSteal = this.clicked || this.hit('KeyR') || this.btnHit(PAD.SQUARE);
@@ -257,7 +258,7 @@ export class Input {
     a.bSprintNoX = k('ShiftLeft') || k('ShiftRight') || this.btnVal(PAD.R2) > 0.3 || !!(this.touchMode && this.touch.sprint);
     a.bStickX = this.touchMode ? 0 : this.axis(2);
     a.bStickY = this.touchMode ? 0 : this.axis(3);
-    const mv = [['KeyJ', 'cross', -1], ['KeyL', 'cross', 1], ['KeyI', 'hesi', 0], ['KeyK', 'step', 0], ['KeyU', 'spin', -1], ['KeyO', 'spin', 1], ['KeyB', 'behind', -1], ['KeyN', 'behind', 1]];
+    const mv = [['KeyJ', 'cross', -1], ['KeyL', 'cross', 1], ['KeyI', 'hesi', 0], ['KeyK', 'step', 0], ['KeyU', 'spin', -1], ['KeyO', 'spin', 1], ['KeyB', 'behind', -1], ['KeyN', 'behind', 1], ['KeyH', 'legs', 0]];
     a.bMove = null;
     for (const [code, kind, side] of mv) if (this.hit(code)) a.bMove = { kind, side };
     a.bSizeUp = k('KeyI');
