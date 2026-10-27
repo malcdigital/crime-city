@@ -16,8 +16,9 @@ export const CFG = {
   // new roundabout (Liberty Circle).
   START_AT: [904, 770, 180],
   // Testing switch: start on foot here instead ([x, z, heading in degrees], or null; it beats
-  // START_IN_CAR and your safehouse). Right now: the Ledger Ave courts, at the sideline.
-  START_ON_FOOT: [1210, 733, 90],
+  // START_IN_CAR and your safehouse). Right now: Harbor Field, behind the line next to the
+  // quarterback, facing downfield. (The Ledger Ave courts: [1210, 733, 90].)
+  START_ON_FOOT: [1214, 1013, 180],
   // Testing switch: basketball shows which shot it picked as each one starts (Jump shot, Layup,
   // Floater, Dunk, Alley-oop), yours and his.
   SHOT_TYPE_DEBUG: true,

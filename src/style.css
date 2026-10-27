@@ -388,6 +388,12 @@ body.touch #sport .sh { display: none; }
 /* On foot (right thumb) */
 #touch .tb-fire { right: 22px; bottom: 26px; }
 #touch .tb-qfire { right: 22px; bottom: 26px; }
+/* Football: the four receiver buttons in a diamond, like the controller's. */
+#touch[data-ctx="qb"] .tb-reload, #touch[data-ctx="qb"] .tb-cross, #touch[data-ctx="qb"] .tb-circle, #touch[data-ctx="qb"] .tb-tri { width: 66px; height: 66px; font-size: 26px; }
+#touch[data-ctx="qb"] .tb-tri { right: 96px; bottom: 170px; color: #3ddc97; }
+#touch[data-ctx="qb"] .tb-reload { right: 168px; bottom: 100px; color: #ff79c6; }
+#touch[data-ctx="qb"] .tb-circle { right: 24px; bottom: 100px; color: #ff6b6b; }
+#touch[data-ctx="qb"] .tb-cross { right: 96px; bottom: 30px; color: #6fa8ff; }
 #touch .tb-bshoot { right: 22px; bottom: 26px; }
 #touch .tb-bblock { right: 26px; bottom: 120px; }
 #touch .tb-bd { right: 116px; bottom: 14px; }

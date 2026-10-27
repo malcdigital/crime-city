@@ -32,9 +32,9 @@ const PAD_DEAD = 0.18; // input.js's stick deadzone (the shaped steering skips p
 const BUTTONS = [
   ['fire', 'FIRE', B.R2, ['foot'], 'fire', 'big red'],
   ['aim', 'AIM', B.L2, ['foot'], 'toggle', 'mid'],
-  ['reload', '□', B.SQUARE, ['foot', 'strip'], 'hold', 'sm'],
+  ['reload', '□', B.SQUARE, ['foot', 'strip', 'qb'], 'hold', 'sm'],
   ['cross', '✕', B.CROSS, ['foot', 'car', 'phone', 'menu', 'strip', 'map', 'stop', 'qb'], 'hold', 'sm'],
-  ['circle', '○', B.CIRCLE, ['foot', 'car', 'phone', 'menu', 'map', 'stop'], 'hold', 'sm'],
+  ['circle', '○', B.CIRCLE, ['foot', 'car', 'phone', 'menu', 'map', 'stop', 'qb'], 'hold', 'sm'],
   ['fight', '□', B.SQUARE, ['stop'], 'hold', 'sm'], // (a police stop: fight back)
   // Pickup basketball (streetball.js): NBA 2K style.
   ['bshoot', 'SHOOT', B.SQUARE, ['ball'], 'hold', 'big red txt'],
@@ -45,9 +45,10 @@ const BUTTONS = [
   ['bhesi', 'HESI', 19, ['ball'], 'hold', 'sm txt'],
   ['bstep', 'STEP', 20, ['ball'], 'hold', 'sm txt'],
   ['bspin', 'SPIN', 21, ['ball'], 'hold', 'sm txt'],
-  // Football (gridiron.js): throw with FIRE, hike with ✕.
-  ['qfire', 'FIRE', B.R2, ['qb'], 'hold', 'big red'],
-  ['tri', '△', B.TRIANGLE, ['foot', 'car', 'map'], 'hold', 'sm'],
+  // Football (gridiron.js): ✕ hikes; then □ ✕ ○ △ throw to the receiver with that button
+  // over his head (tap: bullet, hold: lob).
+  ['qfire', 'FIRE', B.R2, [], 'hold', 'big red'],
+  ['tri', '△', B.TRIANGLE, ['foot', 'car', 'map', 'qb'], 'hold', 'sm'],
   ['crouch', 'DUCK', B.L3, ['foot'], 'hold', 'sm txt'],
   ['weapon', 'GUN', B.L1, ['foot', 'strip'], 'weapon', 'sm txt'],
   ['use', 'USE', B.UP, ['foot', 'car', 'ball'], 'hold', 'pill'],
@@ -78,7 +79,7 @@ const HINTS = {
   map: { cross: 'pin', circle: 'close', tri: 'legend', heat: 'heat' },
   stop: { cross: 'quietly', circle: 'bribe', fight: 'fight' },
   ball: { bblock: 'block', bd: 'hold' },
-  qb: { qfire: 'throw', cross: 'hike' },
+  qb: { cross: 'hike' },
 };
 
 export class TouchControls {
@@ -333,6 +334,7 @@ export class TouchControls {
       }
     }
     if (ctx === 'stop') this.el.buttons.fight.hint.textContent = game.player.vehicle ? 'floor it' : 'fight';
+    if (ctx === 'qb') this.el.buttons.cross.hint.textContent = game.gridiron?.state === 'line' ? 'hike' : '';
     if (ctx === 'ball') {
       // (on defense: SHOOT is steal, the moves are hidden)
       const off = game.sport.has === 'you';

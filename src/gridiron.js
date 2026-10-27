@@ -8,8 +8,11 @@ import { setShirt } from './character.js';
 //   his money too). He steps off to the sideline and watches.
 // - The drive: from the 40, four downs to make 10 yards, until you score or lose it.
 //   Get behind the line and ✕ / E hikes it. The receivers run their routes with the backs on
-//   them. The one you're looking toward is your target (the arrow over his head). Hold FIRE and
-//   let go in the green: a good release leads him; a bad one sails or dies short.
+//   them. Madden's way: each receiver has a button over his head (□ ✕ ○ △; keyboard 1-4; the
+//   same buttons on a phone). Tap it for a bullet (fast and flat: a back near the line of it can
+//   jump it), hold it for a lob (high and slower: over the top, he runs under it). The left stick
+//   at the release leads him that way. With a mouse you can also look at a man and click (tap /
+//   hold the same way). On the controller R2 sprints.
 //   Caught: he runs till he's brought down. Dropped or batted away: incomplete. Thrown into
 //   coverage: it can be picked off (the drive's over).
 //   Hold it too long and you're sacked (5 seconds); run past the line and you're a runner
@@ -21,6 +24,10 @@ const BETS = [0, 50, 100, 250, 500];
 const NAMES = ['Coach', 'Big Lou', 'Tre', 'Marcus', 'Deebo', 'Junior', 'Bam'];
 const SACK = 4.5;
 const DOWNS = ['1st', '2nd', '3rd', '4th'];
+// The receivers' buttons (in the order they line up), their colors, and the keyboard keys.
+const ICONS = ['□', '✕', '○', '△', 'R1'];
+const ICON_COLORS = ['#ff79c6', '#6fa8ff', '#ff6b6b', '#3ddc97', '#ffd23f'];
+const BULLET = 0.22; // (held longer than this it's a lob)
 
 export class Gridiron {
   constructor(game) {
@@ -112,6 +119,10 @@ export class Gridiron {
     m.visible = false;
     game.scene.add(m);
     this.arrow = m;
+    this.icons = [];
+    this.iconMode = null;
+    this.prevR = [true, true, true, true, true]; // (nothing counts till it's let go and pressed again)
+    this.press = null;
     game.hud.toast(`${qb.ballName}'s squad · ${bet ? `$${bet} says you score` : 'just for fun'}. Get behind the line`, '#ffd23f');
   }
 
@@ -142,23 +153,45 @@ export class Gridiron {
       if (hike && this.ready) this.snap();
       return;
     }
-    if (this.state === 'play' && b.holder === 'you') {
-      if (fire) {
-        this.meter = this.meter || { t: 0 };
-        this.meter.t += dt;
-      } else if (this.meter) {
-        const v = this.meterValue();
-        this.meter = null;
-        if (pz < this.los) game.hud.toast("Past the line: you can't throw now", '#ff8080');
-        else this.throwIt(v);
+    const R = a.qbR || [];
+    const pad = game.input.mode === 'pad' && !game.input.touchMode;
+    if (this.state === 'play' && b.holder === 'you' && !this.scramble) {
+      // A receiver's button (or, with a mouse, a click on the man you're looking at): tap for a
+      // bullet, hold for a lob; it goes when you let go.
+      const recv = this.receivers();
+      if (!this.press) {
+        for (let i = 0; i < R.length; i++) {
+          if (R[i] && !this.prevR[i] && recv[i]) {
+            this.press = { i, t: 0, w: recv[i] };
+            break;
+          }
+        }
+        if (!this.press && fire && !pad && !this.prevFire && this.target) this.press = { i: -1, t: 0, w: this.target };
       }
-    } else this.meter = null;
+      if (this.press) {
+        const P = this.press;
+        const down = P.i >= 0 ? R[P.i] : fire;
+        if (down) P.t += dt;
+        else {
+          this.press = null;
+          if (pz < this.los) game.hud.toast("Past the line: you can't throw now", '#ff8080');
+          else if (P.w && fb.players.includes(P.w)) this.throwIt(P.w, P.t < BULLET ? 'bullet' : 'lob', a);
+        }
+      }
+      if (pad) a.sprint = fire; // (R2 sprints on the controller; ✕ is a receiver)
+      else a.sprint = a.sprint && !R[1];
+    } else this.press = null;
+    this.prevR = R.slice();
+    this.prevFire = fire;
   }
 
-  meterValue() {
-    if (!this.meter) return 0;
-    const t = this.meter.t % 1.4;
-    return t < 0.7 ? t / 0.7 : 1 - (t - 0.7) / 0.7;
+  // Who gets which button: the receivers in order (the back gets R1).
+  receivers() {
+    const fb = this.fb;
+    const r = fb.wrs.slice(0, 4);
+    while (r.length < 4) r.push(null);
+    r.push(fb.rb && fb.players.includes(fb.rb) ? fb.rb : null);
+    return r;
   }
 
   snap() {
@@ -174,6 +207,8 @@ export class Gridiron {
       w.fb.leg = 0;
     }
     fb.target = null;
+    this.prevR = [true, true, true, true, true]; // (the ✕ that hiked it isn't a throw)
+    this.press = null;
     this.game.hud.toast('Hike!', '#ffd23f');
   }
 
@@ -197,36 +232,51 @@ export class Gridiron {
     return best;
   }
 
-  throwIt(v) {
+  // The throw: a bullet (fast, flat) or a lob (high, slower), led where he'll be, plus the
+  // left stick at the release, with a little error (more on the run or with the pocket closing).
+  throwIt(w, kind, a) {
     const game = this.game;
     const fb = this.fb;
-    const w = this.target;
-    if (!w) return;
     const [px, pz] = game.player.pos();
     const p = game.player;
     const b = fb.ball;
-    // Lead him: where he'll be when it gets there.
+    const lob = kind === 'lob';
     const d0 = dist(px, pz, w.x, w.z);
-    const T = 0.55 + d0 / 17;
+    let T = lob ? 0.75 + d0 / 15 : 0.3 + d0 / 24;
     const sp = w.speed || 0;
     let tx = w.x + Math.sin(w.heading) * sp * T;
     let tz = w.z + Math.cos(w.heading) * sp * T;
     // A route's end: he stops there.
     const end = w.fb.route?.[w.fb.route.length - 1];
     if (end && dist(w.x, w.z, end[0], end[1]) < sp * T) [tx, tz] = end;
-    const err = v >= 0.82 ? 0.8 : v >= 0.55 ? 2.2 : 4;
-    const a = rand(0, Math.PI * 2);
-    tx += Math.cos(a) * err * rand(0.5, 1);
-    tz += Math.sin(a) * err * rand(0.5, 1);
+    // The left stick leads him (camera-relative).
+    const mx = a?.moveX || 0;
+    const my = a?.moveY || 0;
+    if (Math.hypot(mx, my) > 0.3) {
+      const yaw = game.camYaw;
+      const lead = lob ? 3.2 : 2;
+      tx += (Math.sin(yaw) * my - Math.cos(yaw) * mx) * lead;
+      tz += (Math.cos(yaw) * my + Math.sin(yaw) * mx) * lead;
+    }
+    let err = lob ? 0.8 : 0.45;
+    if (this.t > SACK - 1.5) err += 0.5; // (the pocket closing in)
+    if ((p.speed || 0) > 2.5) err += 0.5; // (throwing on the run)
+    const ea = rand(0, Math.PI * 2);
+    const er = err * rand(0, 1);
+    tx += Math.cos(ea) * er;
+    tz += Math.sin(ea) * er;
     const F = fb.site.field;
     tx = Math.max(F.x0 - 1, Math.min(F.x1 + 1, tx));
+    tz = Math.max(F.z0 - 2, tz);
+    T = lob ? 0.75 + dist(px, pz, tx, tz) / 15 : 0.3 + dist(px, pz, tx, tz) / 24;
     b.x = px + Math.sin(p.heading) * 0.2;
     b.z = pz + Math.cos(p.heading) * 0.2;
     b.y = 2.0;
-    fb.launch(tx, 1.3, tz, T, 'pass', w);
+    fb.launch(tx, lob ? 1.6 : 1.3, tz, T, 'pass', w);
+    b.style = kind;
     this.state = 'air';
     this.throwT = 0.4;
-    game.hud.toast(v >= 0.82 ? 'Dime!' : v >= 0.55 ? 'Decent ball' : 'Wobbler...', v >= 0.82 ? '#7ee081' : v >= 0.55 ? '#ffd23f' : '#ff8080');
+    game.hud.toast(lob ? 'Lob' : 'Bullet', '#ffd23f');
   }
 
   // The pass gets there (football.js arrived() hands it over).
@@ -239,8 +289,36 @@ export class Gridiron {
     let db = null;
     for (const q of fb.dbs) if (!db || dist(q.x, q.z, b.x, b.z) < dist(db.x, db.z, b.x, b.z)) db = q;
     const dD = db ? dist(db.x, db.z, b.x, b.z) : 99;
-    // Picked off: a back closer to it than your man.
-    if (db && dD < 1.6 && dD < dW && Math.random() < 0.55) {
+    // A bullet: a back sitting on the line of it (the last two thirds) can jump it.
+    if (b.style === 'bullet') {
+      for (const q of fb.dbs) {
+        const [x0, , z0] = b.p0;
+        const [x1, , z1] = b.p1;
+        const L2 = (x1 - x0) ** 2 + (z1 - z0) ** 2 || 1;
+        const k = Math.max(0.33, Math.min(0.95, ((q.x - x0) * (x1 - x0) + (q.z - z0) * (z1 - z0)) / L2));
+        const off = dist(q.x, q.z, x0 + (x1 - x0) * k, z0 + (z1 - z0) * k);
+        // (only one in front of your man, undercutting it: trailing him he can't get there)
+        const kw = w ? ((w.x - x0) * (x1 - x0) + (w.z - z0) * (z1 - z0)) / L2 : 1;
+        if (off < 0.8 && k < kw - 0.04 && off < dW) {
+          const r = Math.random();
+          if (r < 0.3) {
+            fb.hold(q);
+            game.hud.toast('Jumped the route: INTERCEPTED', '#ff8080');
+            return this.end('pick');
+          }
+          if (r < 0.6) {
+            b.mode = 'loose';
+            b.vx = rand(-2, 2);
+            b.vz = rand(-2, 2);
+            b.vy = 1;
+            game.hud.toast('Knocked down. Incomplete', '#ff8080');
+            return this.over(null);
+          }
+        }
+      }
+    }
+    // Picked off: a back closer to it than your man (less often on a lob he had to run under).
+    if (db && dD < 1.6 && dD < dW && Math.random() < (b.style === 'lob' ? 0.45 : 0.55)) {
       fb.hold(db);
       game.hud.toast('INTERCEPTED', '#ff8080');
       return this.end('pick');
@@ -326,13 +404,42 @@ export class Gridiron {
     if (this.throwT > 0) this.throwT -= dt;
     // The arrow over who you'd throw to.
     this.target = this.state === 'play' && b.holder === 'you' && !this.scramble ? this.pickTarget() : null;
-    this.arrow.visible = !!this.target;
-    if (this.target) this.arrow.position.set(this.target.x, 2.6 + Math.sin(game.time * 6) * 0.08, this.target.z);
     const kb = game.input.mode === 'kb';
+    this.arrow.visible = !!this.target && kb; // (with a mouse: the man a click goes to)
+    if (this.target) this.arrow.position.set(this.target.x, 3.1 + Math.sin(game.time * 6) * 0.08, this.target.z);
+    this.updateIcons();
     let hint = '';
-    if (this.state === 'line') hint = this.ready ? `${kb ? 'E' : '✕'} hike` : 'Get behind the line, in the middle';
-    else if (this.state === 'play' && b.holder === 'you') hint = this.scramble ? 'Run it in!' : this.t > SACK - 1.5 ? 'Pocket collapsing: throw it!' : `Look at your man · hold ${game.input.label('fire')}, let go in the green`;
-    game.hud.sport?.(this.board(), this.meter ? this.meterValue() : null, hint);
+    const keys = kb ? '1-4' : '□ ✕ ○ △';
+    if (this.state === 'line') hint = this.ready ? `${kb ? 'E' : '✕'} hike · then each receiver's button throws to him` : 'Get behind the line, in the middle';
+    else if (this.state === 'play' && b.holder === 'you') hint = this.scramble ? 'Run it in!' : this.t > SACK - 1.5 ? 'Pocket collapsing: throw it!' : `${keys}: tap a bullet, hold a lob · left stick leads him${kb ? ' · or click the man you look at' : ''}`;
+    // (holding a button: how far toward a lob)
+    const meter = this.press ? Math.min(1, this.press.t / 0.5) : null;
+    game.hud.sport?.(this.board(), meter, hint);
+  }
+
+  // The button over each receiver's head (lined up, and while you've got it to throw).
+  updateIcons() {
+    const game = this.game;
+    const kb = game.input.mode === 'kb' && !game.input.touchMode;
+    const mode = kb ? 'kb' : 'pad';
+    const recv = this.receivers();
+    const show = (this.state === 'line' || (this.state === 'play' && this.fb.ball.holder === 'you' && !this.scramble));
+    for (let i = 0; i < recv.length; i++) {
+      let s = this.icons[i];
+      if (!s || this.iconMode !== mode) {
+        if (s) game.scene.remove(s);
+        s = this.icons[i] = iconSprite(kb ? String(i + 1) : ICONS[i], ICON_COLORS[i]);
+        game.scene.add(s);
+      }
+      const w = recv[i];
+      s.visible = !!w && show;
+      if (w) {
+        const pressed = this.press && this.press.w === w;
+        s.position.set(w.x, 2.75, w.z);
+        s.scale.setScalar(pressed ? 0.1 : this.state === 'line' ? 0.06 : 0.078); // (a fixed size on screen)
+      }
+    }
+    this.iconMode = mode;
   }
 
   // The ball in your hands (football.js step).
@@ -341,7 +448,7 @@ export class Gridiron {
     const [px, pz] = p.pos();
     const fx = Math.sin(p.heading);
     const fz = Math.cos(p.heading);
-    if (this.meter) {
+    if (this.press) {
       b.x = px - fx * 0.2 - fz * 0.35;
       b.z = pz - fz * 0.2 + fx * 0.35;
       b.y = 2.0;
@@ -361,6 +468,7 @@ export class Gridiron {
     this.t = 0;
     this.scramble = false;
     this.meter = null;
+    this.press = null;
     fb.phase = 'dead';
     fb.t = 0;
     if (z != null) this.los = Math.max(this.goal + YD, Math.min(fb.site.field.z1 - 1, z));
@@ -393,7 +501,7 @@ export class Gridiron {
     p.showWeapon('fists');
     const b = this.fb.ball;
     if (b.holder === 'you') {
-      if (this.meter) {
+      if (this.press) {
         c.armR.rotation.x = -2.9;
         c.armL.rotation.x = -1.2;
       } else c.armR.rotation.x = -0.7;
@@ -422,6 +530,9 @@ export class Gridiron {
     this.meter = null;
     fb.match = null;
     game.scene.remove(this.arrow);
+    for (const s of this.icons || []) if (s) game.scene.remove(s);
+    this.icons = [];
+    this.press = null;
     // (the extra back goes home)
     for (const d of this.extra || []) {
       fb.players.splice(fb.players.indexOf(d), 1);
@@ -452,4 +563,28 @@ export class Gridiron {
     game.hud.sport?.(null);
     game.save();
   }
+}
+
+// A receiver's button (a round badge with the symbol) that always faces the camera, the same
+// size on screen however far off he is.
+function iconSprite(text, color) {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 64;
+  const g = cv.getContext('2d');
+  g.fillStyle = 'rgba(10,14,20,.8)';
+  g.beginPath();
+  g.arc(32, 32, 29, 0, Math.PI * 2);
+  g.fill();
+  g.lineWidth = 4;
+  g.strokeStyle = color;
+  g.stroke();
+  g.fillStyle = color;
+  g.font = `bold ${text.length > 1 ? 30 : 46}px sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(text, 32, 34);
+  const tex = new THREE.CanvasTexture(cv);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, sizeAttenuation: false }));
+  s.renderOrder = 10;
+  return s;
 }
