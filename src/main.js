@@ -293,6 +293,17 @@ class Game {
   setPaused(p) {
     this.paused = p;
     this.hud.pause(p, this);
+    // (in a pickup game: a button to quit it)
+    const q = document.getElementById('quit-game');
+    const g = this.pickupGame();
+    q.classList.toggle('hidden', !(p && g));
+    if (p && g) {
+      const key = this.input.touchMode ? '' : this.input.mode === 'pad' ? ' · △' : ' · F';
+      const fresh = g === this.sport && !this.sport.solo && this.sport.score.you + this.sport.score.opp === 0;
+      q.textContent = this.sport.solo
+        ? `Stop shooting around${key}`
+        : `Quit the game${fresh ? ' (no score yet: your money back)' : g.bet ? ` (forfeit: -$${g.bet})` : ' (forfeit)'}${key}`;
+    }
     if (p) this.input.unlock();
     else if (this.input.mode !== 'pad' && !this.input.touch.enabled) this.input.lock();
   }
@@ -1489,6 +1500,18 @@ class Game {
     }
   }
 
+  // Quit the pickup game you're in (from the pause menu): shooting around just stops; a game
+  // with no score yet is called off (your money back); otherwise you forfeit it.
+  quitPickup() {
+    const g = this.pickupGame();
+    if (!g) return;
+    if (g === this.sport) {
+      const S = this.sport;
+      g.end(S.solo ? 'done' : S.score.you + S.score.opp === 0 ? 'off' : 'forfeit');
+    } else g.end('forfeit');
+    this.setPaused(false);
+  }
+
   // The pickup game you're in, if any (basketball at the courts, football at Harbor Field).
   pickupGame() {
     return this.sport.active ? this.sport : this.gridiron.active ? this.gridiron : null;
@@ -2099,6 +2122,8 @@ class Game {
       this.mapView.show();
     } else if (a.pause) {
       this.setPaused(!this.paused);
+    } else if (this.paused && a.enter && this.pickupGame()) {
+      this.quitPickup(); // (△ / F in the pause menu)
     } else if (!this.paused) {
       this.update(dt, a);
     }
@@ -2416,6 +2441,7 @@ window.__game = game;
 game.__raycast = raycast; // handy for debugging shots from the console
 document.getElementById('play').addEventListener('click', () => game.start());
 document.getElementById('resume').addEventListener('click', () => game.setPaused(false));
+document.getElementById('quit-game').addEventListener('click', () => game.quitPickup());
 // Interchange editor (testing) in the pause menu.
 if (game.rampEditor) {
   const b = document.getElementById('rampedit-btn');
