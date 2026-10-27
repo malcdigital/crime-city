@@ -1289,10 +1289,7 @@ export class Streetball {
     }
     // Into him, the risky ones can get picked.
     if (M.risk && d < 1.0 && Math.random() < M.risk * (this.r / 75) * (1.4 - this.handle / 100)) {
-      game.hud.toast(`${opp.ballName} picked your pocket`, '#ff8080');
-      this.give('opp');
-      this.cleared = false;
-      this.lastShooter = 'you';
+      this.knockLoose('you', opp.x, opp.z, `${opp.ballName} picked your pocket`);
       return;
     }
     const p = (M.beat * (big ? 1 : 0.6) + combo * 0.1 + rhythm) * def * handleEff(this.handle) * (0.6 + 0.4 * this.you.st) * (0.8 + 0.2 * (1 - hp.st)); // (the quick ones beat him less on their own, more in a chain)
@@ -1395,6 +1392,13 @@ export class Streetball {
     this.shot = { type, t: 0, T: SHOTS[type].T + turnT, W: greenWindow(type, D.d), d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false, pivot, turnT };
     // (a jumper off your right hand; a layup or floater off the hand the ball's in)
     this.shot.hand = type === 'jumper' ? 1 : (this.ballSide ?? Y.hand ?? 1) >= 0 ? 1 : -1;
+    // A layup's hand: the side you're holding the left stick (right of the rim: right hand),
+    // the hand it's in if you're pushing straight at it.
+    if (type === 'layup' && Math.hypot(sx, sz) > 0.3) {
+      const side = (sx * -D.uz + sz * D.ux) / Math.hypot(sx, sz);
+      if (Math.abs(side) > 0.2) this.shot.hand = side > 0 ? 1 : -1;
+    }
+    if (type === 'layup') Y.hand = this.ballSide = this.shot.hand;
     // Layups and dunks: the gather, then the steps (the gather doesn't count as one: two are
     // allowed), then up off the last one. A layup goes up off the foot opposite the shooting
     // hand. A dunk from close in is a jump stop (both feet), from 1-2 m one step, beyond that two.
@@ -1715,13 +1719,22 @@ export class Streetball {
     const [px, pz] = game.player.pos();
     const { w, lv } = this.windowNow();
     this.shot = null;
+    // His chase-down: trailing you on a layup or a dunk and up in time, he pins it on the glass.
+    if ((s.type === 'layup' || s.type === 'dunk') && (hp.jumpT || 0) > 0 && hp.chase && dist(px, pz, opp.x, opp.z) < 2.6) {
+      hp.chase = false;
+      if (Math.random() < (s.type === 'dunk' ? 0.25 : 0.4) * (this.r / 75)) {
+        if (this.you.dunk) this.you.dunk.hangs = false;
+        game.shakeCamera?.(0.05, 0.25);
+        return this.swatted(px, pz, `Chased down by ${opp.ballName}! Pinned on the glass`, 'you', opp.x, opp.z, true);
+      }
+    }
     let make;
     let grade = '';
     let green = false;
     if (s.type === 'dunk') {
       // At the rim: a contact dunk if he's there.
       const contact = lv >= 3;
-      if (contact && Math.random() < 0.15 * (this.r / 75)) return this.swatted(px, pz, `${opp.ballName} STUFFED the dunk!`, 'you');
+      if (contact && Math.random() < 0.15 * (this.r / 75)) return this.swatted(px, pz, `${opp.ballName} STUFFED the dunk!`, 'you', opp.x, opp.z);
       make = Math.random() < (contact ? 0.6 : s.oop ? 0.88 : 0.95);
       const name = { two: 'Two-hand slam!', one: 'One-hand jam!', windmill: 'WINDMILL!', tomahawk: 'Tomahawk!' }[this.you.dunk?.style] || 'Slam!';
       grade = make ? (contact ? 'POSTERIZED HIM!' : s.oop ? `ALLEY-OOP! ${name}` : name) : 'Rimmed it out';
@@ -1735,7 +1748,7 @@ export class Streetball {
       const tm = green ? 1 : m < 0.06 ? 0.7 : m < 0.16 ? 0.4 : 0.12;
       // His contest: a block on a heavy contest.
       const blockP = { jumper: 0.1, layup: 0.2, floater: 0.12 }[s.type] * (this.r / 75) * (s.euro ? 0.5 : 1);
-      if (lv >= 2 && (hp.jumpT || 0) > 0 && Math.random() < blockP) return this.swatted(px, pz, `Blocked by ${opp.ballName}`, 'you');
+      if (lv >= 2 && (hp.jumpT || 0) > 0 && Math.random() < blockP) return this.swatted(px, pz, `Blocked by ${opp.ballName}`, 'you', opp.x, opp.z);
       const base = s.type === 'layup' ? 0.82 : s.type === 'floater' ? 0.55 : this.base(s.d0);
       make = green || Math.random() < base * tm * OPEN_MAKE[lv] * (0.7 + 0.3 * this.you.st);
     }
@@ -1746,7 +1759,7 @@ export class Streetball {
       this.g.ball.y = Math.max(this.g.ball.y, this.rim.y + 0.15); // (from your hands, through the rim)
       this.launch(make, 'you', s.pts, 0.14);
     } else {
-      this.launch(make, 'you', s.pts);
+      this.launch(make, 'you', s.pts, 0, s.type);
       // Back down from wherever you let it go.
       const h = this.shotHeight(s);
       this.you.follow = { t: 0, kind: s.type, hand: s.hand ?? 1 };
@@ -1754,27 +1767,70 @@ export class Streetball {
     }
   }
 
-  swatted(x, z, text, shooter) {
+  // A block: the ball knocked out of the shooter's hands, away from the blocker's hand (from
+  // bx, bz). A chase-down pins it on the glass and it drops off the board.
+  swatted(x, z, text, shooter, bx = null, bz = null, pinned = false) {
     const b = this.g.ball;
     this.shot = null;
     b.mode = 'loose';
     b.holder = null;
-    b.y = Math.max(b.y, 2);
-    b.vx = (b.x - x) * 3 + rand(-2, 2);
-    b.vz = (b.z - z) * 3 + rand(-2, 2);
-    b.vy = 2;
+    if (pinned) {
+      const rim = this.rim;
+      b.x = rim.x - rim.dx * 0.3 + rand(-0.3, 0.3) * rim.dz;
+      b.z = rim.z - rim.dz * 0.3 - rand(-0.3, 0.3) * rim.dx;
+      b.y = rim.y + 0.45;
+      b.vx = rim.dx * rand(1.2, 2.2);
+      b.vz = rim.dz * rand(1.2, 2.2);
+      b.vy = -0.5;
+    } else {
+      b.y = Math.max(b.y, 2);
+      const fx = bx ?? x;
+      const fz = bz ?? z;
+      const l = dist(b.x, b.z, fx, fz) || 1;
+      const v = rand(4, 6.5);
+      b.vx = ((b.x - fx) / l) * v + rand(-1, 1);
+      b.vz = ((b.z - fz) / l) * v + rand(-1, 1);
+      b.vy = rand(1.5, 3);
+    }
+    if (shooter === 'you') this.you.noGrabT = 0.4;
+    else this.opp.hp.noGrabT = 0.4;
     this.has = null;
     this.lastShooter = shooter; // (whoever gets it back: the other one's a defensive board)
     this.game.hud.toast(text, shooter === 'you' ? '#ff8080' : '#7ee081');
   }
 
+  // A steal: poked out of the ballhandler's hands (who: 'you' or 'opp'), loose on the floor,
+  // mostly toward the side the hand came from. Whoever gets to it first has it; the one who
+  // lost it can't grab it straight back.
+  knockLoose(who, fx, fz, text) {
+    const b = this.g.ball;
+    const [vx0, vz0] = who === 'you' ? this.game.player.pos() : [this.opp.x, this.opp.z];
+    let ux = fx - vx0;
+    let uz = fz - vz0;
+    const l = Math.hypot(ux, uz) || 1;
+    const a = Math.atan2(ux / l, uz / l) + rand(-1.1, 1.1);
+    const v = rand(1.6, 3);
+    this.shot = null;
+    b.mode = 'loose';
+    b.holder = null;
+    b.y = Math.max(b.y, 0.5);
+    b.vx = Math.sin(a) * v;
+    b.vz = Math.cos(a) * v;
+    b.vy = rand(0.8, 1.6);
+    this.has = null;
+    this.lastShooter = who; // (if the other one comes up with it, he takes it back)
+    if (who === 'you') this.you.noGrabT = 0.45;
+    else this.opp.hp.noGrabT = 0.45;
+    this.game.hud.toast(text, who === 'you' ? '#ff8080' : '#7ee081');
+  }
+
   // The ball goes up from whoever's shooting.
-  launch(make, by, pts, T) {
+  launch(make, by, pts, T, type = null) {
     const b = this.g.ball;
     const rim = this.rim;
     const shooter = by === 'you' ? this.game.player.pos() : [this.opp.x, this.opp.z];
     const h = by === 'you' ? this.game.player.heading : this.opp.heading;
-    if (!T) {
+    if (!T && !type) { // (a shot comes out of the shooter's hands, where it already is)
       b.x = shooter[0] + Math.sin(h) * 0.3;
       b.z = shooter[1] + Math.cos(h) * 0.3;
       b.y = 2.4;
@@ -1782,8 +1838,23 @@ export class Streetball {
     const miss = make ? 0 : rand(0.22, 0.4);
     const a = rand(0, Math.PI * 2);
     const d = dist(b.x, b.z, rim.x, rim.z);
-    this.H.launch(b, rim.x + Math.cos(a) * miss, rim.y + 0.08, rim.z + Math.sin(a) * miss * 0.6, T || 0.75 + d * 0.06);
-    b.kind = 'shot';
+    const to = [rim.x + Math.cos(a) * miss, rim.y + 0.08, rim.z + Math.sin(a) * miss * 0.6];
+    // A layup off the glass unless you're coming straight down the middle at it (within ~20°
+    // of straight on): up to the square on the shooter's side, then down into (or off) the rim.
+    const ox = shooter[0] - rim.x;
+    const oz = shooter[1] - rim.z;
+    const ol = Math.hypot(ox, oz) || 1;
+    if (type === 'layup' && !T && (ox * rim.dx + oz * rim.dz) / ol < 0.94) {
+      const lat = Math.sign(ox * -rim.dz + oz * rim.dx) || 1; // (which side of the rim you're on)
+      const gx = rim.x - rim.dx * 0.3 - rim.dz * lat * 0.22;
+      const gz = rim.z - rim.dz * 0.3 + rim.dx * lat * 0.22;
+      this.H.launch(b, gx, rim.y + 0.42, gz, 0.32 + d * 0.04);
+      b.kind = 'bank';
+      b.bankTo = to;
+    } else {
+      this.H.launch(b, to[0], to[1], to[2], T || 0.75 + d * 0.06);
+      b.kind = 'shot';
+    }
     b.make = make;
     this.flight = { by, pts, counts: this.cleared, foul: this.foulOnShot };
     this.foulOnShot = false;
@@ -1813,10 +1884,8 @@ export class Streetball {
     }
     const p = (0.08 + (hp.state === 'move' ? 0.25 : 0) + (dB < 1 ? 0.06 : 0)) * (1.3 - this.r / 100);
     if (Math.random() < p) {
-      game.hud.toast('Stolen!', '#7ee081');
-      this.give('you');
-      this.cleared = false;
-      this.lastShooter = 'opp';
+      Y.armsT = 0.35;
+      this.knockLoose('opp', px, pz, 'Poked it loose!');
       return;
     }
     Y.beatT = Math.max(Y.beatT, 0.35); // (gambled and missed: off balance)
@@ -1827,10 +1896,29 @@ export class Streetball {
     const opp = this.opp;
     const hp = opp.hp;
     const [px, pz] = game.player.pos();
-    if (d > 1.8) return;
     const front = ((px - opp.x) * (this.rim.x - opp.x) + (pz - opp.z) * (this.rim.z - opp.z)) > 0;
-    const timing = Math.abs(hp.t - hp.rel) < 0.2 ? 1 : 0.5;
+    // A chase-down: trailing him on a layup or a dunk, running, you get up from behind and pin it
+    // on the glass (a longer reach, and clean more often than a block from behind).
+    const chase = !front && (hp.shot === 'layup' || hp.shot === 'dunk') && game.player.speed > 3.2 && d < 2.6;
+    if (d > (chase ? 2.6 : 1.8)) return;
+    const timing = Math.abs(hp.t - hp.rel) < (chase ? 0.25 : 0.2) ? 1 : 0.5;
     const base = { jumper: 0.35, layup: 0.45, floater: 0.4, dunk: 0.2 }[hp.shot] || 0.3;
+    if (chase) {
+      if (Math.random() < 0.06) {
+        hp.fouled = true;
+        game.hud.toast('Foul on the shot', '#ff8080');
+        return;
+      }
+      if (hp.t <= hp.rel + 0.05 && Math.random() < (hp.shot === 'dunk' ? 0.35 : 0.55) * timing) {
+        hp.state = 'read';
+        hp.t = 0;
+        hp.jump = 0;
+        this.swatted(opp.x, opp.z, 'CHASE-DOWN BLOCK! Pinned on the glass', 'opp', px, pz, true);
+        for (const q of this.g.players) if (q.hp.role === 'watch') q.hp.cheerT = 1.4;
+        game.shakeCamera?.(0.05, 0.25);
+      }
+      return;
+    }
     if (Math.random() < 0.08 + (front ? 0 : 0.25)) {
       hp.fouled = true; // (and-one if it goes in, his ball again if not)
       game.hud.toast('Foul on the shot', '#ff8080');
@@ -1839,7 +1927,7 @@ export class Streetball {
     if (hp.t <= hp.rel && Math.random() < base * timing * (front ? 1 : 0.6)) {
       hp.state = 'read';
       hp.t = 0;
-      this.swatted(opp.x, opp.z, 'Get that outta here! BLOCKED', 'opp');
+      this.swatted(opp.x, opp.z, 'Get that outta here! BLOCKED', 'opp', px, pz);
       for (const q of this.g.players) if (q.hp.role === 'watch') q.hp.cheerT = 1;
     }
   }
@@ -1874,7 +1962,8 @@ export class Streetball {
         this.checkPass('you');
       }
     }
-    for (const k of ['beatT', 'fallT', 'lagT', 'jumpT', 'closeT', 'stealT']) hp[k] = Math.max(0, (hp[k] || 0) - dt);
+    for (const k of ['beatT', 'fallT', 'lagT', 'jumpT', 'closeT', 'stealT', 'noGrabT']) hp[k] = Math.max(0, (hp[k] || 0) - dt);
+    this.you.noGrabT = Math.max(0, (this.you.noGrabT || 0) - dt);
     // His energy.
     if (hp.state === 'drive' || hp.state === 'move' || (this.has !== 'opp' && opp.speed > 3.5)) hp.st = Math.max(0, hp.st - dt * 0.07);
     else hp.st = Math.min(1, hp.st + dt * 0.06);
@@ -1898,6 +1987,11 @@ export class Streetball {
         else if (b.kind === 'pass') this.passArrive();
         else if (b.kind === 'back') this.backArrive();
         else if (b.kind === 'oop') this.oopBounce();
+        else if (b.kind === 'bank') {
+          // (off the glass, down into the rim)
+          this.H.launch(b, b.bankTo[0], b.bankTo[1], b.bankTo[2], 0.2);
+          b.kind = 'shot';
+        }
         else if (b.kind === 'oop2') {
           b.mode = 'loose';
           b.vx = rand(-0.5, 0.5);
@@ -1922,11 +2016,11 @@ export class Streetball {
         const yourReach = Y.jumpT > 0 ? 1.4 : 0.95;
         const yourTop = Y.jumpT > 0 ? 2.8 : 1.5;
         const hisReach = hp.boxed ? 0.45 : (hp.jumpT || 0) > 0 ? 1.35 : 0.95;
-        if (Y.fallT <= 0 && dist(px, pz, b.x, b.z) < yourReach && b.y < yourTop) {
+        if (Y.fallT <= 0 && !(Y.noGrabT > 0) && dist(px, pz, b.x, b.z) < yourReach && b.y < yourTop) {
           const def = this.lastShooter === 'opp';
           this.give('you');
           if (def) this.cleared = false;
-        } else if (hp.fallT <= 0 && dist(opp.x, opp.z, b.x, b.z) < hisReach && b.y < 1.6) {
+        } else if (hp.fallT <= 0 && !(hp.noGrabT > 0) && dist(opp.x, opp.z, b.x, b.z) < hisReach && b.y < 1.6) {
           const def = this.lastShooter === 'you';
           this.give('opp');
           if (def) {
@@ -1949,10 +2043,7 @@ export class Streetball {
         const r = Math.random();
         if (r < 0.12) return this.checkup('you', `Reach-in on ${opp.ballName}. Check it up`);
         else if (r < 0.12 + (0.06 + exposed) * (this.r / 75)) {
-          game.hud.toast(`${opp.ballName} poked it away!`, '#ff8080');
-          this.give('opp');
-          this.cleared = false;
-          this.lastShooter = 'you';
+          this.knockLoose('you', opp.x, opp.z, `${opp.ballName} poked it away!`);
         }
       }
     }
@@ -2298,6 +2389,18 @@ export class Streetball {
         const s = this.shot;
         if (!hp.jumpT && hp.beatT <= 0 && s.type !== 'dunk' && s.t > s.T - 0.2 && dist(p.x, p.z, px, pz) < 2.2 && Math.random() < 0.4 + this.r / 200) hp.jumpT = 0.6;
       }
+      // Beaten on a drive: he runs you down from behind and goes up for the chase-down.
+      const s = this.shot;
+      const behind = ((p.x - px) * (rim.x - px) + (p.z - pz) * (rim.z - pz)) < 0;
+      if (s && (s.type === 'layup' || s.type === 'dunk') && behind && hp.fallT <= 0) {
+        const dd = dist(p.x, p.z, px, pz);
+        if (!hp.jumpT && dd < 2.6 && s.t > s.T - 0.3 && Math.random() < 0.35 + this.r / 250) {
+          hp.jumpT = 0.6;
+          hp.chase = true;
+        }
+        face(px, pz);
+        return { tx: px, tz: pz, speed: 6 * tired };
+      }
       const k = Math.min(gap, d * 0.5);
       const tx = px + ((rim.x - px) / d) * k;
       const tz = pz + ((rim.z - pz) / d) * k;
@@ -2639,6 +2742,13 @@ export class Streetball {
     // (his jumper off his strong hand, a few are lefties; a layup or floater off the ball's hand)
     hp.lefty ??= Math.random() < 0.12;
     hp.sHand = type === 'jumper' ? (hp.lefty ? -1 : 1) : (hp.ballSide ?? hp.hand ?? 1) >= 0 ? 1 : -1;
+    // (his layup's hand: the side he's heading to, like your stick)
+    const hv = Math.hypot(hp.vx || 0, hp.vz || 0);
+    if (type === 'layup' && hv > 1) {
+      const rl = dist(p.x, p.z, this.rim.x, this.rim.z) || 1;
+      const side = ((hp.vx || 0) * -((this.rim.z - p.z) / rl) + (hp.vz || 0) * ((this.rim.x - p.x) / rl)) / hv;
+      if (Math.abs(side) > 0.2) hp.sHand = side > 0 ? 1 : -1;
+    }
     hp.one = 0;
     return { speed: 0 };
   }
@@ -2678,7 +2788,7 @@ export class Streetball {
       this.launch(make, 'opp', pts, 0.14);
       game.hud.toast(make ? `${p.ballName} throws it down` : `${p.ballName} rims out the dunk`, make ? '#ff8080' : '#7ee081');
       game.shakeCamera?.(make ? 0.07 : 0.04, 0.3);
-    } else this.launch(make, 'opp', pts);
+    } else this.launch(make, 'opp', pts, 0, hp.shot);
   }
 
   pose(p) {
