@@ -2019,7 +2019,7 @@ export class Streetball {
       if (dist(p.x, p.z, b.x, b.z) < 2 && b.y > 1.2 && Math.random() < dt * 4 && !hp.jumpT) hp.jumpT = 0.6;
       return { tx: b.x + b.vx * 0.3, tz: b.z + b.vz * 0.3, speed: (hp.boxed ? 1.6 : 3.9) * tired };
     }
-    if (this.has === 'opp') return this.offense(p, dt, face, tired);
+    if (this.has === 'opp') return this.faceUp(p, hp, this.offense(p, dt, face, tired));
     // Defending you: between you and the basket.
     if (this.has === 'you' || b.mode === 'flight') {
       const d = dist(px, pz, rim.x, rim.z) || 1;
@@ -2242,6 +2242,28 @@ export class Streetball {
     return { speed: 0 };
   }
 
+  // His face-up (your L2): with you close (or backing it out), he stays square to the basket
+  // whichever way he goes: backing up at 65%, sideways at 80%. Driving or walking to a spot
+  // with nobody near, he just turns and goes.
+  faceUp(p, hp, r) {
+    hp.faceUp = false;
+    if (!r || r.tx == null || !['walk', 'jab', 'read'].includes(hp.state)) return r;
+    const rim = this.rim;
+    const mx = r.tx - p.x;
+    const mz = r.tz - p.z;
+    const ml = Math.hypot(mx, mz);
+    if (ml < 0.05) return r;
+    const ux = rim.x - p.x;
+    const uz = rim.z - p.z;
+    const c = (mx * ux + mz * uz) / (ml * (Math.hypot(ux, uz) || 1));
+    const [qx, qz] = this.game.player.pos();
+    const away = c < -0.3;
+    if (!away && dist(p.x, p.z, qx, qz) >= 3.5) return r;
+    if (c > 0.7) return r; // (straight at the basket: he's facing it anyway)
+    hp.faceUp = true;
+    return { ...r, speed: r.speed * (away ? 0.65 : 0.8) };
+  }
+
   goDrive(hp) {
     hp.state = 'drive';
     hp.wantDunk = null;
@@ -2372,6 +2394,11 @@ export class Streetball {
       const sp = Math.hypot(hp.vx || 0, hp.vz || 0);
       const [qx, qz] = this.game.player.pos();
       const look = this.has === 'opp' ? [this.rim.x, this.rim.z] : this.has === 'you' ? [qx, qz] : null;
+      if (look && this.has === 'opp' && hp.faceUp) {
+        // (his face-up side-step: square to the basket; his walk does the legs)
+        p.heading = Math.atan2(look[0] - p.x, look[1] - p.z);
+        c.group.rotation.y = p.heading;
+      }
       if (look && sp > 0.5) {
         const fx = look[0] - p.x;
         const fz = look[1] - p.z;
