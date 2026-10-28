@@ -15,7 +15,7 @@ import { crouchPose } from './character.js';
 // hands you each ball, flies the ones you've let go of, keeps score and runs the clock.
 
 const TIME = 70;
-const GRAB_T = 0.42; // (turn to the rack, hands on it, back to the basket with it)
+const GRAB_T = 0.62; // (turn to the rack, hands on it, back to the basket with it)
 const _h = new THREE.Vector3();
 const RACK_NAMES = ['Left corner', 'Left wing', 'Top', 'Right wing', 'Right corner'];
 export { RACK_NAMES };
@@ -114,7 +114,7 @@ export class Contest {
           const isMoney = k === 4 || S.i === money;
           const mesh = isMoney ? moneyBall() : ballMesh(); // (money balls: red, white and blue)
           const along = 0.52 - k * 0.26;
-          const b = { mesh, x: cx + f[0] * along, y: gy + 0.75 + 0.12, z: cz + f[1] * along, vx: 0, vy: 0, vz: 0, mode: 'rack', holder: null, t: 0, pts: isMoney ? 2 : 1, kind: isMoney ? 'money' : 'reg', res: null };
+          const b = { mesh, x: cx + f[0] * along, y: gy + 0.75 + 0.12, z: cz + f[1] * along, vx: 0, vy: 0, vz: 0, mode: 'rack', holder: null, t: 0, pts: isMoney ? 2 : 1, ck: isMoney ? 'money' : 'reg', res: null }; // (ck: the contest's kind; the shot code uses kind)
           mesh.position.set(b.x, b.y, b.z);
           game.scene.add(mesh);
           this.objs.push(mesh);
@@ -129,7 +129,7 @@ export class Contest {
         game.scene.add(stand);
         this.objs.push(stand);
         const mesh = deepBall();
-        const b = { mesh, x: cx, y: gy + 0.75 + 0.12, z: cz, vx: 0, vy: 0, vz: 0, mode: 'rack', holder: null, t: 0, pts: 3, kind: 'deep', res: null };
+        const b = { mesh, x: cx, y: gy + 0.75 + 0.12, z: cz, vx: 0, vy: 0, vz: 0, mode: 'rack', holder: null, t: 0, pts: 3, ck: 'deep', res: null };
         mesh.position.set(b.x, b.y, b.z);
         game.scene.add(mesh);
         this.objs.push(mesh);
@@ -283,7 +283,7 @@ export class Contest {
           this.score += b.pts;
           b.res = 'make';
           game.sfx?.swish?.();
-          if (b.kind !== 'reg') game.hud.toast(b.kind === 'deep' ? 'DEEP BALL! +3' : 'Money ball! +2', '#5ef2b0');
+          if (b.ck !== 'reg') game.hud.toast(b.ck === 'deep' ? 'DEEP BALL! +3' : 'Money ball! +2', '#5ef2b0');
         } else {
           const side = Math.random() * 2 - 1;
           const sp = 1.5 + Math.random() * 1.7;
@@ -386,7 +386,7 @@ export class Contest {
       score: this.score,
       best: this.best,
       cur: this.phase === 'shoot' ? [this.si, this.bi] : null,
-      stations: this.stations.map((S) => ({ kind: S.kind, balls: S.balls.map((b) => ({ kind: b.kind, res: b.res })) })),
+      stations: this.stations.map((S) => ({ kind: S.kind, balls: S.balls.map((b) => ({ kind: b.ck, res: b.res })) })),
     };
   }
 
