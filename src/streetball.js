@@ -5,6 +5,7 @@ import { ballMesh } from './court.js';
 import { Scoreboard } from './scoreboard.js';
 import { HeatFx } from './heatfx.js';
 import { dunkPose, dunkPhase, dunkBall } from './dunkpose.js';
+import { markReach, reachWhiff, reachPose } from './reachpose.js';
 import { markPass, markCatch, passPose } from './passpose.js';
 import { CFG } from './config.js';
 
@@ -1590,6 +1591,12 @@ export class Streetball {
     game.camFocus = F;
   }
 
+  // Which side of someone (at x, z facing h) the ball is: 1 his right, -1 his left.
+  sideOfBall(x, z, h) {
+    const b = this.g.ball;
+    return (b.x - x) * -Math.cos(h) + (b.z - z) * Math.sin(h) >= 0 ? 1 : -1;
+  }
+
   // ---- Heat check / on fire (both of you, the same) ----
   onFire(who) {
     return !this.t33 && this.heat?.[who]?.st === 'fire';
@@ -2918,6 +2925,7 @@ export class Streetball {
     const [px, pz] = game.player.pos();
     Y.stealT = 0.7;
     Y.armsT = 0.35;
+    markReach(game.player.char, game.time, this.sideOfBall(px, pz, game.player.heading), false, !!Y.intense); // (a poke from the stance holding L2, a lunge without)
     const again = this.clock - Y.lastSteal < 1.2;
     Y.lastSteal = this.clock;
     const dB = dist(px, pz, b.x, b.z);
@@ -2936,6 +2944,7 @@ export class Streetball {
       return;
     }
     Y.beatT = Math.max(Y.beatT, 0.35); // (gambled and missed: off balance)
+    reachWhiff(game.player.char);
   }
 
   tryBlock(d) {
@@ -3111,6 +3120,7 @@ export class Streetball {
       if (hp.stealT2 <= 0 && dist(px, pz, opp.x, opp.z) < 1.25) {
         hp.stealT2 = rand(2.2, 4.5);
         hp.armsT = 0.35;
+        markReach(opp.char, game.time, this.sideOfBall(opp.x, opp.z, opp.heading), false, true); // (he's always in his stance guarding you)
         const exposed = this.you.move && MOVES[this.you.move.kind].risk ? 0.15 : 0;
         const r = Math.random();
         if (r < 0.12) return this.checkup('you', `Reach-in on ${opp.ballName}. Check it up`);
@@ -4009,7 +4019,11 @@ export class Streetball {
 
   pose(p) {
     if (this.t33) return this.pose33(p);
-    const y = this.poseRaw(p);
+    let y = this.poseRaw(p);
+    if (p === this.opp && !this.check) {
+      const drop = reachPose(p.char, this.game.time, p.heading); // (his reach-in, the same as yours)
+      if (drop != null) y += drop;
+    }
     if (this.check && p === this.opp) {
       // (checking it up: square to you)
       const [px, pz] = this.game.player.pos();
@@ -4289,6 +4303,12 @@ export class Streetball {
   // Your arms and stance (main.js, after you move).
   late(dt) {
     this.lateRaw(dt);
+    // (a reach-in going on: the lunge and swipe over the stance)
+    if (!this.check && !this.t33) {
+      const p = this.game.player;
+      const drop = reachPose(p.char, this.game.time, p.heading);
+      if (drop != null) p.char.group.position.y += drop;
+    }
     // (checking it up: square to him, whatever the stick or the camera's doing)
     if (this.check && !this.t33 && this.opp) {
       const p = this.game.player;
