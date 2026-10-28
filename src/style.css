@@ -670,3 +670,13 @@ body.board33-on #sport { top: 244px; }
 body.touch #board33 { top: 4px; left: calc(50% + 8px); transform: scale(.66); transform-origin: top left; }
 body.touch.board33-on #sport { top: 160px; }
 #board33 .sc-pop { top: 34px; font-size: 22px; color: #fff; text-shadow: 0 0 10px #ff6b6b, 0 2px 4px #000; z-index: 1; }
+body.paused #scoreboard, body.paused #board33, body.paused #sport, body.paused #shot-meter, body.paused #energy-float { display: none !important; }
+#scoreboard .sc-side::before { position: absolute; top: -6px; left: 50%; transform: translateX(-50%); font-size: 8px; font-weight: 900; letter-spacing: 1.5px; white-space: nowrap; }
+#scoreboard .sc-side.check::before { content: 'HEAT CHECK'; color: #ffb36b; }
+#scoreboard .sc-side.fire::before { content: '🔥 ON FIRE'; color: #ff7a1a; animation: flash .8s infinite; }
+#scoreboard .sc-side.fire .sc-num { color: #ffb347; text-shadow: 0 0 12px rgba(255,122,26,.9); }
+#scoreboard .sc-side.check .sc-num { text-shadow: 0 0 8px rgba(200,200,200,.6); }
+/* On the court (shooting around or a game): the turf war line moves off the top center, down
+   the right side under the cash and the stars. */
+body.hooping #war { left: auto; right: 14px; transform: none; top: 158px; max-width: 240px; font-size: 11px; padding: 4px 9px; text-align: right; }
+body.touch.hooping #war { top: 104px; right: 8px; max-width: 170px; font-size: 9px; padding: 3px 7px; }

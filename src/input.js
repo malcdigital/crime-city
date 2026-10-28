@@ -236,6 +236,7 @@ export class Input {
     a.mapHeat = this.hit('KeyH') || this.btnHit(PAD.SQUARE);
     a.mapLegend = this.hit('KeyL') || this.btnHit(PAD.TRIANGLE);
     a.map = this.hit('KeyM') || this.btnHit(PAD.TOUCHPAD);
+    a.mapHeld = k('KeyM') || this.btn(PAD.TOUCHPAD); // (held: quits a pickup game)
     a.mapWaypoint = this.hit('Enter') || this.hit('Space') || this.btnHit(PAD.CROSS);
     a.playClip = this.hit('Enter') || this.btnHit(PAD.CROSS);
     a.closeClip = this.hit('Escape') || this.btnHit(PAD.CIRCLE);

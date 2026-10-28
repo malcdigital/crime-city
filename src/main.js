@@ -297,6 +297,7 @@ class Game {
   setPaused(p) {
     this.paused = p;
     this.hud.pause(p, this);
+    document.body.classList.toggle('paused', !!p); // (the scoreboards hide under the pause menu)
     // (in a pickup game: a button to quit it)
     const q = document.getElementById('quit-game');
     const g = this.pickupGame();
@@ -1514,6 +1515,32 @@ class Game {
     this.setPaused(false);
   }
 
+  // In a pickup game the map button (touchpad / M) is quit: hold it a second (a bar fills) and
+  // you're out, no pausing. (A phone has its QUIT button.)
+  quitHoldStep(dt, a) {
+    const g = this.pickupGame();
+    if (!g || this.input.touchMode) {
+      this.quitHold = 0;
+      this.quitProg = null;
+      return;
+    }
+    const kb = this.input.mode !== 'pad';
+    if (a.mapHeld) {
+      this.quitHold = (this.quitHold || 0) + dt;
+      const what = g === this.sport && this.sport.solo && !this.sport.t33 ? 'stop shooting around' : this.pickupFresh() ? 'call it off (money back)' : `forfeit${g.bet ? ` (-$${g.bet})` : ''}`;
+      this.quitProg = { value: Math.min(1, this.quitHold), label: `Keep holding to ${what}` };
+      if (this.quitHold >= 1) {
+        this.quitHold = 0;
+        this.quitProg = null;
+        this.quitPickup();
+      }
+    } else {
+      if (a.map) this.hud.toast(`Hold ${kb ? 'M' : 'the touchpad'} to quit`, '#9fc3ff');
+      this.quitHold = 0;
+      this.quitProg = null;
+    }
+  }
+
   // Nothing's happened yet in the pickup game (no score in a one-on-one, no snap in football):
   // quitting calls it off and you get your money back.
   pickupFresh() {
@@ -1532,7 +1559,7 @@ class Game {
     const p = this.player;
     const input = this.input;
     this.prompt = '';
-    this.progress = null;
+    this.progress = this.quitProg || null; // (holding to quit a pickup game)
     const city = this.city;
     // A drug deal or a pickup in progress has the interact button right now (its prompt wins),
     // but getting in and out of cars and your weapons still work.
@@ -2132,7 +2159,7 @@ class Game {
       // Full map: the game is paused underneath.
       if (a.map || a.closeClip || a.pause) this.mapView.hide();
       else this.mapView.update(dt, a);
-    } else if (a.map && !this.paused) {
+    } else if (a.map && !this.paused && !this.pickupGame()) {
       this.mapView.show();
     } else if (a.pause) {
       this.setPaused(!this.paused);
@@ -2140,6 +2167,7 @@ class Game {
       this.quitPickup(); // (△ / F in the pause menu)
     } else if (!this.paused) {
       this.update(dt, a);
+      this.quitHoldStep(dt, a);
     }
     this.renderer.render(this.scene, this.camera);
     this.interactWasHeld = a.interactHeld;

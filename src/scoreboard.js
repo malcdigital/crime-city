@@ -51,6 +51,13 @@ export class Scoreboard {
       if (was == null) num.innerHTML = `<span>${pad2(v)}</span>`;
       else if (v !== was) this.scored(k, num, was, v);
     }
+    for (const k of ['you', 'opp']) {
+      // (heating up: HEAT CHECK, then ON FIRE, by the name)
+      const side = el.querySelector(`.${k}`);
+      const st = s.heat?.[k] || null;
+      side.classList.toggle('check', st === 'check');
+      side.classList.toggle('fire', st === 'fire');
+    }
     el.querySelector('.you .sc-poss').classList.toggle('on', s.poss === 'you');
     el.querySelector('.opp .sc-poss').classList.toggle('on', s.poss === 'opp');
     const gp = Math.max(s.you, s.them) === s.to - 1;

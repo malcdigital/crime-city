@@ -3,6 +3,8 @@ import { dist, rand, pick, lerpAngle, clamp, wrapAngle } from './util.js';
 import { crouchPose, bendLeg } from './character.js';
 import { ballMesh } from './court.js';
 import { Scoreboard } from './scoreboard.js';
+import { HeatFx } from './heatfx.js';
+import { dunkPose, dunkPhase, dunkBall } from './dunkpose.js';
 import { markPass, markCatch, passPose } from './passpose.js';
 import { CFG } from './config.js';
 
@@ -95,6 +97,11 @@ function greenWindow(type, d) {
   if (type === 'floater') return 0.12;
   return jumperWindow(d) * 1.15; // (+15% since the jump got quicker: a three is now ~92 ms)
 }
+// Heat check / on fire, per player: n makes in a row; st null, 'check' (the next shot is a heat
+// check: the ball smokes) or 'fire' (left: shots still on fire).
+const newHeat = () => ({ you: { n: 0, st: null, left: 0 }, opp: { n: 0, st: null, left: 0 } });
+const FIRE_RANGE = 8; // (on fire, the window and the odds never shrink past this distance)
+
 function jumperWindow(d) {
   if (d <= 2) return 0.15;
   if (d <= 4.5) return 0.15 - (d - 2) * 0.012;
@@ -532,6 +539,7 @@ export class Streetball {
     game.cash -= bet; // (held until it's over)
     this.score = { you: 0, opp: 0 };
     this.gameNo = (this.gameNo || 0) + 1;
+    this.heat = newHeat();
     this.cleared = true;
     this.shot = null;
     this.outT = 0;
@@ -582,6 +590,7 @@ export class Streetball {
     this.r = 75;
     this.score = { you: 0, opp: 0 };
     this.gameNo = (this.gameNo || 0) + 1;
+    this.heat = newHeat();
     this.stats = { att: 0, made: 0, streak: 0, best: 0 };
     this.cleared = true;
     this.shot = null;
@@ -625,6 +634,7 @@ export class Streetball {
     this.to = Infinity;
     this.score = { you: 0, opp: 0 };
     this.gameNo = (this.gameNo || 0) + 1;
+    this.heat = newHeat();
     this.stats = { att: 0, made: 0, streak: 0, best: 0 };
     this.cleared = true;
     this.shot = null;
@@ -1076,8 +1086,10 @@ export class Streetball {
     const opp = this.opp;
     const hp = opp.hp;
     const b = this.g.ball;
-    const O = this.onCourt(rim.x + rim.dx * 8.2, rim.z + rim.dz * 8.2);
-    const D = this.onCourt(rim.x + rim.dx * 6.8, rim.z + rim.dz * 6.8);
+    // (room to breathe: the ball handler just past the arc, the defender back on the free-throw
+    // line, 4.2 m out from the rim)
+    const O = this.onCourt(rim.x + rim.dx * 8.4, rim.z + rim.dz * 8.4);
+    const D = this.onCourt(rim.x + rim.dx * 4.2, rim.z + rim.dz * 4.2);
     const [yx, yz] = off === 'you' ? O : D;
     const [hx, hz] = off === 'you' ? D : O;
     p.x = yx;
@@ -1112,7 +1124,8 @@ export class Streetball {
   checkPass(to) {
     const b = this.g.ball;
     const [tx, tz] = to === 'you' ? this.game.player.pos() : [this.opp.x, this.opp.z];
-    this.H.launch(b, tx, 1.2, tz, 0.4);
+    const T = 0.25 + dist(b.x, b.z, tx, tz) * 0.07; // (a longer one now, from the free-throw line)
+    this.H.launch(b, tx, 1.2, tz, T);
     b.kind = 'check';
     b.to = to;
     // (a chest pass across, caught with both hands)
@@ -1121,10 +1134,10 @@ export class Streetball {
     const now = this.game.time;
     if (to === 'you') {
       if (him) markPass(him, now);
-      markCatch(you, now + 0.4);
+      markCatch(you, now + T);
     } else {
       markPass(you, now);
-      if (him) markCatch(him, now + 0.4);
+      if (him) markCatch(him, now + T);
     }
   }
 
@@ -1544,6 +1557,64 @@ export class Streetball {
   // ---- Helpers ----
   topOfKey() {
     return [this.rim.x + this.rim.dx * 8, this.rim.z + this.rim.dz * 8];
+  }
+
+  // ---- Heat check / on fire (both of you, the same) ----
+  onFire(who) {
+    return !this.t33 && this.heat?.[who]?.st === 'fire';
+  }
+
+  // A shot by who ('you' / 'opp') went in or didn't. Two in a row: the next one's a heat check
+  // (the ball smokes). Hit the heat check: on fire for up to the next 3 shots while they keep
+  // going in (a fire trail, a 20% bigger window, no range), and the rim blows up on every one.
+  // A miss (or getting blocked) ends it.
+  heatResult(who, make) {
+    if (this.t33 || !this.heat) return;
+    const H = this.heat[who];
+    const game = this.game;
+    const name = who === 'you' ? 'You' : this.opp?.ballName || 'He';
+    if (!make) {
+      if (H.st === 'fire') game.hud.toast(who === 'you' ? 'You cooled off' : `${name} cooled off`, '#9fc3ff');
+      H.n = 0;
+      H.st = null;
+      H.left = 0;
+      return;
+    }
+    H.n += 1;
+    const boom = () => {
+      const r = this.rim;
+      this.fx?.explode(r.x, r.y, r.z);
+      game.shakeCamera?.(0.08, 0.3);
+    };
+    if (H.st === 'check') {
+      H.st = 'fire';
+      H.left = 3;
+      boom();
+      game.hud.toast(who === 'you' ? "YOU'RE ON FIRE!" : `${name.toUpperCase()} IS ON FIRE!`, '#ff9a3c');
+    } else if (H.st === 'fire') {
+      boom();
+      H.left -= 1;
+      if (H.left <= 0) {
+        H.st = null;
+        H.n = 0;
+        game.hud.toast(who === 'you' ? 'The fire burns out' : `${name}'s fire burns out`, '#ffd23f');
+      }
+    } else if (H.n >= 2) {
+      H.st = 'check';
+      game.hud.toast(who === 'you' ? 'HEAT CHECK' : `${name}: heat check`, '#ffb36b');
+    }
+  }
+
+  // Smoke or flames off the ball, whoever's it is (holding it or just shot it).
+  heatFx(dt) {
+    if (!this.heat) return;
+    this.fx = this.fx || new HeatFx(this.game.scene);
+    const b = this.g.ball;
+    const who = this.has === 'you' || this.has === 'opp' ? this.has : this.flight ? this.flight.by : null;
+    const st = who && this.heat[who].st;
+    if (st === 'check') this.fx.smoke(b.x, b.y, b.z, dt);
+    else if (st === 'fire') this.fx.fire(b.x, b.y, b.z, dt, b.mode === 'flight');
+    this.fx.update(dt);
   }
 
   // A loose ball on the floor past the painted lines.
@@ -2064,7 +2135,7 @@ export class Streetball {
     const off = Math.abs(wrapAngle(Math.atan2(D.ux, D.uz) - p.heading));
     const pivot = off > 1.2;
     const turnT = pivot ? off / 9 : 0;
-    this.shot = { type, t: 0, T: SHOTS[type].T + turnT, W: greenWindow(type, D.d), d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false, pivot, turnT };
+    this.shot = { type, t: 0, T: SHOTS[type].T + turnT, W: greenWindow(type, this.onFire('you') ? Math.min(D.d, FIRE_RANGE) : D.d), d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false, pivot, turnT };
     // (a jumper off your right hand; a layup or floater off the hand the ball's in)
     this.shot.hand = type === 'jumper' ? 1 : (this.ballSide ?? Y.hand ?? 1) >= 0 ? 1 : -1;
     // A layup's hand: the side you're holding the left stick (right of the rim: right hand),
@@ -2202,7 +2273,7 @@ export class Streetball {
     const [ax, az] = this.dunkSpot(px, pz);
     this.you.dunk = {
       x0: px, z0: pz, ax, az,
-      style: pick(['two', 'two', 'one', 'one', 'windmill', 'tomahawk']), t: t0, rise: 0.55, hang: 0.35, drop: 0.28, hangs: false,
+      style: pick(['two', 'two', 'one', 'one', 'windmill', 'tomahawk']), t: t0, rise: 0.55, hang: 0.35, drop: 0.28, hangs: false, hand: this.you.hand ?? 1,
     };
   }
 
@@ -2252,17 +2323,6 @@ export class Streetball {
       t -= D.hang;
     }
     return H * Math.max(0, 1 - (t / D.drop) ** 2);
-  }
-
-  // Arm angles (up from hanging straight down): right, left.
-  dunkArms() {
-    const D = this.you.dunk;
-    const k = Math.min(1, D.t / D.rise);
-    if (D.t >= D.rise) return D.hangs && D.t < D.rise + D.hang ? [3.0, 3.0] : [2.0, 1.6];
-    if (D.style === 'two' || D.style === 'reach') return [1.2 + k * 1.9, 1.2 + k * 1.9];
-    if (D.style === 'one') return [1.2 + k * 1.9, 1.0];
-    if (D.style === 'windmill') return [0.4 + k * 2.6 + Math.sin(k * Math.PI) * 3.2, 1.0]; // (the ball goes round)
-    return [k < 0.7 ? 1.4 + (k / 0.7) * 2.4 : 3.8 - ((k - 0.7) / 0.3) * 0.8, 1.2]; // tomahawk: cocked behind the head
   }
 
   // ---- Alley-oops ----
@@ -2631,6 +2691,7 @@ export class Streetball {
     if (this.you.st < 0.4) w *= 0.75;
     if (this.t33) w *= this.pressure33(); // (33: the bigger the pot, the tighter)
     if (game.input.touchMode) w *= 1.4;
+    if (this.onFire('you')) w *= 1.2; // (on fire: 20% bigger)
     return { w, lv };
   }
 
@@ -2665,14 +2726,15 @@ export class Streetball {
       if (this.you.dunk) this.you.dunk.hangs = make; // (hang on the rim after a make)
     } else {
       const m = Math.abs(e) - w / 2;
-      green = m <= 0 && (s.d0 <= 14 || Math.random() < 0.5); // (from way out even a perfect one can miss)
+      const fire = this.onFire('you');
+      green = m <= 0 && (s.d0 <= 14 || fire || Math.random() < 0.5); // (from way out even a perfect one can miss, unless you're on fire)
       const when = e < 0 ? 'Early' : 'Late';
       grade = green ? 'EXCELLENT' : m < 0.06 ? `Slightly ${when}` : m < 0.16 ? when : `Very ${when}`;
       const tm = green ? 1 : m < 0.06 ? 0.7 : m < 0.16 ? 0.4 : 0.12;
       // His contest: a block on a heavy contest.
       const blockP = { jumper: 0.1, layup: 0.2, floater: 0.12 }[s.type] * (this.r / 75) * (s.euro ? 0.5 : 1);
       if (lv >= 2 && (hp.jumpT || 0) > 0 && Math.random() < blockP) return this.swatted(px, pz, `Blocked by ${opp.ballName}`, 'you', opp.x, opp.z);
-      const base = s.type === 'layup' ? 0.82 : s.type === 'floater' ? 0.55 : this.base(s.d0);
+      const base = s.type === 'layup' ? 0.82 : s.type === 'floater' ? 0.55 : this.base(fire ? Math.min(s.d0, FIRE_RANGE) : s.d0);
       make = green || Math.random() < base * tm * OPEN_MAKE[lv] * (0.7 + 0.3 * this.you.st);
     }
     // A foul on the shot: and-one if it goes, your ball again if not.
@@ -2719,6 +2781,7 @@ export class Streetball {
     else this.opp.hp.noGrabT = 0.4;
     this.has = null;
     this.lastShooter = shooter; // (whoever gets it back: the other one's a defensive board)
+    this.heatResult(shooter, false); // (blocked: the streak's over)
     this.touch = shooter === 'you' ? 'opp' : 'you'; // (off the blocker's hand)
     this.game.hud.toast(text, shooter === 'you' ? '#ff8080' : '#7ee081');
   }
@@ -2781,7 +2844,7 @@ export class Streetball {
       b.kind = 'shot';
     }
     b.make = make;
-    this.flight = { by, pts, counts: this.cleared, foul: this.foulOnShot };
+    this.flight = { by, pts, counts: this.cleared, foul: this.foulOnShot, type: type || (T ? 'dunk' : null) };
     this.foulOnShot = false;
     this.has = null;
   }
@@ -2998,6 +3061,7 @@ export class Streetball {
       }
     }
     this.carry(dt);
+    this.heatFx(dt);
     b.mesh.position.set(b.x, b.y, b.z);
     if (b.mode === 'flight') b.mesh.rotation.x += dt * 9; // (backspin in the air)
     else if (b.mode === 'loose') {
@@ -3066,14 +3130,8 @@ export class Streetball {
       const Y = this.you;
       this.dribble = (this.dribble || 0) + dt * (this.t33 ? DRIBBLE33 : Y.sizeUp ? 12 : 9); // (33: a slow, easy bounce)
       if (Y.dunk) {
-        // (in the hand going up: where the arm puts it)
-        const [ar, al] = this.dunkArms();
-        const th = Y.dunk.style === 'two' ? (ar + al) / 2 : ar;
-        const side = Y.dunk.style === 'two' ? 0 : 0.37;
-        const h = this.dunkHeight();
-        b.x = px + fx * (0.7 * Math.sin(th) + 0.1) - fz * side;
-        b.z = pz + fz * (0.7 * Math.sin(th) + 0.1) + fx * side;
-        b.y = 1.56 + h - 0.7 * Math.cos(th) + 0.1;
+        // (in the hands going up: where the dunk's arms have it)
+        dunkBall(b, game.player.char, Y.dunkTwo ?? true, Y.dunk.hand ?? 1, _v1, _v2);
         return;
       }
       if (this.shot) {
@@ -3112,6 +3170,8 @@ export class Streetball {
         b.y = 1.2; // (gathered: at the chest)
       } else if (hp.state === 'shoot' && hp.shot !== 'dunk') {
         this.shotBall(b, opp.char, hp.sHand ?? 1, hp.one || 0); // (in his hands, the same as yours)
+      } else if (hp.state === 'shoot' && hp.shot === 'dunk' && !(hp.appr && hp.t < hp.appr.T)) {
+        dunkBall(b, opp.char, hp.dunkTwo ?? true, hp.sHand ?? 1, _v1, _v2); // (in his hands, the same as yours)
       } else if (hp.state === 'shoot') {
         const a0 = hp.appr ? hp.appr.T : 0;
         const up = Math.min(1, (hp.t - a0) / Math.max(0.1, hp.rel - a0));
@@ -3145,6 +3205,7 @@ export class Streetball {
   hud() {
     const game = this.game;
     if (!this.active) return;
+    document.body.classList.add('hooping'); // (the turf war line moves out of the way: style.css)
     this.tiredFx(this.t33 ? 1 : this.you.st);
     // (no minimap in a one-on-one or 33: just the game)
     const mm = document.getElementById('minimap');
@@ -3216,6 +3277,7 @@ export class Streetball {
     this.scoreboard.show({
       game: this.gameNo, place: this.H.site.name || 'The Court', opp: this.opp.ballName, you: this.score.you, them: this.score.opp,
       poss: C ? C.off : this.has === 'you' || this.has === 'opp' ? this.has : null, to: this.to, bet: this.bet,
+      heat: { you: this.heat?.you.st, opp: this.heat?.opp.st },
     });
     this.floatHud(meter);
   }
@@ -3281,7 +3343,10 @@ export class Streetball {
       const mine = b.kind === 'shot'; // (not his shot after your pass)
       if (mine) S.att += 1;
       if (b.make) {
+        // (shooting around, only jumpers count toward a heat check: layups and dunks don't)
+        const hot = mine && s?.type !== 'layup' && s?.type !== 'dunk';
         if (mine) {
+          if (hot) this.heatResult('you', true);
           S.made += 1;
           S.streak += 1;
           S.best = Math.max(S.best, S.streak);
@@ -3293,7 +3358,10 @@ export class Streetball {
         game.sfx?.swish?.();
         if (mine && S.streak >= 3) game.hud.toast(`${S.streak} straight!`, '#7ee081');
       } else {
-        if (mine) S.streak = 0;
+        if (mine) {
+          S.streak = 0;
+          if (s?.type !== 'layup' && s?.type !== 'dunk') this.heatResult('you', false);
+        }
         const side = rand(-1, 1);
         const sp = rand(1.5, 3.2);
         const L = Math.hypot(side, 1);
@@ -3318,6 +3386,7 @@ export class Streetball {
         const who = s.by === 'you' ? 'You' : this.opp.ballName;
         game.hud.toast(foul ? `AND ONE! ${who} +${pts}` : s.by === 'you' ? `Bucket! +${pts}` : `${who} scores${s.pts > 1 ? ' from deep' : ''}`, s.by === 'you' ? '#7ee081' : '#ff8080');
         for (const q of this.g.players) if (q.hp.role === 'watch') q.hp.cheerT = 0.9;
+        this.heatResult(s.by, true);
       } else if (s) game.hud.toast("Doesn't count: take it back first", '#ffd23f');
       if (this.score.you >= this.to || this.score.opp >= this.to) return this.end(this.score.you >= this.to ? 'win' : 'lose');
       this.dead = { who: s && s.by === 'you' ? 'opp' : 'you', t: 0.9 };
@@ -3331,8 +3400,10 @@ export class Streetball {
       game.hud.toast(`Foul. ${s.by === 'you' ? 'Your' : `${this.opp.ballName}'s`} ball`, '#9fc3ff');
       b.vx = b.vz = 0;
       b.vy = 1;
+      if (s) this.heatResult(s.by, false);
       return;
     }
+    if (s) this.heatResult(s.by, false);
     const side = rand(-1, 1);
     const sp = rand(1.5, 3.2);
     const L = Math.hypot(side, 1);
@@ -3796,6 +3867,7 @@ export class Streetball {
     hp.state = 'shoot';
     hp.shot = type;
     hp.dunkAt = null;
+    hp.dStyle = pick(['two', 'two', 'one', 'one', 'windmill', 'tomahawk']); // (if it's a dunk)
     // A fadeaway: always off a step-back, sometimes when you're right on him.
     const [qx, qz] = this.game.player.pos();
     hp.fade = type === 'jumper' && (stepback || (dist(p.x, p.z, qx, qz) < 1.6 && Math.random() < 0.4));
@@ -3852,16 +3924,18 @@ export class Streetball {
       // his rating (typically ~90 ms at 60 OVR, ~60 ms at 90), and it's green when that lands
       // inside the window for this shot, shrunk the same ways yours is.
       if (hp.fade) lv = Math.max(0, lv - 1); // (fading away from your hand)
-      let w = greenWindow(hp.shot, d) * OPEN_WINDOW[lv];
+      const fire = this.onFire('opp');
+      const dR = fire ? Math.min(d, FIRE_RANGE) : d; // (on fire: no range)
+      let w = greenWindow(hp.shot, dR) * OPEN_WINDOW[lv] * (fire ? 1.2 : 1);
       if (hp.stepback) w *= 0.9;
       if (hp.fade) w *= 0.9; // (harder to shoot going backward)
       if (hp.st < 0.4) w *= 0.75;
       const u = 1 - Math.random();
       const e = ((150 - r) / 1000) * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * Math.random());
       const m = Math.abs(e) - w / 2;
-      const green = m <= 0 && (d <= 14 || Math.random() < 0.5);
+      const green = m <= 0 && (d <= 14 || fire || Math.random() < 0.5);
       const tm = green ? 1 : m < 0.06 ? 0.7 : m < 0.16 ? 0.4 : 0.12;
-      const base = hp.shot === 'layup' ? 0.82 : hp.shot === 'floater' ? 0.55 : this.base(d);
+      const base = hp.shot === 'layup' ? 0.82 : hp.shot === 'floater' ? 0.55 : this.base(dR);
       make = green || Math.random() < base * tm * OPEN_MAKE[lv] * (0.7 + 0.3 * hp.st);
     }
     const pts = d > ARC ? 2 : 1;
@@ -3982,6 +4056,16 @@ export class Streetball {
         legs: !(A && hp.t < A.T),
       });
       hp.one = r.one;
+      return 0.06 + (hp.jump || 0) + r.y;
+    }
+    // His dunk: the same whole-body dunk as yours (dunkpose.js), up through landing.
+    if (p === this.opp && hp.state === 'shoot' && hp.shot === 'dunk' && !(hp.appr && hp.t < hp.appr.T)) {
+      const a0 = hp.appr ? hp.appr.T : 0;
+      const P = dunkPhase(hp.t - a0, hp.rel - a0, 0.3, 0.25);
+      const r = dunkPose(c, hp.dStyle || 'two', P.ph, P.k, hp.sHand ?? 1);
+      hp.dunkTwo = r.two;
+      p.heading = Math.atan2(this.rim.x - p.x, this.rim.z - p.z);
+      c.group.rotation.y = p.heading;
       return 0.06 + (hp.jump || 0) + r.y;
     }
     if (p === this.opp && this.has === 'opp') {
@@ -4183,11 +4267,12 @@ export class Streetball {
     }
     // A dunk: up, the arms (by style), hanging on the rim, down.
     if (Y.dunk) {
-      const [ar, al] = this.dunkArms();
-      c.armR.rotation.x = -ar;
-      c.armL.rotation.x = -al;
+      const D = Y.dunk;
+      const P = dunkPhase(D.t, D.rise, D.hangs ? D.hang : 0, D.drop);
+      const r = dunkPose(c, D.style, P.ph, P.k, D.hand ?? 1);
+      Y.dunkTwo = r.two;
       c.group.rotation.y = p.heading;
-      c.group.position.y += this.dunkHeight();
+      c.group.position.y += this.dunkHeight() + r.y;
       return;
     }
     if (Y.holdH && Y.holdH.t > 0) {
@@ -4302,6 +4387,9 @@ export class Streetball {
     const mm = document.getElementById('minimap');
     if (mm) mm.style.visibility = ''; // (the minimap back)
     this.scoreboard?.hide();
+    this.fx?.clear();
+    document.body.classList.remove('hooping');
+    this.heat = null;
     if (this.t33) {
       // 33's over: the pot (everyone's buy-in) to the winner, back to shooting around.
       const T = this.t33;
