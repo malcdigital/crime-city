@@ -16,9 +16,9 @@ export const CFG = {
   // new roundabout (Liberty Circle).
   START_AT: [904, 770, 180],
   // Testing switch: start on foot here instead ([x, z, heading in degrees], or null; it beats
-  // START_IN_CAR and your safehouse). Right now: the Ledger Ave courts. (Harbor Field, next
-  // to the quarterback: [1214, 1013, 180].)
-  START_ON_FOOT: [1210, 733, 90],
+  // START_IN_CAR and your safehouse). Right now: Harbor Field, on the field facing downfield
+  // next to the quarterback. (The Ledger Ave courts: [1210, 733, 90].)
+  START_ON_FOOT: [1214, 1013, 180],
   // Testing switch: a few seconds in, a dice game on a corner in a rival gang's turf near the
   // start, and you put a few steps from it (dice.js).
   START_NEAR_DICE: false,
