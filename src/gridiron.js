@@ -25,6 +25,9 @@ const BETS = [0, 50, 100, 250, 500];
 const NAMES = ['Coach', 'Big Lou', 'Tre', 'Marcus', 'Deebo', 'Junior', 'Bam'];
 const SACK = 4.5;
 const DOWNS = ['1st', '2nd', '3rd', '4th'];
+// Asking to play, and their quarterback's answers (one of each, at random).
+const ASKS = ["Y'all need a QB?", 'Can I throw some?', "Y'all need one more?", 'Let me run one', "What's up, y'all playing?", 'I got an arm, let me in'];
+const REPLIES = ['Bet. You got an arm?', 'Yeah, what you wanna run?', "Aight, let's see it. Pick it.", "Say less. What we doing?", "We need a QB anyway. What's it gon' be?", 'Pull up. How you want it?'];
 // The receivers' buttons (in the order they line up), their colors, and the keyboard keys.
 const ICONS = ['□', '✕', '○', '△', 'R1'];
 const ICON_COLORS = ['#ff79c6', '#6fa8ff', '#ff6b6b', '#3ddc97', '#ffd23f'];
@@ -64,24 +67,68 @@ export class Gridiron {
   offer(a) {
     const game = this.game;
     const fb = this.fb;
-    if (this.active || game.player.vehicle || game.stars > 0 || game.stop || !fb?.ball || fb.match) return;
+    if (this.active || game.player.vehicle || game.stars > 0 || game.stop || !fb?.ball || fb.match || game.time < (this.again || 0)) return;
     const qb = fb.qb;
-    if (!qb || !qb.fb || !fb.wrs.length || !['reset', 'set'].includes(fb.phase)) return;
     const [px, pz] = game.player.pos();
-    if (!this.onField(px, pz) || dist(px, pz, qb.x, qb.z) > 9) return;
-    if (a.dealNo) {
-      this.betI = (this.betI + 1) % BETS.length;
-      a.melee = false;
+    if (!qb || !qb.fb || !fb.wrs.length || !['reset', 'set'].includes(fb.phase) || !this.onField(px, pz) || dist(px, pz, qb.x, qb.z) > 9) {
+      if (!this.talk?.open) this.talk = null; // (walked off before he answered)
+      return;
     }
-    let bet = BETS[this.betI];
-    while (bet > game.cash && bet > 0) bet = BETS[BETS.indexOf(bet) - 1];
     if (!qb.ballName) qb.ballName = pick(NAMES);
-    const betKey = game.input.mode === 'kb' ? 'Q' : '○';
-    game.prompt = `${qb.ballName}: "You got an arm? From the 40, four downs. Put it in the end zone." ${game.input.label('interact')} to play · ${betKey} bet: ${bet ? `$${bet}` : 'nothing'}`;
-    if (a.interactHeld && !game.interactWasHeld) this.start(qb, bet);
+    // You ask; their quarterback answers; the menu comes up (the bet, which drive, or walk away).
+    const T = this.talk;
+    if (T) {
+      if (!T.open && game.time >= T.at) {
+        T.open = true;
+        game.hud.toast(`${qb.ballName}: "${pick(REPLIES)}"`, '#ffd23f');
+        this.menu(qb);
+      }
+      if (!T.open) game.prompt = '';
+      return;
+    }
+    if (!this.askLine) this.askLine = pick(ASKS);
+    game.prompt = `${game.input.label('interact')}: "${this.askLine}"`;
+    if (a.interactHeld && !game.interactWasHeld) {
+      game.hud.toast(`You: "${this.askLine}"`, '#ffffff');
+      this.talk = { at: game.time + 0.9, open: false };
+      this.askLine = null; // (something different next time)
+    }
   }
 
-  start(qb, bet) {
+  // The menu (the shop menu: the game waits while it's up).
+  menu(qb) {
+    const game = this.game;
+    const shops = game.shops;
+    const betNow = () => {
+      let bet = BETS[this.betI];
+      while (bet > game.cash && bet > 0) bet = BETS[BETS.indexOf(bet) - 1];
+      return bet;
+    };
+    const go = (from) => () => {
+      shops.onClose = null;
+      shops.close();
+      this.talk = null;
+      this.start(qb, betNow(), from);
+    };
+    shops.openCustom(`${qb.ballName}'s squad`, () => {
+      const bet = betNow();
+      const b = bet ? `$${bet}` : 'nothing';
+      return [
+        { label: `Bet: ${b}`, price: 0, priceText: 'change', detail: "What's riding on it (he matches it: score and you take his). Pick this to change it, then pick the drive.", can: true, buy: () => (this.betI = (this.betI + 1) % BETS.length) },
+        { label: 'Run a drive from the 40', price: 0, priceText: bet ? `$${bet}` : 'free', detail: 'You at quarterback, four downs to make 10 yards, until you score or lose it. They cover every receiver, plus a linebacker.', can: true, buy: go(40) },
+        { label: 'Long field: from your own 20', price: 0, priceText: bet ? `$${bet}` : 'free', detail: 'The whole field to go: 80 yards, first downs every 10.', can: true, buy: go(80) },
+        { label: 'Red zone: from the 15', price: 0, priceText: bet ? `$${bet}` : 'free', detail: 'Short field, tight windows: they don\'t have to cover as much.', can: true, buy: go(15) },
+        { label: pick(["Nah, I'm good", 'Maybe next time', 'Nah, just watching']), price: 0, priceText: '', detail: 'Walk away.', can: true, buy: () => shops.close() },
+      ];
+    });
+    shops.el.querySelector('.shop-help').textContent = game.input.touchMode ? 'Tap to choose, tap again to pick · ○: leave' : game.input.mode === 'pad' ? 'D-pad ↑↓: choose · ✕: pick · ○: leave' : '↑↓ / W S: choose · Enter / click: pick · Esc: leave';
+    shops.onClose = () => {
+      this.talk = null;
+      this.again = game.time + 0.8; // (the button that closed it doesn't ask again)
+    };
+  }
+
+  start(qb, bet, from = 40) {
     const game = this.game;
     const fb = this.fb;
     const S = fb.site;
@@ -96,7 +143,7 @@ export class Gridiron {
     fb.qb = this.you;
     fb.match = this;
     this.goal = S.goal0;
-    this.los = this.goal + 40 * YD;
+    this.los = this.goal + from * YD;
     this.first = this.los - 10 * YD;
     this.down = 0;
     this.snaps = 0; // (plays run: quitting before the first one gets your money back)
@@ -155,7 +202,7 @@ export class Gridiron {
     this.iconMode = null;
     this.prevR = [true, true, true, true, true]; // (nothing counts till it's let go and pressed again)
     this.press = null;
-    game.hud.toast(`${qb.ballName}'s squad · ${bet ? `$${bet} says you score` : 'just for fun'}. Get behind the line`, '#ffd23f');
+    game.hud.toast(`${qb.ballName}'s squad · from the ${from > 50 ? `own ${100 - from}` : from} · ${bet ? `$${bet} says you score` : 'just for fun'}. Get behind the line`, '#ffd23f');
   }
 
   yardLine(z) {
