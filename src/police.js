@@ -42,8 +42,8 @@ export class Officer {
       gun.rotation.x = Math.PI / 2;
       this.char.wristR.add(gun);
       const vest = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 0.36), new THREE.MeshLambertMaterial({ color: 0x3a3f46 }));
-      vest.position.set(0, 1.3, 0);
-      this.char.group.add(vest);
+      vest.position.set(0, 1.3 - this.char.spine.position.y, 0);
+      this.char.spine.add(vest);
     }
     this.crouched = false;
     this.spot = null;
@@ -136,6 +136,7 @@ export class Officer {
       if (face !== null) this.heading = lerpAngle(this.heading, face, Math.min(1, dt * 8));
       this.phase += dt * speed * 3.2;
       animateWalk(this.char, this.phase, Math.min(1, speed / 2));
+      this.tw = 0;
       S.pose?.(this.char, game.time, speed);
       this.place();
       return;
@@ -265,14 +266,20 @@ export class Officer {
     // Gun up in a gunfight, or when shooting at tires.
     // (combatpose.js: the same two-handed aim as yours; SWAT shoulder their rifles)
     const gun = this.swat ? 'smg' : 'pistol';
-    if ((game.lethal || this.aimingTires) && this.state === 'chase') aimPose(this.char, gun, 0, game.time);
+    this.tw = 0;
+    this.gunUp = false;
+    if ((game.lethal || this.aimingTires) && this.state === 'chase') {
+      this.tw = aimPose(this.char, gun, 0, game.time);
+      this.gunUp = true;
+    }
     // Heard shots (main.js gunshot): gun out, turned toward them.
     if (this.alertUntil > game.time && this.standing && !game.lethal) {
-      aimPose(this.char, gun, 0, game.time);
+      this.tw = aimPose(this.char, gun, 0, game.time);
+      this.gunUp = true;
       if (speed === 0 && this.alertAt) this.heading = lerpAngle(this.heading, Math.atan2(this.alertAt[0] - this.x, this.alertAt[1] - this.z), Math.min(1, dt * 6));
     }
     // (crouched behind the car with the gun up: down on one knee, the same as you)
-    if (this.crouched && this.char.armR.rotation.x < -1) this.crouchY = kneelPose(this.char);
+    if (this.crouched && this.gunUp) this.crouchY = kneelPose(this.char);
     flinchPose(this.char, game.time);
     this.place();
   }
@@ -505,7 +512,8 @@ export class Officer {
   place() {
     const y = this.game.city.groundY(this.x, this.z);
     this.char.group.position.set(this.x, !this.standing ? y + 0.2 : this.crouched ? y + (this.crouchY || -0.45) : y, this.z);
-    this.char.group.rotation.y = this.heading;
+    this.twS = (this.twS || 0) + ((this.standing ? this.tw || 0 : 0) - (this.twS || 0)) * 0.3;
+    this.char.group.rotation.y = this.heading + this.twS;
   }
 
   dispose() {

@@ -6,6 +6,7 @@ export function lam(color) {
   return matCache.get(color);
 }
 
+const SPINE_Y = 0.9; // (the spine pivot: hip height)
 const THIGH = new THREE.BoxGeometry(0.22, 0.46, 0.26);
 const SHIN = new THREE.BoxGeometry(0.2, 0.44, 0.24);
 const BODY = new THREE.BoxGeometry(0.56, 0.72, 0.32);
@@ -51,11 +52,20 @@ export function makeCharacter({ shirt = 0x3366aa, pants = 0x222222, skin = 0xc68
   };
   const [legL, kneeL] = leg(0.13);
   const [legR, kneeR] = leg(-0.13);
-  add(BODY, shirt, 0, 1.26, 0);
+  // The spine: everything above the hips (the body, the head, the arms) hangs off a pivot at
+  // hip height, so the upper body can lean (a crouch, a fighting stance, a flinch). Its rotation
+  // is zeroed every frame (animateWalk), so nothing leans unless a pose says so.
+  const spine = new THREE.Group();
+  spine.position.set(0, SPINE_Y, 0);
+  g.add(spine);
+  const up = (geo, color, x, y, z) => add(geo, color, x, y - SPINE_Y, z, spine);
+  up(BODY, shirt, 0, 1.26, 0);
   // Arms: the shoulder (armL / armR), the elbow and the wrist, each a pivot of its own.
   // An elbow bends with a negative x (the forearm comes forward); a wrist the same way.
   const arm = (x) => {
-    const sh = pivot(x, 1.56);
+    const sh = new THREE.Group();
+    sh.position.set(x, 1.56 - SPINE_Y, 0);
+    spine.add(sh);
     add(DELT, shirt, 0, -0.04, 0, sh);
     add(ARM, shirt, 0, -0.16, 0, sh);
     const el = new THREE.Group();
@@ -70,17 +80,18 @@ export function makeCharacter({ shirt = 0x3366aa, pants = 0x222222, skin = 0xc68
   };
   const [armL, elbowL, wristL] = arm(0.37);
   const [armR, elbowR, wristR] = arm(-0.37);
-  add(HEAD, skin, 0, 1.8, 0);
+  up(HEAD, skin, 0, 1.8, 0);
   if (cap) {
-    add(CAP, cap, 0, 2.0, 0);
-    add(BRIM, cap, 0, 1.96, 0.22);
+    up(CAP, cap, 0, 2.0, 0);
+    up(BRIM, cap, 0, 1.96, 0.22);
   }
-  if (bandana) add(BAND, bandana, 0, 1.9, 0);
+  if (bandana) up(BAND, bandana, 0, 1.9, 0);
 
-  return { group: g, legL, legR, kneeL, kneeR, armL, armR, elbowL, elbowR, wristL, wristR };
+  return { group: g, spine, legL, legR, kneeL, kneeR, armL, armR, elbowL, elbowR, wristL, wristR };
 }
 
 export function animateWalk(c, phase, amount) {
+  restPose(c);
   const s = Math.sin(phase) * amount;
   c.legL.rotation.x = s * 0.8;
   c.legR.rotation.x = -s * 0.8;
@@ -94,6 +105,115 @@ export function animateWalk(c, phase, amount) {
   c.elbowL.rotation.x = -e - Math.max(0, s) * 0.5;
   c.elbowR.rotation.x = -e - Math.max(0, -s) * 0.5;
   c.wristL.rotation.x = c.wristR.rotation.x = 0;
+}
+
+// Back to neutral: the spine upright, every arm joint's twist and swing out (reachArm turns
+// them every way), ready for the frame's poses.
+const ARM_JOINTS = ['armL', 'armR', 'elbowL', 'elbowR', 'wristL', 'wristR'];
+export function restPose(c) {
+  c.spine?.rotation.set(0, 0, 0);
+  for (const j of ARM_JOINTS) {
+    c[j].rotation.y = 0;
+    c[j].rotation.z = 0;
+  }
+}
+
+// Put a hand somewhere: the shoulder and elbow worked out (two-bone IK) so the wrist lands on
+// `target`, the elbow bending out toward `pole`. With `aim` and `up` the wrist turns too, so the
+// hand (and a gun in it) points along `aim` with its top toward `up`.
+//   frame 'body' (default): the coordinates lean with the spine (a fist at the chin stays at the
+//   chin); 'group': the character's own frame, upright whatever the spine does (a gun on target).
+const UPPER = 0.32;
+const FORE = 0.28;
+const _T = new THREE.Vector3();
+const _P = new THREE.Vector3();
+const _A = new THREE.Vector3();
+const _U = new THREE.Vector3();
+const _d = new THREE.Vector3();
+const _e = new THREE.Vector3();
+const _u = new THREE.Vector3();
+const _f = new THREE.Vector3();
+const _w = new THREE.Vector3();
+const _x = new THREE.Vector3();
+const _y = new THREE.Vector3();
+const _m = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+const _q2 = new THREE.Quaternion();
+const _qs = new THREE.Quaternion();
+export function reachArm(c, side, target, pole, aim = null, up = null, frame = 'body') {
+  const L = side === 'L';
+  const sh = L ? c.armL : c.armR;
+  const el = L ? c.elbowL : c.elbowR;
+  const wr = L ? c.wristL : c.wristR;
+  const sp = c.spine;
+  // (into the spine's own frame)
+  _qs.copy(sp.quaternion).invert();
+  _T.copy(target);
+  _T.y -= SPINE_Y;
+  _P.copy(pole);
+  if (frame === 'group') {
+    _T.applyQuaternion(_qs);
+    _P.applyQuaternion(_qs);
+  }
+  _d.subVectors(_T, sh.position);
+  const dist = _d.length() || 1e-4;
+  _d.divideScalar(dist);
+  const D = Math.min(UPPER + FORE - 0.002, Math.max(0.08, dist));
+  const x0 = (UPPER * UPPER - FORE * FORE + D * D) / (2 * D);
+  const r = Math.sqrt(Math.max(0, UPPER * UPPER - x0 * x0));
+  _P.addScaledVector(_d, -_P.dot(_d));
+  if (_P.lengthSq() < 1e-8) _P.set(0, -1, 0).addScaledVector(_d, _d.y);
+  _P.normalize();
+  _e.copy(sh.position).addScaledVector(_d, x0).addScaledVector(_P, r); // (the elbow)
+  _u.subVectors(_e, sh.position).normalize();
+  _f.copy(sh.position).addScaledVector(_d, D).sub(_e).normalize();
+  _w.copy(_f).addScaledVector(_u, -_f.dot(_u));
+  if (_w.lengthSq() < 1e-8) _w.copy(_P).negate();
+  _w.normalize();
+  _y.copy(_u).negate();
+  _x.crossVectors(_y, _w);
+  _m.makeBasis(_x, _y, _w);
+  sh.quaternion.setFromRotationMatrix(_m);
+  el.rotation.set(-Math.acos(Math.max(-1, Math.min(1, _u.dot(_f)))), 0, 0);
+  if (!aim) {
+    wr.rotation.set(0, 0, 0);
+    return;
+  }
+  _A.copy(aim);
+  _U.copy(up || _x.set(0, 1, 0));
+  if (frame === 'group') {
+    _A.applyQuaternion(_qs);
+    _U.applyQuaternion(_qs);
+  }
+  _A.normalize();
+  _U.addScaledVector(_A, -_U.dot(_A)).normalize();
+  _y.copy(_A).negate();
+  _x.crossVectors(_y, _U);
+  _m.makeBasis(_x, _y, _U);
+  _q.setFromRotationMatrix(_m);
+  _q2.copy(sh.quaternion).multiply(el.quaternion).invert();
+  wr.quaternion.copy(_q2.multiply(_q));
+}
+
+// Crouched and on the move (sneaking): knees well bent, the upper body leaning in over them,
+// a long low step with the swing knee lifting, the arms bent and carried in front. phase: the
+// stride; amount 0 (still) to 1. Returns how far the hips come down.
+export function crouchWalk(c, phase, amount = 1) {
+  const s = Math.sin(phase) * amount;
+  const lift = Math.cos(phase) * amount;
+  const dl = bendLeg(c.legL, c.kneeL, 0.85 + s * 0.5, 1.42 + Math.max(0, lift) * 0.45 - Math.max(0, -s) * 0.25);
+  const dr = bendLeg(c.legR, c.kneeR, 0.85 - s * 0.5, 1.42 + Math.max(0, -lift) * 0.45 - Math.max(0, s) * 0.25);
+  const bob = Math.abs(Math.sin(phase)) * amount;
+  c.spine.rotation.x = 0.42 + bob * 0.05;
+  c.spine.rotation.y = -s * 0.12; // (the shoulders turning against the step)
+  // (arms bent, hands low in front, swinging a little against the legs)
+  c.armL.rotation.set(-0.35 + s * 0.3, 0, -0.12);
+  c.armR.rotation.set(-0.35 - s * 0.3, 0, 0.12);
+  c.elbowL.rotation.set(-1.25 - Math.max(0, -s) * 0.2, 0, 0);
+  c.elbowR.rotation.set(-1.25 - Math.max(0, s) * 0.2, 0, 0);
+  c.wristL.rotation.set(0, 0, 0);
+  c.wristR.rotation.set(0, 0, 0);
+  return -Math.min(dl, dr) + bob * 0.03;
 }
 
 // Straight arms (for aiming a gun down them, say). Pass 'R' or 'L' for one.

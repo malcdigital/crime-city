@@ -1,7 +1,7 @@
 import { GANG_NAME, CREW_NAME } from './config.js';
 import { aimPose, lowReady, flinchPose, fallFace, markFlinch, kneelPose } from './combatpose.js';
 import * as THREE from 'three';
-import { makeCharacter, setDown, crouchPose, SKIN_TONES, lam, straightArms } from './character.js';
+import { makeCharacter, setDown, crouchPose, restPose, SKIN_TONES, lam, straightArms } from './character.js';
 import { pushCircle, segmentBlocked } from './collision.js';
 import { dist, pick, rand, lerpAngle, clamp } from './util.js';
 import { navStep, escapePoint } from './nav.js';
@@ -503,6 +503,7 @@ export class GangFighter {
   }
 
   animate(dt) {
+    restPose(this.char);
     this.phase += dt * this.speedNow * 3;
     const s = Math.sin(this.phase) * Math.min(1, this.speedNow / 2);
     if (this.crouched) {
@@ -514,27 +515,30 @@ export class GangFighter {
       this.char.kneeL.rotation.x = Math.max(0, s) * 1.1;
       this.char.kneeR.rotation.x = Math.max(0, -s) * 1.1;
     }
-    this.char.armL.rotation.x = this.state === 'fight' && this.behavior !== 'flee' ? -1.1 : -s * 0.6;
+    this.char.armL.rotation.x = -s * 0.6;
     // (elbows bent with the pace; the gun arm stays straight while it's up)
     const e = 0.2 + 0.9 * Math.min(1, this.speedNow / 2);
-    this.char.elbowL.rotation.x = this.state === 'fight' && this.behavior !== 'flee' ? -0.5 : -e;
+    this.char.elbowL.rotation.x = -e;
     this.char.elbowR.rotation.x = this.char.armR.rotation.x < -1 ? 0 : -e;
     // (combatpose.js, the same as yours: the gun up and in two hands while it's up, a long gun
     // carried low across the body in a fight otherwise; knocked back a step when hit)
     const now = this.game.time;
     const wid = this.weapon?.id || 'pistol';
+    this.tw = 0;
     if (this.char.armR.rotation.x < -1) {
-      aimPose(this.char, wid, 0, now);
+      this.tw = aimPose(this.char, wid, 0, now); // (side-on behind a long gun)
       if (this.crouched) this.crouchY = kneelPose(this.char); // (crouched and shooting: on one knee, the same as you)
     }
     else if (this.state === 'fight' && this.behavior !== 'flee') lowReady(this.char, wid);
+    if (!this.standing) this.tw = 0;
     flinchPose(this.char, now);
   }
 
   place() {
     const y = this.game.city.groundY(this.x, this.z);
     this.char.group.position.set(this.x, !this.standing ? y + 0.2 : this.crouched ? y + (this.crouchY || -0.45) : y, this.z);
-    this.char.group.rotation.y = this.heading;
+    this.twS = (this.twS || 0) + ((this.standing ? this.tw || 0 : 0) - (this.twS || 0)) * 0.3;
+    this.char.group.rotation.y = this.heading + this.twS;
   }
 
   // Frame update for the down / dead states. Returns true if handled.

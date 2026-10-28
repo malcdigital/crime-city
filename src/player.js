@@ -3,7 +3,7 @@ const _c = new THREE.Vector3();
 const _e = new THREE.Euler(0, 0, 0, 'YXZ');
 const GETUP = 1.0; // seconds to get back up after a tumble
 import { CFG } from './config.js';
-import { makeCharacter, animateWalk, setDown, crouchPose, lam, straightArms } from './character.js';
+import { makeCharacter, animateWalk, setDown, crouchPose, crouchWalk, lam, straightArms } from './character.js';
 import { pushCircle } from './collision.js';
 import { clamp, lerp, lerpAngle } from './util.js';
 import { aimPose, lowReady, fightStance, markPunch, punchPose, reloadPose, kneelPose, flinchPose, flinching } from './combatpose.js';
@@ -298,8 +298,8 @@ export class Player {
     animateWalk(this.char, this.phase, Math.min(1, this.speed / 2));
     if (this.lowProfile) {
       // Crouched: bent at the knees, shuffling.
-      const s = Math.sin(this.phase) * Math.min(1, this.speed / 1.5);
-      this.poseY = crouchPose(this.char, 1, s);
+      // Crouched: sneaking, knees well bent, leaning in over them.
+      this.poseY = crouchWalk(this.char, this.phase * 0.85, Math.min(1, this.speed / 1.5));
     }
     this.armPose(dt, faceYaw);
     this.sync();
@@ -329,8 +329,7 @@ export class Player {
         const moving = Math.min(1, this.speed / 2);
         const drop = fightStance(c, now, this.lowProfile ? 1 : moving);
         if (!this.lowProfile && !this.cover) this.poseY = Math.min(this.poseY, drop);
-        const tw = punchPose(c, now);
-        if (tw != null) this.twist = tw;
+        this.twist = punchPose(c, now) ?? 0; // (side-on, and into a punch)
       }
       this.punchT = Math.max(0, this.punchT - dt);
       return;
@@ -339,15 +338,16 @@ export class Player {
     // Reloading: the mag out and in, the slide or the handle racked.
     const ar = game.arsenal;
     if (ar.reloadT > 0 && w.reload) {
-      reloadPose(c, w.id, 1 - ar.reloadT / w.reload, this.gunHand);
+      this.twist = reloadPose(c, w.id, 1 - ar.reloadT / w.reload, this.gunHand);
       return;
     }
     if (aiming) {
       // Crouched out in the open: down on one knee to shoot (in cover you still pop up).
       if (this.crouched && !this.cover && game.aimingNow) this.poseY = Math.min(this.poseY, kneelPose(c));
+      c.spine.rotation.set(Math.min(c.spine.rotation.x, 0.12), 0, 0); // (up out of the sneak to shoot)
       game.camera.getWorldDirection(_aim);
       const pitch = Math.asin(Math.max(-1, Math.min(1, _aim.y))) + 0.08;
-      aimPose(c, w.id, pitch, now, this.gunHand);
+      this.twist = aimPose(c, w.id, pitch, now, this.gunHand); // (side-on behind a long gun)
     } else if (!this.cover) {
       lowReady(c, w.id, this.gunHand);
     }
@@ -387,7 +387,12 @@ export class Player {
     const y = this.gy();
     const down = this.char.group.rotation.x !== 0;
     this.char.group.position.set(this.x, down ? y + 0.2 : y + (this.vehicle ? 0 : this.poseY), this.z);
-    this.char.group.rotation.y = this.heading + (this.twist || 0); // (a punch turns the body into it)
+    // (side-on behind a long gun or with fists up, turning into a punch: eased, quick)
+    const now = this.game.time;
+    const dt = Math.min(0.1, Math.max(0, now - (this.twistAt ?? now)));
+    this.twistAt = now;
+    this.twistS = (this.twistS ?? 0) + ((this.twist || 0) - (this.twistS ?? 0)) * (dt > 0 ? Math.min(1, dt * 18) : 1);
+    this.char.group.rotation.y = this.heading + this.twistS;
   }
 
   enter(vehicle) {

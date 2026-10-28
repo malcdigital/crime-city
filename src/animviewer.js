@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { makeCharacter, animateWalk, crouchPose, lam } from './character.js';
+import { makeCharacter, animateWalk, crouchPose, crouchWalk, lam } from './character.js';
 import { aimPose, lowReady, fightStance, markPunch, punchPose, markFlinch, flinchPose, markRecoil, reloadPose, kneelPose } from './combatpose.js';
 import { shotForm, dribbleArm } from './streetball.js';
 import { dunkPose, dunkPhase } from './dunkpose.js';
@@ -30,20 +30,21 @@ function list(game) {
     ['Moving', 'Idle', 2, (c, t) => ({ y: 0.012 * Math.sin(t * 3) })],
     ['Moving', 'Walk', 1.2, (c, t) => { animateWalk(c, t * 5.2, 0.6); return { y: 0 }; }],
     ['Moving', 'Run', 0.8, (c, t) => { animateWalk(c, t * 7.85, 1); return { y: Math.abs(Math.sin(t * 7.85)) * 0.05 }; }],
-    ['Moving', 'Crouch walk', 1.4, (c, t) => { animateWalk(c, t * 4.5, 0.4); return { y: crouchPose(c, 1, Math.sin(t * 4.5)) }; }],
+    ['Moving', 'Crouch walk (sneaking)', 1.4, (c, t) => ({ y: crouchWalk(c, (t / 1.4) * Math.PI * 2, 1) })],
+    ['Moving', 'Crouched, still', 2, (c) => ({ y: crouchWalk(c, 0, 0) })],
     // ---- Guns ----
-    ['Guns', 'Pistol: aim (looking up and down)', 4, (c, t) => { aimPose(c, 'pistol', 0.45 * sweep(t, 4), 99); return { gun: 'pistol' }; }],
-    ['Guns', 'Pistol: firing', 1.4, (c, t, S) => { [0.2, 0.6, 1.0].forEach((a) => once(S, a, () => markRecoil(c, S.now))); aimPose(c, 'pistol', 0, S.now); return { gun: 'pistol', flash: S.since(0.2, 0.6, 1.0) }; }],
-    ['Guns', 'Pistol: reload', 1.6, (c, t) => { reloadPose(c, 'pistol', clamp01(t / 1.2)); return { gun: 'pistol' }; }],
-    ['Guns', 'Rifle: aim', 4, (c, t) => { aimPose(c, 'rifle', 0.35 * sweep(t, 4), 99); return { gun: 'rifle' }; }],
-    ['Guns', 'Rifle: full auto', 1.2, (c, t, S) => { for (let k = 0; k < 8; k++) once(S, 0.1 + k * 0.11, () => markRecoil(c, S.now)); aimPose(c, 'rifle', 0, S.now); return { gun: 'rifle', flash: t > 0.1 && t < 1.0 && (t * 9) % 1 < 0.35 }; }],
-    ['Guns', 'Rifle: reload', 2.4, (c, t) => { reloadPose(c, 'rifle', clamp01(t / 2.0)); return { gun: 'rifle' }; }],
-    ['Guns', 'Shotgun: firing', 1.6, (c, t, S) => { once(S, 0.3, () => markRecoil(c, S.now)); once(S, 1.1, () => markRecoil(c, S.now)); aimPose(c, 'shotgun', 0, S.now); return { gun: 'shotgun', flash: S.since(0.3, 1.1) }; }],
-    ['Guns', 'SMG: aim', 3, (c, t) => { aimPose(c, 'smg', 0.25 * sweep(t, 3), 99); return { gun: 'smg' }; }],
+    ['Guns', 'Pistol: aim (looking up and down)', 4, (c, t) => { return { gun: 'pistol', turn: aimPose(c, 'pistol', 0.45 * sweep(t, 4), 99) }; }],
+    ['Guns', 'Pistol: firing', 1.4, (c, t, S) => { [0.2, 0.6, 1.0].forEach((a) => once(S, a, () => markRecoil(c, S.now))); return { turn: aimPose(c, 'pistol', 0, S.now), gun: 'pistol', flash: S.since(0.2, 0.6, 1.0) }; }],
+    ['Guns', 'Pistol: reload', 1.6, (c, t) => { return { gun: 'pistol', turn: reloadPose(c, 'pistol', clamp01(t / 1.2)) }; }],
+    ['Guns', 'Rifle: aim', 4, (c, t) => { return { gun: 'rifle', turn: aimPose(c, 'rifle', 0.35 * sweep(t, 4), 99) }; }],
+    ['Guns', 'Rifle: full auto', 1.2, (c, t, S) => { for (let k = 0; k < 8; k++) once(S, 0.1 + k * 0.11, () => markRecoil(c, S.now)); return { turn: aimPose(c, 'rifle', 0, S.now), gun: 'rifle', flash: t > 0.1 && t < 1.0 && (t * 9) % 1 < 0.35 }; }],
+    ['Guns', 'Rifle: reload', 2.4, (c, t) => { return { gun: 'rifle', turn: reloadPose(c, 'rifle', clamp01(t / 2.0)) }; }],
+    ['Guns', 'Shotgun: firing', 1.6, (c, t, S) => { once(S, 0.3, () => markRecoil(c, S.now)); once(S, 1.1, () => markRecoil(c, S.now)); return { turn: aimPose(c, 'shotgun', 0, S.now), gun: 'shotgun', flash: S.since(0.3, 1.1) }; }],
+    ['Guns', 'SMG: aim', 3, (c, t) => { return { gun: 'smg', turn: aimPose(c, 'smg', 0.25 * sweep(t, 3), 99) }; }],
     ['Guns', 'Rifle: carried (walking)', 1.2, (c, t) => { animateWalk(c, t * 5.2, 0.6); lowReady(c, 'rifle'); return { gun: 'rifle' }; }],
-    ['Guns', 'Kneeling aim', 3, (c, t) => { const y = kneelPose(c); aimPose(c, 'rifle', 0.2 * sweep(t, 3), 99); return { y, gun: 'rifle' }; }],
+    ['Guns', 'Kneeling aim', 3, (c, t) => { const y = kneelPose(c); return { y, gun: 'rifle', turn: aimPose(c, 'rifle', 0.2 * sweep(t, 3), 99) }; }],
     // ---- Fighting ----
-    ['Fighting', 'Fighting stance', 2, (c, t, S) => ({ y: fightStance(c, S.now) })],
+    ['Fighting', 'Fighting stance', 2, (c, t, S) => ({ y: fightStance(c, S.now), turn: punchPose(c, S.now) })],
     ['Fighting', 'Jab', 1, (c, t, S) => { const y = fightStance(c, S.now); once(S, 0.2, () => markPunch(c, S.now, 'jab', 0.3)); return { y, turn: punchPose(c, S.now) }; }],
     ['Fighting', 'Cross', 1, (c, t, S) => { const y = fightStance(c, S.now); once(S, 0.2, () => markPunch(c, S.now, 'cross', 0.3)); return { y, turn: punchPose(c, S.now) }; }],
     ['Fighting', 'Hook', 1.1, (c, t, S) => { const y = fightStance(c, S.now); once(S, 0.2, () => markPunch(c, S.now, 'hook', 0.4)); return { y, turn: punchPose(c, S.now) }; }],
@@ -280,6 +281,7 @@ export class AnimViewer {
     const c = this.c;
     for (const j of JOINTS) c[j].rotation.set(0, 0, 0);
     c.group.rotation.set(0, 0, 0);
+    c.spine.rotation.set(0, 0, 0);
     c.group.rotation.order = 'YXZ';
     c.group.position.set(0, 0, 0);
     for (const g of Object.values(this.guns)) g.visible = false;
@@ -307,12 +309,12 @@ export class AnimViewer {
     // (following him up on a jump or a dunk, eased so it doesn't jerk)
     const lift = Math.max(0, c.group.position.y);
     this.camY = (this.camY ?? 0) + (lift * 0.85 - (this.camY ?? 0)) * Math.min(1, dt * 7);
-    const dist = 4.6 + this.camY * 0.6;
+    const dist = (4.6 + this.camY * 0.6) * (this.zoom || 1); // (zoom: a closer look, for tests)
     cam.aspect = innerWidth / innerHeight;
     cam.fov = innerWidth / innerHeight < 1.2 ? 60 : 42;
     cam.updateProjectionMatrix();
     cam.position.set(Math.sin(this.yaw) * dist, 1.6 + this.camY, Math.cos(this.yaw) * dist);
-    cam.lookAt(0, 1.05 + this.camY, 0);
+    cam.lookAt(0, 1.05 + this.camY + (1 - (this.zoom || 1)) * 0.6, 0);
   }
 
   render(renderer) {
