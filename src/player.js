@@ -6,6 +6,8 @@ import { CFG } from './config.js';
 import { makeCharacter, animateWalk, setDown, crouchPose, lam, straightArms } from './character.js';
 import { pushCircle } from './collision.js';
 import { clamp, lerp, lerpAngle } from './util.js';
+import { aimPose, lowReady, fightStance, markPunch, punchPose } from './combatpose.js';
+const _aim = new THREE.Vector3();
 
 export class Player {
   constructor(game, x, z) {
@@ -303,24 +305,49 @@ export class Player {
     this.sync();
   }
 
+  // Your arms (and for fists, your legs): the gun up on target while you aim, a long gun
+  // carried low when you don't; fists up in a fighting stance while you aim with them or just
+  // after a punch; punches thrown out of it. (combatpose.js, the same poses as everyone's.)
   armPose(dt, faceYaw) {
     const game = this.game;
-    const combat = faceYaw !== null;
-    if (this.punchT > 0) {
-      this.punchT -= dt;
-      // (a jab: the elbow cocked, then the arm snaps out straight)
-      const k = Math.sin((this.punchT / 0.3) * Math.PI);
-      this.char.armR.rotation.x = -1.6 * k;
-      this.char.elbowR.rotation.x = -1.5 * (1 - k);
-    } else if (combat && game.arsenal.current().id !== 'fists') {
-      // Gun arm straight out, the other hand supporting.
-      const left = this.gunHand === 'L';
-      this.char.armR.rotation.x = left ? -1.2 : -1.5;
-      this.char.armL.rotation.x = left ? -1.5 : -1.2;
-      // (the gun arm locked straight down the sights, the support arm bent in to it)
-      straightArms(this.char);
-      (left ? this.char.elbowR : this.char.elbowL).rotation.x = -0.45;
+    const c = this.char;
+    const now = game.time;
+    const w = game.arsenal.current();
+    const fists = !w || w.melee;
+    this.twist = 0;
+    this.fightT = Math.max(0, (this.fightT || 0) - dt);
+    const aiming = !!game.aimingNow || faceYaw !== null;
+    if (fists) {
+      if (aiming || this.fightT > 0 || this.punchT > 0) {
+        const moving = Math.min(1, this.speed / 2);
+        const drop = fightStance(c, now, this.lowProfile ? 1 : moving);
+        if (!this.lowProfile && !this.cover) this.poseY = Math.min(this.poseY, drop);
+        const tw = punchPose(c, now);
+        if (tw != null) this.twist = tw;
+      }
+      this.punchT = Math.max(0, this.punchT - dt);
+      return;
     }
+    this.punchT = Math.max(0, this.punchT - dt);
+    if (aiming) {
+      game.camera.getWorldDirection(_aim);
+      const pitch = Math.asin(Math.max(-1, Math.min(1, _aim.y))) + 0.08;
+      aimPose(c, w.id, pitch, now, this.gunHand);
+    } else if (!this.cover) {
+      lowReady(c, w.id, this.gunHand);
+    }
+  }
+
+  // A punch (main.js punch): jab, cross, jab, hook... out of the stance.
+  throwPunch() {
+    const now = this.game.time;
+    const seq = ['jab', 'cross', 'jab', 'hook'];
+    this.punchN = now - (this.lastPunchAt ?? -9) < 1.1 ? ((this.punchN ?? -1) + 1) % seq.length : 0;
+    this.lastPunchAt = now;
+    const kind = seq[this.punchN];
+    markPunch(this.char, now, kind, kind === 'hook' ? 0.4 : 0.3);
+    this.fightT = 1.6; // (the hands stay up a moment after)
+    return kind;
   }
 
   setDown(down) {
@@ -345,7 +372,7 @@ export class Player {
     const y = this.gy();
     const down = this.char.group.rotation.x !== 0;
     this.char.group.position.set(this.x, down ? y + 0.2 : y + (this.vehicle ? 0 : this.poseY), this.z);
-    this.char.group.rotation.y = this.heading;
+    this.char.group.rotation.y = this.heading + (this.twist || 0); // (a punch turns the body into it)
   }
 
   enter(vehicle) {

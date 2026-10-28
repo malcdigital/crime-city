@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { aimPose, flinchPose } from './combatpose.js';
 import { CFG } from './config.js';
 import { Vehicle } from './vehicle.js';
 import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES, straightArms } from './character.js';
@@ -261,20 +262,15 @@ export class Officer {
       this.crouchY = crouchPose(this.char, 1);
     }
     // Gun up in a gunfight, or when shooting at tires.
-    if ((game.lethal || this.aimingTires) && this.state === 'chase') {
-      this.char.armR.rotation.x = -1.45;
-      this.char.armL.rotation.x = -1.2;
-      straightArms(this.char, 'R');
-      this.char.elbowL.rotation.x = -0.45;
-    }
+    // (combatpose.js: the same two-handed aim as yours; SWAT shoulder their rifles)
+    const gun = this.swat ? 'smg' : 'pistol';
+    if ((game.lethal || this.aimingTires) && this.state === 'chase') aimPose(this.char, gun, 0, game.time);
     // Heard shots (main.js gunshot): gun out, turned toward them.
     if (this.alertUntil > game.time && this.standing && !game.lethal) {
-      this.char.armR.rotation.x = -1.45;
-      this.char.armL.rotation.x = -1.2;
-      straightArms(this.char, 'R');
-      this.char.elbowL.rotation.x = -0.45;
+      aimPose(this.char, gun, 0, game.time);
       if (speed === 0 && this.alertAt) this.heading = lerpAngle(this.heading, Math.atan2(this.alertAt[0] - this.x, this.alertAt[1] - this.z), Math.min(1, dt * 6));
     }
+    flinchPose(this.char, game.time);
     this.place();
   }
 

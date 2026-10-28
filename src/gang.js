@@ -1,4 +1,5 @@
 import { GANG_NAME, CREW_NAME } from './config.js';
+import { aimPose, lowReady, flinchPose } from './combatpose.js';
 import * as THREE from 'three';
 import { makeCharacter, setDown, crouchPose, SKIN_TONES, lam, straightArms } from './character.js';
 import { pushCircle, segmentBlocked } from './collision.js';
@@ -517,6 +518,13 @@ export class GangFighter {
     const e = 0.2 + 0.9 * Math.min(1, this.speedNow / 2);
     this.char.elbowL.rotation.x = this.state === 'fight' && this.behavior !== 'flee' ? -0.5 : -e;
     this.char.elbowR.rotation.x = this.char.armR.rotation.x < -1 ? 0 : -e;
+    // (combatpose.js, the same as yours: the gun up and in two hands while it's up, a long gun
+    // carried low across the body in a fight otherwise; knocked back a step when hit)
+    const now = this.game.time;
+    const wid = this.weapon?.id || 'pistol';
+    if (this.char.armR.rotation.x < -1) aimPose(this.char, wid, 0, now);
+    else if (this.state === 'fight' && this.behavior !== 'flee') lowReady(this.char, wid);
+    flinchPose(this.char, now);
   }
 
   place() {

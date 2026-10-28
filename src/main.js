@@ -46,6 +46,7 @@ import { segmentBlocked, pushCircle } from './collision.js';
 import { MapView } from './mapview.js';
 import { MovesList } from './moveslist.js';
 import { Matchup } from './matchup.js';
+import { markRecoil, markFlinch } from './combatpose.js';
 import { Shops } from './shops.js';
 import { Drugs } from './drugs.js';
 import { Bank } from './bank.js';
@@ -674,6 +675,7 @@ class Game {
     const l = Math.hypot(dx, dy, dz) || 1;
     const bx = dx / l, by = dy / l, bz = dz / l;
     this.effects.muzzle(mx, my, mz);
+    markRecoil(this.player.char, this.time); // (the kick)
     this.sfx.shot(w.sound, 1);
     // Shotguns fire a spread of pellets; everything else one bullet.
     let anyKill = false;
@@ -738,6 +740,7 @@ class Game {
   // An NPC (cop or gang member) shoots at the player.
   // An NPC shoots at a target: 'player' or another character.
   npcShootAt(shooter, ref, dmg, kind, acc = 1) {
+    markRecoil(shooter.char, this.time); // (their kick, the same as yours)
     // Any shooting involving the rival gang keeps them at war.
     if (shooter.isGang || ref?.isGang) this.gang.anger();
     if (ref === 'player') return this.npcShoot(shooter, dmg, kind, acc);
@@ -1399,8 +1402,9 @@ class Game {
 
   punch() {
     const p = this.player;
-    if (p.punchT > 0) return;
-    p.punchT = 0.3;
+    if (p.punchT > 0.08) return; // (the next one can start as this one comes back)
+    const kind = p.throwPunch();
+    p.punchT = kind === 'hook' ? 0.4 : 0.3;
     const fx = Math.sin(p.heading);
     const fz = Math.cos(p.heading);
     for (const t of this.characters()) {
@@ -1409,7 +1413,13 @@ class Game {
       const dz = t.z - p.z;
       const d = Math.hypot(dx, dz);
       if (d > 1.7 || (dx * fx + dz * fz) / (d || 1) < 0.4) continue;
-      t.knockDown(p.x, p.z, 0.6);
+      markFlinch(t.char, this.time);
+      if (kind === 'jab') {
+        // (a jab staggers them back a step; the cross and the hook put them down)
+        const k = 0.35 / (d || 1);
+        t.x += dx * k;
+        t.z += dz * k;
+      } else t.knockDown(p.x, p.z, kind === 'hook' ? 0.9 : 0.6);
       if (t.isCop) this.crime('assaultCop', t.x, t.z);
       else if (t.isGang) this.gang.anger();
       else {

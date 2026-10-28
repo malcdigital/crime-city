@@ -1,4 +1,5 @@
 import { CFG } from './config.js';
+import { flinchPose } from './combatpose.js';
 import { closestOnBox } from './geom.js';
 import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES } from './character.js';
 import { pushCircle } from './collision.js';
@@ -377,6 +378,7 @@ export class Ped {
       c.armR.rotation.x = -2.7;
     }
     if (this.state === 'play') yOff = this.act.pose(this);
+    flinchPose(c, game.time); // (staggered by a jab: combatpose.js)
     c.group.position.set(this.x, y + yOff, this.z);
     this.char.group.rotation.y = this.heading;
   }
