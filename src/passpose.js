@@ -36,8 +36,7 @@ export function passPose(c, now) {
     c.armL.rotation.x = c.armR.rotation.x = x;
     c.armL.rotation.z = -z;
     c.armR.rotation.z = z;
-    c.armL.rotation.y = 0.45;
-    c.armR.rotation.y = -0.45;
+    c.armL.rotation.y = c.armR.rotation.y = 0; // (no twist: it turned the elbow bends sideways)
     c.elbowL.rotation.x = c.elbowR.rotation.x = e;
     c.wristL.rotation.x = c.wristR.rotation.x = w;
   };
@@ -46,7 +45,7 @@ export function passPose(c, now) {
     const push = ease(clamp01(t / 0.35)); // (out)
     const back = ease(clamp01((t - 0.6) / 0.4)); // (and back)
     // (from the chest pocket, elbows in, to arms out straight, wrists turned through)
-    set(mix(mix(-0.95, -1.4, push), -0.6, back), mix(mix(0.34, 0.3, push), 0.05, back), mix(mix(-1.2, -0.35, push), -0.4, back), mix(mix(-0.3, 0.6, push), 0, back));
+    set(mix(mix(-0.55, -1.3, push), -0.4, back), mix(mix(0.3, 0.26, push), 0.05, back), mix(mix(-1.05, -0.2, push), -0.35, back), mix(mix(-0.5, 0.55, push), 0, back));
     return true;
   }
   if (u.catchAt != null) {
@@ -54,13 +53,13 @@ export function passPose(c, now) {
     if (left > 0 && left <= REACH_T) {
       // (hands up and out to it, palms facing it)
       const k = ease(clamp01(1 - left / REACH_T));
-      set(mix(-0.7, -1.3, k), mix(0.2, 0.34, k), mix(-0.7, -0.6, k), mix(0, -0.45, k));
+      set(mix(-0.5, -0.95, k), mix(0.2, 0.3, k), mix(-0.7, -0.55, k), mix(0, -0.6, k));
       return true;
     }
     if (left <= 0 && -left < GIVE_T) {
       // (caught: the give, elbows bending, the ball in to the chest)
       const k = ease(clamp01(-left / GIVE_T));
-      set(mix(-1.3, -0.95, k), mix(0.34, 0.32, k), mix(-0.6, -1.15, k), mix(-0.45, -0.3, k));
+      set(mix(-0.95, -0.55, k), mix(0.3, 0.3, k), mix(-0.55, -1.05, k), mix(-0.6, -0.5, k));
       return true;
     }
     if (-left >= GIVE_T) u.catchAt = null;
@@ -124,13 +123,12 @@ export function steerPass(b) {
 
 // Holding it in both hands at the chest (a check-up): elbows in, the hands on the sides of it.
 export function holdPose(c) {
-  c.armL.rotation.x = c.armR.rotation.x = -0.95;
-  c.armL.rotation.z = -0.32;
-  c.armR.rotation.z = 0.32;
-  c.armL.rotation.y = 0.45;
-  c.armR.rotation.y = -0.45;
-  c.elbowL.rotation.x = c.elbowR.rotation.x = -1.15;
-  c.wristL.rotation.x = c.wristR.rotation.x = -0.3;
+  c.armL.rotation.x = c.armR.rotation.x = -0.55;
+  c.armL.rotation.z = -0.3;
+  c.armR.rotation.z = 0.3;
+  c.armL.rotation.y = c.armR.rotation.y = 0;
+  c.elbowL.rotation.x = c.elbowR.rotation.x = -1.05;
+  c.wristL.rotation.x = c.wristR.rotation.x = -0.5;
 }
 
 // Pulling a catch in (the ball rides in the hands meanwhile).
