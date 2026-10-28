@@ -2976,6 +2976,7 @@ export class Streetball {
   hud() {
     const game = this.game;
     if (!this.active) return;
+    this.tiredFx(this.t33 ? 1 : this.you.st);
     const K = this.keys();
     let meter = null;
     const O = this.oop;
@@ -3032,6 +3033,24 @@ export class Streetball {
     else if (!this.dead) hint = `Rebound! ${K.block} jump · ${K.d} box out`;
     game.hud.sport?.(this.board(), null, hint, null);
     this.floatHud(meter);
+  }
+
+  // Running on empty (a one-on-one, shooting around): below ~45% energy the colors drain out
+  // and a red vignette closes in, more the lower you get (a slow pulse when you're nearly gone).
+  // st: your energy 0-1 (1 clears it).
+  tiredFx(st) {
+    const k = clamp((0.45 - st) / 0.45, 0, 1);
+    const cv = this.game.renderer?.domElement;
+    if (cv) cv.style.filter = k > 0.01 ? `saturate(${(1 - 0.8 * k).toFixed(3)})` : '';
+    let el = document.getElementById('tired');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'tired';
+      el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:5;background:radial-gradient(ellipse at center, rgba(120,0,0,0) 42%, rgba(150,0,0,.55) 78%, rgba(110,0,0,.9) 100%);opacity:0;transition:opacity .25s';
+      document.body.appendChild(el);
+    }
+    const pulse = k > 0.7 ? 0.85 + 0.15 * Math.sin(this.clock * 5) : 1;
+    el.style.opacity = (k * pulse).toFixed(3);
   }
 
   // The shot meter beside you (upright) and your energy under your feet, wherever you are on
@@ -4092,6 +4111,7 @@ export class Streetball {
   // ---- Over ----
   end(how) {
     const game = this.game;
+    this.tiredFx(1); // (colors back)
     if (this.t33) {
       // 33's over: the pot (everyone's buy-in) to the winner, back to shooting around.
       const T = this.t33;
