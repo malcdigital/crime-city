@@ -1559,6 +1559,29 @@ export class Streetball {
     return [this.rim.x + this.rim.dx * 8, this.rim.z + this.rim.dz * 8];
   }
 
+  // The check-up camera: aimed at the basket from behind the middle of the two of you, pulled
+  // back, so both of you are in it whichever end you're at; after, it eases back onto you.
+  checkCam(dt) {
+    const game = this.game;
+    const [px, pz] = game.player.pos();
+    const on = !!this.check && !this.t33;
+    const tx = on ? (px + this.opp.x) / 2 : px;
+    const tz = on ? (pz + this.opp.z) / 2 : pz;
+    const F = (this.camF ||= { x: px, z: pz, back: 0, up: 0 });
+    const k = Math.min(1, dt * 4);
+    F.x += (tx - F.x) * k;
+    F.z += (tz - F.z) * k;
+    F.back += ((on ? 2.6 : 0) - F.back) * k;
+    F.up += ((on ? 0.8 : 0) - F.up) * k;
+    if (on) game.camYaw = lerpAngle(game.camYaw, Math.atan2(this.rim.x - F.x, this.rim.z - F.z), Math.min(1, dt * 5));
+    if (!on && dist(F.x, F.z, px, pz) < 0.03 && F.back < 0.03) {
+      game.camFocus = null;
+      this.camF = null;
+      return;
+    }
+    game.camFocus = F;
+  }
+
   // ---- Heat check / on fire (both of you, the same) ----
   onFire(who) {
     return !this.t33 && this.heat?.[who]?.st === 'fire';
@@ -1599,10 +1622,15 @@ export class Streetball {
         H.n = 0;
         game.hud.toast(who === 'you' ? 'The fire burns out' : `${name}'s fire burns out`, '#ffd23f');
       }
-    } else if (H.n >= 2) {
-      H.st = 'check';
-      game.hud.toast(who === 'you' ? 'HEAT CHECK' : `${name}: heat check`, '#ffb36b');
-    }
+    } else if (H.n >= 2) H.st = 'check'; // (the message waits for the shot itself: heatShot)
+  }
+
+  // Going up with a heat check: now it says so.
+  heatShot(who, type) {
+    if (this.t33 || this.heat?.[who]?.st !== 'check') return;
+    if (this.solo && (type === 'layup' || type === 'dunk')) return; // (shooting around: jumpers only)
+    const name = who === 'you' ? '' : `${this.opp?.ballName || 'He'}: `;
+    this.game.hud.toast(`${name}HEAT CHECK!`, '#ffb36b');
   }
 
   // Smoke or flames off the ball, whoever's it is (holding it or just shot it).
@@ -1780,6 +1808,7 @@ export class Streetball {
       const want = Math.atan2(this.rim.x - this.rim.dx * 1.5 - qx, this.rim.z - this.rim.dz * 1.5 - qz);
       game.camYaw = lerpAngle(game.camYaw, want, Math.min(1, dt * 2.5));
     }
+    this.checkCam(dt);
     // Checking it up: nobody moves.
     if (this.check) {
       this.clock += dt;
@@ -2135,6 +2164,7 @@ export class Streetball {
     const off = Math.abs(wrapAngle(Math.atan2(D.ux, D.uz) - p.heading));
     const pivot = off > 1.2;
     const turnT = pivot ? off / 9 : 0;
+    this.heatShot('you', type);
     this.shot = { type, t: 0, T: SHOTS[type].T + turnT, W: greenWindow(type, this.onFire('you') ? Math.min(D.d, FIRE_RANGE) : D.d), d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false, pivot, turnT };
     // (a jumper off your right hand; a layup or floater off the hand the ball's in)
     this.shot.hand = type === 'jumper' ? 1 : (this.ballSide ?? Y.hand ?? 1) >= 0 ? 1 : -1;
@@ -2166,7 +2196,6 @@ export class Streetball {
     Y.jumpT = 0;
     Y.fall = null; // (the jump's timed to the shot: the top of it is the perfect release)
     this.shot.fade = fade;
-    if (CFG.SHOT_TYPE_DEBUG) game.hud.toast(`[test] ${SHOT_NAMES[type]}${how}${stepback ? ' (step-back)' : ''}${fade ? ' (fadeaway)' : ''}${pivot ? ' (turnaround)' : ''}`, '#c9a7ff');
     Y.st = Math.max(0, Y.st - 0.013);
     // He closes out.
     this.opp.hp.closeT = 1;
@@ -2525,7 +2554,6 @@ export class Streetball {
       D.rise = 0.24;
       D.style = straight ? pick(['two', 'windmill', 'two']) : pick(['one', 'tomahawk', 'one']);
       this.shot = { type: 'dunk', t: 0, T: D.rise - D.t, W: 0, d0: dist(px, pz, this.rim.x, this.rim.z), pts: 1, oop: true, turnT: 0 };
-      if (CFG.SHOT_TYPE_DEBUG) game.hud.toast(`[test] Alley-oop dunk (${D.style})`, '#c9a7ff');
       this.opp.hp.closeT = 1;
       return;
     }
@@ -3864,6 +3892,7 @@ export class Streetball {
   }
 
   goShoot(p, hp, type, stepback = false) {
+    this.heatShot('opp', type);
     hp.state = 'shoot';
     hp.shot = type;
     hp.dunkAt = null;
@@ -3888,7 +3917,6 @@ export class Streetball {
       hp.rel = T + (type === 'layup' ? 0.3 : 0.5);
       how = steps ? ` (gather + ${steps} step${steps > 1 ? 's' : ''})` : ' (jump stop)';
     }
-    if (CFG.SHOT_TYPE_DEBUG) this.game.hud.toast(`[test] ${p.ballName}: ${SHOT_NAMES[type]}${how}${stepback ? ' (step-back)' : ''}`, '#c9a7ff');
     // (squaring up first: a pivot if he's facing away)
     const off = Math.abs(wrapAngle(Math.atan2(this.rim.x - p.x, this.rim.z - p.z) - p.heading));
     hp.rel += Math.max(0, off - 0.4) / 9;
@@ -4387,6 +4415,8 @@ export class Streetball {
     const mm = document.getElementById('minimap');
     if (mm) mm.style.visibility = ''; // (the minimap back)
     this.scoreboard?.hide();
+    this.game.camFocus = null;
+    this.camF = null;
     this.fx?.clear();
     document.body.classList.remove('hooping');
     this.heat = null;

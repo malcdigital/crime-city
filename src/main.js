@@ -1747,6 +1747,14 @@ class Game {
       ty = (this.player.lowProfile ? 1.15 : 1.7) + this.player.gy();
       distBack = down ? 7 : 5.5;
       height = 1.2;
+      // A pickup game's check-up (streetball.js): framed on the two of them, pulled back.
+      const F = this.camFocus;
+      if (F) {
+        tx = F.x;
+        tz = F.z;
+        distBack += F.back;
+        height += F.up;
+      }
       // In cover: a wider view so you can see around you.
       if (this.player.cover) {
         fov = 82;

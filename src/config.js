@@ -19,9 +19,6 @@ export const CFG = {
   // START_IN_CAR and your safehouse). Right now: Harbor Field, behind the line next to the
   // quarterback, facing downfield. (The Ledger Ave courts: [1210, 733, 90].)
   START_ON_FOOT: [1214, 1013, 180],
-  // Testing switch: basketball shows which shot it picked as each one starts (Jump shot, Layup,
-  // Floater, Dunk, Alley-oop), yours and his.
-  SHOT_TYPE_DEBUG: true,
   // Testing switch: the interchange editor in the pause menu (reshape the ramps, then drive them).
   RAMP_EDITOR: true,
 
