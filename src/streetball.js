@@ -540,6 +540,7 @@ export class Streetball {
     this.score = { you: 0, opp: 0 };
     this.gameNo = (this.gameNo || 0) + 1;
     this.heat = newHeat();
+    this.poss = null;
     this.cleared = true;
     this.shot = null;
     this.outT = 0;
@@ -557,6 +558,10 @@ export class Streetball {
       q.hp.role = 'watch';
       const along = this.rim.dz !== 0; // (the court runs along z)
       q.hp.spot = along ? [C.x0 - 1.2, this.rim.z + this.rim.dz * (5 + k * 2.5)] : [this.rim.x + this.rim.dx * (5 + k * 2.5), C.z0 - 1.2];
+      // (already off the court when it starts, not wandering off through the check-up)
+      q.x = q.hp.spot[0];
+      q.z = q.hp.spot[1];
+      q.speed = 0;
     });
     const hp = opp.hp;
     hp.role = 'opp';
@@ -591,6 +596,7 @@ export class Streetball {
     this.score = { you: 0, opp: 0 };
     this.gameNo = (this.gameNo || 0) + 1;
     this.heat = newHeat();
+    this.poss = null;
     this.stats = { att: 0, made: 0, streak: 0, best: 0 };
     this.cleared = true;
     this.shot = null;
@@ -635,6 +641,7 @@ export class Streetball {
     this.score = { you: 0, opp: 0 };
     this.gameNo = (this.gameNo || 0) + 1;
     this.heat = newHeat();
+    this.poss = null;
     this.stats = { att: 0, made: 0, streak: 0, best: 0 };
     this.cleared = true;
     this.shot = null;
@@ -1114,6 +1121,7 @@ export class Streetball {
     this.flight = null;
     this.cleared = true;
     this.has = 'check';
+    this.possession(off);
     this.check = { off, stage: off === 'you' ? 'ready' : 'wait', t: 0 };
     b.mode = 'held';
     b.holder = off === 'you' ? 'you' : opp;
@@ -1597,10 +1605,13 @@ export class Streetball {
     const game = this.game;
     const name = who === 'you' ? 'You' : this.opp?.ballName || 'He';
     if (!make) {
-      if (H.st === 'fire') game.hud.toast(who === 'you' ? 'You cooled off' : `${name} cooled off`, '#9fc3ff');
-      H.n = 0;
-      H.st = null;
-      H.left = 0;
+      // A miss: shooting around it's over; in a game it only ends if he loses the ball
+      // (possession), though a miss on fire still uses up one of the fire shots.
+      if (this.solo) return this.heatLose(who);
+      if (H.st === 'fire') {
+        H.left -= 1;
+        if (H.left <= 0) this.heatLose(who);
+      }
       return;
     }
     H.n += 1;
@@ -1623,6 +1634,25 @@ export class Streetball {
         game.hud.toast(who === 'you' ? 'The fire burns out' : `${name}'s fire burns out`, '#ffd23f');
       }
     } else if (H.n >= 2) H.st = 'check'; // (the message waits for the shot itself: heatShot)
+  }
+
+  // Heat gone (a miss shooting around, or the ball changing hands without a score).
+  heatLose(who) {
+    const H = this.heat?.[who];
+    if (!H) return;
+    const name = who === 'you' ? 'You' : this.opp?.ballName || 'He';
+    if (H.st === 'fire') this.game.hud.toast(`${name} cooled off`, '#9fc3ff');
+    H.n = 0;
+    H.st = null;
+    H.left = 0;
+  }
+
+  // Who has the ball changed (a rebound, a steal, a check-up): the one who lost it without
+  // scoring (make it, take it: a bucket keeps it) loses his heat.
+  possession(who) {
+    if (this.solo || this.t33 || (who !== 'you' && who !== 'opp')) return;
+    if (this.poss && this.poss !== who) this.heatLose(this.poss);
+    this.poss = who;
   }
 
   // Going up with a heat check: now it says so.
@@ -1682,6 +1712,7 @@ export class Streetball {
   give(who, check = false) {
     const b = this.g.ball;
     this.has = who;
+    this.possession(who);
     this.touch = null;
     b.mode = 'held';
     b.holder = who === 'you' ? 'you' : this.opp;
@@ -3417,7 +3448,7 @@ export class Streetball {
         this.heatResult(s.by, true);
       } else if (s) game.hud.toast("Doesn't count: take it back first", '#ffd23f');
       if (this.score.you >= this.to || this.score.opp >= this.to) return this.end(this.score.you >= this.to ? 'win' : 'lose');
-      this.dead = { who: s && s.by === 'you' ? 'opp' : 'you', t: 0.9 };
+      this.dead = { who: s ? s.by : 'you', t: 0.9 }; // (make it, take it: the scorer's ball again)
       this.has = null;
       return;
     }
@@ -3979,6 +4010,12 @@ export class Streetball {
   pose(p) {
     if (this.t33) return this.pose33(p);
     const y = this.poseRaw(p);
+    if (this.check && p === this.opp) {
+      // (checking it up: square to you)
+      const [px, pz] = this.game.player.pos();
+      p.heading = Math.atan2(px - p.x, pz - p.z);
+      p.char.group.rotation.y = p.heading;
+    }
     passPose(p.char, this.game.time); // (a pass or a catch going on)
     if (p !== this.opp) return y;
     // (his joints, height and facing eased the same way as yours)
@@ -4252,6 +4289,13 @@ export class Streetball {
   // Your arms and stance (main.js, after you move).
   late(dt) {
     this.lateRaw(dt);
+    // (checking it up: square to him, whatever the stick or the camera's doing)
+    if (this.check && !this.t33 && this.opp) {
+      const p = this.game.player;
+      const [px, pz] = p.pos();
+      p.heading = Math.atan2(this.opp.x - px, this.opp.z - pz);
+      p.char.group.rotation.y = p.heading;
+    }
     passPose(this.game.player.char, this.game.time); // (a pass or a catch going on)
     // (easing every joint toward this frame's pose, and the height and facing too)
     const c = this.game.player.char;
