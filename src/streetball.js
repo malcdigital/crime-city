@@ -6,6 +6,7 @@ import { Scoreboard } from './scoreboard.js';
 import { HeatFx } from './heatfx.js';
 import { dunkPose, dunkPhase, dunkBall } from './dunkpose.js';
 import { markReach, reachWhiff, reachPose } from './reachpose.js';
+import { markJump, markSwat, jumpPose } from './blockpose.js';
 import { markPass, markCatch, passPose } from './passpose.js';
 import { CFG } from './config.js';
 
@@ -1597,6 +1598,14 @@ export class Streetball {
     return (b.x - x) * -Math.cos(h) + (b.z - z) * Math.sin(h) >= 0 ? 1 : -1;
   }
 
+  // A defensive jump by who: a block (the other one has it, or just let it go) or a rebound.
+  jumpKind(who) {
+    const other = who === 'you' ? 'opp' : 'you';
+    const F = this.flight;
+    if (this.has === other || (F && F.by === other && this.g.ball.t < 0.35) || this.oop?.by === other) return 'block';
+    return 'rebound';
+  }
+
   // ---- Heat check / on fire (both of you, the same) ----
   onFire(who) {
     return !this.t33 && this.heat?.[who]?.st === 'fire';
@@ -2554,6 +2563,7 @@ export class Streetball {
     const O = this.oop;
     this.oop = null;
     const by = O?.by;
+    markSwat(who === 'you' ? game.player.char : this.opp.char, game.time);
     if (by === 'you' && this.you.dunk?.oop) this.you.dunk = { ...this.you.dunk, t: this.you.dunk.rise, style: 'two', hangs: false };
     if (by === 'opp') Object.assign(this.opp.hp, { state: 'oopLand', t: 0, landH: this.opp.hp.jump || 0, oopDunk: false });
     if (Math.random() < 0.35) {
@@ -2845,6 +2855,7 @@ export class Streetball {
     }
     if (shooter === 'you') this.you.noGrabT = 0.4;
     else this.opp.hp.noGrabT = 0.4;
+    markSwat(shooter === 'you' ? this.opp.char : this.game.player.char, this.game.time); // (the blocker's hand slaps it)
     this.has = null;
     this.lastShooter = shooter; // (whoever gets it back: the other one's a defensive board)
     this.heatResult(shooter, false); // (blocked: the streak's over)
@@ -4023,6 +4034,13 @@ export class Streetball {
     if (p === this.opp && !this.check) {
       const drop = reachPose(p.char, this.game.time, p.heading); // (his reach-in, the same as yours)
       if (drop != null) y += drop;
+      const hp = p.hp;
+      if ((hp.jumpT || 0) > (hp.jPrev ?? 0) + 1e-6) markJump(p.char, this.game.time, hp.jumpT, this.jumpKind('opp'), this.sideOfBall(p.x, p.z, p.heading));
+      hp.jPrev = hp.jumpT || 0;
+      if (hp.state !== 'shoot' && hp.state !== 'oop' && hp.state !== 'oopLand') {
+        const jd = jumpPose(p.char, this.game.time); // (his block or rebound jump, the same as yours)
+        if (jd != null) y += jd;
+      }
     }
     if (this.check && p === this.opp) {
       // (checking it up: square to you)
@@ -4308,6 +4326,15 @@ export class Streetball {
       const p = this.game.player;
       const drop = reachPose(p.char, this.game.time, p.heading);
       if (drop != null) p.char.group.position.y += drop;
+      // (a block or a rebound jump: the whole body, the same as his)
+      const Y = this.you;
+      const [px, pz] = p.pos();
+      if (Y.jumpT > (Y.jPrev ?? 0) + 1e-6) markJump(p.char, this.game.time, 0.55, this.jumpKind('you'), this.sideOfBall(px, pz, p.heading));
+      Y.jPrev = Y.jumpT;
+      if (!Y.dunk && !this.shot && !Y.fall) {
+        const jd = jumpPose(p.char, this.game.time);
+        if (jd != null) p.char.group.position.y += jd;
+      }
     }
     // (checking it up: square to him, whatever the stick or the camera's doing)
     if (this.check && !this.t33 && this.opp) {
