@@ -53,6 +53,7 @@ export class Scoreboard {
     const el = this.el;
     el.classList.remove('hidden');
     document.body.classList.add('scoreboard-on');
+    this.fitBoard(el, '--fs', 0.2, 0.25);
     const L = this.last;
     if (!L || L.place !== s.place) el.querySelector('.sc-place').textContent = s.place.toUpperCase();
     if (!L || L.opp !== s.opp) el.querySelector('.opp .sc-name').textContent = s.opp.toUpperCase();
@@ -127,6 +128,7 @@ export class Scoreboard {
     const el = this.el33;
     el.classList.remove('hidden');
     document.body.classList.add('scoreboard-on', 'board33-on');
+    this.fitBoard(el, '--fs', 0.3, 0.32);
     const L = this.last33 && this.last33.game === s.game ? this.last33 : null;
     const alive = s.players.filter((P) => !P.out).length;
     el.querySelector('.b3-alive').textContent = `${alive} ALIVE`;
@@ -232,24 +234,37 @@ export class Scoreboard {
   // top, scaled down only if the window's too narrow for it. Rechecked when the window or the
   // touch layout changes.
   fitContest() {
-    const el = this.elC;
-    const touch = document.body.classList.contains('touch');
-    let left = 0; // (the right edge of the pause / QUIT buttons up top)
+    this.fitBoard(this.elC, '--c3s', 0.12, 0.2);
+  }
+
+  // Sizing a board to the screen. On a phone it sits in the top-right corner, in the space
+  // between the pause / QUIT buttons and the edge (the cash and clock hide under it while it's
+  // up), scaled to fit that width and no taller than phoneH of the screen; anywhere else it's
+  // centered at the top, scaled down only if the window's too small for it. Rechecked when
+  // the window, the buttons or the board's own size change.
+  fitBoard(el, prop, phoneH, deskH) {
+    if (!el) return;
+    // (a phone, or a narrow window: the corner layout)
+    const touch = document.body.classList.contains('touch') || innerWidth < 760;
+    let left = 0; // (the right edge of the pause / QUIT buttons up top, or of the info top left)
     if (touch) {
       for (const b of document.querySelectorAll('.tb-quit, .tb-pause')) {
         const r = b.getBoundingClientRect();
         if (r.width && r.top < 80) left = Math.max(left, r.right);
       }
+      if (!document.body.classList.contains('touch')) {
+        const tl = document.getElementById('top-left')?.getBoundingClientRect();
+        if (tl) left = Math.max(left, tl.right + 6);
+      }
       if (!left) left = innerWidth * 0.5;
     }
-    const key = `${innerWidth}x${innerHeight}:${touch}:${Math.round(left)}`;
-    if (this.fitKey === key) return;
-    this.fitKey = key;
     const w = el.offsetWidth; // (unscaled: transforms don't change it)
     const h = el.offsetHeight;
-    // (a phone: the room right of the buttons, and no taller than ~12% of the screen)
-    const s = touch ? Math.max(0.5, Math.min(1, (innerWidth - left - 10 - Math.max(8, innerWidth * 0.01)) / w, (innerHeight * 0.12) / h)) : Math.min(1, (innerWidth - 16) / w, (innerHeight * 0.2) / h);
-    el.style.setProperty('--c3s', s.toFixed(3));
+    const key = `${innerWidth}x${innerHeight}:${touch}:${Math.round(left)}:${w}x${h}`;
+    if (el.dataset.fit === key) return;
+    el.dataset.fit = key;
+    const s = touch ? Math.max(0.45, Math.min(1, (innerWidth - left - 10 - Math.max(8, innerWidth * 0.01)) / w, (innerHeight * phoneH) / h)) : Math.min(1, (innerWidth - 16) / w, (innerHeight * deskH) / h);
+    el.style.setProperty(prop, s.toFixed(3));
   }
 
   hideContest() {

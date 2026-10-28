@@ -613,7 +613,7 @@ body.touch #phone-body .ph-row { padding: 11px 8px; }
 }
 
 /* The one-on-one scoreboard (scoreboard.js): top and center, the text bar below it. */
-#scoreboard { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 6; pointer-events: none; text-align: center; color: #fff; font-family: inherit; }
+#scoreboard { position: fixed; top: 8px; left: 50%; transform: translateX(-50%) scale(var(--fs, 1)); transform-origin: top center; z-index: 6; pointer-events: none; text-align: center; color: #fff; font-family: inherit; }
 #scoreboard.hidden { display: none; }
 #scoreboard .sc-place { font-size: 11px; font-weight: 900; letter-spacing: 3px; color: #ffd23f; text-shadow: 0 1px 3px #000; margin-bottom: 4px; }
 #scoreboard .sc-box { min-width: 250px; background: linear-gradient(#161c27f0, #0c1017f0); border: 2px solid #2b303b; border-radius: 14px; box-shadow: 0 6px 22px rgba(0,0,0,.5); overflow: hidden; }
@@ -642,11 +642,16 @@ body.scoreboard-on #sport { top: 136px; }
 body.scoreboard-on #sport .sb { display: none; }
 /* On a phone: smaller, still top and center (the minimap's off in a one-on-one). */
 /* (starting just right of center: the pause and QUIT buttons end at the middle) */
-body.touch #scoreboard { top: 4px; left: calc(50% + 8px); transform: scale(.72); transform-origin: top left; }
+/* A phone: the board in the top-right corner, sized by scoreboard.js fitBoard; the cash and
+   clock, the court's name and the text line duplicating the score hide while it's up. */
+body.touch #scoreboard, body.touch #board33 { top: max(4px, env(safe-area-inset-top)); left: auto; right: max(8px, env(safe-area-inset-right)); transform: scale(var(--fs, .7)); transform-origin: top right; }
+body.touch #scoreboard .sc-place { display: none; }
+body.touch.scoreboard-on #top-right { visibility: hidden; }
+body.touch.scoreboard-on #sport { display: none; }
 body.touch.scoreboard-on #sport { top: 104px; left: 50%; transform: translateX(-50%); }
 
 /* The 33 scoreboard (scoreboard.js show33). */
-#board33 { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 6; pointer-events: none; text-align: center; color: #fff; }
+#board33 { position: fixed; top: 8px; left: 50%; transform: translateX(-50%) scale(var(--fs, 1)); transform-origin: top center; z-index: 6; pointer-events: none; text-align: center; color: #fff; }
 #board33.hidden { display: none; }
 #board33 .b3-box { min-width: 300px; background: linear-gradient(#161c27f0, #0c1017f0); border: 2px solid #2b303b; border-radius: 14px; box-shadow: 0 6px 22px rgba(0,0,0,.5); overflow: hidden; }
 #board33 .b3-head { display: flex; justify-content: space-between; align-items: center; padding: 7px 14px 0; }
@@ -680,7 +685,7 @@ body.touch.scoreboard-on #sport { top: 104px; left: 50%; transform: translateX(-
 @keyframes b3-drain { 0% { transform: translateY(0); opacity: 1; } 40% { transform: translateY(14px) scale(.7); opacity: .2; } 100% { transform: none; opacity: 1; } }
 @keyframes b3-hit { 0% { background: rgba(255,107,107,.5); box-shadow: 0 0 18px rgba(255,107,107,.7); } 100% { background: transparent; box-shadow: none; } }
 body.board33-on #sport { top: 244px; }
-body.touch #board33 { top: 4px; left: calc(50% + 8px); transform: scale(.66); transform-origin: top left; }
+
 body.touch.board33-on #sport { top: 160px; }
 #board33 .sc-pop { top: 34px; font-size: 22px; color: #fff; text-shadow: 0 0 10px #ff6b6b, 0 2px 4px #000; z-index: 1; }
 body.paused #scoreboard, body.paused #board33, body.paused #sport, body.paused #shot-meter, body.paused #energy-float { display: none !important; }
@@ -871,4 +876,13 @@ body.paused #dice-panel { display: none; }
   #touch .tb-phone, #touch .tb-quit { margin-left: -22px; }
   #touch .tb-map { margin-left: 28px; }
   #touch .tb-spawn { margin-left: 78px; }
+}
+
+/* A narrow window (no touch): the boards take the phone's corner layout too. */
+@media (max-width: 759px) {
+  #scoreboard, #board33, #board3pt { top: 4px; left: auto; right: 8px; transform-origin: top right; }
+  #scoreboard, #board33 { transform: scale(var(--fs, .7)); }
+  #board3pt { transform: scale(var(--c3s, .68)); }
+  #scoreboard .sc-place { display: none; }
+  body.scoreboard-on #top-right { visibility: hidden; }
 }

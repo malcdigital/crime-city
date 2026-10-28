@@ -45,7 +45,7 @@ const BUTTONS = [
   ['bshoot', 'SHOOT', B.SQUARE, ['ball'], 'hold', 'big red txt'],
   ['bblock', '△', B.TRIANGLE, ['ball'], 'hold', 'sm'],
   ['bpass', 'PASS', B.CROSS, ['ball'], 'hold', 'mid txt'],
-  ['bd', 'D', B.L2, ['ball'], 'hold', 'mid txt'],
+  ['bd', 'GUARD', B.L2, ['ball'], 'hold', 'mid txt'], // (hold: stay in front of him)
   ['bcross', 'CROSS', 18, ['ball'], 'hold', 'sm txt'],
   ['bhesi', 'HESI', 19, ['ball'], 'hold', 'sm txt'],
   ['bstep', 'STEP', 20, ['ball'], 'hold', 'sm txt'],
@@ -523,16 +523,19 @@ export class TouchControls {
     if (ctx === 'ball') {
       // (on defense: SHOOT is steal, the moves are hidden)
       const off = game.sport.has === 'you' && !game.sport.t3; // (the contest: just SHOOT)
+      const dead = !!(game.sport.check || game.sport.reset || game.sport.dead); // (checking it up / resetting the play: just the one button)
       const b = this.el.buttons;
-      b.bshoot.el.querySelector('.tl').textContent = off || game.sport.has !== 'opp' ? 'SHOOT' : 'STEAL';
+      const st = game.sport.reset ? 'SKIP' : game.sport.check ? 'CHECK' : off || game.sport.has !== 'opp' ? 'SHOOT' : 'STEAL';
+      const stl = b.bshoot.el.querySelector('.tl');
+      if (stl.textContent !== st) stl.textContent = st;
       b.bblock.hint.textContent = game.sport.has === 'opp' ? 'block' : 'rebound';
       // (with the ball the dribble moves are gestures on the right side of the screen, so no
       // move buttons; △ is for D and rebounds, the oop is a double tap on PASS)
       for (const id of ['bcross', 'bstep', 'bspin']) b[id].el.classList.add('hidden');
-      b.bhesi.el.classList.toggle('hidden', game.sport.has !== 'opp'); // (on defense: HANDS, hold to contest)
+      b.bhesi.el.classList.toggle('hidden', game.sport.has !== 'opp' || dead); // (on defense: HANDS, hold to contest)
       b.bhesi.el.querySelector('.tl').textContent = 'HANDS';
-      b.bblock.el.classList.toggle('hidden', !!game.sport.t3 || off);
-      b.bpass.el.classList.toggle('hidden', !(off || (game.sport.solo && game.sport.g?.ball?.mode === 'loose'))); // (passing / the oop; a fetch shooting around)
+      b.bblock.el.classList.toggle('hidden', !!game.sport.t3 || off || dead);
+      b.bpass.el.classList.toggle('hidden', dead || !!game.sport.t33 || !(off || (game.sport.solo && game.sport.g?.ball?.mode === 'loose'))); // (passing / the oop; a fetch shooting around)
       b.bpass.hint.textContent = off ? '2× oop' : '';
       this.dribbleGest = off; // (the right side: tap hesi, swipe cross / spin / step back)
       if (off && !this.gestTold) {
@@ -540,7 +543,7 @@ export class TouchControls {
         this.gestTold = true;
         game.hud.toast('Dribble moves: right side of the screen — tap: hesi · swipe ← → crossover · ↑ spin · ↓ step-back. PASS twice: alley-oop', '#ffd23f');
       }
-      b.bd.el.classList.toggle('hidden', !!game.sport.solo || off); // (D: on defense only; with the ball the back-pedal is automatic)
+      b.bd.el.classList.toggle('hidden', !!game.sport.solo || off || dead); // (GUARD: on defense only; with the ball the back-pedal is automatic)
     }
     // QUIT: armed by the first tap (SURE?), quits on the second.
     const qb = this.el.buttons.quit;
