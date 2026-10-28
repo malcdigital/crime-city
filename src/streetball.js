@@ -4618,6 +4618,7 @@ export class Streetball {
     // (checking it up with the ball: held in both hands)
     if (this.has === 'check' && this.g.ball.holder === 'you') holdPose(this.game.player.char);
     if (this.t3 && this.has === 'you' && !this.shot) holdPose(this.game.player.char); // (the contest: ball off the rack, set to shoot)
+    if (this.t3?.grab) this.game.player.char.group.position.y += this.t3.pose(this.game.player); // (reaching to the rack)
     // (a reach-in going on: the lunge and swipe over the stance)
     if (!this.check && !this.t33) {
       const p = this.game.player;

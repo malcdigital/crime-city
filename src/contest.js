@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { ballMesh } from './court.js';
 import { dist, lerpAngle } from './util.js';
-import { markScoop } from './stealpose.js';
+import { handsAt } from './passpose.js';
+import { crouchPose } from './character.js';
 
 // The 3-point contest (solo, against the clock and the leaderboard), the way the league runs it:
 // five racks round the arc (the corners, the wings, the top), five balls each: four worth 1 and
@@ -14,8 +15,50 @@ import { markScoop } from './stealpose.js';
 // hands you each ball, flies the ones you've let go of, keeps score and runs the clock.
 
 const TIME = 70;
+const GRAB_T = 0.42; // (turn to the rack, hands on it, back to the basket with it)
+const _h = new THREE.Vector3();
 const RACK_NAMES = ['Left corner', 'Left wing', 'Top', 'Right wing', 'Right corner'];
 export { RACK_NAMES };
+
+// The money ball: red, white and blue panels, the way the league's look; the deep ball gold.
+let MONEY_TEX = null;
+function moneyTexture() {
+  if (MONEY_TEX) return MONEY_TEX;
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 128;
+  const g = c.getContext('2d');
+  const cols = ['#d32f2f', '#f5f5f5', '#1e4fd6', '#f5f5f5', '#d32f2f', '#f5f5f5', '#1e4fd6', '#f5f5f5'];
+  cols.forEach((col, i) => {
+    g.fillStyle = col;
+    g.fillRect((i / cols.length) * 256, 0, 256 / cols.length + 1, 128);
+  });
+  g.strokeStyle = '#111';
+  g.lineWidth = 3;
+  for (let i = 0; i <= 4; i++) {
+    g.beginPath();
+    g.moveTo((i / 4) * 256, 0);
+    g.lineTo((i / 4) * 256, 128);
+    g.stroke();
+  }
+  g.beginPath();
+  g.moveTo(0, 64);
+  g.lineTo(256, 64);
+  g.stroke();
+  MONEY_TEX = new THREE.CanvasTexture(c);
+  MONEY_TEX.colorSpace = THREE.SRGBColorSpace;
+  return MONEY_TEX;
+}
+function moneyBall() {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(0.12, 22, 14), new THREE.MeshLambertMaterial({ map: moneyTexture() }));
+  m.castShadow = true;
+  return m;
+}
+function deepBall() {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(0.12, 22, 14), new THREE.MeshLambertMaterial({ color: 0xffc928, emissive: 0x6b4a00 }));
+  m.castShadow = true;
+  return m;
+}
 
 const tint = (m, color) => {
   m.traverse((o) => {
@@ -69,8 +112,7 @@ export class Contest {
         this.objs.push(frame);
         for (let k = 0; k < 5; k++) {
           const isMoney = k === 4 || S.i === money;
-          const mesh = ballMesh();
-          if (isMoney) tint(mesh, 0x8fb8ff); // (the money balls: red, white and blue in the league; ours are blue)
+          const mesh = isMoney ? moneyBall() : ballMesh(); // (money balls: red, white and blue)
           const along = 0.52 - k * 0.26;
           const b = { mesh, x: cx + f[0] * along, y: gy + 0.75 + 0.12, z: cz + f[1] * along, vx: 0, vy: 0, vz: 0, mode: 'rack', holder: null, t: 0, pts: isMoney ? 2 : 1, kind: isMoney ? 'money' : 'reg', res: null };
           mesh.position.set(b.x, b.y, b.z);
@@ -86,7 +128,7 @@ export class Contest {
         stand.position.set(cx, gy + 0.375, cz);
         game.scene.add(stand);
         this.objs.push(stand);
-        const mesh = tint(ballMesh(), 0xffd23f);
+        const mesh = deepBall();
         const b = { mesh, x: cx, y: gy + 0.75 + 0.12, z: cz, vx: 0, vy: 0, vz: 0, mode: 'rack', holder: null, t: 0, pts: 3, kind: 'deep', res: null };
         mesh.position.set(b.x, b.y, b.z);
         game.scene.add(mesh);
@@ -184,14 +226,24 @@ export class Contest {
         if (this.si >= this.stations.length) this.horn(true);
         else this.phase = 'move';
       } else if (sb.has !== 'you' && !sb.shot && !sb.you.fall && !this.grab && this.ballsLeft() > 0) {
-        // Grab the next ball off the rack.
-        markScoop(p.char, game.time);
-        this.grab = { t: 0 };
+        // Grab the next ball off the rack (on your left): turn to it, both hands on it, in.
+        const b = this.station().balls[this.bi];
+        this.grab = { t: 0, T: GRAB_T, b, from: [b.x, b.y, b.z] };
       }
       if (this.grab) {
-        this.grab.t += dt;
-        if (this.grab.t >= 0.26) {
-          const b = this.station().balls[this.bi];
+        const G = this.grab;
+        G.t += dt;
+        const b = G.b;
+        // (it stays on the rack till the hands get there, then rides in them to the chest)
+        if (G.t > G.T * 0.45) {
+          handsAt(p.char, _h);
+          const k = Math.min(1, (G.t - G.T * 0.45) / (G.T * 0.2));
+          b.x = G.from[0] + (_h.x - G.from[0]) * k;
+          b.y = G.from[1] + (_h.y - G.from[1]) * k;
+          b.z = G.from[2] + (_h.z - G.from[2]) * k;
+          b.mesh.position.set(b.x, b.y, b.z);
+        }
+        if (G.t >= G.T) {
           b.mode = 'held';
           b.holder = 'you';
           sb.g.ball = b;
@@ -253,6 +305,31 @@ export class Contest {
     if (this.phase === 'horn' && (!this.flying.length || this.t > 3)) this.finish();
   }
 
+  // Your body while grabbing a ball (streetball late): turned to the rack on your left, a little
+  // dip, both hands out to the ball, then back square to the basket with it at the chest.
+  pose(p) {
+    const G = this.grab;
+    if (!G) return 0;
+    const c = p.char;
+    const k = Math.min(1, G.t / G.T);
+    const out = Math.sin(Math.min(1, k / 0.9) * Math.PI); // (out to it and back)
+    const [px, pz] = p.pos();
+    const want = Math.atan2(G.b.x - px, G.b.z - pz);
+    let turn = want - p.heading;
+    while (turn > Math.PI) turn -= Math.PI * 2;
+    while (turn < -Math.PI) turn += Math.PI * 2;
+    c.group.rotation.y = p.heading + turn * out * 0.85;
+    c.group.rotation.x = 0.28 * out;
+    const reach = k < 0.55 ? out : 1 - (k - 0.55) / 0.45; // (arms out to it, then in to the chest)
+    for (const [a, e, w, side] of [[c.armL, c.elbowL, c.wristL, 1], [c.armR, c.elbowR, c.wristR, -1]]) {
+      a.rotation.x = -0.55 - 0.55 * reach;
+      a.rotation.z = side * 0.28;
+      e.rotation.x = -1.05 + 0.85 * reach;
+      w.rotation.x = -0.4;
+    }
+    return crouchPose(c, 0.35 * out);
+  }
+
   face(p) {
     const rim = this.sb.rim;
     const [px, pz] = p.pos();
@@ -269,7 +346,8 @@ export class Contest {
     this.bi += 1;
     // (a stand-in so nothing reaches for a ball that's gone: the next one, still on the rack)
     const S = this.station();
-    sb.g.ball = S && S.balls[this.bi] ? S.balls[this.bi] : { mesh: b.mesh, x: b.x, y: b.y, z: b.z, vx: 0, vy: 0, vz: 0, mode: 'rack', holder: null, t: 0 };
+    // (never the ball that's flying: the court would keep putting its mesh back where it was)
+    sb.g.ball = S && S.balls[this.bi] ? S.balls[this.bi] : { mesh: new THREE.Object3D(), x: b.x, y: b.y, z: b.z, vx: 0, vy: 0, vz: 0, mode: 'rack', holder: null, t: 0 };
   }
 
   // Time (or the last ball): no more shots; whatever's in the air still counts.
