@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { dist, rand, pick } from './util.js';
 import { setShirt } from './character.js';
-import { throwPose, layoutPose, qbStance } from './football.js';
+import { throwPose, layoutPose, qbStance, holdBall, tuckCarry, jukePose, spinPose, stiffArmPose, fbBallAt } from './footballpose.js';
 
 // Quarterback a drive at Harbor Field (football.js runs the passing drill there).
 // - Join: walk onto the field while they're lining up; their quarterback offers you the ball.
@@ -690,6 +690,11 @@ export class Gridiron {
       b.x = v.x;
       b.y = v.y;
       b.z = v.z;
+    } else if (fbBallAt(p.char, _gb)) {
+      // (in your hands, wherever your pose put them: footballpose.js)
+      b.x = _gb.x;
+      b.y = _gb.y;
+      b.z = _gb.z;
     } else {
       b.x = px + fx * 0.15 - fz * 0.3;
       b.z = pz + fz * 0.15 + fx * 0.3;
@@ -747,6 +752,7 @@ export class Gridiron {
     const b = this.fb.ball;
     c.group.rotation.x = 0;
     c.armL.rotation.z = c.armR.rotation.z = 0;
+    c.group.userData.fbGrip = null;
     if (this.downT > 0) {
       const t = 1.1 - this.downT;
       const k = t < 0.25 ? t / 0.25 : this.downT < 0.35 ? this.downT / 0.35 : 1;
@@ -755,6 +761,7 @@ export class Gridiron {
     }
     if (this.state === 'line' && (p.speed || 0) < 0.3 && this.ready) {
       c.group.position.y += qbStance(c);
+      this.placeBall(c, b);
       return;
     }
     if (b.holder === 'you') {
@@ -762,17 +769,30 @@ export class Gridiron {
         p.heading = Math.PI; // (backpedaling, facing downfield)
         c.group.rotation.y = p.heading;
       }
+      const M = this.runMove;
+      const sp = p.speed || 0;
       if (this.press) throwPose(c, Math.min(1, this.press.t / 0.15), 0);
-      else if (this.scramble || (p.speed || 0) > 3) {
-        // (tucked under the arm, the elbow clamped down on it)
-        c.armR.rotation.x = -0.5;
-        c.elbowR.rotation.x = -1.6;
-      } else {
-        // (two hands on it at the chest)
-        c.armL.rotation.x = c.armR.rotation.x = -1.1;
-        c.elbowL.rotation.x = c.elbowR.rotation.x = -0.9;
-      }
+      else if (M && M.kind === 'juke') jukePose(c, M.side, M.t / M.T, sp);
+      else if (M && M.kind === 'spin') {
+        // (a full turn through the tackle, toward the ball's side; the run carries on the same way)
+        const k = Math.min(1, M.t / M.T);
+        spinPose(c, k);
+        c.group.rotation.y = p.heading - Math.PI * 2 * (k * k * (3 - 2 * k));
+      } else if (M && M.kind === 'stiff') stiffArmPose(c, M.t / M.T, sp);
+      else if (this.scramble || (sp > 3 && !this.dropping)) tuckCarry(c, sp); // (high and tight; dropping back it stays in both hands)
+      else holdBall(c, this.dropping ? 0 : Math.sin(game.time * 1.4) * 0.5); // (two hands on it at the chest, scanning)
+      this.placeBall(c, b);
     } else if (this.throwT > 0) throwPose(c, 1, 1 - this.throwT / 0.4); // (the follow-through)
+  }
+
+  // The ball in your hands, where this frame's pose put them.
+  placeBall(c, b) {
+    if (b.holder !== 'you' || b.mode !== 'held') return;
+    if (!fbBallAt(c, _gb)) return;
+    b.x = _gb.x;
+    b.y = _gb.y;
+    b.z = _gb.z;
+    b.mesh.position.copy(_gb);
   }
 
   // ---- Over ----
@@ -835,6 +855,7 @@ export class Gridiron {
 
 // A receiver's button (a round badge with the symbol) that always faces the camera, the same
 // size on screen however far off he is.
+const _gb = new THREE.Vector3();
 function iconSprite(text, color) {
   const cv = document.createElement('canvas');
   cv.width = cv.height = 64;

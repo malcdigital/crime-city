@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { makeCharacter, animateWalk, crouchPose, crouchWalk, restPose, fallPose, lam } from './character.js';
 import { aimPose, lowReady, fightStance, markPunch, punchPose, markFlinch, flinchPose, markRecoil, reloadPose, kneelPose, FIGHT_STYLES, PUNCH_T } from './combatpose.js';
+import { qbStance, wrStance, dbStance, holdBall, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, jukePose, spinPose, stiffArmPose, fbBallAt } from './footballpose.js';
 import { shotForm, dribbleArm, hesiPush, handoff, dribbleFrom, HO_TOP, SPIN_REL, dribbleArms, pivotPose, fadePose, triplePose, anklePose } from './streetball.js';
 import { dunkPose, dunkPhase } from './dunkpose.js';
 import { markJump, jumpPose } from './blockpose.js';
@@ -15,6 +16,7 @@ import { ballMesh } from './court.js';
 // drag to turn the camera round; ✕ / Esc / ○ to close.
 
 const _v = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
 const ease = (k) => k * k * (3 - 2 * k);
 const clamp01 = (k) => Math.max(0, Math.min(1, k));
 
@@ -57,6 +59,27 @@ function list(game) {
     ['Fighting', 'Shot (hit, still up)', 1.2, (c, t, S) => { once(S, 0.3, () => markFlinch(c, S.now, 'shot')); flinchPose(c, S.now); return {}; }],
     ['Fighting', 'Shot down: falls back', 2.6, (c, t) => S_fall(c, t - 0.3, 'back')],
     ['Fighting', 'Shot from behind: falls forward', 2.6, (c, t) => S_fall(c, t - 0.3, 'front')],
+    // ---- Football (footballpose.js: yours and theirs) ----
+    ['Football', 'QB stance (at the line)', 2, (c) => ({ y: qbStance(c), fball: 1 })],
+    ['Football', 'In the pocket (scanning)', 3, (c, t) => { holdBall(c, Math.sin((t / 3) * Math.PI * 2) * 0.8); return { fball: 1 }; }],
+    ['Football', 'Throw (wind up, release, follow-through)', 1.6, (c, t) => {
+      if (t < 0.25) { holdBall(c, 0); return { fball: 1 }; }
+      if (t < 0.55) { throwPose(c, (t - 0.25) / 0.3, 0); return { fball: 1 }; }
+      throwPose(c, 1, Math.min(1, (t - 0.55) / 0.4));
+      return { fball: 1 };
+    }],
+    ['Football', 'Receiver stance', 2, (c) => ({ y: wrStance(c) })],
+    ['Football', 'Defender stance', 2, (c) => ({ y: dbStance(c) })],
+    ['Football', 'Catch: high (a lob)', 1.4, (c) => { catchPose(c, true); return { fball: 'hands' }; }],
+    ['Football', 'Catch: at the chest (a bullet)', 1.4, (c) => { catchPose(c, false); return { fball: 'hands' }; }],
+    ['Football', 'Running with it (tucked)', 0.8, (c, t) => { animateWalk(c, t * 7.85, 1); tuckCarry(c, 7); return { y: Math.abs(Math.sin(t * 7.85)) * 0.05, fball: 1 }; }],
+    ['Football', 'Juke', 1, (c, t) => { animateWalk(c, t * 7.85, 1); if (t > 0.3 && t < 0.58) jukePose(c, 1, (t - 0.3) / 0.28, 6); else tuckCarry(c, 6); return { slide: t > 0.3 ? -Math.min(1, (t - 0.3) / 0.28) * 0.8 : 0, fball: 1 }; }],
+    ['Football', 'Spin', 1.2, (c, t) => { animateWalk(c, t * 7.85, 1); const k = Math.max(0, Math.min(1, (t - 0.3) / 0.45)); if (k > 0 && k < 1) spinPose(c, k); else tuckCarry(c, 6); return { turn: -Math.PI * 2 * k * k * (3 - 2 * k), fball: 1 }; }],
+    ['Football', 'Stiff-arm', 1.2, (c, t) => { animateWalk(c, t * 7.85, 1); if (t > 0.2 && t < 0.8) stiffArmPose(c, (t - 0.2) / 0.6, 6); else tuckCarry(c, 6); return { fball: 1 }; }],
+    ['Football', 'Diving catch', 2, (c, t) => { const k = t < 0.4 ? t / 0.4 : t > 1.6 ? (2 - t) / 0.4 : 1; const y = layoutPose(c, k, true); return { y, rotX: c.group.rotation.x }; }],
+    ['Football', 'Tackled (going down)', 2, (c, t) => { const k = t < 0.3 ? t / 0.3 : t > 1.6 ? (2 - t) / 0.4 : 1; const y = layoutPose(c, k, false); return { y, rotX: c.group.rotation.x }; }],
+    ['Football', 'Juked (caught leaning)', 1.4, (c) => { jukedPose(c, 1); return {}; }],
+    ['Football', 'Defender going up for the ball', 1.4, (c) => { reachBall(c); return {}; }],
     // ---- Basketball ----
     ['Basketball', 'Dribble (stance)', 1.2, (c, t) => { const ph = t * 9; const y = sb ? sb.dribblePose(c, 0, null, 0, 1, false) : crouchPose(c, 0.28); return { y, ball: [-0.42, 0.18 + Math.abs(Math.sin(ph)) * 0.8, 0.46], dribble: 'R' }; }],
     ...[['front', 'Crossover (one bounce across)'], ['legs', 'Between the legs'], ['behind', 'Behind the back']].map(([kind, nm]) => ['Basketball', nm, 1.3, (c, t, S) => {
@@ -219,6 +242,12 @@ export class AnimViewer {
     scene.add(this.flash);
     this.ball = ballMesh();
     scene.add(this.ball);
+    // (a football, for the football poses)
+    const fg = new THREE.SphereGeometry(0.11, 10, 8);
+    fg.scale(1, 1, 1.6);
+    this.fball = new THREE.Mesh(fg, new THREE.MeshLambertMaterial({ color: 0x6b3a1f }));
+    this.fball.visible = false;
+    scene.add(this.fball);
     this.cam = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.05, 50);
     this.list = list(this.game);
     // The panel.
@@ -372,6 +401,7 @@ export class AnimViewer {
     for (const j of JOINTS) c[j].rotation.set(0, 0, 0);
     c.group.rotation.set(0, 0, 0);
     restPose(c);
+    c.group.userData.fbGrip = null;
     c.group.rotation.order = 'YXZ';
     c.group.position.set(0, 0, 0);
     for (const g of Object.values(this.guns)) g.visible = false;
@@ -389,6 +419,17 @@ export class AnimViewer {
       c.group.updateMatrixWorld(true);
       g.localToWorld(_v.set(0, 0, g.geometry.parameters.depth / 2 + 0.06));
       this.flash.position.copy(_v);
+    }
+    // A football: in the hands where the pose holds it (fbBallAt), or in front of the hands.
+    this.fball.visible = false;
+    if (r.fball) {
+      c.group.updateMatrixWorld(true);
+      const at = r.fball === 'hands' ? c.group.localToWorld(handsAt(c, _v) && c.group.worldToLocal(_v).add(_v2.set(0, 0, 0.12))) : fbBallAt(c, _v);
+      if (at) {
+        this.fball.visible = true;
+        this.fball.position.copy(at);
+        this.fball.rotation.set(0, c.group.rotation.y, 0);
+      }
     }
     // The ball: in the hands, set to shoot, at a spot (character space), or put away.
     this.ball.visible = !!r.ball;

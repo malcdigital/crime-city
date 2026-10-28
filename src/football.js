@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { lam, setShirt, bendLeg, crouchPose } from './character.js';
-// (throwPose, catchPose, layoutPose and qbStance are below: yours and theirs)
+import { lam, setShirt, bendLeg, bendSpine } from './character.js';
+import { qbStance, wrStance, dbStance, holdBall, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt } from './footballpose.js';
 import { rand, dist, lerpAngle, pick } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
 
@@ -209,7 +209,12 @@ export class Football {
       const p = b.holder;
       const fx = Math.sin(p.heading);
       const fz = Math.cos(p.heading);
-      if (p.fb.throwT > 0) {
+      if (fbBallAt(p.char, _fv)) {
+        // (in his hands, wherever this frame's pose put them: footballpose.js)
+        b.x = _fv.x;
+        b.y = _fv.y;
+        b.z = _fv.z;
+      } else if (p.fb.throwT > 0) {
         // Cocked back over the shoulder.
         b.x = p.x - fx * 0.2 - fz * 0.35;
         b.z = p.z - fz * 0.2 + fx * 0.35;
@@ -603,16 +608,25 @@ export class Football {
     if (f.role === 'fan') {
       bendLeg(c.legL, c.kneeL, 1.5, 1.5);
       bendLeg(c.legR, c.kneeR, 1.5, 1.5);
-      c.armL.rotation.x = c.armR.rotation.x = -0.5;
+      // (sat forward, elbows on the knees; on their feet in spirit for a big play: leaning back,
+      // arms up, waving one)
+      c.armL.rotation.x = c.armR.rotation.x = -0.9;
+      c.elbowL.rotation.x = c.elbowR.rotation.x = -1.2;
+      bendSpine(c, 0.3, 0, 0);
+      c.neck.rotation.set(-0.3, 0, 0);
       if (f.cheerT > 0) {
         c.armR.rotation.x = -2.9;
         c.armL.rotation.x = -2.6 + Math.sin(f.cheerT * 18) * 0.3;
+        c.elbowL.rotation.x = c.elbowR.rotation.x = -0.2;
+        bendSpine(c, -0.15, Math.sin(f.cheerT * 9) * 0.15, 0);
+        c.neck.rotation.set(-0.25, 0, 0);
       }
       return f.seatY - 0.9;
     }
     let y = 0.04;
     c.group.rotation.x = 0;
     c.armL.rotation.z = c.armR.rotation.z = 0;
+    c.group.userData.fbGrip = null;
     // Down: a diving catch (laid out, then getting up) or brought down in a tackle.
     if (f.downT > 0) {
       const T = f.downLen || 1.1;
@@ -620,35 +634,22 @@ export class Football {
       const k = t < 0.25 ? t / 0.25 : f.downT < 0.35 ? f.downT / 0.35 : 1;
       return y + layoutPose(c, k, f.dive);
     }
-    if (this.phase === 'set' && p.speed === 0) y += f.role === 'qb' ? qbStance(c) : crouchPose(c, 0.35); // (in their stance)
-    if (f.beatT > 0) {
-      // (juked: off balance, arms flailing)
-      c.group.rotation.x = -0.25;
-      c.armL.rotation.x = -1.8;
-      c.armR.rotation.x = -0.6;
-    }
-    if (!b) return y;
-    if (b.holder === p) {
-      if (f.throwT > 0) throwPose(c, 1 - Math.max(0, f.throwT - 0.12) / 0.23, 0); // (winding up)
-      else if (p.speed > 0.5) {
-        // (tucked under the arm, the elbow clamped down on it)
-        c.armR.rotation.x = -0.5;
-        c.elbowR.rotation.x = -1.6;
-      } else {
-        c.armL.rotation.x = c.armR.rotation.x = -1.1;
-        c.elbowL.rotation.x = c.elbowR.rotation.x = -0.9;
+    const set = this.phase === 'set' && p.speed === 0;
+    if (set) y = (f.role === 'qb' ? qbStance(c) : f.role === 'wr' || f.role === 'rb' ? wrStance(c) : f.role === 'db' || f.role === 'lb' ? dbStance(c) : 0) + 0.04; // (in their stance)
+    if (f.beatT > 0) jukedPose(c, f.jukeSide || 1); // (juked: off balance, twisted, arms out)
+    if (b) {
+      if (b.holder === p) {
+        if (f.throwT > 0) throwPose(c, 1 - Math.max(0, f.throwT - 0.12) / 0.23, 0); // (winding up)
+        else if (p.speed > (f.role === 'qb' ? 4 : 0.5)) tuckCarry(c, p.speed); // (high and tight; a quarterback dropping back keeps two hands on it)
+        else if (!set) holdBall(c, f.role === 'qb' ? Math.sin(this.t * 1.6) * 0.8 : 0); // (in the pocket, scanning)
+      } else if (f.relT > 0) {
+        throwPose(c, 1, 1 - f.relT / 0.4); // (the throw and the follow-through)
+      } else if (b.mode === 'flight' && b.to === p && b.T - b.t < 0.6) {
+        if (b.kind === 'pass') catchPose(c, b.style === 'lob' || b.p1[1] > 1.5);
+        else catchPose(c, false); // (a toss or a handoff: hands out at the chest)
+      } else if ((f.role === 'db' || f.role === 'lb') && (this.phase === 'play' || this.match) && b.mode === 'flight' && b.kind === 'pass') {
+        reachBall(c); // (going up for it)
       }
-    } else if (f.relT > 0) {
-      throwPose(c, 1, 1 - f.relT / 0.4); // (the throw and the follow-through)
-    } else if (b.mode === 'flight' && b.to === p && b.T - b.t < 0.6) {
-      if (b.kind === 'pass') catchPose(c, b.style === 'lob' || b.p1[1] > 1.5);
-      else {
-        c.armL.rotation.x = c.armR.rotation.x = -1.4;
-        c.elbowL.rotation.x = c.elbowR.rotation.x = -0.8;
-      }
-    } else if (f.role === 'db' && (this.phase === 'play' || this.match) && b.mode === 'flight' && b.kind === 'pass') {
-      c.armL.rotation.x = -2.6; // going for the ball
-      c.elbowL.rotation.x = -0.2;
     }
     return y;
   }
@@ -675,66 +676,5 @@ function setDownLegs(p) {
   bendLeg(c.legR, c.kneeR, 0, 0);
 }
 
-// ---- Shared football poses (yours in gridiron.js, theirs here) ----
-const mix = (a, b, k) => a + (b - a) * k;
-const ease = (k) => k * k * (3 - 2 * k);
-
-// The quarterback's throw. cock (0-1): the ball coming back by the ear (the elbow up and out,
-// the front arm pointing at the target, the front foot stepping); release (0-1, over ~0.4 s):
-// the elbow leads, the forearm whips through, and the arm follows through down across the body.
-export function throwPose(c, cock, release) {
-  const k = ease(Math.min(1, cock));
-  // (cocked: the upper arm out to the side and up, the forearm back up behind the head)
-  let s = [mix(-0.7, -2.0, k), mix(0, -0.7, k), mix(-0.4, -1.9, k), mix(0, 0.5, k)];
-  let g = [mix(-0.6, -1.5, k), mix(0, 0.15, k), mix(-0.4, -0.25, k)];
-  if (release > 0) {
-    const r = Math.min(1, release);
-    const a = ease(Math.min(1, r / 0.35)); // (the whip forward)
-    const b = ease(Math.max(0, (r - 0.35) / 0.65)); // (following through, down and across)
-    s = [mix(mix(s[0], -2.4, a), -0.9, b), mix(mix(s[1], -0.2, a), 0.45, b), mix(mix(s[2], -0.2, a), -0.5, b), mix(mix(s[3], -0.6, a), -0.4, b)];
-    g = [mix(g[0], -0.5, a), mix(g[1], -0.1, a), mix(g[2], -1.5, a)]; // (the front arm tucks in)
-  }
-  c.armR.rotation.x = s[0];
-  c.armR.rotation.z = s[1];
-  c.elbowR.rotation.x = s[2];
-  c.wristR.rotation.x = s[3];
-  c.armL.rotation.x = g[0];
-  c.armL.rotation.z = g[1];
-  c.elbowL.rotation.x = g[2];
-  c.wristL.rotation.x = 0;
-  // (the step: front foot forward into the throw, back foot pushing)
-  const st = release > 0 ? 1 : k;
-  bendLeg(c.legL, c.kneeL, 0.45 * st, 0.25 * st);
-  bendLeg(c.legR, c.kneeR, -0.25 * st, 0.35 * st);
-}
-
-// Hands up for a catch: high for a lob, chest high for a bullet; the elbows bent, palms out.
-export function catchPose(c, high) {
-  c.armL.rotation.x = c.armR.rotation.x = high ? -2.7 : -2.0;
-  c.armL.rotation.z = -0.12;
-  c.armR.rotation.z = 0.12;
-  c.elbowL.rotation.x = c.elbowR.rotation.x = high ? -0.35 : -0.75;
-  c.wristL.rotation.x = c.wristR.rotation.x = -0.3;
-}
-
-// Laid out (a diving catch) or going down in a tackle: k 0..1 tipped forward onto the stomach,
-// arms out ahead for a dive. Returns the height change.
-export function layoutPose(c, k, dive) {
-  c.group.rotation.x = (Math.PI / 2) * 0.95 * ease(Math.min(1, k));
-  c.armL.rotation.x = c.armR.rotation.x = dive ? -2.95 : -2.2;
-  c.elbowL.rotation.x = c.elbowR.rotation.x = dive ? -0.15 : -0.9;
-  c.legL.rotation.x = c.legR.rotation.x = 0;
-  c.kneeL.rotation.x = c.kneeR.rotation.x = dive ? 0.3 : 0.6;
-  // (tipped over at the feet the body already lies at the ground: lift it by its thickness so
-  // it rests on the grass instead of sinking into it)
-  return 0.2 * ease(Math.min(1, k));
-}
-
-// The quarterback's stance at the line: knees bent, hands out for the snap.
-export function qbStance(c) {
-  const y = crouchPose(c, 0.3);
-  c.armL.rotation.x = c.armR.rotation.x = -0.95;
-  c.elbowL.rotation.x = c.elbowR.rotation.x = -0.7;
-  c.wristL.rotation.x = c.wristR.rotation.x = 0;
-  return y;
-}
+// (The shared football poses are in footballpose.js.)
+const _fv = new THREE.Vector3();
