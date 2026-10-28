@@ -263,6 +263,8 @@ export class Input {
     a.bMove = null;
     for (const [code, kind, side] of mv) if (this.hit(code)) a.bMove = { kind, side };
     a.bSizeUp = k('KeyI');
+    // (on defense: hold the right stick / I / HANDS to keep your hands up and contest, no jump)
+    a.bHands = (!this.touchMode && Math.hypot(this.axis(2), this.axis(3)) > 0.55) || k('KeyI') || this.btn(19);
     // (the touch buttons: 18 cross, 19 hesi, 20 step, 21 spin; their side comes from the stick)
     const tside = a.moveX < -0.2 ? -1 : a.moveX > 0.2 ? 1 : 0;
     if (this.btnHit(18)) a.bMove = { kind: 'cross', side: tside };

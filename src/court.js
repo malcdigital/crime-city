@@ -1,3 +1,4 @@
+import { HoopNet } from './net.js';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { lam } from './character.js';
@@ -233,7 +234,6 @@ function buildCourt(city, scene, cfg) {
 
   // Hoops: pole behind the baseline, an arm out over the line, backboard, rim and net.
   const hl = COURT.l / 2;
-  const nets = [];
   const hoops = [];
   for (const end of [-1, 1]) {
     const base = COURT.cz + end * hl;
@@ -248,9 +248,6 @@ function buildCourt(city, scene, cfg) {
     rim.rotateX(Math.PI / 2);
     rim.translate(COURT.cx, 3.05, rimZ);
     orange.push(rim);
-    const net = new THREE.CylinderGeometry(0.23, 0.15, 0.45, 10, 2, true);
-    net.translate(COURT.cx, 2.82, rimZ);
-    nets.push(net);
     // (dir: from the rim out into the court)
     const [hx, hz] = toWorld(cfg, COURT.cx, rimZ);
     const [ax, az] = toWorld(cfg, COURT.cx, rimZ - end);
@@ -327,7 +324,8 @@ function buildCourt(city, scene, cfg) {
   add(wood, lam(0x7a5434));
   add(white, lam(0xe9e9e4));
   add(orange, lam(0xd8641f));
-  add(nets, new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true }), false);
+  // (the nets move: a little cloth sim each, net.js, stepped by hoops.js)
+  const netSims = hoops.map((h) => new HoopNet(scene, h));
   const headMat = new THREE.MeshLambertMaterial({ color: 0xd9d6c8, emissive: 0x000000 });
   add(heads, headMat, false);
   city.windowMats?.push(headMat); // (lit after dark with the windows)
@@ -344,6 +342,7 @@ function buildCourt(city, scene, cfg) {
   const hl2 = COURT.l / 2;
   return {
     name: cfg.name, cx: cfg.cx, cz: cfg.cz, spots, hoops, ball,
+    nets: netSims,
     pad: worldRect(cfg, PAD.x0, PAD.z0, PAD.x1, PAD.z1),
     court: worldRect(cfg, COURT.cx - hw, COURT.cz - hl2, COURT.cx + hw, COURT.cz + hl2),
   };

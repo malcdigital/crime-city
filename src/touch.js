@@ -357,7 +357,10 @@ export class TouchControls {
       const b = this.el.buttons;
       b.bshoot.el.querySelector('.tl').textContent = off || game.sport.has !== 'opp' ? 'SHOOT' : 'STEAL';
       b.bblock.hint.textContent = game.sport.has === 'opp' ? 'block' : off ? 'oop' : 'rebound';
-      for (const id of ['bcross', 'bhesi', 'bstep', 'bspin']) b[id].el.classList.toggle('hidden', !off);
+      for (const id of ['bcross', 'bstep', 'bspin']) b[id].el.classList.toggle('hidden', !off);
+      // (HESI on offense; on defense it's HANDS: hold to keep your hands up and contest)
+      b.bhesi.el.classList.toggle('hidden', !off && game.sport.has !== 'opp');
+      b.bhesi.el.querySelector('.tl').textContent = off ? 'HESI' : 'HANDS';
       b.bpass.el.classList.toggle('hidden', !(game.sport.solo && (off || game.sport.g?.ball?.mode === 'loose'))); // (passing / a fetch: shooting around)
       b.bd.el.classList.toggle('hidden', !!game.sport.solo);
     }

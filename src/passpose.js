@@ -1,3 +1,5 @@
+import * as THREE from 'three';
+
 // Passing and catching a basketball, the same for everybody (you, him in a one-on-one, the
 // people shooting around): a two-hand chest pass (from the chest the hands push out and turn
 // down, thumbs to the floor, then come back), and the catch (hands up to the ball, palms out,
@@ -27,11 +29,15 @@ export function markCatch(c, at) {
 // Returns true if it posed the arms (a pass or a catch going on).
 export function passPose(c, now) {
   const u = c.group.userData;
+  // (both arms angled in from the shoulders and turned so the palms face each other: the hands
+  // meet on the ball instead of sticking straight out)
   const set = (x, z, e, w) => {
     u.posed = true;
     c.armL.rotation.x = c.armR.rotation.x = x;
     c.armL.rotation.z = -z;
     c.armR.rotation.z = z;
+    c.armL.rotation.y = 0.45;
+    c.armR.rotation.y = -0.45;
     c.elbowL.rotation.x = c.elbowR.rotation.x = e;
     c.wristL.rotation.x = c.wristR.rotation.x = w;
   };
@@ -40,7 +46,7 @@ export function passPose(c, now) {
     const push = ease(clamp01(t / 0.35)); // (out)
     const back = ease(clamp01((t - 0.6) / 0.4)); // (and back)
     // (from the chest pocket, elbows in, to arms out straight, wrists turned through)
-    set(mix(mix(-1.05, -1.5, push), -0.6, back), mix(mix(0.38, 0.12, push), 0.05, back), mix(mix(-1.35, -0.05, push), -0.4, back), mix(mix(-0.2, 0.7, push), 0, back));
+    set(mix(mix(-0.95, -1.4, push), -0.6, back), mix(mix(0.34, 0.3, push), 0.05, back), mix(mix(-1.2, -0.35, push), -0.4, back), mix(mix(-0.3, 0.6, push), 0, back));
     return true;
   }
   if (u.catchAt != null) {
@@ -48,13 +54,13 @@ export function passPose(c, now) {
     if (left > 0 && left <= REACH_T) {
       // (hands up and out to it, palms facing it)
       const k = ease(clamp01(1 - left / REACH_T));
-      set(mix(-0.7, -1.35, k), mix(0.15, 0.3, k), mix(-0.6, -0.45, k), mix(0, -0.45, k));
+      set(mix(-0.7, -1.3, k), mix(0.2, 0.34, k), mix(-0.7, -0.6, k), mix(0, -0.45, k));
       return true;
     }
     if (left <= 0 && -left < GIVE_T) {
       // (caught: the give, elbows bending, the ball in to the chest)
       const k = ease(clamp01(-left / GIVE_T));
-      set(mix(-1.35, -1.1, k), mix(0.3, 0.38, k), mix(-0.45, -1.3, k), mix(-0.45, -0.1, k));
+      set(mix(-1.3, -0.95, k), mix(0.34, 0.32, k), mix(-0.6, -1.15, k), mix(-0.45, -0.3, k));
       return true;
     }
     if (-left >= GIVE_T) u.catchAt = null;
@@ -63,6 +69,72 @@ export function passPose(c, now) {
     // (done: the arms straight back in at the sides; the walk animation does the rest)
     u.posed = false;
     c.armL.rotation.z = c.armR.rotation.z = 0;
+    c.armL.rotation.y = c.armR.rotation.y = 0;
+    c.armL.rotation.x = c.armR.rotation.x = 0; // (and down: nothing else may set them this frame)
+    c.elbowL.rotation.x = c.elbowR.rotation.x = -0.15;
+    c.wristL.rotation.x = c.wristR.rotation.x = 0;
   }
   return false;
+}
+
+// ---- The ball in the hands (passes and catches really touch it) ----
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
+
+// Where a ball held between both palms is (world), from how the arms were posed last frame:
+// between the two hands, a touch in from the wrists.
+export function handsAt(c, out) {
+  c.group.updateMatrixWorld(true);
+  c.wristL.localToWorld(_a.set(0, -0.13, 0));
+  c.wristR.localToWorld(_b.set(0, -0.13, 0));
+  return out.copy(_a).add(_b).multiplyScalar(0.5);
+}
+
+// Set a pass going from the passer's hands, steered into the catcher's (call right after the
+// ball's launched; steerPass every frame of the flight).
+export function passFrom(b, passer, catcher) {
+  if (passer) {
+    handsAt(passer, _a);
+    // (the flight starts there: the arc's the same, just from the hands)
+    const dy = _a.y - b.p0[1];
+    b.p0 = [_a.x, _a.y, _a.z];
+    b.x = _a.x;
+    b.y = _a.y;
+    b.z = _a.z;
+    b.vy0 -= dy / Math.max(0.05, b.T); // (still lands where it was going)
+  }
+  b.catcher = catcher || null;
+  b.p1y0 = b.p1[1];
+  b.yAdj = 0;
+}
+
+// While a pass is in the air: once the catcher's hands are out for it, the end of the flight
+// follows them (so it ends up in his hands, not at his chest).
+export function steerPass(b) {
+  const c = b.catcher;
+  if (!c || b.mode !== 'flight') return;
+  const left = b.T - b.t;
+  if (left > 0.4) return;
+  handsAt(c, _a);
+  const k = Math.min(1, (0.4 - left) / 0.25);
+  b.p1[0] += (_a.x - b.p1[0]) * k;
+  b.p1[2] += (_a.z - b.p1[2]) * k;
+  b.yAdj += (_a.y - b.p1y0 - b.yAdj) * k;
+}
+
+// Holding it in both hands at the chest (a check-up): elbows in, the hands on the sides of it.
+export function holdPose(c) {
+  c.armL.rotation.x = c.armR.rotation.x = -0.95;
+  c.armL.rotation.z = -0.32;
+  c.armR.rotation.z = 0.32;
+  c.armL.rotation.y = 0.45;
+  c.armR.rotation.y = -0.45;
+  c.elbowL.rotation.x = c.elbowR.rotation.x = -1.15;
+  c.wristL.rotation.x = c.wristR.rotation.x = -0.3;
+}
+
+// Pulling a catch in (the ball rides in the hands meanwhile).
+export function catching(c, now) {
+  const at = c?.group.userData.catchAt;
+  return at != null && now >= at && now - at < GIVE_T;
 }

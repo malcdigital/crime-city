@@ -13,6 +13,17 @@
 // floats off it and the board gives a pulse. Smaller on a phone (style.css).
 
 const pad2 = (n) => String(n).padStart(2, '0');
+// The flames that go up behind a side when that player's on fire: tongues of fire of different
+// sizes, flickering out of step, and a few embers rising.
+const flames = () => {
+  let h = '';
+  for (let i = 0; i < 9; i++) {
+    const w = 16 + ((i * 7) % 4) * 6;
+    h += `<i style="left:${(i / 8) * 100 - 8}%;width:${w}px;height:${38 + ((i * 5) % 3) * 14}px;animation-delay:-${(i * 0.13) % 0.6}s;animation-duration:${0.45 + ((i * 3) % 4) * 0.08}s"></i>`;
+  }
+  for (let i = 0; i < 5; i++) h += `<b style="left:${12 + i * 19}%;animation-delay:-${i * 0.31}s"></b>`;
+  return `<div class="sc-flames">${h}</div>`;
+};
 
 export class Scoreboard {
   constructor() {
@@ -26,9 +37,9 @@ export class Scoreboard {
     el.innerHTML = `<div class="sc-place"></div>
       <div class="sc-box">
         <div class="sc-row">
-          <div class="sc-side you"><div class="sc-name">YOU</div><div class="sc-num"><span></span></div><div class="sc-poss">● POSSESSION</div></div>
+          <div class="sc-side you">${flames()}<div class="sc-name">YOU</div><div class="sc-num"><span></span></div><div class="sc-poss">● POSSESSION</div></div>
           <div class="sc-dash">—</div>
-          <div class="sc-side opp"><div class="sc-name"></div><div class="sc-num"><span></span></div><div class="sc-poss">● POSSESSION</div></div>
+          <div class="sc-side opp">${flames()}<div class="sc-name"></div><div class="sc-num"><span></span></div><div class="sc-poss">● POSSESSION</div></div>
         </div>
         <div class="sc-foot"></div>
       </div>`;

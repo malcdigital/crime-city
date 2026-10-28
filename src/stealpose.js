@@ -87,3 +87,48 @@ export function scoopPose(c, now, heading) {
   c.group.rotation.y = heading;
   return -Math.max(0, Math.max(0, Math.min(d1, d2)) - d0);
 }
+
+// A reach-in foul (the whistle): the one who fouled puts a hand straight up, owning it; the one
+// who got hacked throws his arms out, palms up, asking for the call. Arms only; for a second or so.
+const FOUL_T = 1.2;
+
+export function markFoul(c, now, fouler) {
+  if (!c) return;
+  const u = c.group.userData;
+  u.foulAt = now;
+  u.fouler = !!fouler;
+}
+
+export function foulPose(c, now) {
+  const u = c.group.userData;
+  if (u.foulAt == null) return false;
+  const t = now - u.foulAt;
+  if (t < 0 || t > FOUL_T) {
+    u.foulAt = null;
+    return false;
+  }
+  if (u.fouler) {
+    // (after the swipe: the hand goes up, then comes down at the end)
+    const k = seg(t, 0.3, 0.5) * (1 - seg(t, 1.0, 1.2));
+    if (k <= 0) return false;
+    c.armR.rotation.x = mix(c.armR.rotation.x, -3.05, k);
+    c.armR.rotation.z = mix(c.armR.rotation.z, -0.05, k);
+    c.elbowR.rotation.x = mix(c.elbowR.rotation.x, -0.1, k);
+    c.wristR.rotation.x = mix(c.wristR.rotation.x, 0, k);
+    c.armL.rotation.x = mix(c.armL.rotation.x, -0.2, k);
+    c.armL.rotation.z = mix(c.armL.rotation.z, 0.1, k);
+    c.elbowL.rotation.x = mix(c.elbowL.rotation.x, -0.3, k);
+    return true;
+  }
+  // (hacked: arms out to the sides, palms up, leaning back a touch)
+  const k = seg(t, 0.15, 0.35) * (1 - seg(t, 0.95, 1.2));
+  if (k <= 0) return false;
+  for (const [a, e, w, out] of [[c.armL, c.elbowL, c.wristL, 1], [c.armR, c.elbowR, c.wristR, -1]]) {
+    a.rotation.x = mix(a.rotation.x, -1.25, k);
+    a.rotation.z = mix(a.rotation.z, 0.75 * out, k);
+    e.rotation.x = mix(e.rotation.x, -0.55, k);
+    w.rotation.x = mix(w.rotation.x, -0.7, k);
+  }
+  c.group.rotation.x = mix(c.group.rotation.x, -0.1, k);
+  return true;
+}

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { markPass, markCatch, passPose } from './passpose.js';
+import { markPass, markCatch, passPose, passFrom, steerPass } from './passpose.js';
 import { lam } from './character.js';
 import { rand, dist, lerpAngle } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
@@ -55,6 +55,16 @@ export class Hoops {
     }
     if (!this.active && !this.spoiled && d < NEAR && game.time >= (this.nextTry || 0)) this.start();
     for (const g of this.groups) this.step(g, dt);
+    // The nets: every ball in play at this court pushes them about.
+    if (S.nets) {
+      const balls = this.groups.map((g) => g.ball);
+      const sb = game.sport;
+      if (sb?.active && sb.H === this) {
+        if (sb.g?.ball && !balls.includes(sb.g.ball)) balls.push(sb.g.ball);
+        for (const P of sb.t33?.players || []) if (P.ball) balls.push(P.ball);
+      }
+      for (const n of S.nets) n.step(dt, balls);
+    }
     // Everyone gone (ran off, hurt): the game's over.
     if (this.active && this.groups.every((g) => !g.players.length)) {
       for (const g of this.groups) this.dropBall(g);
@@ -164,6 +174,8 @@ export class Hoops {
     b.holder = null;
     b.p0 = [b.x, b.y, b.z];
     b.p1 = [tx, ty, tz];
+    b.catcher = null; // (a pass sets these after: passpose.js)
+    b.yAdj = 0;
     b.T = T;
     b.t = 0;
     b.vy0 = (ty - b.y + 0.5 * G * T * T) / T;
@@ -194,12 +206,13 @@ export class Hoops {
       if (b.target === p) b.target = null;
     }
     if (b.mode === 'flight') {
+      steerPass(b); // (a pass ends up in his hands)
       b.t += dt;
       const k = Math.min(1, b.t / b.T);
       b.x = b.p0[0] + (b.p1[0] - b.p0[0]) * k;
       b.z = b.p0[2] + (b.p1[2] - b.p0[2]) * k;
       const t = Math.min(b.t, b.T);
-      b.y = b.p0[1] + b.vy0 * t - 0.5 * G * t * t;
+      b.y = b.p0[1] + b.vy0 * t - 0.5 * G * t * t + (b.yAdj || 0) * k;
       if (b.t >= b.T) this.landed(g);
     } else if (b.mode === 'loose') {
       this.roll(b, dt);
@@ -368,6 +381,7 @@ export class Hoops {
           b.target = r;
           r.hp.role = 'catch';
           this.launch(b, r.x, 1.2, r.z, Math.max(0.35, d / 11));
+          passFrom(b, p.char, r.char); // (from his hands, into the other's)
           markPass(p.char, this.game.time);
           markCatch(r.char, this.game.time + Math.max(0.35, d / 11));
           g.last = p;

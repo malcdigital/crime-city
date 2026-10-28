@@ -7,9 +7,9 @@ import { HeatFx } from './heatfx.js';
 import { dunkPose, dunkPhase, dunkBall } from './dunkpose.js';
 import { markReach, reachWhiff, reachHit, reachPose } from './reachpose.js';
 import { markJump, markSwat, jumpPose } from './blockpose.js';
-import { markStripped, markScoop, scooping, strippedPose, scoopPose } from './stealpose.js';
+import { markStripped, markScoop, scooping, strippedPose, scoopPose, markFoul, foulPose } from './stealpose.js';
 import { readyPose, boxOutPose, markGrab, grabbing, grabPose } from './reboundpose.js';
-import { markPass, markCatch, passPose } from './passpose.js';
+import { markPass, markCatch, passPose, passFrom, steerPass, handsAt, holdPose, catching } from './passpose.js';
 import { CFG } from './config.js';
 
 const px0 = (p) => p.pos()[0];
@@ -539,6 +539,7 @@ export class Streetball {
     this.shot = null;
     this.outT = 0;
     this.dead = null;
+    this.foul = null;
     this.lastShooter = null;
     this.touch = null;
     this.clock = 0;
@@ -1130,6 +1131,7 @@ export class Streetball {
     this.H.launch(b, tx, 1.2, tz, T);
     b.kind = 'check';
     b.to = to;
+    passFrom(b, to === 'you' ? this.opp.char : this.game.player.char, to === 'you' ? this.game.player.char : this.opp.char);
     // (a chest pass across, caught with both hands)
     const you = this.game.player.char;
     const him = this.opp.char;
@@ -1305,6 +1307,7 @@ export class Streetball {
     this.H.launch(b, q.x + Math.sin(q.heading) * sp * T, 1.2, q.z + Math.cos(q.heading) * sp * T, T);
     b.kind = 'pass';
     b.to = q;
+    passFrom(b, p.char, q.char);
     this.has = null;
     markPass(p.char, game.time);
     markCatch(q.char, game.time + T);
@@ -1394,6 +1397,7 @@ export class Streetball {
     const TB = 0.25 + dist(q.x, q.z, px, pz) / 15;
     this.H.launch(b, px, 1.2, pz, TB);
     b.kind = 'back';
+    passFrom(b, q.char, game.player.char);
     markPass(q.char, game.time);
     markCatch(game.player.char, game.time + TB);
     this.has = null;
@@ -1588,6 +1592,31 @@ export class Streetball {
   sideOfBall(x, z, h) {
     const b = this.g.ball;
     return (b.x - x) * -Math.cos(h) + (b.z - z) * Math.sin(h) >= 0 ? 1 : -1;
+  }
+
+  // A reach-in foul: the whistle. A beat where nobody moves (his hand comes down on the arm, he
+  // owns it with a hand up, the one hacked throws his arms out), then the check-up.
+  foulBeat(fouler, off, why) {
+    const game = this.game;
+    const fc = fouler === 'you' ? game.player.char : this.opp.char;
+    const vc = fouler === 'you' ? this.opp.char : game.player.char;
+    reachHit(fc);
+    markFoul(fc, game.time, true);
+    markFoul(vc, game.time, false);
+    this.foul = { t: 0, T: 1.2, off, why };
+    game.hud.toast('Reach-in foul!', '#ffd23f');
+  }
+
+  // Is the defender at (dx, dz) really trailing the driver at (sx, sz), coming from behind: at
+  // least 0.7 m further from the rim along the drive, not off to the side, and in reach. (Only
+  // then is it a chase-down.)
+  trailing(dx, dz, sx, sz) {
+    const rx = this.rim.x - sx;
+    const rz = this.rim.z - sz;
+    const rl = Math.hypot(rx, rz) || 1;
+    const along = ((dx - sx) * rx + (dz - sz) * rz) / rl; // (+ toward the rim)
+    const side = Math.abs(((dx - sx) * -rz + (dz - sz) * rx) / rl);
+    return along < -0.7 && side < 1.3 && dist(dx, dz, sx, sz) < 2.6;
   }
 
   // A defensive jump by who: a block (the other one has it, or just let it go) or a rebound.
@@ -1854,6 +1883,14 @@ export class Streetball {
       game.camYaw = lerpAngle(game.camYaw, want, Math.min(1, dt * 2.5));
     }
     this.checkCam(dt);
+    // The whistle on a reach-in: nobody moves.
+    if (this.foul) {
+      this.clock += dt;
+      a.moveX = a.moveY = 0;
+      a.sprint = false;
+      this.prevShoot = shootHeld;
+      return;
+    }
     // Checking it up: nobody moves.
     if (this.check) {
       this.clock += dt;
@@ -1902,6 +1939,7 @@ export class Streetball {
       return;
     }
     Y.intense = false;
+    Y.handsUp = false;
     hp.boxed = false;
     // (how you've been moving lately: for telling a drive to the rim)
     Y.vx = (Y.vx || 0) + ((p.vx || 0) - (Y.vx || 0)) * Math.min(1, dt * 8);
@@ -1993,6 +2031,8 @@ export class Streetball {
         a.moveX *= 0.85;
         a.moveY *= 0.85;
       }
+      // Hands up (right stick / I / HANDS held): contesting without leaving the floor.
+      Y.handsUp = !!a.bHands && (this.has === 'opp' || (this.flight?.by === 'opp' && b.mode === 'flight'));
       // Box out: intense D while the shot's up or the ball's loose.
       hp.boxed = intense && b.mode !== 'held' && dO < 1.7;
       if (Y.boxed) {
@@ -2757,7 +2797,7 @@ export class Streetball {
     const [px, pz] = game.player.pos();
     const opp = this.opp;
     const hp = opp.hp;
-    let lv = this.openness(px, pz, opp.x, opp.z, hp.beatT > 0.2 || hp.fallT > 0, (hp.jumpT || 0) > 0);
+    let lv = this.openness(px, pz, opp.x, opp.z, hp.beatT > 0.2 || hp.fallT > 0, (hp.jumpT || 0) > 0 || hp.handsUp);
     if (s.fade) lv = Math.max(0, lv - 1); // (fading away from his hand)
     let w = s.W * OPEN_WINDOW[lv];
     if (s.fade) w *= 0.9; // (harder going backward)
@@ -2816,7 +2856,14 @@ export class Streetball {
     }
     // A foul on the shot: and-one if it goes, your ball again if not.
     this.foulOnShot = lv >= 3 && Math.random() < 0.08;
-    game.hud.toast(this.solo ? grade : `${grade} · ${OPEN[lv]}`, green || (s.type === 'dunk' && make) ? '#7ee081' : make ? '#ffd23f' : '#ff8080');
+    if (s.type === 'dunk') game.hud.toast(this.solo ? grade : `${grade} · ${OPEN[lv]}`, make ? '#7ee081' : '#ff8080');
+    else {
+      // (the timing: a badge under your energy bar, not a message in the middle of the screen)
+      const m = Math.abs(e) - w / 2;
+      const when = e < 0 ? 'EARLY' : 'LATE';
+      const sub = green ? 'PERFECT RELEASE' : this.solo ? `${Math.max(1, Math.round(m * 1000))} MS ${when}` : OPEN[lv].toUpperCase();
+      this.badge(green ? 'ex' : m < 0.06 ? 'slight' : 'off', grade.toUpperCase(), sub);
+    }
     if (s.type === 'dunk') {
       this.g.ball.y = Math.max(this.g.ball.y, this.rim.y + 0.15); // (from your hands, through the rim)
       this.launch(make, 'you', s.pts, 0.14);
@@ -2953,7 +3000,7 @@ export class Streetball {
     const behind = ((px - opp.x) * Math.sin(opp.heading) + (pz - opp.z) * Math.cos(opp.heading)) < -0.3;
     const foulP = 0.1 + (again ? 0.2 : 0) + (behind ? 0.15 : 0);
     if (Math.random() < foulP) {
-      this.checkup('opp', `Reach-in foul. ${opp.ballName}'s ball, check it up`);
+      this.foulBeat('you', 'opp', `Reach-in foul. ${opp.ballName}'s ball, check it up`);
       return;
     }
     const p = (0.08 + (hp.state === 'move' ? 0.25 : 0) + (dB < 1 ? 0.06 : 0)) * (1.3 - this.r / 100);
@@ -2974,7 +3021,7 @@ export class Streetball {
     const front = ((px - opp.x) * (this.rim.x - opp.x) + (pz - opp.z) * (this.rim.z - opp.z)) > 0;
     // A chase-down: trailing him on a layup or a dunk, running, you get up from behind and pin it
     // on the glass (a longer reach, and clean more often than a block from behind).
-    const chase = !front && (hp.shot === 'layup' || hp.shot === 'dunk') && game.player.speed > 3.2 && d < 2.6;
+    const chase = (hp.shot === 'layup' || hp.shot === 'dunk') && game.player.speed > 3.2 && this.trailing(px, pz, opp.x, opp.z);
     if (d > (chase ? 2.6 : 1.8)) return;
     const timing = Math.abs(hp.t - hp.rel) < (chase ? 0.25 : 0.2) ? 1 : 0.5;
     const base = { jumper: 0.35, layup: 0.45, floater: 0.4, dunk: 0.2 }[hp.shot] || 0.3;
@@ -3020,6 +3067,18 @@ export class Streetball {
     const off = px < P.x0 - 1 || px > P.x1 + 1 || pz < P.z0 - 1 || pz > P.z1 + 1;
     this.outT = off ? this.outT + dt : 0;
     if (this.outT > 2.5 || game.player.vehicle || game.stars > 0 || game.wastedT > 0 || game.bustedT > 0) return this.end(this.solo && !this.t33 ? 'done' : 'forfeit');
+    // A reach-in foul's whistle: everything holds a beat, then the check-up.
+    if (this.foul) {
+      this.foul.t += dt;
+      if (this.foul.t >= this.foul.T) {
+        const f = this.foul;
+        this.foul = null;
+        this.checkup(f.off, f.why);
+      }
+      this.carry(dt);
+      b.mesh.position.set(b.x, b.y, b.z);
+      return;
+    }
     if (this.t33) {
       this.cleared = true;
       this.step33(dt);
@@ -3057,12 +3116,13 @@ export class Streetball {
         b.p1[0] = b.to.x;
         b.p1[2] = b.to.z;
       }
+      steerPass(b); // (into the catcher's hands as they come up for it)
       b.t += dt;
       const k = Math.min(1, b.t / b.T);
       b.x = b.p0[0] + (b.p1[0] - b.p0[0]) * k;
       b.z = b.p0[2] + (b.p1[2] - b.p0[2]) * k;
       const t = Math.min(b.t, b.T);
-      b.y = b.p0[1] + b.vy0 * t - 0.5 * G * t * t;
+      b.y = b.p0[1] + b.vy0 * t - 0.5 * G * t * t + (b.yAdj || 0) * k;
       if (b.t >= b.T) {
         if (b.kind === 'check') this.checkArrive();
         else if (b.kind === 'pass') this.passArrive();
@@ -3130,6 +3190,25 @@ export class Streetball {
         }
       }
     }
+    // His hands up: you going up for a shot with him in your face (the same as your hands up).
+    hp.handsUp = !!this.shot && this.shot.type !== 'dunk' && hp.fallT <= 0 && !(hp.jumpT > 0) && dist(px, pz, opp.x, opp.z) < 2.0;
+    // Nobody walks through anybody: the two of you are pushed apart.
+    if (!this.check) {
+      const dx = opp.x - px;
+      const dz = opp.z - pz;
+      const d = Math.hypot(dx, dz);
+      const MIN = 0.62;
+      if (d < MIN && d > 1e-4) {
+        const push = (MIN - d) / 2;
+        const p = game.player;
+        if (!this.you.dunk) {
+          p.x -= (dx / d) * push;
+          p.z -= (dz / d) * push;
+        }
+        opp.x += (dx / d) * push * (this.you.dunk ? 2 : 1);
+        opp.z += (dz / d) * push * (this.you.dunk ? 2 : 1);
+      }
+    }
     // His box-out on you: a shot of yours up (or the ball loose), him between you and the rim.
     {
       const Y = this.you;
@@ -3151,7 +3230,7 @@ export class Streetball {
         markReach(opp.char, game.time, this.sideOfBall(opp.x, opp.z, opp.heading), false, true); // (he's always in his stance guarding you)
         const exposed = this.you.move && MOVES[this.you.move.kind].risk ? 0.15 : 0;
         const r = Math.random();
-        if (r < 0.12) return this.checkup('you', `Reach-in on ${opp.ballName}. Check it up`);
+        if (r < 0.12) return this.foulBeat('opp', 'you', `Reach-in on ${opp.ballName}. Check it up`);
         else if (r < 0.12 + (0.06 + exposed) * (this.r / 75)) {
           this.knockLoose('you', opp.x, opp.z, `${opp.ballName} poked it away!`);
         }
@@ -3211,12 +3290,12 @@ export class Streetball {
       return;
     }
     if (this.has === 'check') {
-      // (held at the chest, face to face)
+      // (held in both hands at the chest, face to face)
       const h = b.holder === 'you' ? this.game.player : this.opp;
-      const [hx, hz] = b.holder === 'you' ? h.pos() : [h.x, h.z];
-      b.x = hx + Math.sin(h.heading) * 0.35;
-      b.z = hz + Math.cos(h.heading) * 0.35;
-      b.y = 1.2;
+      handsAt(h.char, _v1);
+      b.x = _v1.x;
+      b.y = _v1.y;
+      b.z = _v1.z;
       return;
     }
     if (this.has === 'you') {
@@ -3229,6 +3308,13 @@ export class Streetball {
       if (Y.dunk) {
         // (in the hands going up: where the dunk's arms have it)
         dunkBall(b, game.player.char, Y.dunkTwo ?? true, Y.dunk.hand ?? 1, _v1, _v2);
+        return;
+      }
+      if (catching(game.player.char, game.time)) {
+        handsAt(game.player.char, _v1); // (pulling a catch in: it's in both hands)
+        b.x = _v1.x;
+        b.y = _v1.y;
+        b.z = _v1.z;
         return;
       }
       if (scooping(game.player.char, game.time) || grabbing(game.player.char, game.time)) {
@@ -3265,7 +3351,12 @@ export class Streetball {
       const hp = opp.hp;
       const fx = Math.sin(opp.heading);
       const fz = Math.cos(opp.heading);
-      if (scooping(opp.char, game.time) || grabbing(opp.char, game.time)) this.shotBall(b, opp.char, 1, 0); // (scooped up: in both hands)
+      if (catching(opp.char, game.time)) {
+        handsAt(opp.char, _v1);
+        b.x = _v1.x;
+        b.y = _v1.y;
+        b.z = _v1.z;
+      } else if (scooping(opp.char, game.time) || grabbing(opp.char, game.time)) this.shotBall(b, opp.char, 1, 0); // (scooped up: in both hands)
       else if (hp.state === 'shoot' && hp.appr && hp.t < hp.appr.T) {
         b.x = opp.x + fx * 0.32;
         b.z = opp.z + fz * 0.32;
@@ -3423,6 +3514,46 @@ export class Streetball {
     at.ex = ((v.x + 1) / 2) * W;
     at.ey = ((1 - v.y) / 2) * H + 34; // (well below his feet)
     game.hud.sportFloat(at, meter, this.you.st);
+    // The timing badge sits under the energy bar; the green pulse on the floor at your feet.
+    const B = this.badgeEl;
+    if (B) {
+      B.style.left = `${at.ex}px`;
+      B.style.top = `${at.ey + (game.input.touchMode ? 10 : 14)}px`;
+    }
+    const P = this.pulse;
+    if (P && P.visible) {
+      const k = Math.min(1, (game.time - P.userData.t0) / 0.55);
+      P.position.set(px, 0.04, pz);
+      P.scale.setScalar(1 + k * 2.4);
+      P.material.opacity = 0.75 * (1 - k);
+      if (k >= 1) P.visible = false;
+    }
+  }
+
+  // Your shot's timing, under the energy bar: tier 'ex' (mint, an edge flash, and a green pulse
+  // at your feet), 'slight' (warm amber) or 'off' (muted coral). Pops in, holds, fades.
+  badge(tier, title, sub) {
+    let el = this.badgeEl;
+    if (!el) {
+      el = this.badgeEl = document.createElement('div');
+      el.id = 'shot-badge';
+      document.body.appendChild(el);
+    }
+    el.className = '';
+    el.innerHTML = `<div class="sb-t"><span class="sb-d">◇</span>${title}</div><div class="sb-s">${sub}</div>`;
+    void el.offsetWidth; // (restart the animation)
+    el.className = `show ${tier}`;
+    if (tier === 'ex') {
+      if (!this.pulse) {
+        const m = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.36, 40), new THREE.MeshBasicMaterial({ color: 0x5ef2b0, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
+        m.rotation.x = -Math.PI / 2;
+        m.renderOrder = 3;
+        this.game.scene.add(m);
+        this.pulse = m;
+      }
+      this.pulse.visible = true;
+      this.pulse.userData.t0 = this.game.time;
+    }
   }
 
   landed() {
@@ -3517,6 +3648,7 @@ export class Streetball {
   // ---- His game (hoops.js asks for his moves while the match is on) ----
   drive(p, dt) {
     if (this.t33) return this.drive33(p, dt);
+    if (this.foul) return { speed: 0 }; // (the whistle: he holds where he is)
     const game = this.game;
     const [px, pz] = game.player.pos();
     const rim = this.rim;
@@ -3592,10 +3724,9 @@ export class Streetball {
       }
       // Beaten on a drive: he runs you down from behind and goes up for the chase-down.
       const s = this.shot;
-      const behind = ((p.x - px) * (rim.x - px) + (p.z - pz) * (rim.z - pz)) < 0;
+      const behind = this.trailing(p.x, p.z, px, pz);
       if (s && (s.type === 'layup' || s.type === 'dunk') && behind && hp.fallT <= 0) {
-        const dd = dist(p.x, p.z, px, pz);
-        if (!hp.jumpT && dd < 2.6 && s.t > s.T - 0.3 && Math.random() < 0.35 + this.r / 250) {
+        if (!hp.jumpT && s.t > s.T - 0.3 && Math.random() < 0.2 + this.r / 400) {
           hp.jumpT = 0.6;
           hp.chase = true;
         }
@@ -4016,7 +4147,7 @@ export class Streetball {
     const [px, pz] = game.player.pos();
     const Y = this.you;
     p.heading = Math.atan2(this.rim.x - p.x, this.rim.z - p.z); // (square to the rim at the release)
-    let lv = this.openness(p.x, p.z, px, pz, Y.beatT > 0.2 || Y.fallT > 0, Y.jumpT > 0);
+    let lv = this.openness(p.x, p.z, px, pz, Y.beatT > 0.2 || Y.fallT > 0, Y.jumpT > 0 || Y.handsUp);
     const d = dist(p.x, p.z, this.rim.x, this.rim.z);
     const r = this.r;
     let make;
@@ -4053,6 +4184,7 @@ export class Streetball {
   pose(p) {
     if (this.t33) return this.pose33(p);
     let y = this.poseRaw(p);
+    if (p === this.opp && this.has === 'check' && this.g.ball.holder === p) holdPose(p.char); // (the same as you)
     if (p === this.opp && !this.check) {
       const drop = reachPose(p.char, this.game.time, p.heading); // (his reach-in, the same as yours)
       if (drop != null) y += drop;
@@ -4073,6 +4205,7 @@ export class Streetball {
         const d = f(p.char, this.game.time, p.heading); // (stripped or scooping, the same as you)
         if (d != null) y += d;
       }
+      foulPose(p.char, this.game.time);
       if ((hp.jumpT || 0) > (hp.jPrev ?? 0) + 1e-6) markJump(p.char, this.game.time, hp.jumpT, this.jumpKind('opp'), this.sideOfBall(p.x, p.z, p.heading));
       hp.jPrev = hp.jumpT || 0;
       if (hp.state !== 'shoot' && hp.state !== 'oop' && hp.state !== 'oopLand') {
@@ -4106,6 +4239,7 @@ export class Streetball {
     const c = p.char;
     c.legL.rotation.z = c.legR.rotation.z = 0;
     c.armL.rotation.z = c.armR.rotation.z = 0;
+    c.armL.rotation.y = c.armR.rotation.y = 0; // (no twist left over from a pass or a hold)
     c.group.rotation.z = 0;
     if (this.fetch && p === this.fetch.q) {
       if (this.g.ball.holder === p) c.armL.rotation.x = c.armR.rotation.x = -1.2;
@@ -4133,7 +4267,7 @@ export class Streetball {
           if (this.has === 'opp') {
             dribbleArm(c, hp.ballSide ?? 1, hp.dribble || 0, 0);
             (hp.ballSide < 0 ? c.armR : c.armL).rotation.x = -0.6; // (the other arm out)
-          } else this.defenseArms(c, false); // (on D: one hand up, one low)
+          } else this.defenseArms(c, false, !!hp.handsUp); // (on D: hands low, or up contesting)
           return 0.06 + drop;
         }
       }
@@ -4227,7 +4361,11 @@ export class Streetball {
         const [qx, qz] = this.game.player.pos();
         p.heading = Math.atan2(qx - p.x, qz - p.z); // (always facing you: slides, not runs)
         c.group.rotation.y = p.heading;
-        return 0.06 + this.defensePose(c, p.heading, hp.vx || 0, hp.vz || 0, this.clock * (4 + Math.hypot(hp.vx || 0, hp.vz || 0) * 2.2), hp.armsT > 0);
+        // (his slide steps go by how far he's moved, the same as yours)
+        const spd = Math.hypot(hp.vx || 0, hp.vz || 0);
+        hp.defPh = (hp.defPh || 0) + Math.min(0.1, Math.max(0, this.clock - (hp.defT ?? this.clock))) * spd * (Math.PI / 0.42);
+        hp.defT = this.clock;
+        return 0.06 + this.defensePose(c, p.heading, hp.vx || 0, hp.vz || 0, hp.defPh, hp.armsT > 0, !!hp.handsUp);
       }
       c.armL.rotation.x = c.armR.rotation.x = hp.jumpT > 0 ? -2.8 : hp.armsT > 0 ? -1.6 : -1.0;
     } else if (hp.cheerT > 0) c.armR.rotation.x = -2.9;
@@ -4313,21 +4451,33 @@ export class Streetball {
   // low and out to poke at the ball. Sliding sideways the feet push apart and come back together
   // (they never cross), low, leaning a little into the slide; backing up it's the backward
   // shuffle. (h: his facing; vx, vz: how he's moving; ph: the step phase; swipe: reaching in.)
-  defensePose(c, h, vx, vz, ph, swipe) {
-    this.defenseArms(c, swipe);
+  // The defensive stance (yours and his): low and wide, both hands low and out (both up
+  // contesting when hands is on). Sliding, it steps: the lead foot lifts and reaches out to the
+  // side, the trail foot pushes and closes in (never crossing), the hips bobbing with each step;
+  // ph is the step phase, advanced by how far you've actually moved (so the feet don't skate).
+  defensePose(c, h, vx, vz, ph, swipe, hands = false) {
+    this.defenseArms(c, swipe, hands);
     const sp = Math.hypot(vx, vz);
     const fwd = sp > 0 ? (vx * Math.sin(h) + vz * Math.cos(h)) / sp : 0;
     const lat = sp > 0 ? (vx * -Math.cos(h) + vz * Math.sin(h)) / sp : 0;
-    if (sp > 0.5 && fwd < -0.5) return this.shuffleLegs(c, ph); // (backing up)
-    if (sp > 0.5 && Math.abs(lat) > 0.5) {
-      // (the slide: push out, bring together, never crossing)
-      const spread = 0.16 + 0.28 * Math.abs(Math.sin(ph));
-      const dl = bendLeg(c.legL, c.kneeL, 0.65, 1.15);
-      const dr = bendLeg(c.legR, c.kneeR, 0.65, 1.15);
-      c.legL.rotation.z = spread;
-      c.legR.rotation.z = -spread;
-      c.group.rotation.z = Math.sign(lat) * 0.08;
-      return -Math.min(dl, dr);
+    if (sp > 0.4 && Math.abs(lat) <= 0.45) return this.shuffleLegs(c, ph) + 0.02 * Math.sin(ph * 2); // (closing out or backing up: short choppy steps, never a glide)
+    void fwd;
+    if (sp > 0.4 && Math.abs(lat) > 0.45) {
+      const T = Math.PI * 2;
+      const u = (((ph % T) + T) % T) / T;
+      const reach = u < 0.5 ? Math.sin((u / 0.5) * Math.PI * 0.5) : Math.cos(((u - 0.5) / 0.5) * Math.PI * 0.5); // (the lead foot out, then back under)
+      const liftLead = u < 0.5 ? Math.sin((u / 0.5) * Math.PI) : 0;
+      const liftTrail = u >= 0.5 ? Math.sin(((u - 0.5) / 0.5) * Math.PI) : 0;
+      const right = lat > 0; // (moving to his right: the right foot leads)
+      const [LL, LK, TL, TK] = right ? [c.legR, c.kneeR, c.legL, c.kneeL] : [c.legL, c.kneeL, c.legR, c.kneeR];
+      const dl = bendLeg(LL, LK, 0.62 + 0.3 * liftLead, 1.1 + 0.6 * liftLead);
+      const dt2 = bendLeg(TL, TK, 0.62 + 0.22 * liftTrail, 1.1 + 0.45 * liftTrail);
+      const leadOut = 0.2 + 0.36 * reach;
+      const trailOut = 0.2 - 0.1 * liftTrail;
+      LL.rotation.z = right ? -leadOut : leadOut;
+      TL.rotation.z = right ? trailOut : -trailOut;
+      c.group.rotation.z = (right ? 1 : -1) * 0.06 * (1 - reach);
+      return -Math.min(dl, dt2) + 0.025 * Math.sin(u * Math.PI * 4); // (a little bob with each step)
     }
     // (set: wide and low)
     const dl = bendLeg(c.legL, c.kneeL, 0.75, 1.3);
@@ -4337,13 +4487,22 @@ export class Streetball {
     return -Math.min(dl, dr);
   }
 
-  defenseArms(c, swipe) {
-    c.armR.rotation.x = -2.5; // (high hand)
-    c.armR.rotation.z = -0.15;
-    c.armL.rotation.x = swipe ? -1.6 : -0.9; // (low hand, out to the ball)
-    c.armL.rotation.z = 0.45;
-    c.elbowR.rotation.x = -0.25;
-    c.elbowL.rotation.x = swipe ? -0.1 : -0.45;
+  // Both hands low and out, ready (or both up high, contesting).
+  defenseArms(c, swipe, hands = false) {
+    if (hands) {
+      c.armL.rotation.x = c.armR.rotation.x = -2.75;
+      c.armL.rotation.z = 0.18;
+      c.armR.rotation.z = -0.18;
+      c.elbowL.rotation.x = c.elbowR.rotation.x = -0.15;
+      c.wristL.rotation.x = c.wristR.rotation.x = -0.2;
+      return;
+    }
+    c.armR.rotation.x = -0.85;
+    c.armR.rotation.z = -0.5;
+    c.armL.rotation.x = swipe ? -1.6 : -0.85; // (the low hands, out to the ball)
+    c.armL.rotation.z = 0.5;
+    c.elbowR.rotation.x = -0.5;
+    c.elbowL.rotation.x = swipe ? -0.1 : -0.5;
     c.wristL.rotation.x = c.wristR.rotation.x = 0;
   }
 
@@ -4359,6 +4518,8 @@ export class Streetball {
   // Your arms and stance (main.js, after you move).
   late(dt) {
     this.lateRaw(dt);
+    // (checking it up with the ball: held in both hands)
+    if (this.has === 'check' && this.g.ball.holder === 'you') holdPose(this.game.player.char);
     // (a reach-in going on: the lunge and swipe over the stance)
     if (!this.check && !this.t33) {
       const p = this.game.player;
@@ -4383,6 +4544,7 @@ export class Streetball {
         const d = f(p.char, this.game.time, p.heading);
         if (d != null) p.char.group.position.y += d;
       }
+      foulPose(p.char, this.game.time); // (a reach-in foul: owning it, or asking for the call)
       // (a block or a rebound jump: the whole body, the same as his)
       const Y = this.you;
       const [px, pz] = p.pos();
@@ -4432,6 +4594,7 @@ export class Streetball {
     p.showWeapon('fists');
     c.legL.rotation.z = c.legR.rotation.z = 0;
     c.armL.rotation.z = c.armR.rotation.z = 0;
+    c.armL.rotation.y = c.armR.rotation.y = 0; // (no twist left over from a pass or a hold)
     c.group.rotation.z = 0;
     c.group.rotation.x = 0;
     Y.armsT = Math.max(0, (Y.armsT || 0) - dt);
@@ -4489,10 +4652,10 @@ export class Streetball {
         c.group.rotation.y = p.heading;
       }
       const sp = Math.hypot(p.vx || 0, p.vz || 0);
-      if (Y.intense || sp < 0.6) {
-        Y.bpPhase = (Y.bpPhase || 0) + dt * (4 + sp * 2.2);
-        c.group.position.y += this.defensePose(c, p.heading, p.vx || 0, p.vz || 0, Y.bpPhase, Y.armsT > 0);
-      }
+      if (Y.intense || sp < 0.6 || Y.handsUp) {
+        Y.defPh = (Y.defPh || 0) + dt * sp * (Math.PI / 0.42); // (steps by distance: no skating)
+        c.group.position.y += this.defensePose(c, p.heading, p.vx || 0, p.vz || 0, Y.defPh, Y.armsT > 0, !!Y.handsUp);
+      } else if (Y.handsUp) this.defenseArms(c, false, true);
     }
     if (this.has === 'you' && this.g.ball.mode === 'held') {
       if (this.shot) {
@@ -4563,6 +4726,9 @@ export class Streetball {
     const mm = document.getElementById('minimap');
     if (mm) mm.style.visibility = ''; // (the minimap back)
     this.scoreboard?.hide();
+    if (this.badgeEl) this.badgeEl.className = '';
+    if (this.pulse) this.pulse.visible = false;
+    this.foul = null;
     this.game.camFocus = null;
     this.camF = null;
     this.fx?.clear();
