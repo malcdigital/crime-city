@@ -10,7 +10,7 @@ import { markReach, reachWhiff, reachHit, reachPose } from './reachpose.js';
 import { markJump, markSwat, jumpPose } from './blockpose.js';
 import { markStripped, markScoop, scooping, strippedPose, scoopPose, markFoul, foulPose } from './stealpose.js';
 import { readyPose, boxOutPose, markGrab, grabbing, grabPose } from './reboundpose.js';
-import { markPass, markCatch, passPose, passFrom, steerPass, handsAt, holdPose, catching } from './passpose.js';
+import { markPass, markCatch, passPose, passReset, passFrom, steerPass, handsAt, holdPose, catching } from './passpose.js';
 import { CFG } from './config.js';
 
 const px0 = (p) => p.pos()[0];
@@ -139,7 +139,7 @@ const spinHeading = (mv, k) => mv.h0 - (mv.to || 1) * Math.PI * 2 * (k * k * (3 
 // Smoothing between poses (yours and his): every joint eases to where this frame's pose puts it
 // (about 0.1 s to settle), so moves, stances and shots blend instead of snapping.
 const JOINTS = ['armL', 'armR', 'legL', 'legR', 'kneeL', 'kneeR', 'elbowL', 'elbowR', 'wristL', 'wristR'];
-function smoothJoints(c, dt) {
+export function smoothJoints(c, dt) {
   const s = c.group.userData.sm || (c.group.userData.sm = {});
   const k = Math.min(1, dt * 22);
   for (const j of JOINTS) {
@@ -172,7 +172,7 @@ function smoothJoints(c, dt) {
 // on the floor and how far the ball has gone from two hands to the shooting hand (one).
 const ease = (k) => k * k * (3 - 2 * k);
 const mix = (a, b, k) => a + (b - a) * k;
-function shotForm(c, o) {
+export function shotForm(c, o) {
   const { kind, hand, g, u, f = -1, air = false, land = -1, legs = true } = o;
   const k0 = ease(Math.min(1, Math.max(0, g)));
   // Each arm: [shoulder (raised forward), in toward the middle, elbow, wrist (- cocked back)].
@@ -245,7 +245,7 @@ function shotForm(c, o) {
 }
 // The dribbling arm (yours and his): the shoulder and elbow push the ball down, the wrist
 // follows through it; behind the back (bk) the arm swings back round the hip.
-function dribbleArm(c, side, ph, bk) {
+export function dribbleArm(c, side, ph, bk) {
   const arm = side < 0 ? c.armL : c.armR;
   const el = side < 0 ? c.elbowL : c.elbowR;
   const wr = side < 0 ? c.wristL : c.wristR;
@@ -255,7 +255,7 @@ function dribbleArm(c, side, ph, bk) {
     wr.rotation.x = 0;
     return;
   }
-  const push = Math.abs(Math.cos(ph)); // (1 with the ball up in the hand, 0 at the floor)
+  const push = Math.abs(Math.sin(ph + 0.5)); // (1 with the ball up in the hand, 0 at the floor: in step with the bounce (|sin|), a touch ahead so the eased joints land on it)
   arm.rotation.x = -0.35 - push * 0.2;
   el.rotation.x = -0.35 - push * 0.6;
   wr.rotation.x = -0.5 * push + 0.25; // (cupped on top, then pushing through)
@@ -4298,6 +4298,7 @@ export class Streetball {
 
   pose(p) {
     if (this.t33) return this.pose33(p);
+    passReset(p.char, this.game.time); // (a pass or catch that just ended lets go of the arms first)
     let y = this.poseRaw(p);
     if (p === this.opp && this.has === 'check' && this.g.ball.holder === p) holdPose(p.char); // (the same as you)
     if (p === this.opp && !this.check) {
@@ -4334,7 +4335,7 @@ export class Streetball {
       p.heading = Math.atan2(px - p.x, pz - p.z);
       p.char.group.rotation.y = p.heading;
     }
-    passPose(p.char, this.game.time); // (a pass or a catch going on)
+    passPose(p.char, this.game.time, p.hp?.state === 'shoot'); // (a pass or a catch going on; his shot wins)
     if (p !== this.opp) return y;
     // (his joints, height and facing eased the same way as yours)
     const c = p.char;
@@ -4632,6 +4633,7 @@ export class Streetball {
 
   // Your arms and stance (main.js, after you move).
   late(dt) {
+    passReset(this.game.player.char, this.game.time); // (a pass or catch that just ended lets go of the arms first)
     this.lateRaw(dt);
     // (checking it up with the ball: held in both hands)
     if (this.has === 'check' && this.g.ball.holder === 'you') holdPose(this.game.player.char);
@@ -4679,7 +4681,7 @@ export class Streetball {
       p.heading = Math.atan2(this.opp.x - px, this.opp.z - pz);
       p.char.group.rotation.y = p.heading;
     }
-    passPose(this.game.player.char, this.game.time); // (a pass or a catch going on)
+    passPose(this.game.player.char, this.game.time, !!(this.shot || this.you.dunk)); // (a pass or a catch going on; your shot wins)
     // (easing every joint toward this frame's pose, and the height and facing too)
     const c = this.game.player.char;
     const s = smoothJoints(c, dt);

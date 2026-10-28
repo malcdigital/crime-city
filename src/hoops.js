@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { markPass, markCatch, passPose, passFrom, steerPass } from './passpose.js';
+import { markPass, markCatch, passPose, passReset, passFrom, steerPass, handsAt, holdPose } from './passpose.js';
+import { readyPose, markGrab, grabPose } from './reboundpose.js';
+import { shotForm, dribbleArm, smoothJoints } from './streetball.js';
 import { lam } from './character.js';
 import { rand, dist, lerpAngle } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
@@ -16,6 +18,7 @@ import { ballMesh } from './court.js';
 const NEAR = 150; // they turn up when you're this close
 const FAR = 200; // and go when you're this far
 const G = 9.8;
+const _hands = new THREE.Vector3();
 const _axis = new THREE.Vector3();
 const BALL_R = 0.12;
 const FLOOR = 0.06 + BALL_R; // the court's surface
@@ -139,6 +142,7 @@ export class Hoops {
     p.hp.role = 'hold';
     p.hp.phase = 'walk';
     p.hp.t = 0;
+    p.hp.dribble = Math.PI / 2; // (the first dribble starts from the hand, at the top of the bounce)
     p.hp.spot = this.openSpot(p, 1.5, 7);
   }
 
@@ -234,19 +238,40 @@ export class Hoops {
       const p = b.holder;
       const fx = Math.sin(p.heading);
       const fz = Math.cos(p.heading);
-      const jump = p.hp.jump || 0;
       if (p.hp.phase === 'walk') {
+        // (dribbling on his right, under the dribbling hand: the same bounce as a pickup game)
         p.hp.dribble += dt * (p.speed > 0 ? 9 : 7);
-        b.x = p.x + fx * 0.4 - fz * 0.3;
-        b.z = p.z + fz * 0.4 + fx * 0.3;
+        b.x = p.x + fx * 0.35 - fz * 0.3;
+        b.z = p.z + fz * 0.35 + fx * 0.3;
         b.y = FLOOR + Math.abs(Math.sin(p.hp.dribble)) * 0.8;
+      } else if (p.hp.phase === 'shoot' && this.game.sport?.shotBall) {
+        // (the shot: in both hands, then up on the shooting hand to the release)
+        const rel = p.hp.rel || 0.45;
+        this.game.sport.shotBall(b, p.char, 1, Math.max(0, Math.min(1, (p.hp.t - (rel - 0.25)) / 0.15)));
       } else {
-        const up = p.hp.phase === 'shoot' ? Math.min(1, p.hp.t / 0.25) : 0;
-        b.x = p.x + fx * 0.3;
-        b.z = p.z + fz * 0.3;
-        b.y = 1.2 + up * 1.0 + jump;
+        // (set, or passing: in both hands at the chest)
+        handsAt(p.char, _hands);
+        b.x = _hands.x + fx * 0.06;
+        b.y = _hands.y;
+        b.z = _hands.z + fz * 0.06;
       }
     }
+    // (picked up, caught, from the dribble to his hands, or his hands to the shot: eased over a
+    // moment from wherever the ball was, never a jump)
+    const key = b.mode === 'held' && b.holder ? `${b.holder.id ?? b.holder.name}:${b.holder.hp.phase}` : null;
+    if (key && key !== b.holdKey && b.lastAt) b.blend = { t: 0, from: b.lastAt.slice() };
+    b.holdKey = key;
+    if (!key) b.blend = null;
+    if (b.blend) {
+      b.blend.t += dt;
+      const k = Math.min(1, b.blend.t / 0.26);
+      const e = k * k * k * (k * (k * 6 - 15) + 10); // (smootherstep: eases in and out softly)
+      b.x = b.blend.from[0] + (b.x - b.blend.from[0]) * e;
+      b.y = b.blend.from[1] + (b.y - b.blend.from[1]) * e;
+      b.z = b.blend.from[2] + (b.z - b.blend.from[2]) * e;
+      if (k >= 1) b.blend = null;
+    }
+    b.lastAt = [b.x, b.y, b.z];
     b.mesh.position.set(b.x, b.y, b.z);
     if (b.mode === 'flight') b.mesh.rotation.x += dt * 9; // (backspin in the air)
     else if (b.mode === 'loose') {
@@ -323,6 +348,7 @@ export class Hoops {
 
   picked(g, p) {
     const b = g.ball;
+    markGrab(p.char, this.game.time, b.y > 1.7); // (a rebound: snatched and chinned, the same as a pickup game)
     this.giveBall(g, p);
     // Sometimes kick it out to someone else for the shot.
     const others = g.players.filter((q) => q !== p && q.hp.role === 'wait');
@@ -395,13 +421,14 @@ export class Hoops {
         if (h.t > (h.setT ?? 0.5)) {
           h.phase = 'shoot';
           h.t = 0;
+          h.rel = rand(0.42, 0.5); // (gather, rise, release at the top: the pickup game's jumper)
+          h.shotAt = this.game.time;
         }
         return { speed: 0 };
       }
       if (h.phase === 'shoot') {
         face(rim.x, rim.z);
-        h.jump = h.t < 0.5 ? Math.sin((Math.PI * h.t) / 0.5) * 0.45 : 0;
-        if (h.t >= 0.25 && b.mode === 'held') {
+        if (h.t >= (h.rel || 0.45) && b.mode === 'held' && b.holder === p) {
           const d = dist(p.x, p.z, rim.x, rim.z);
           b.kind = 'shot';
           b.make = Math.random() < Math.max(0.3, 0.75 - d * 0.06);
@@ -411,7 +438,7 @@ export class Hoops {
           g.last = p;
           h.release = true;
         }
-        if (h.t > 0.65) this.toWait(p);
+        if (h.t > (h.rel || 0.45) + 0.75) this.toWait(p); // (after the follow-through and landing)
         return { speed: 0 };
       }
     }
@@ -431,30 +458,45 @@ export class Hoops {
     return { speed: 0 };
   }
 
-  // Arms and the jump (peds.js calls this after the walk animation; returns the height offset).
+  // His body (peds.js calls this after the walk animation; returns the height offset). The
+  // same poses as a pickup game: the dribbling arm, the ball held in both hands, the jumper
+  // (gather, rise, release at the top, follow-through, soft landing), hands up in close while a
+  // shot's up, the rebound snatch, the pass and the catch; every joint eased between them.
   pose(p) {
     const h = p.hp;
     if (h.g.match) return h.g.match.pose(p);
     const c = p.char;
     const b = h.g.ball;
-    if (h.role === 'hold' && b.holder === p) {
-      if (h.phase === 'walk') {
-        c.armR.rotation.x = -0.5 - Math.abs(Math.cos(h.dribble)) * 0.35; // dribbling
-      } else if (h.phase === 'shoot') {
-        const k = Math.min(1, h.t / 0.25);
-        c.armL.rotation.x = c.armR.rotation.x = -1.4 - k * 1.5;
-      } else {
-        c.armL.rotation.x = c.armR.rotation.x = -1.3; // ball at the chest
+    const now = this.game.time;
+    passReset(c, now); // (a pass or catch that just ended lets go of the arms first)
+    c.group.rotation.x = 0;
+    let y = 0.06;
+    const S = h.shotAt != null ? now - h.shotAt : -1;
+    const rel = h.rel || 0.45;
+    if (S >= 0 && S < rel + 0.75) {
+      const g0 = rel - 0.25; // (off the floor)
+      const f = S >= rel ? S - rel : -1;
+      const jump = S < g0 ? 0 : S < rel ? 0.45 * Math.sin(((S - g0) / 0.25) * (Math.PI / 2)) : 0.45 * Math.max(0, Math.cos(Math.min(1, (S - rel) / 0.3) * (Math.PI / 2)));
+      const r = shotForm(c, { kind: 'jumper', hand: 1, g: S / 0.14, u: S <= g0 ? 0 : Math.min(1, (S - g0) / 0.25), f, air: jump > 0.02, land: f > 0.3 && jump <= 0.02 ? f - 0.3 : -1 });
+      y = 0.04 + jump + r.y;
+    } else {
+      if (S >= 0) h.shotAt = null;
+      if (b.holder === p && b.mode === 'held') {
+        if (h.phase === 'walk') dribbleArm(c, 1, h.dribble || 0, 0);
+        else holdPose(c); // (set, or about to pass)
+      } else if (b.mode === 'flight' && b.kind === 'shot' && dist(p.x, p.z, h.g.rim.x, h.g.rim.z) < 3.5) {
+        readyPose(c); // (only in close, where the rebound is)
+      } else if (h.cheerT > 0) {
+        c.armR.rotation.x = -2.9;
       }
-    } else if (h.role === 'hold' && h.phase === 'shoot') {
-      c.armR.rotation.x = -2.8; // (the follow-through)
-      c.armL.rotation.x = -2.2;
-    } else if (h.role === 'catch') {
-      c.armL.rotation.x = c.armR.rotation.x = -1.2;
-    } else if (h.cheerT > 0) {
-      c.armR.rotation.x = -2.9;
+      const gd = grabPose(c, now);
+      if (gd != null) y += gd;
     }
-    passPose(c, this.game.time); // (a pass or a catch going on)
-    return 0.06 + (h.jump || 0);
+    passPose(c, now, h.shotAt != null); // (a pass or a catch going on; his shot wins)
+    // (eased toward this frame's pose: no snapping between them)
+    const u = c.group.userData;
+    smoothJoints(c, Math.min(0.1, Math.max(0, now - (u.hoopT ?? now))));
+    u.hoopT = now;
+    return y;
   }
 }

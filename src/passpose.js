@@ -26,9 +26,16 @@ export function markCatch(c, at) {
   c.group.userData.catchAt = at;
 }
 
-// Returns true if it posed the arms (a pass or a catch going on).
-export function passPose(c, now) {
+// Returns true if it posed the arms (a pass or a catch going on). busy: the arms are already
+// in something that wins this frame (a shot, started right off the catch): then the catch just
+// ends, and the arms are left alone (no snapping them down to the sides for a frame).
+export function passPose(c, now, busy = false) {
   const u = c.group.userData;
+  if (busy) {
+    u.posed = false;
+    if (u.catchAt != null && u.catchAt <= now) u.catchAt = null;
+    return false;
+  }
   // (both arms angled in from the shoulders and turned so the palms face each other: the hands
   // meet on the ball instead of sticking straight out)
   const set = (x, z, e, w) => {
@@ -64,8 +71,9 @@ export function passPose(c, now) {
     }
     if (-left >= GIVE_T) u.catchAt = null;
   }
-  if (u.posed) {
-    // (done: the arms straight back in at the sides; the walk animation does the rest)
+  if (u.posed && u.resetAt !== now) {
+    // (done, and nothing ran passReset this frame: the arms straight back in at the sides; the
+    // walk animation does the rest)
     u.posed = false;
     c.armL.rotation.z = c.armR.rotation.z = 0;
     c.armL.rotation.y = c.armR.rotation.y = 0;
@@ -74,6 +82,24 @@ export function passPose(c, now) {
     c.wristL.rotation.x = c.wristR.rotation.x = 0;
   }
   return false;
+}
+
+// Call before the rest of the frame's pose: if a pass or catch has just ended, the arms go back
+// to the sides now, so whatever poses them next this frame (the dribble, holding it, a shot)
+// takes over cleanly instead of being snapped down after it.
+export function passReset(c, now) {
+  const u = c.group.userData;
+  u.resetAt = now;
+  if (!u.posed) return;
+  const passing = u.passAt != null && now - u.passAt < PASS_T;
+  const catching = u.catchAt != null && u.catchAt - now <= REACH_T && now - u.catchAt < GIVE_T;
+  if (passing || catching) return;
+  u.posed = false;
+  c.armL.rotation.z = c.armR.rotation.z = 0;
+  c.armL.rotation.y = c.armR.rotation.y = 0;
+  c.armL.rotation.x = c.armR.rotation.x = 0;
+  c.elbowL.rotation.x = c.elbowR.rotation.x = -0.15;
+  c.wristL.rotation.x = c.wristR.rotation.x = 0;
 }
 
 // ---- The ball in the hands (passes and catches really touch it) ----
