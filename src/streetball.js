@@ -5,8 +5,9 @@ import { ballMesh } from './court.js';
 import { Scoreboard } from './scoreboard.js';
 import { HeatFx } from './heatfx.js';
 import { dunkPose, dunkPhase, dunkBall } from './dunkpose.js';
-import { markReach, reachWhiff, reachPose } from './reachpose.js';
+import { markReach, reachWhiff, reachHit, reachPose } from './reachpose.js';
 import { markJump, markSwat, jumpPose } from './blockpose.js';
+import { markStripped, markScoop, scooping, strippedPose, scoopPose } from './stealpose.js';
 import { markPass, markCatch, passPose } from './passpose.js';
 import { CFG } from './config.js';
 
@@ -1727,6 +1728,8 @@ export class Streetball {
 
   give(who, check = false) {
     const b = this.g.ball;
+    // (off the floor: whoever gets it scoops it up)
+    if (b.mode === 'loose' && b.y < 0.7 && (who === 'you' || who === 'opp') && !this.t33) markScoop(who === 'you' ? this.game.player.char : this.opp.char, this.game.time);
     this.has = who;
     this.possession(who);
     this.touch = null;
@@ -2884,6 +2887,12 @@ export class Streetball {
     this.has = null;
     this.lastShooter = who; // (if the other one comes up with it, he takes it back)
     this.touch = who === 'you' ? 'opp' : 'you'; // (off the hand that poked it)
+    // The poke goes through it; he's stripped, looking round after it.
+    const game = this.game;
+    const victim = who === 'you' ? game.player : this.opp;
+    const h = victim.heading;
+    markStripped(victim.char, game.time, Math.sin(a) * -Math.cos(h) + Math.cos(a) * Math.sin(h) >= 0 ? 1 : -1);
+    reachHit(who === 'you' ? this.opp.char : game.player.char);
     if (who === 'you') this.you.noGrabT = 0.45;
     else this.opp.hp.noGrabT = 0.45;
     this.game.hud.toast(text, who === 'you' ? '#ff8080' : '#7ee081');
@@ -3214,6 +3223,10 @@ export class Streetball {
         dunkBall(b, game.player.char, Y.dunkTwo ?? true, Y.dunk.hand ?? 1, _v1, _v2);
         return;
       }
+      if (scooping(game.player.char, game.time)) {
+        this.shotBall(b, game.player.char, 1, 0); // (scooped up: in both hands)
+        return;
+      }
       if (this.shot) {
         // (in the hands: both at the chest, then up on the shooting hand)
         this.shotBall(b, game.player.char, this.shot.hand ?? 1, this.shot.one || 0);
@@ -3244,7 +3257,8 @@ export class Streetball {
       const hp = opp.hp;
       const fx = Math.sin(opp.heading);
       const fz = Math.cos(opp.heading);
-      if (hp.state === 'shoot' && hp.appr && hp.t < hp.appr.T) {
+      if (scooping(opp.char, game.time)) this.shotBall(b, opp.char, 1, 0); // (scooped up: in both hands)
+      else if (hp.state === 'shoot' && hp.appr && hp.t < hp.appr.T) {
         b.x = opp.x + fx * 0.32;
         b.z = opp.z + fz * 0.32;
         b.y = 1.2; // (gathered: at the chest)
@@ -4034,6 +4048,10 @@ export class Streetball {
     if (p === this.opp && !this.check) {
       const drop = reachPose(p.char, this.game.time, p.heading); // (his reach-in, the same as yours)
       if (drop != null) y += drop;
+      for (const f of [strippedPose, scoopPose]) {
+        const d = f(p.char, this.game.time, p.heading); // (stripped or scooping, the same as you)
+        if (d != null) y += d;
+      }
       const hp = p.hp;
       if ((hp.jumpT || 0) > (hp.jPrev ?? 0) + 1e-6) markJump(p.char, this.game.time, hp.jumpT, this.jumpKind('opp'), this.sideOfBall(p.x, p.z, p.heading));
       hp.jPrev = hp.jumpT || 0;
@@ -4326,6 +4344,11 @@ export class Streetball {
       const p = this.game.player;
       const drop = reachPose(p.char, this.game.time, p.heading);
       if (drop != null) p.char.group.position.y += drop;
+      // (stripped, or scooping a loose ball up)
+      for (const f of [strippedPose, scoopPose]) {
+        const d = f(p.char, this.game.time, p.heading);
+        if (d != null) p.char.group.position.y += d;
+      }
       // (a block or a rebound jump: the whole body, the same as his)
       const Y = this.you;
       const [px, pz] = p.pos();

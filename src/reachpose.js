@@ -27,6 +27,12 @@ export function markReach(c, now, side, whiff = false, stance = false) {
   u.reachAt = now;
   u.reachSide = side >= 0 ? 1 : -1;
   u.reachWhiff = whiff;
+  u.reachHit = false;
+}
+
+// The poke got it (a steal): the swipe goes on through the ball, the wrist snapping.
+export function reachHit(c) {
+  if (c) c.group.userData.reachHit = true;
 }
 
 export function reachWhiff(c) {
@@ -54,9 +60,10 @@ export function reachPose(c, now, heading) {
   // The reaching arm: out low at the ball (about waist height in front), straight, swinging
   // from out wide to across the body, the wrist flicking through.
   reach.a.rotation.x = mix(reach.a.rotation.x, st ? -1.05 : -1.25, k); // (lower from the stance)
-  reach.a.rotation.z = mix(reach.a.rotation.z, mix(0.55, -0.25, s) * reach.out, k);
+  const hit = u.reachHit ? 1 : 0;
+  reach.a.rotation.z = mix(reach.a.rotation.z, mix(0.55, -0.25 - 0.3 * hit, s) * reach.out, k);
   reach.e.rotation.x = mix(reach.e.rotation.x, -0.08, k);
-  reach.w.rotation.x = mix(reach.w.rotation.x, mix(-0.3, 0.7, s), k);
+  reach.w.rotation.x = mix(reach.w.rotation.x, mix(-0.3, 0.7 + 0.5 * hit, s), k);
   // The other hand stays up (no free layup lane behind the gamble).
   up.a.rotation.x = mix(up.a.rotation.x, -2.3, k);
   up.a.rotation.z = mix(up.a.rotation.z, 0.2 * up.out, k);
