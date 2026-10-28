@@ -19,7 +19,7 @@ const BALL = {
       ['Size up', '—', 'right stick: hold up', 'I hold'],
       ['Sprint', 'push the stick all the way', 'R2 / ✕', 'Shift'],
       ['Layup / dunk', 'drive at the rim + SHOOT', 'drive at the rim + □', 'drive at the rim + Space'],
-      ['Alley-oop (off the glass)', 'PASS twice', '△ (3-9.5 m out)', 'F'],
+      ['Alley-oop (off the glass, 3-9.5 m out; run at it, you go up within ~2 m)', 'OOP (PASS in a 1-on-1)', '△', 'F'],
       ['Pass (shooting around)', 'PASS (hold: pick who)', '✕ (hold: pick who)', 'Q'],
     ]],
     ['DEFENSE', [

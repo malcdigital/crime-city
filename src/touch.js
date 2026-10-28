@@ -45,6 +45,7 @@ const BUTTONS = [
   ['bshoot', 'SHOOT', B.SQUARE, ['ball'], 'hold', 'big red txt'],
   ['bblock', '△', B.TRIANGLE, ['ball'], 'hold', 'sm'],
   ['bpass', 'PASS', B.CROSS, ['ball'], 'hold', 'mid txt'],
+  ['boop', 'OOP', B.TRIANGLE, ['ball'], 'hold', 'mid txt'], // (shooting around: off the glass to yourself)
   ['bd', 'GUARD', B.L2, ['ball'], 'hold', 'mid txt'], // (hold: stay in front of him)
   ['bcross', 'CROSS', 18, ['ball'], 'hold', 'sm txt'],
   ['bhesi', 'HESI', 19, ['ball'], 'hold', 'sm txt'],
@@ -274,25 +275,9 @@ export class TouchControls {
         pid = null;
         return;
       }
-      if (id === 'bpass') {
-        // (PASS: double tap tosses the oop (△); a single tap passes once it's clearly not the
-        // start of a double; holding it locks on, like the controller's ✕)
-        const now = e.timeStamp; // (when the finger landed, even if the page was busy)
-        if (this.passTapAt && now - this.passTapAt < 350) {
-          this.passTapAt = 0;
-          this.passSkipUp = true; // (this tap's lift isn't a pass)
-          clearTimeout(this.passTimer);
-          this.tap(B.TRIANGLE);
-          pressed = null;
-          return;
-        }
-        this.passDown = now;
-        this.passHoldTimer = setTimeout(() => {
-          if (this.passDown) {
-            this.passHeld = true;
-            this.press(b);
-          }
-        }, 220);
+      if (id === 'bpass' && this.passOop) {
+        // (a one-on-one: nobody to pass to, so it's the OOP button: off the glass to yourself)
+        this.tap(B.TRIANGLE);
         pressed = null;
         return;
       }
@@ -326,29 +311,6 @@ export class TouchControls {
       pid = null;
       el.classList.toggle('on', kind === 'toggle' && this.toggled.has(b));
       if (kind === 'toggle') return;
-      if (id === 'bpass') {
-        clearTimeout(this.passHoldTimer);
-        this.passDown = 0;
-        if (this.passSkipUp) {
-          this.passSkipUp = false;
-          return;
-        }
-        if (this.passHeld) {
-          this.passHeld = false;
-          this.release(b); // (let go: the locked-on pass)
-          return;
-        }
-        // (a tap: wait a beat for a second one, then pass)
-        this.passTapAt = e.timeStamp;
-        clearTimeout(this.passTimer);
-        this.passTimer = setTimeout(() => {
-          if (this.passTapAt) {
-            this.passTapAt = 0;
-            this.tap(b);
-          }
-        }, 350);
-        return;
-      }
       if (kind === 'weapon') {
         const W = this.wHold;
         this.wHold = null;
@@ -552,7 +514,13 @@ export class TouchControls {
       b.bhesi.el.querySelector('.tl').textContent = 'HANDS';
       b.bblock.el.classList.toggle('hidden', !!game.sport.t3 || off || dead);
       b.bpass.el.classList.toggle('hidden', dead || !!game.sport.t33 || !(off || (game.sport.solo && game.sport.g?.ball?.mode === 'loose'))); // (passing / the oop; a fetch shooting around)
-      b.bpass.hint.textContent = off ? '2× oop' : '';
+      // (a one-on-one: no one to pass to, so PASS is OOP; shooting around, OOP gets its own button)
+      this.passOop = off && !game.sport.solo;
+      const pl = b.bpass.el.querySelector('.tl');
+      const pt = this.passOop ? 'OOP' : 'PASS';
+      if (pl.textContent !== pt) pl.textContent = pt;
+      b.bpass.hint.textContent = '';
+      b.boop.el.classList.toggle('hidden', !(off && game.sport.solo && !game.sport.t33));
       this.dribbleGest = off; // (the right side: tap hesi, swipe cross / spin / step back)
       b.bd.el.classList.toggle('hidden', !!game.sport.solo || off || dead); // (GUARD: on defense only; with the ball the back-pedal is automatic)
     }

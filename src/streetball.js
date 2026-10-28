@@ -275,6 +275,9 @@ const handleDist = (h) => clamp(0.7 + (h - 60) / 100, 0.6, 1.1);
 const handleEff = (h) => clamp(0.6 + (h - 60) / 75, 0.5, 1.15);
 const HANDLE_KEY = 'crimecity.handle.v1';
 const DEF_KEY = 'crimecity.defense.v1';
+// An alley-oop's takeoff: within this far of where the ball comes down (the gather and steps
+// happen on the run before it). Further out you have to get there first.
+const OOP_REACH = 2.1;
 // Defense (55-99): how strongly holding GUARD keeps you in front of him (and him in front of you).
 const defK = (d) => clamp((d - 55) / 44, 0, 1);
 const OPEN = ['Wide Open', 'Open', 'Contested', 'Heavily Contested'];
@@ -2845,8 +2848,9 @@ export class Streetball {
     if (!this.oop) return;
     if (O.by === 'you') {
       const [px, pz] = game.player.pos();
-      // The leap: in reach of the spot with ~0.55 s to go, the gather, steps and leap play out.
-      if (!O.leap && left <= 0.55 && left > 0.1 && Y.fallT <= 0 && !Y.dunk && dist(px, pz, O.cx, O.cz) < left * 7.5 + 0.6) {
+      // The leap: within a couple of meters of the spot with up to ~0.55 s to go (from further
+      // out you have to run in first; get there late and it comes down without you).
+      if (!O.leap && left <= 0.55 && left > 0.16 && Y.fallT <= 0 && !Y.dunk && dist(px, pz, O.cx, O.cz) < OOP_REACH) {
         O.leap = { t0: this.clock, w: this.oopWindow(O.cx, O.cz, this.solo ? null : this.opp.x, this.solo ? null : this.opp.z) };
         Y.dunk = { x0: px, z0: pz, ax: O.cx, az: O.cz, style: 'reach', t: 0, rise: left, hang: 0.4, drop: 0.32, hangs: true, oop: true };
         Y.fall = null;
@@ -3447,6 +3451,7 @@ export class Streetball {
             b.vx = rand(-0.5, 0.5);
             b.vz = rand(-0.5, 0.5);
             b.vy = -1;
+            if (O && O.by === 'you') game.hud.toast("Didn't get there in time: run at it and go up within a couple of meters", '#ff8080');
             this.oop = null;
           }
         }
@@ -4380,7 +4385,7 @@ export class Streetball {
     }
     const left = O.tCatch - this.clock;
     const r = dist(p.x, p.z, O.cx, O.cz);
-    if (!hp.oopLeap && left <= 0.55 && left > 0.05 && r < left * 7.5 + 0.6) hp.oopLeap = { t0: this.clock, T: left };
+    if (!hp.oopLeap && left <= 0.55 && left > 0.16 && r < OOP_REACH) hp.oopLeap = { t0: this.clock, T: left }; // (the same reach as yours)
     if (hp.oopLeap) {
       const L = hp.oopLeap;
       hp.jump = 0.95 * Math.sin((Math.min(1, (this.clock - L.t0) / L.T) * Math.PI) / 2);
@@ -4389,7 +4394,7 @@ export class Streetball {
     }
     hp.jump = 0;
     face(O.cx, O.cz);
-    return { tx: O.cx, tz: O.cz, speed: Math.min(7, r / Math.max(0.25, left - 0.45)) * Math.max(0.8, tired) };
+    return { tx: O.cx, tz: O.cz, speed: Math.min(6.4, r / Math.max(0.25, left - 0.45)) * Math.max(0.8, tired) }; // (a sprint at most: from too far he doesn't get there)
   }
 
   goDrive(hp) {
