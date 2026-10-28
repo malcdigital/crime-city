@@ -175,7 +175,7 @@ export class AnimViewer {
     el.id = 'animview';
     el.innerHTML = `<div class="av-top"><b>ANIMATIONS</b><span class="av-n"></span><button class="av-x" aria-label="close">✕</button></div>
       <div class="av-bar"><button class="av-prev" aria-label="previous">◀</button><div class="av-name"><small></small><span></span></div><button class="av-next" aria-label="next">▶</button></div>
-      <div class="av-tools"><button class="av-play">❚❚ PAUSE</button><button class="av-slow">½ SLOW</button></div>
+      <div class="av-tools"><button class="av-play">❚❚ PAUSE</button><button class="av-slow">½ SLOW</button><button class="av-body">♂ MAN</button></div>
       <div class="av-hint"></div>`;
     document.body.appendChild(el);
     const btn = (q, f) => el.querySelector(q).addEventListener('click', (e) => {
@@ -187,6 +187,7 @@ export class AnimViewer {
     btn('.av-next', () => this.go(1));
     btn('.av-play', () => this.togglePlay());
     btn('.av-slow', () => this.toggleSlow());
+    btn('.av-body', () => this.setBody(!this.female));
     // Drag to turn round it; a quick swipe sideways steps through.
     let drag = null;
     el.addEventListener('pointerdown', (e) => {
@@ -235,6 +236,21 @@ export class AnimViewer {
     this.select((this.i + d + this.list.length) % this.list.length);
   }
 
+  // Man or woman: the same poses on the other build (character.js makeCharacter female); the
+  // guns move over to the new hand.
+  setBody(female) {
+    this.female = !!female;
+    const old = this.c;
+    const c = (this.c = makeCharacter({ shirt: 0x1e7d32, pants: 0x1b1b1b, skin: 0x8d5524, bandana: female ? null : 0x1e7d32, female, hair: 0x1c120d, hairStyle: 'pony' }));
+    for (const g of Object.values(this.guns)) c.wristR.add(g);
+    this.scene.remove(old.group);
+    this.scene.add(c.group);
+    Object.assign(c.group.userData, { punchAt: null, flinchAt: null, recoilAt: null });
+    const b = this.el.querySelector('.av-body');
+    b.textContent = female ? '♀ WOMAN' : '♂ MAN';
+    b.classList.toggle('on', !!female);
+  }
+
   select(i) {
     this.i = i;
     this.t = 0;
@@ -247,7 +263,7 @@ export class AnimViewer {
     this.el.querySelector('.av-name span').textContent = name;
     this.el.querySelector('.av-n').textContent = `${i + 1} / ${this.list.length}`;
     const g = this.game;
-    const how = g.input.touchMode ? 'swipe or ◀ ▶ · drag to turn it round' : g.input.mode === 'pad' ? 'D-pad ◀ ▶ · ✕ pause · □ slow · right stick turns it · ○ close' : '← → · Space pause · S slow · drag to turn it round · Esc close';
+    const how = g.input.touchMode ? 'swipe or ◀ ▶ · drag to turn it round' : g.input.mode === 'pad' ? 'D-pad ◀ ▶ · ✕ pause · □ slow · △ man / woman · right stick turns it · ○ close' : '← → · Space pause · S slow · B man / woman · drag to turn it round · Esc close';
     this.el.querySelector('.av-hint').textContent = how;
     const u = this.c.group.userData;
     for (const k of Object.keys(u)) delete u[k];
@@ -284,6 +300,7 @@ export class AnimViewer {
     if (a.menuRight || a.phoneRight) this.go(1);
     if (a.menuOk || a.dealYes) this.togglePlay();
     if (a.reload || this.game.input.hit?.('KeyS')) this.toggleSlow();
+    if (a.enter || this.game.input.hit?.('KeyB')) this.setBody(!this.female); // (△ / B: man or woman)
     if (Math.abs(a.lookX) > 0.0001) {
       this.yaw -= a.lookX;
       this.userYawT = 3;
