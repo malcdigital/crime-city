@@ -3,7 +3,8 @@ const _c = new THREE.Vector3();
 const _e = new THREE.Euler(0, 0, 0, 'YXZ');
 const GETUP = 1.0; // seconds to get back up after a tumble
 import { CFG } from './config.js';
-import { makeCharacter, animateWalk, setDown, crouchPose, crouchWalk, bendSpine, lam, straightArms } from './character.js';
+import { makeCharacter, animateWalk, setDown, crouchPose, crouchWalk, bendSpine, lam, straightArms, setHeight } from './character.js';
+export const PLAYER_H = 1.778; // (5'10")
 const COMBO = ['jab', 'cross', 'hook', 'uppercut', 'kick']; // (press after press)
 import { pushCircle } from './collision.js';
 import { clamp, lerp, lerpAngle } from './util.js';
@@ -14,6 +15,7 @@ export class Player {
   constructor(game, x, z) {
     this.game = game;
     this.char = makeCharacter({ shirt: 0x1e7d32, pants: 0x1b1b1b, skin: 0x8d5524, bandana: 0x1e7d32 });
+    setHeight(this.char, PLAYER_H); // (5'10")
     game.scene.add(this.char.group);
     // Guns held in the right hand.
     this.guns = {

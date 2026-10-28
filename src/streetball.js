@@ -284,6 +284,9 @@ export function handoff(kind, from, to, k, y0 = 0.75) {
 }
 // A switch that's over: the dribble picks up from where the ball is (rising, in the new hand)
 // so it doesn't jump. Returns the dribble phase to carry on from.
+// A dunk or an oop's leap gets the hands to the rim: someone shorter than the model (1.97 m)
+// has to get up higher (their standing reach is about 1.3 times their height).
+const reachLift = (c) => Math.max(0, (1 - (c?.group.scale.y ?? 1)) * 2.55);
 export function dribbleFrom(ph, y, amp) {
   const a = Math.asin(Math.min(1, Math.max(0, (y - 0.18) / amp)));
   return Math.floor(ph / Math.PI) * Math.PI + a;
@@ -2776,7 +2779,7 @@ export class Streetball {
   dunkHeight() {
     const D = this.you.dunk;
     if (!D) return 0;
-    const H = 0.95;
+    const H = 0.95 + reachLift(this.game.player.char);
     if (D.t < D.rise) return H * Math.sin((D.t / D.rise) * Math.PI * 0.5);
     let t = D.t - D.rise;
     if (D.hangs) {
@@ -3651,7 +3654,7 @@ export class Streetball {
       const q = b.holder;
       b.x = q.x + Math.sin(q.heading) * 0.35;
       b.z = q.z + Math.cos(q.heading) * 0.35;
-      b.y = 1.2;
+      b.y = 1.2 * (q.char?.group.scale.y ?? 1);
       return;
     }
     if (this.has === 'check') {
@@ -3702,7 +3705,7 @@ export class Streetball {
         const key = Y.swap || Y.move;
         if (path && this.hoKey !== key) {
           this.hoKey = key; // (a new switch: from the height the ball's at now)
-          this.hoY0 = b.y;
+          this.hoY0 = b.y / p.char.group.scale.y;
           this.hoDone = false;
         }
         if (path && path[3] >= 1) {
@@ -3717,7 +3720,7 @@ export class Streetball {
         } else if (!path && this.hoKey && !this.hoDone) {
           // (the move's over a touch before the ball got there: pick the dribble up from here)
           this.hoDone = true;
-          this.dribble = dribbleFrom(this.dribble, b.y, Y.sizeUp ? 0.55 : 0.8);
+          this.dribble = dribbleFrom(this.dribble, b.y / p.char.group.scale.y, Y.sizeUp ? 0.55 : 0.8);
           y = 0.18 + Math.abs(Math.sin(this.dribble)) * (Y.sizeUp ? 0.55 : 0.8);
         }
         if (path) {
@@ -3727,10 +3730,11 @@ export class Streetball {
           if (path[0] === 'behind') this.behindK = m;
         }
         this.ballSide = side;
-        // (your right: (-fz, fx))
-        b.x = px + fx * fwd - fz * 0.32 * side;
-        b.z = pz + fz * fwd + fx * 0.32 * side;
-        b.y = y;
+        // (your right: (-fz, fx); the dribble's reach and height by your size)
+        const sc = p.char.group.scale.y;
+        b.x = px + (fx * fwd - fz * 0.32 * side) * sc;
+        b.z = pz + (fz * fwd + fx * 0.32 * side) * sc;
+        b.y = y * sc;
       }
     } else if (this.has === 'opp') {
       const opp = this.opp;
@@ -3770,7 +3774,7 @@ export class Streetball {
         const key = hp.swap || (hp.state === 'move' ? hp.mv : null);
         if (path && hp.hoKey !== key) {
           hp.hoKey = key; // (a new switch: from the height the ball's at now)
-          hp.hoY0 = b.y;
+          hp.hoY0 = b.y / opp.char.group.scale.y;
           hp.hoDone = false;
         }
         if (path && path[3] >= 1) {
@@ -3783,7 +3787,7 @@ export class Streetball {
           path = null;
         } else if (!path && hp.hoKey && !hp.hoDone) {
           hp.hoDone = true;
-          hp.dribble = dribbleFrom(hp.dribble, b.y, 0.8);
+          hp.dribble = dribbleFrom(hp.dribble, b.y / opp.char.group.scale.y, 0.8);
           y = 0.18 + Math.abs(Math.sin(hp.dribble)) * 0.8;
         }
         if (path) {
@@ -3793,9 +3797,10 @@ export class Streetball {
           if (path[0] === 'behind') hp.behindK = m;
         }
         hp.ballSide = side;
-        b.x = opp.x + fx * fwd - fz * 0.3 * side;
-        b.z = opp.z + fz * fwd + fx * 0.3 * side;
-        b.y = y;
+        const sc = opp.char.group.scale.y;
+        b.x = opp.x + (fx * fwd - fz * 0.3 * side) * sc;
+        b.z = opp.z + (fz * fwd + fx * 0.3 * side) * sc;
+        b.y = y * sc;
       }
     }
   }
@@ -4367,7 +4372,8 @@ export class Streetball {
       }
       const t = hp.t - a0;
       const R = hp.rel - a0;
-      hp.jump = t < R ? 0.95 * Math.sin((Math.min(1, t / R) * Math.PI) / 2) : t < R + 0.3 ? 0.95 : 0.95 * Math.max(0, 1 - ((t - R - 0.3) / 0.25) ** 2);
+      const H = 0.95 + reachLift(p.char);
+      hp.jump = t < R ? H * Math.sin((Math.min(1, t / R) * Math.PI) / 2) : t < R + 0.3 ? H : H * Math.max(0, 1 - ((t - R - 0.3) / 0.25) ** 2);
       const b = this.g.ball;
       if (t >= R && b.mode === 'held' && this.has === 'opp') this.resolveHim(p, hp);
       if (t > R + 0.6) {
@@ -4480,7 +4486,7 @@ export class Streetball {
     if (!hp.oopLeap && left <= 0.55 && left > 0.16 && r < OOP_REACH) hp.oopLeap = { t0: this.clock, T: left }; // (the same reach as yours)
     if (hp.oopLeap) {
       const L = hp.oopLeap;
-      hp.jump = 0.95 * Math.sin((Math.min(1, (this.clock - L.t0) / L.T) * Math.PI) / 2);
+      hp.jump = (0.95 + reachLift(p.char)) * Math.sin((Math.min(1, (this.clock - L.t0) / L.T) * Math.PI) / 2);
       face(rim.x, rim.z);
       return r > 0.05 ? { tx: O.cx, tz: O.cz, speed: Math.min(8, r / Math.max(0.05, left)) } : { speed: 0 };
     }

@@ -1,7 +1,7 @@
 import { GANG_NAME, CREW_NAME } from './config.js';
 import { aimPose, lowReady, flinchPose, fallFace, markFlinch, kneelPose } from './combatpose.js';
 import * as THREE from 'three';
-import { makeCharacter, setDown, crouchPose, restPose, SKIN_TONES, lam, straightArms } from './character.js';
+import { makeCharacter, setDown, crouchPose, restPose, SKIN_TONES, lam, straightArms, setHeight, randomHeight } from './character.js';
 import { pushCircle, segmentBlocked } from './collision.js';
 import { dist, pick, rand, lerpAngle, clamp } from './util.js';
 import { navStep, escapePoint } from './nav.js';
@@ -109,7 +109,7 @@ function pickGun() {
 export class GangFighter {
   constructor(game, x, z, look) {
     this.game = game;
-    this.char = makeCharacter(look);
+    this.char = setHeight(makeCharacter(look), randomHeight());
     game.scene.add(this.char.group);
     this.x = x;
     this.z = z;

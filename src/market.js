@@ -3,6 +3,7 @@ import { districtAt, streetAt } from './city.js';
 import { DISTRICTS, districtCenter } from './districts.js';
 import { Soldier, GANGS } from './turf.js';
 import { dist, pick, rand, clamp } from './util.js';
+import { setHeight } from './character.js';
 
 // The drug market: supply and demand, per district and per product.
 // - Demand: each district has its own taste (the Financial District pays for coke, the Projects smoke weed…).
@@ -243,7 +244,7 @@ export class Market {
         s.kingpin = true;
         s.health = 260;
         s.baseHeart = s.heart = 1;
-        s.char.group.scale.setScalar(1.08);
+        setHeight(s.char, 1.96); // (a big man: 6'5")
         T.soldiers.push(s);
         this.kingpins[g] = { s, dead: false };
       }

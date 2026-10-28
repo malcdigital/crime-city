@@ -22,6 +22,22 @@ const CAP = new THREE.BoxGeometry(0.36, 0.1, 0.36);
 const BRIM = new THREE.BoxGeometry(0.34, 0.04, 0.16);
 const BAND = new THREE.BoxGeometry(0.34, 0.08, 0.34);
 
+// Heights. The model is 1.97 m tall at scale 1; people are scaled to their own height. Real
+// adult men (US, CDC NHANES 2015-2018, age 20+): average 175.4 cm (5'9"), standard deviation
+// about 7.6 cm, so about two in three are 5'6"-6'0", one in six over 6'0", one in fifty over
+// 6'3", and one in six under 5'6".
+export const MODEL_H = 1.97;
+export function randomHeight() {
+  const u = Math.max(1e-9, Math.random());
+  const n = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * Math.random()); // (a normal draw)
+  return Math.max(1.55, Math.min(2.03, 1.754 + 0.076 * n));
+}
+export function setHeight(c, m) {
+  c.group.scale.setScalar(m / MODEL_H);
+  c.group.userData.height = m;
+  return c;
+}
+
 export const SKIN_TONES = [0x8d5524, 0xc68642, 0xe0ac69, 0xf1c27d, 0x5c3a1e, 0xffdbac];
 
 // A simple blocky person. Faces +z. Returns pivot groups so limbs can animate.
@@ -250,8 +266,9 @@ export function crouchWalk(c, phase, amount = 1) {
   c.elbowR.rotation.set(-1.25 - Math.max(0, s) * 0.2, 0, 0);
   c.wristL.rotation.set(0, 0, 0);
   c.wristR.rotation.set(0, 0, 0);
-  const h = (L1 + L2 - Math.min(dl, dr)) * Math.cos(splay);
-  return -(L1 + L2 - h) + bob * 0.03;
+  const sc = c.group.scale.y;
+  const h = ((L1 + L2) * sc - Math.min(dl, dr)) * Math.cos(splay);
+  return -((L1 + L2) * sc - h) + bob * 0.03 * sc;
 }
 
 // Where a wrist is right now, in the character's own frame (to blend a hand from wherever it
@@ -274,10 +291,11 @@ const L1 = 0.44;
 const L2 = 0.44;
 // Bend at the hips and knees: thigh forward by `hip` rad, shin back by `knee` rad.
 // Returns how far to lower the body so the feet stay on the ground.
+// (the drop comes back in world meters: scaled by the person's size)
 export function bendLeg(hipP, kneeP, hip, knee) {
   hipP.rotation.x = -hip;
   kneeP.rotation.x = knee;
-  return L1 + L2 - (L1 * Math.cos(hip) + L2 * Math.cos(knee - hip));
+  return (hipP.parent?.scale.y ?? 1) * (L1 + L2 - (L1 * Math.cos(hip) + L2 * Math.cos(knee - hip)));
 }
 
 // Crouch: both knees bent (depth 0 = standing, 1 = full crouch). `shuffle` adds a small step.
@@ -384,7 +402,7 @@ export function stepFalls() {
     c.group.rotation.x = f.rot;
     // (undo last frame's height if nobody's placed it since, then this frame's)
     if (F.setY != null && Math.abs(c.group.position.y - F.setY) < 1e-6) c.group.position.y -= F.adj;
-    F.adj = f.y;
+    F.adj = f.y - 0.2 * (1 - c.group.scale.y) * Math.abs(f.rot) / (Math.PI / 2); // (a smaller body lies lower)
     c.group.position.y += F.adj;
     F.setY = c.group.position.y;
   }

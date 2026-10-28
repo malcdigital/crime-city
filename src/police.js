@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { aimPose, flinchPose, fallFace, markFlinch, kneelPose } from './combatpose.js';
 import { CFG } from './config.js';
 import { Vehicle } from './vehicle.js';
-import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES, straightArms } from './character.js';
+import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES, straightArms, setHeight, randomHeight } from './character.js';
 import { pushCircle, segmentBlocked } from './collision.js';
 import { steerToward, throttleFor, StuckHelper } from './driving.js';
 import { dist, pick, rand, lerpAngle } from './util.js';
@@ -22,6 +22,7 @@ export class Officer {
     this.char = swat
       ? makeCharacter({ shirt: 0x23272d, pants: 0x1a1d22, skin: pick(SKIN_TONES), cap: 0x0e0f11 })
       : makeCharacter({ shirt: 0x1f3a6e, pants: 0x14213d, skin: pick(SKIN_TONES), cap: 0x14213d });
+    setHeight(this.char, randomHeight());
     this.char.group.visible = false;
     game.scene.add(this.char.group);
     this.x = unit.car.x;

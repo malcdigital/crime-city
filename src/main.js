@@ -795,7 +795,7 @@ class Game {
     const [px, pz] = this.player.pos();
     const d = dist(shooter.x, shooter.z, px, pz);
     const h = shooter.heading;
-    const y0 = shooter.muzzleY ?? this.city.groundY(shooter.x, shooter.z) + 1.45;
+    const y0 = shooter.muzzleY ?? this.city.groundY(shooter.x, shooter.z) + 1.45 * (shooter.char?.group.scale.y ?? 1); // (their gun's height: by their size)
     // Gun is in the right hand: forward and to the shooter's right.
     const m = [shooter.x + Math.sin(h) * 0.9 - Math.cos(h) * 0.37, y0 + 0.05, shooter.z + Math.cos(h) * 0.9 + Math.sin(h) * 0.37];
     const pv = this.player.vehicle;
@@ -837,7 +837,7 @@ class Game {
   // Where on the player an NPC aims (chest, lower when crouched).
   playerTargetPoint() {
     const [px, pz] = this.player.pos();
-    const y = (this.player.vehicle ? this.highway.groundFor(this.player.vehicle) : this.player.gy()) + (this.player.vehicle ? 1.0 : this.player.lowProfile ? 0.85 : 1.3);
+    const y = (this.player.vehicle ? this.highway.groundFor(this.player.vehicle) : this.player.gy()) + (this.player.vehicle ? 1.0 : (this.player.lowProfile ? 0.85 : 1.3) * this.player.char.group.scale.y);
     return [px, y, pz];
   }
 

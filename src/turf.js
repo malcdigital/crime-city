@@ -534,7 +534,7 @@ export class GangRide {
     if (see && d < 40 && this.fireT <= 0 && this.riders.length > 1) {
       this.fireT = rand(0.35, 0.7);
       const h = Math.atan2(px - c.x, pz - c.z);
-      game.npcShoot({ x: c.x, z: c.z, heading: h, muzzleY: game.city.groundY(c.x, c.z) + 1.3, crouched: false }, 6, 'smg', 0.55);
+      game.npcShoot({ x: c.x, z: c.z, heading: h, muzzleY: game.city.groundY(c.x, c.z) + 1.3 * (c.char?.group.scale.y ?? 1), crouched: false }, 6, 'smg', 0.55);
     }
   }
 }
