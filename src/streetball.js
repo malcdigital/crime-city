@@ -2947,7 +2947,7 @@ export class Streetball {
       const m = Math.abs(e) - w / 2;
       const when = e < 0 ? 'EARLY' : 'LATE';
       const sub = green ? 'PERFECT RELEASE' : this.solo ? `${Math.max(1, Math.round(m * 1000))} MS ${when}` : OPEN[lv].toUpperCase();
-      this.badge(green ? 'ex' : m < 0.06 ? 'slight' : 'off', grade.toUpperCase(), sub);
+      this.badge(green ? 'ex' : m < 0.06 ? 'slight' : 'off', grade.toUpperCase(), sub, e < 0 ? 'early' : 'late');
     }
     if (s.type === 'dunk') {
       this.g.ball.y = Math.max(this.g.ball.y, this.rim.y + 0.15); // (from your hands, through the rim)
@@ -3601,9 +3601,10 @@ export class Streetball {
   // screen.
   floatHud(meter) {
     const game = this.game;
-    // (a perfect release: the meter holds where you let go and lights up for a moment)
-    const PF = this.perfect;
-    if (PF && game.time - PF.t0 < 0.75) meter = PF.m;
+    // (a perfect or a slightly early / late release: the meter holds where you let go and
+    // plays its little animation)
+    const PF = this.relFx;
+    if (PF && game.time - PF.t0 < PF.T) meter = PF.m;
     else if (meter) this.lastMeter = meter;
     const p = game.player;
     const [px, pz] = p.pos();
@@ -3643,7 +3644,7 @@ export class Streetball {
 
   // Your shot's timing, under the energy bar: tier 'ex' (mint, an edge flash, and a green pulse
   // at your feet), 'slight' (warm amber) or 'off' (muted coral). Pops in, holds, fades.
-  badge(tier, title, sub) {
+  badge(tier, title, sub, dir = null) {
     let el = this.badgeEl;
     if (!el) {
       el = this.badgeEl = document.createElement('div');
@@ -3654,8 +3655,10 @@ export class Streetball {
     el.innerHTML = `<div class="sb-t"><span class="sb-d">◇</span>${title}</div><div class="sb-s">${sub}</div>`;
     void el.offsetWidth; // (restart the animation)
     el.className = `show ${tier}`;
+    // (the meter's own animation: a perfect release lights up, a slightly early / late one
+    // nudges amber with an arrow toward the green)
+    if (this.lastMeter && (tier === 'ex' || tier === 'slight')) this.relFx = { t0: this.game.time, T: tier === 'ex' ? 0.75 : 0.65, m: { ...this.lastMeter, fx: tier === 'ex' ? 'perfect' : `slight ${dir || 'early'}`, fxKey: this.game.time } };
     if (tier === 'ex') {
-      if (this.lastMeter) this.perfect = { t0: this.game.time, m: { ...this.lastMeter, perfect: this.game.time } };
       if (!this.pulse) {
         const m = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.36, 40), new THREE.MeshBasicMaterial({ color: 0x5ef2b0, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
         m.rotation.x = -Math.PI / 2;

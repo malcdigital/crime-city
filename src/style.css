@@ -815,3 +815,29 @@ body.paused #dice-panel { display: none; }
 @keyframes smShine { to { bottom: 100%; } }
 @keyframes smRing { 0% { opacity: .95; transform: translate(-50%, -50%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -50%) scale(2.6, 1.35); } }
 @media (prefers-reduced-motion: reduce) { #shot-meter.perfect, #shot-meter.perfect::before, #shot-meter.perfect .fill::after { animation-duration: .01s; } }
+/* A slightly early / late release on the shot meter: amber, a quick shake, and an arrow beside the
+   bar at your release point pointing toward the green (early: up, late: down), then it fades. */
+#shot-meter.slight { overflow: visible; border-color: #ffd08a; animation: smNudge .65s ease-out forwards; }
+#shot-meter.slight .fill { background: #ffb84d; border-radius: 5px; }
+#shot-meter.slight .sweet { z-index: 1; background: rgba(126,224,129,.25); border-top: 2px solid #7ee081; border-bottom: 2px solid #7ee081; box-shadow: 0 0 6px rgba(126,224,129,.8); animation: smSweet .65s ease-out; } /* (on top of the fill: where the green was) */
+#shot-meter.slight::after { position: absolute; left: -15px; top: calc((1 - var(--rel, .5)) * 100%); transform: translateY(-50%); font-size: 11px; line-height: 1; color: #ffb84d; text-shadow: 0 1px 3px #000; animation: smArrow .65s ease-out forwards; }
+#shot-meter.slight.early::after { content: '▲'; --dy: -6px; }
+#shot-meter.slight.late::after { content: '▼'; --dy: 6px; }
+@keyframes smNudge {
+  0% { transform: translate(0, -50%); box-shadow: 0 0 0 rgba(255,184,77,0); }
+  12% { transform: translate(-3px, -50%); box-shadow: 0 0 10px rgba(255,184,77,.75); }
+  24% { transform: translate(3px, -50%); }
+  36% { transform: translate(-2px, -50%); }
+  48% { transform: translate(1px, -50%); box-shadow: 0 0 6px rgba(255,184,77,.5); opacity: 1; }
+  60% { transform: translate(0, -50%); }
+  100% { transform: translate(0, -50%); box-shadow: 0 0 0 rgba(255,184,77,0); opacity: 0; }
+}
+@keyframes smSweet { 0%, 40% { background: rgba(126,224,129,.6); } 100% { background: rgba(126,224,129,.25); } }
+@keyframes smArrow {
+  0% { opacity: 0; transform: translateY(-50%); }
+  15% { opacity: 1; }
+  45% { transform: translateY(calc(-50% + var(--dy))); }
+  65% { transform: translateY(-50%); opacity: 1; }
+  100% { transform: translateY(calc(-50% + var(--dy))); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { #shot-meter.slight, #shot-meter.slight::after, #shot-meter.slight .sweet { animation-duration: .01s; } }

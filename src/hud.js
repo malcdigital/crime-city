@@ -235,14 +235,16 @@ export class Hud {
       sw.style.bottom = `${(meter.lo * 100).toFixed(1)}%`;
       sw.style.height = `${((meter.hi - meter.lo) * 100).toFixed(1)}%`;
       f.classList.toggle('good', meter.v >= meter.lo && meter.v <= meter.hi);
-      // (a perfect release: pop, glow, a shine up the bar and a ring off it; restarts per shot)
-      const pk = meter.perfect ? String(meter.perfect) : '';
+      // (a release animation: 'perfect' pops, glows, shines and rings; 'slight early' /
+      // 'slight late' nudges amber with an arrow toward the green. Restarts per shot.)
+      const pk = meter.fx ? `${meter.fx}@${meter.fxKey}` : '';
       if (m.dataset.pk !== pk) {
         m.dataset.pk = pk;
-        m.classList.remove('perfect');
+        m.classList.remove('perfect', 'slight', 'early', 'late');
         if (pk) {
+          m.style.setProperty('--rel', Math.min(1, Math.max(0, meter.v)).toFixed(3));
           void m.offsetWidth;
-          m.classList.add('perfect');
+          m.classList.add(...meter.fx.split(' '));
         }
       }
     }
