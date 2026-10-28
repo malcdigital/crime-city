@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { dist, rand, pick, lerpAngle, clamp, wrapAngle } from './util.js';
 import { crouchPose, bendLeg } from './character.js';
 import { ballMesh } from './court.js';
+import { Scoreboard } from './scoreboard.js';
+import { markPass, markCatch, passPose } from './passpose.js';
 import { CFG } from './config.js';
 
 const px0 = (p) => p.pos()[0];
@@ -529,11 +531,13 @@ export class Streetball {
     this.r = opp.ballR || 75;
     game.cash -= bet; // (held until it's over)
     this.score = { you: 0, opp: 0 };
+    this.gameNo = (this.gameNo || 0) + 1;
     this.cleared = true;
     this.shot = null;
     this.outT = 0;
     this.dead = null;
     this.lastShooter = null;
+    this.touch = null;
     this.clock = 0;
     this.you = { st: 1, beatT: 0, fallT: 0, jumpT: 0, move: null, combo: 0, lastMoveEnd: -9, rhythm: 0, hand: 1, stealT: 0, lastSteal: -9, blockT: 0, intense: false, ps: { on: false, t: 0, x: 0, y: 0 }, sizeUp: false };
     g.match = this;
@@ -577,6 +581,7 @@ export class Streetball {
     this.to = Infinity;
     this.r = 75;
     this.score = { you: 0, opp: 0 };
+    this.gameNo = (this.gameNo || 0) + 1;
     this.stats = { att: 0, made: 0, streak: 0, best: 0 };
     this.cleared = true;
     this.shot = null;
@@ -585,6 +590,7 @@ export class Streetball {
     this.check = null;
     this.flight = null;
     this.lastShooter = null;
+    this.touch = null;
     this.clock = 0;
     this.you = { st: 1, beatT: 0, fallT: 0, jumpT: 0, move: null, combo: 0, lastMoveEnd: -9, rhythm: 0, hand: 1, stealT: 0, lastSteal: -9, blockT: 0, intense: false, ps: { on: false, t: 0, x: 0, y: 0 }, sizeUp: false };
     this.opp = { x: 1e5, z: 1e5, heading: 0, speed: 0, state: 'play', removed: false, ballName: '', hp: { st: 1, beatT: 0, fallT: 0, lagT: 0, jumpT: 0 } };
@@ -618,6 +624,7 @@ export class Streetball {
     this.r = 75;
     this.to = Infinity;
     this.score = { you: 0, opp: 0 };
+    this.gameNo = (this.gameNo || 0) + 1;
     this.stats = { att: 0, made: 0, streak: 0, best: 0 };
     this.cleared = true;
     this.shot = null;
@@ -626,6 +633,7 @@ export class Streetball {
     this.check = null;
     this.flight = null;
     this.lastShooter = null;
+    this.touch = null;
     this.clock = 0;
     this.strays = [];
     this.fetch = null;
@@ -1106,6 +1114,17 @@ export class Streetball {
     this.H.launch(b, tx, 1.2, tz, 0.4);
     b.kind = 'check';
     b.to = to;
+    // (a chest pass across, caught with both hands)
+    const you = this.game.player.char;
+    const him = this.opp.char;
+    const now = this.game.time;
+    if (to === 'you') {
+      if (him) markPass(him, now);
+      markCatch(you, now + 0.4);
+    } else {
+      markPass(you, now);
+      if (him) markCatch(him, now + 0.4);
+    }
   }
 
   checkArrive() {
@@ -1271,7 +1290,8 @@ export class Streetball {
     b.kind = 'pass';
     b.to = q;
     this.has = null;
-    this.you.armsT = 0.3;
+    markPass(p.char, game.time);
+    markCatch(q.char, game.time + T);
   }
 
   // He catches it (or it gets away and rolls).
@@ -1355,8 +1375,11 @@ export class Streetball {
     // Back to you.
     const [px, pz] = game.player.pos();
     b.y = 1.25;
-    this.H.launch(b, px, 1.2, pz, 0.25 + dist(q.x, q.z, px, pz) / 15);
+    const TB = 0.25 + dist(q.x, q.z, px, pz) / 15;
+    this.H.launch(b, px, 1.2, pz, TB);
     b.kind = 'back';
+    markPass(q.char, game.time);
+    markCatch(game.player.char, game.time + TB);
     this.has = null;
     if (this.fetch && this.fetch.q === q) this.releaseFetch();
   }
@@ -1522,6 +1545,13 @@ export class Streetball {
     return [this.rim.x + this.rim.dx * 8, this.rim.z + this.rim.dz * 8];
   }
 
+  // A loose ball on the floor past the painted lines.
+  isOut(b) {
+    const C = this.H.site.court;
+    const m = 0.12;
+    return b.y < 0.6 && (b.x < C.x0 - m || b.x > C.x1 + m || b.z < C.z0 - m || b.z > C.z1 + m);
+  }
+
   onCourt(x, z) {
     const C = this.H.site.court;
     return [clamp(x, C.x0 + 0.6, C.x1 - 0.6), clamp(z, C.z0 + 0.6, C.z1 - 0.6)];
@@ -1552,6 +1582,7 @@ export class Streetball {
   give(who, check = false) {
     const b = this.g.ball;
     this.has = who;
+    this.touch = null;
     b.mode = 'held';
     b.holder = who === 'you' ? 'you' : this.opp;
     this.shot = null;
@@ -2405,6 +2436,7 @@ export class Streetball {
       return;
     }
     this.lastShooter = by;
+    this.touch = who; // (off his hand: out of bounds is the other one's)
     this.swatted(b.x, b.z, who === 'you' ? 'Broke up the oop!' : `${this.opp.ballName} broke up the oop`, by, x, z);
   }
 
@@ -2686,6 +2718,7 @@ export class Streetball {
     else this.opp.hp.noGrabT = 0.4;
     this.has = null;
     this.lastShooter = shooter; // (whoever gets it back: the other one's a defensive board)
+    this.touch = shooter === 'you' ? 'opp' : 'you'; // (off the blocker's hand)
     this.game.hud.toast(text, shooter === 'you' ? '#ff8080' : '#7ee081');
   }
 
@@ -2709,6 +2742,7 @@ export class Streetball {
     b.vy = rand(0.8, 1.6);
     this.has = null;
     this.lastShooter = who; // (if the other one comes up with it, he takes it back)
+    this.touch = who === 'you' ? 'opp' : 'you'; // (off the hand that poked it)
     if (who === 'you') this.you.noGrabT = 0.45;
     else this.opp.hp.noGrabT = 0.45;
     this.game.hud.toast(text, who === 'you' ? '#ff8080' : '#7ee081');
@@ -2910,6 +2944,14 @@ export class Streetball {
       H.roll(b, dt);
       if (this.t33) {
         // (33: your rebound's yours to go and get: step33 hands it to you)
+      } else if (!this.dead && this.isOut(b)) {
+        // Out of bounds: dead, and it's the other one's ball off whoever touched it last (a
+        // block off the shooter's hands: the shooter keeps it).
+        const last = this.touch || this.lastShooter || 'opp';
+        const who = last === 'you' ? 'opp' : 'you';
+        this.dead = { who, t: 0.9 };
+        this.has = null;
+        this.game.hud.toast(`Out of bounds. ${who === 'you' ? 'Your' : `${opp.ballName}'s`} ball`, '#9fc3ff');
       } else if (this.dead) {
         this.dead.t -= dt;
         if (this.dead.t <= 0) {
@@ -3103,6 +3145,9 @@ export class Streetball {
     const game = this.game;
     if (!this.active) return;
     this.tiredFx(this.t33 ? 1 : this.you.st);
+    // (no minimap in a one-on-one or 33: just the game)
+    const mm = document.getElementById('minimap');
+    if (mm) mm.style.visibility = !this.solo || this.t33 ? 'hidden' : '';
     const K = this.keys();
     let meter = null;
     const O = this.oop;
@@ -3160,6 +3205,12 @@ export class Streetball {
     else if (O && O.by === 'opp') hint = `${K.block} near the ball to break it up`;
     else if (!this.dead) hint = `Rebound! ${K.block} jump · ${K.d} box out`;
     game.hud.sport?.(this.board(), null, hint, null);
+    // (the scoreboard up top: who's got it, the score, flipping over when somebody scores)
+    this.scoreboard = this.scoreboard || new Scoreboard();
+    this.scoreboard.show({
+      game: this.gameNo, place: this.H.site.name || 'The Court', opp: this.opp.ballName, you: this.score.you, them: this.score.opp,
+      poss: C ? C.off : this.has === 'you' || this.has === 'opp' ? this.has : null, to: this.to, bet: this.bet,
+    });
     this.floatHud(meter);
   }
 
@@ -3820,6 +3871,7 @@ export class Streetball {
   pose(p) {
     if (this.t33) return this.pose33(p);
     const y = this.poseRaw(p);
+    passPose(p.char, this.game.time); // (a pass or a catch going on)
     if (p !== this.opp) return y;
     // (his joints, height and facing eased the same way as yours)
     const c = p.char;
@@ -4082,6 +4134,7 @@ export class Streetball {
   // Your arms and stance (main.js, after you move).
   late(dt) {
     this.lateRaw(dt);
+    passPose(this.game.player.char, this.game.time); // (a pass or a catch going on)
     // (easing every joint toward this frame's pose, and the height and facing too)
     const c = this.game.player.char;
     const s = smoothJoints(c, dt);
@@ -4240,6 +4293,9 @@ export class Streetball {
   end(how) {
     const game = this.game;
     this.tiredFx(1); // (colors back)
+    const mm = document.getElementById('minimap');
+    if (mm) mm.style.visibility = ''; // (the minimap back)
+    this.scoreboard?.hide();
     if (this.t33) {
       // 33's over: the pot (everyone's buy-in) to the winner, back to shooting around.
       const T = this.t33;

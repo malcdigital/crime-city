@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { markPass, markCatch, passPose } from './passpose.js';
 import { lam } from './character.js';
 import { rand, dist, lerpAngle } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
@@ -367,6 +368,8 @@ export class Hoops {
           b.target = r;
           r.hp.role = 'catch';
           this.launch(b, r.x, 1.2, r.z, Math.max(0.35, d / 11));
+          markPass(p.char, this.game.time);
+          markCatch(r.char, this.game.time + Math.max(0.35, d / 11));
           g.last = p;
           this.toWait(p);
         }
@@ -436,6 +439,7 @@ export class Hoops {
     } else if (h.cheerT > 0) {
       c.armR.rotation.x = -2.9;
     }
+    passPose(c, this.game.time); // (a pass or a catch going on)
     return 0.06 + (h.jump || 0);
   }
 }

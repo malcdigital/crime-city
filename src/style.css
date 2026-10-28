@@ -598,3 +598,36 @@ body.touch #phone-body .ph-row { padding: 11px 8px; }
   #court-menu .cm-rule { padding: 4px 12px; }
   #court-menu .cm-start { margin: 8px auto 4px; padding: 7px 20px; }
 }
+
+/* The one-on-one scoreboard (scoreboard.js): top and center, the text bar below it. */
+#scoreboard { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 6; pointer-events: none; text-align: center; color: #fff; font-family: inherit; }
+#scoreboard.hidden { display: none; }
+#scoreboard .sc-place { font-size: 11px; font-weight: 900; letter-spacing: 3px; color: #ffd23f; text-shadow: 0 1px 3px #000; margin-bottom: 4px; }
+#scoreboard .sc-box { min-width: 250px; background: linear-gradient(#161c27f0, #0c1017f0); border: 2px solid #2b303b; border-radius: 14px; box-shadow: 0 6px 22px rgba(0,0,0,.5); overflow: hidden; }
+#scoreboard .sc-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 20px 6px; gap: 10px; }
+#scoreboard .sc-side { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; border-radius: 10px; padding: 2px 6px; }
+#scoreboard .sc-name { font-size: 12px; font-weight: 900; letter-spacing: 2px; color: #c9d1de; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#scoreboard .sc-num { position: relative; height: 40px; width: 64px; overflow: hidden; font-size: 36px; line-height: 40px; font-weight: 900; font-variant-numeric: tabular-nums; letter-spacing: 1px; }
+#scoreboard .sc-num span { position: absolute; left: 0; right: 0; top: 0; }
+#scoreboard .sc-num .out { animation: sc-out .45s ease-in forwards; }
+#scoreboard .sc-num .in { animation: sc-in .5s cubic-bezier(.2, 1.4, .4, 1) forwards; color: #ffd23f; }
+#scoreboard .sc-dash { font-size: 22px; font-weight: 900; color: #5d6676; margin-top: 12px; }
+#scoreboard .sc-poss { font-size: 9px; font-weight: 900; letter-spacing: 1.5px; color: #ffd23f; opacity: 0; transition: opacity .25s; margin-top: 1px; }
+#scoreboard .sc-poss.on { opacity: 1; }
+#scoreboard .sc-foot { border-top: 2px solid #2b303b; padding: 5px 12px 6px; font-size: 11px; font-weight: 900; letter-spacing: 2.5px; color: #8a93a3; }
+#scoreboard .sc-foot b { color: #ff6b6b; animation: flash 1s infinite; }
+#scoreboard .sc-side.hit { animation: sc-hit 1.1s ease-out; }
+#scoreboard .sc-box.pulse { animation: sc-pulse .6s ease-out; }
+#scoreboard .sc-pop { position: absolute; top: 14px; left: 50%; font-size: 20px; font-weight: 900; color: #ffd23f; text-shadow: 0 2px 6px #000; animation: sc-pop 1.1s ease-out forwards; }
+@keyframes sc-out { to { transform: translateY(-100%); opacity: 0; } }
+@keyframes sc-in { from { transform: translateY(100%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes sc-hit { 0% { background: rgba(255,210,63,.45); box-shadow: 0 0 22px rgba(255,210,63,.7); } 100% { background: transparent; box-shadow: none; } }
+@keyframes sc-pulse { 0% { transform: scale(1); border-color: #2b303b; } 30% { transform: scale(1.07); border-color: #ffd23f; } 100% { transform: scale(1); border-color: #2b303b; } }
+@keyframes sc-pop { 0% { transform: translate(-50%, 0) scale(.6); opacity: 0; } 20% { transform: translate(-50%, -10px) scale(1.25); opacity: 1; } 100% { transform: translate(-50%, -44px) scale(1); opacity: 0; } }
+/* (with the scoreboard up, the text bar loses its own score line and sits under it) */
+body.scoreboard-on #sport { top: 136px; }
+body.scoreboard-on #sport .sb { display: none; }
+/* On a phone: smaller, still top and center (the minimap's off in a one-on-one). */
+/* (starting just right of center: the pause and QUIT buttons end at the middle) */
+body.touch #scoreboard { top: 4px; left: calc(50% + 8px); transform: scale(.72); transform-origin: top left; }
+body.touch.scoreboard-on #sport { top: 104px; left: 50%; transform: translateX(-50%); }
