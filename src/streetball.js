@@ -8,6 +8,7 @@ import { dunkPose, dunkPhase, dunkBall } from './dunkpose.js';
 import { markReach, reachWhiff, reachHit, reachPose } from './reachpose.js';
 import { markJump, markSwat, jumpPose } from './blockpose.js';
 import { markStripped, markScoop, scooping, strippedPose, scoopPose } from './stealpose.js';
+import { readyPose, boxOutPose, markGrab, grabbing, grabPose } from './reboundpose.js';
 import { markPass, markCatch, passPose } from './passpose.js';
 import { CFG } from './config.js';
 
@@ -1729,7 +1730,11 @@ export class Streetball {
   give(who, check = false) {
     const b = this.g.ball;
     // (off the floor: whoever gets it scoops it up)
-    if (b.mode === 'loose' && b.y < 0.7 && (who === 'you' || who === 'opp') && !this.t33) markScoop(who === 'you' ? this.game.player.char : this.opp.char, this.game.time);
+    if (b.mode === 'loose' && (who === 'you' || who === 'opp') && !this.t33) {
+      const c = who === 'you' ? this.game.player.char : this.opp.char;
+      if (b.y < 0.7) markScoop(c, this.game.time);
+      else markGrab(c, this.game.time, b.y > 1.7); // (a rebound: snatched and chinned)
+    }
     this.has = who;
     this.possession(who);
     this.touch = null;
@@ -2000,6 +2005,12 @@ export class Streetball {
       }
       // Box out: intense D while the shot's up or the ball's loose.
       hp.boxed = intense && b.mode !== 'held' && dO < 1.7;
+      if (Y.boxed) {
+        // (he's boxing you out: you can't get round him easily)
+        a.moveX *= 0.55;
+        a.moveY *= 0.55;
+        sprint = false;
+      }
       if (stealHit && this.has === 'opp' && Y.stealT <= 0) this.trySteal(dO);
       if (blockHit && Y.blockT <= 0) {
         Y.blockT = 0.9;
@@ -2930,6 +2941,7 @@ export class Streetball {
       b.kind = 'shot';
     }
     b.make = make;
+    if (by === 'you' && !this.solo && !this.t33) this.opp.hp.boxWant = Math.random() < 0.35 + this.r / 250; // (will he box you out?)
     this.flight = { by, pts, counts: this.cleared, foul: this.foulOnShot, type: type || (T ? 'dunk' : null) };
     this.foulOnShot = false;
     this.has = null;
@@ -3114,7 +3126,7 @@ export class Streetball {
       } else {
         // Rebounds: you reach further jumping for it (△), he's slower boxed out.
         const Y = this.you;
-        const yourReach = Y.jumpT > 0 ? 1.4 : 0.95;
+        const yourReach = Y.boxed ? 0.5 : Y.jumpT > 0 ? 1.4 : 0.95; // (boxed out by him: the same as him by you)
         const yourTop = Y.jumpT > 0 ? 2.8 : 1.5;
         const hisReach = hp.boxed ? 0.45 : (hp.jumpT || 0) > 0 ? 1.35 : 0.95;
         if (Y.fallT <= 0 && !(Y.noGrabT > 0) && dist(px, pz, b.x, b.z) < yourReach && b.y < yourTop) {
@@ -3130,6 +3142,15 @@ export class Streetball {
           }
         }
       }
+    }
+    // His box-out on you: a shot of yours up (or the ball loose), him between you and the rim.
+    {
+      const Y = this.you;
+      const dRimYou = dist(px, pz, this.rim.x, this.rim.z);
+      const dRimHim = dist(opp.x, opp.z, this.rim.x, this.rim.z);
+      Y.boxed = !this.solo && !this.t33 && !!hp.boxWant && b.mode !== 'held' && !this.dead && !this.check && hp.fallT <= 0 && !hp.boxed
+        && dist(px, pz, opp.x, opp.z) < 1.7 && dRimHim < dRimYou;
+      if (b.mode === 'held') hp.boxWant = false;
     }
     // Taking it back past the arc.
     const holder = this.has === 'you' ? [px, pz] : this.has === 'opp' ? [opp.x, opp.z] : null;
@@ -3223,7 +3244,7 @@ export class Streetball {
         dunkBall(b, game.player.char, Y.dunkTwo ?? true, Y.dunk.hand ?? 1, _v1, _v2);
         return;
       }
-      if (scooping(game.player.char, game.time)) {
+      if (scooping(game.player.char, game.time) || grabbing(game.player.char, game.time)) {
         this.shotBall(b, game.player.char, 1, 0); // (scooped up: in both hands)
         return;
       }
@@ -3257,7 +3278,7 @@ export class Streetball {
       const hp = opp.hp;
       const fx = Math.sin(opp.heading);
       const fz = Math.cos(opp.heading);
-      if (scooping(opp.char, game.time)) this.shotBall(b, opp.char, 1, 0); // (scooped up: in both hands)
+      if (scooping(opp.char, game.time) || grabbing(opp.char, game.time)) this.shotBall(b, opp.char, 1, 0); // (scooped up: in both hands)
       else if (hp.state === 'shoot' && hp.appr && hp.t < hp.appr.T) {
         b.x = opp.x + fx * 0.32;
         b.z = opp.z + fz * 0.32;
@@ -3567,7 +3588,7 @@ export class Streetball {
     // Loose ball or a shot coming down: go get it (unless you've boxed him out).
     if (b.mode === 'loose' || (b.mode === 'flight' && b.T - b.t < 0.35)) {
       if (dist(p.x, p.z, b.x, b.z) < 2 && b.y > 1.2 && Math.random() < dt * 4 && !hp.jumpT) hp.jumpT = 0.6;
-      return { tx: b.x + b.vx * 0.3, tz: b.z + b.vz * 0.3, speed: (hp.boxed ? 1.6 : 3.9) * tired };
+      return { tx: b.x + b.vx * 0.3, tz: b.z + b.vz * 0.3, speed: (hp.boxed ? 1.6 : this.you.boxed ? 1.8 : 3.9) * tired };
     }
     if (this.has === 'opp') return this.faceUp(p, hp, this.offense(p, dt, face, tired));
     // Defending you: between you and the basket.
@@ -4048,11 +4069,23 @@ export class Streetball {
     if (p === this.opp && !this.check) {
       const drop = reachPose(p.char, this.game.time, p.heading); // (his reach-in, the same as yours)
       if (drop != null) y += drop;
+      const hp = p.hp;
+      {
+        // (rebounding, the same as you: ready while it's up, boxing you out, coming down with it)
+        const busy = hp.state === 'shoot' || hp.state === 'oop' || hp.state === 'oopLand' || (hp.jumpT || 0) > 0 || hp.fallT > 0 || this.has === 'opp';
+        if (!busy && this.you.boxed) {
+          const [qx, qz] = this.game.player.pos();
+          p.heading = Math.atan2(p.x - qx, p.z - qz); // (his back into you)
+          p.char.group.rotation.y = p.heading;
+          y += boxOutPose(p.char, this.clock * 7, Math.hypot(hp.vx || 0, hp.vz || 0) > 0.4);
+        } else if (!busy && this.has === null && this.g.ball.mode === 'flight' && this.flight) readyPose(p.char);
+        const gd = grabPose(p.char, this.game.time);
+        if (gd != null) y += gd;
+      }
       for (const f of [strippedPose, scoopPose]) {
         const d = f(p.char, this.game.time, p.heading); // (stripped or scooping, the same as you)
         if (d != null) y += d;
       }
-      const hp = p.hp;
       if ((hp.jumpT || 0) > (hp.jPrev ?? 0) + 1e-6) markJump(p.char, this.game.time, hp.jumpT, this.jumpKind('opp'), this.sideOfBall(p.x, p.z, p.heading));
       hp.jPrev = hp.jumpT || 0;
       if (hp.state !== 'shoot' && hp.state !== 'oop' && hp.state !== 'oopLand') {
@@ -4344,6 +4377,20 @@ export class Streetball {
       const p = this.game.player;
       const drop = reachPose(p.char, this.game.time, p.heading);
       if (drop != null) p.char.group.position.y += drop;
+      // (rebounding: ready while it's up, boxing him out, coming down with it)
+      {
+        const Y = this.you;
+        const b = this.g.ball;
+        const busy = Y.dunk || this.shot || Y.fall || Y.jumpT > 0 || Y.fallT > 0 || Y.settle > 0 || this.has === 'you';
+        if (!busy && this.opp.hp?.boxed && !this.solo) {
+          p.heading = Math.atan2(p.x - this.opp.x, p.z - this.opp.z); // (your back into him)
+          p.char.group.rotation.y = p.heading;
+          Y.boxPh = (Y.boxPh || 0) + dt * 7;
+          p.char.group.position.y += boxOutPose(p.char, Y.boxPh, Math.hypot(p.vx || 0, p.vz || 0) > 0.4);
+        } else if (!busy && this.has === null && b.mode === 'flight' && this.flight) readyPose(p.char);
+        const gd = grabPose(p.char, this.game.time);
+        if (gd != null) p.char.group.position.y += gd;
+      }
       // (stripped, or scooping a loose ball up)
       for (const f of [strippedPose, scoopPose]) {
         const d = f(p.char, this.game.time, p.heading);
