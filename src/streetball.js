@@ -4278,6 +4278,13 @@ export class Streetball {
           if (q.hp) q.hp.s33 = null;
           if (!q.removed) this.H.toWait(q);
         }
+        // (one of them comes over: the winner if it wasn't you, or one of the ones you beat)
+        if (how === 'win' || how === 'lose') {
+          const others = T.players.filter((P) => P.who !== 'you' && !P.who.removed);
+          const winner = others.find((P) => !P.out);
+          const who = how === 'lose' && winner ? winner.who : others.length ? pick(others).who : null;
+          game.postGame?.start({ H: this.H, g, who, youWon: how === 'win', bet: T.bet, margin: 10 });
+        }
         const b = g.ball;
         if (b.mode === 'held' && b.holder === 'you') {
           b.mode = 'loose';
@@ -4346,6 +4353,8 @@ export class Streetball {
       if (g.ball.mode === 'held' && g.ball.holder === 'you') g.ball.mode = 'loose';
       for (const q of g.players) if (!q.removed) this.H.toWait(q);
       if (g.ball.mode === 'held' && g.ball.holder === this.opp) this.H.giveBall(g, this.opp);
+      // (he comes over: a dap, a hug... or he's heated)
+      if (how === 'win' || how === 'lose') game.postGame?.start({ H: this.H, g, who: this.opp, youWon: how === 'win', bet: this.bet, margin: Math.abs(this.score.you - this.score.opp) });
     }
     game.hud.sport?.(null);
     game.save();

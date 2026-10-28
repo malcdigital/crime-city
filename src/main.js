@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CFG, CRIMES, GANG_NAME } from './config.js';
 import { CourtMenu } from './courtmenu.js';
+import { PostGame } from './postgame.js';
 import { buildCity, districtAt, streetAt } from './city.js';
 import { buildSidewalks } from './sidewalk.js';
 import { Streets } from './streets.js';
@@ -128,6 +129,7 @@ class Game {
     this.sport = new Streetball(this); // (one-on-one with somebody at the courts)
     this.gridiron = new Gridiron(this); // (quarterback a drive at Harbor Field)
     this.courtMenu = new CourtMenu(this); // (what we playing? courts and the field)
+    this.postGame = new PostGame(this); // (after a game: dap, hug... or heated)
     this.playground = new Playground(this); // (kids at the Market St playground, people by the statue)
     this.pursuit = new Pursuit(this); // (police tactics, lying low, the radio)
     this.justice = new Justice(this); // (charges, booking, bail, jail time, your record)
@@ -2247,6 +2249,7 @@ class Game {
     this.arsenal.update(dt);
     const pickup = this.pickupGame();
     if (pickup && !p.vehicle) pickup.input(dt, a); // (a pickup game: FIRE shoots or throws, no guns)
+    else if (this.postGame.active) this.postGame.input(a); // (after it: walk away or fight)
     const gun = !this.arsenal.current().melee && !pickup;
     this.aimingNow = !p.vehicle && !p.busy && gun && a.aim;
     // Crouch: toggle with C / L3; sprinting stands you up; aiming pops you up out of cover.
@@ -2295,6 +2298,7 @@ class Game {
       if (combat && this.lockTarget) faceYaw = Math.atan2(this.lockTarget.x - p.x, this.lockTarget.z - p.z);
       p.updateOnFoot(dt, a, this.camYaw, faceYaw);
       if (pickup) pickup.late(dt);
+      else if (this.postGame.active) this.postGame.late(dt, a);
     }
 
     this.traffic.update(dt);
