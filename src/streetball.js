@@ -3627,10 +3627,19 @@ export class Streetball {
     // The timing badge sits under the energy bar; the green pulse on the floor at your feet.
     const B = this.badgeEl;
     if (B) {
-      B.style.left = `${Math.max(B.offsetWidth / 2 + 6, Math.min(W - B.offsetWidth / 2 - 6, at.ex))}px`;
-      const below = at.ey + (game.input.touchMode ? 10 : 14);
+      const bw = B.offsetWidth;
       const bh = B.offsetHeight;
-      B.style.top = `${Math.max(8, below + bh <= H - 6 ? below : at.ey - bh - 6)}px`; // (under the energy bar, or just over it when there's no room: always on screen)
+      if (game.input.touchMode) {
+        // (a phone: to his left at chest height, across from the meter on his right, so the
+        // bottom of the screen and your thumbs stay clear)
+        const cx = at.ex - (at.mx - at.ex) - bw / 2 - 6;
+        B.style.left = `${Math.max(bw / 2 + 6, Math.min(W - bw / 2 - 6, cx))}px`;
+        B.style.top = `${Math.max(8, Math.min(H - bh - 8, at.my - bh / 2))}px`;
+      } else {
+        B.style.left = `${Math.max(bw / 2 + 6, Math.min(W - bw / 2 - 6, at.ex))}px`;
+        const below = at.ey + 14;
+        B.style.top = `${Math.max(8, below + bh <= H - 6 ? below : at.ey - bh - 6)}px`; // (under the energy bar, or just over it when there's no room: always on screen)
+      }
     }
     const P = this.pulse;
     if (P && P.visible) {
