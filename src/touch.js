@@ -259,6 +259,28 @@ export class TouchControls {
         pid = null;
         return;
       }
+      if (id === 'bpass') {
+        // (PASS: double tap tosses the oop (△); a single tap passes once it's clearly not the
+        // start of a double; holding it locks on, like the controller's ✕)
+        const now = e.timeStamp; // (when the finger landed, even if the page was busy)
+        if (this.passTapAt && now - this.passTapAt < 350) {
+          this.passTapAt = 0;
+          this.passSkipUp = true; // (this tap's lift isn't a pass)
+          clearTimeout(this.passTimer);
+          this.tap(B.TRIANGLE);
+          pressed = null;
+          return;
+        }
+        this.passDown = now;
+        this.passHoldTimer = setTimeout(() => {
+          if (this.passDown) {
+            this.passHeld = true;
+            this.press(b);
+          }
+        }, 220);
+        pressed = null;
+        return;
+      }
       if (kind === 'weapon') {
         // (the GUN button: tap swaps, hold reloads, swipe up opens the inventory strip; decided
         // as it goes, in update and pointermove)
@@ -289,6 +311,29 @@ export class TouchControls {
       pid = null;
       el.classList.toggle('on', kind === 'toggle' && this.toggled.has(b));
       if (kind === 'toggle') return;
+      if (id === 'bpass') {
+        clearTimeout(this.passHoldTimer);
+        this.passDown = 0;
+        if (this.passSkipUp) {
+          this.passSkipUp = false;
+          return;
+        }
+        if (this.passHeld) {
+          this.passHeld = false;
+          this.release(b); // (let go: the locked-on pass)
+          return;
+        }
+        // (a tap: wait a beat for a second one, then pass)
+        this.passTapAt = e.timeStamp;
+        clearTimeout(this.passTimer);
+        this.passTimer = setTimeout(() => {
+          if (this.passTapAt) {
+            this.passTapAt = 0;
+            this.tap(b);
+          }
+        }, 350);
+        return;
+      }
       if (kind === 'weapon') {
         const W = this.wHold;
         this.wHold = null;
@@ -362,25 +407,64 @@ export class TouchControls {
     zone.addEventListener('pointercancel', up);
   }
 
+  // The right side of the screen: drag to look. With the ball in a pickup game it's the dribble
+  // moves instead: a tap is a hesitation, a quick swipe left / right a crossover that way, up a
+  // spin, down a step-back (each fires the moment the swipe is long enough).
   bindLook(zone) {
     const last = new Map();
+    const gest = new Map();
+    const SWIPE = 32;
     zone.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       this.enable();
       capture(zone, e.pointerId);
       last.set(e.pointerId, [e.clientX, e.clientY]);
+      if (this.dribbleGest) gest.set(e.pointerId, { x: e.clientX, y: e.clientY, t: e.timeStamp, done: false });
     });
     zone.addEventListener('pointermove', (e) => {
       const p = last.get(e.pointerId);
       if (!p) return;
       this.lastT = performance.now();
+      const G = gest.get(e.pointerId);
+      if (G) {
+        // (a dribble gesture: no looking around with it)
+        last.set(e.pointerId, [e.clientX, e.clientY]);
+        if (G.done) return;
+        const dx = e.clientX - G.x;
+        const dy = e.clientY - G.y;
+        if (Math.hypot(dx, dy) < SWIPE) return;
+        G.done = true;
+        if (Math.abs(dx) >= Math.abs(dy)) this.dribble('cross', dx < 0 ? -1 : 1);
+        else if (dy < 0) this.dribble('spin', Math.abs(dx) > 8 ? Math.sign(dx) : 0);
+        else this.dribble('step', 0);
+        return;
+      }
       this.lookDX += (e.clientX - p[0]) * LOOK;
       this.lookDY += (e.clientY - p[1]) * LOOK;
       last.set(e.pointerId, [e.clientX, e.clientY]);
     });
-    const up = (e) => last.delete(e.pointerId);
+    const up = (e) => {
+      last.delete(e.pointerId);
+      const G = gest.get(e.pointerId);
+      gest.delete(e.pointerId);
+      // (a tap: lifted quickly without swiping)
+      if (G && !G.done && e.type === 'pointerup' && e.timeStamp - G.t < 350) this.dribble('hesi', 0);
+    };
     zone.addEventListener('pointerup', up);
     zone.addEventListener('pointercancel', up);
+  }
+
+  // A dribble move from a gesture, for input.js to pick up this frame.
+  dribble(kind, side) {
+    this.gesture = { kind, side };
+    this.lastT = performance.now();
+    if (navigator.vibrate) {
+      try {
+        navigator.vibrate(8);
+      } catch {
+        // (no haptics)
+      }
+    }
   }
 
   // Which set of buttons to show (called every frame before the input is read).
@@ -435,18 +519,27 @@ export class TouchControls {
       b.qr1.el.classList.toggle('hidden', running);
       b.qr1.el.querySelector('.tl').textContent = line ? 'PLAY' : 'R1';
     }
+    this.dribbleGest = false;
     if (ctx === 'ball') {
       // (on defense: SHOOT is steal, the moves are hidden)
       const off = game.sport.has === 'you' && !game.sport.t3; // (the contest: just SHOOT)
       const b = this.el.buttons;
       b.bshoot.el.querySelector('.tl').textContent = off || game.sport.has !== 'opp' ? 'SHOOT' : 'STEAL';
-      b.bblock.hint.textContent = game.sport.has === 'opp' ? 'block' : off ? 'oop' : 'rebound';
-      for (const id of ['bcross', 'bstep', 'bspin']) b[id].el.classList.toggle('hidden', !off);
-      // (HESI on offense; on defense it's HANDS: hold to keep your hands up and contest)
-      b.bhesi.el.classList.toggle('hidden', !off && game.sport.has !== 'opp');
-      b.bblock.el.classList.toggle('hidden', !!game.sport.t3);
-      b.bhesi.el.querySelector('.tl').textContent = off ? 'HESI' : 'HANDS';
-      b.bpass.el.classList.toggle('hidden', !(game.sport.solo && (off || game.sport.g?.ball?.mode === 'loose'))); // (passing / a fetch: shooting around)
+      b.bblock.hint.textContent = game.sport.has === 'opp' ? 'block' : 'rebound';
+      // (with the ball the dribble moves are gestures on the right side of the screen, so no
+      // move buttons; △ is for D and rebounds, the oop is a double tap on PASS)
+      for (const id of ['bcross', 'bstep', 'bspin']) b[id].el.classList.add('hidden');
+      b.bhesi.el.classList.toggle('hidden', game.sport.has !== 'opp'); // (on defense: HANDS, hold to contest)
+      b.bhesi.el.querySelector('.tl').textContent = 'HANDS';
+      b.bblock.el.classList.toggle('hidden', !!game.sport.t3 || off);
+      b.bpass.el.classList.toggle('hidden', !(off || (game.sport.solo && game.sport.g?.ball?.mode === 'loose'))); // (passing / the oop; a fetch shooting around)
+      b.bpass.hint.textContent = off ? '2× oop' : '';
+      this.dribbleGest = off; // (the right side: tap hesi, swipe cross / spin / step back)
+      if (off && !this.gestTold) {
+        // (once a session: the moves are gestures now, so say so)
+        this.gestTold = true;
+        game.hud.toast('Dribble moves: right side of the screen — tap: hesi · swipe ← → crossover · ↑ spin · ↓ step-back. PASS twice: alley-oop', '#ffd23f');
+      }
       b.bd.el.classList.toggle('hidden', !!game.sport.solo);
     }
     // QUIT: armed by the first tap (SURE?), quits on the second.

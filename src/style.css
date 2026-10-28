@@ -401,7 +401,7 @@ body.touch #sport .sh { display: none; }
 #touch .tb-bshoot { right: 22px; bottom: 26px; }
 #touch .tb-bblock { right: 26px; bottom: 120px; }
 #touch .tb-bd { right: 116px; bottom: 14px; }
-#touch .tb-bpass { right: 116px; bottom: 14px; }
+#touch .tb-bpass { right: 112px; bottom: 96px; } /* (where HESI was: PASS on offense, HANDS on defense, never both) */
 #touch .tb-bcross { right: 196px; bottom: 30px; }
 #touch .tb-bhesi { right: 112px; bottom: 96px; }
 #touch .tb-bstep { right: 196px; bottom: 98px; }

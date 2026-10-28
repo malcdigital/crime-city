@@ -271,6 +271,12 @@ export class Input {
     if (this.btnHit(19)) a.bMove = { kind: 'hesi', side: 0 };
     if (this.btnHit(20)) a.bMove = { kind: 'step', side: 0 };
     if (this.btnHit(21)) a.bMove = { kind: 'spin', side: tside };
+    // (a phone's dribble gestures on the right side of the screen: touch.js)
+    if (this.touch?.gesture) {
+      const G = this.touch.gesture;
+      this.touch.gesture = null;
+      a.bMove = { kind: G.kind, side: G.kind === 'spin' && !G.side ? tside || 1 : G.side };
+    }
     // Pickup football (gridiron.js), Madden's layout: after the snap each receiver has a button
     // (□ ✕ ○ △, R1 for the back; keyboard 1-5): tap it for a bullet, hold it for a lob.
     a.qbR = [
