@@ -235,6 +235,16 @@ export class Hud {
       sw.style.bottom = `${(meter.lo * 100).toFixed(1)}%`;
       sw.style.height = `${((meter.hi - meter.lo) * 100).toFixed(1)}%`;
       f.classList.toggle('good', meter.v >= meter.lo && meter.v <= meter.hi);
+      // (a perfect release: pop, glow, a shine up the bar and a ring off it; restarts per shot)
+      const pk = meter.perfect ? String(meter.perfect) : '';
+      if (m.dataset.pk !== pk) {
+        m.dataset.pk = pk;
+        m.classList.remove('perfect');
+        if (pk) {
+          void m.offsetWidth;
+          m.classList.add('perfect');
+        }
+      }
     }
     if (showE) {
       e.style.left = `${Math.round(at.ex)}px`;

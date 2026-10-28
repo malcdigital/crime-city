@@ -2339,7 +2339,7 @@ export class Streetball {
     const pivot = off > 1.2;
     const turnT = pivot ? off / 9 : 0;
     this.heatShot('you', type);
-    this.shot = { type, t: 0, T: SHOTS[type].T * (type === 'jumper' ? SHOT_SPEED : 1) + turnT, W: greenWindow(type, this.onFire('you') ? Math.min(D.d, FIRE_RANGE) : D.d), d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false, pivot, turnT };
+    this.shot = { type, t: 0, T: SHOTS[type].T * (type === 'jumper' ? SHOT_SPEED : 1) + turnT, W: greenWindow(type, this.onFire('you') ? Math.min(D.d, FIRE_RANGE) : D.d) * (this.t3 ? 0.8 : 1), d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false, pivot, turnT };
     // (a jumper off your right hand; a layup or floater off the hand the ball's in)
     this.shot.hand = type === 'jumper' ? 1 : (this.ballSide ?? Y.hand ?? 1) >= 0 ? 1 : -1;
     // A layup's hand: the side you're holding the left stick (right of the rim: right hand),
@@ -3601,6 +3601,10 @@ export class Streetball {
   // screen.
   floatHud(meter) {
     const game = this.game;
+    // (a perfect release: the meter holds where you let go and lights up for a moment)
+    const PF = this.perfect;
+    if (PF && game.time - PF.t0 < 0.75) meter = PF.m;
+    else if (meter) this.lastMeter = meter;
     const p = game.player;
     const [px, pz] = p.pos();
     const cam = game.camera;
@@ -3648,6 +3652,7 @@ export class Streetball {
     void el.offsetWidth; // (restart the animation)
     el.className = `show ${tier}`;
     if (tier === 'ex') {
+      if (this.lastMeter) this.perfect = { t0: this.game.time, m: { ...this.lastMeter, perfect: this.game.time } };
       if (!this.pulse) {
         const m = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.36, 40), new THREE.MeshBasicMaterial({ color: 0x5ef2b0, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
         m.rotation.x = -Math.PI / 2;

@@ -1521,27 +1521,44 @@ class Game {
     this.setPaused(false);
   }
 
-  // In a pickup game the map button (touchpad / M) is quit: hold it a second (a bar fills) and
-  // you're out, no pausing. (A phone has its QUIT button.)
-  quitHoldStep(dt, a) {
+  // Whatever game you're in right now (a pickup game, the 3-point contest, a dice circle):
+  // what quitting it means and how. Any new game adds itself here, so it quits the same way.
+  activeGame() {
     const g = this.pickupGame();
-    if (!g || this.input.touchMode) {
+    if (g) {
+      const sb = this.sport;
+      const label = g === sb && sb.t3 ? 'quit the contest' : g === sb && sb.solo && !sb.t33 ? 'stop shooting around' : this.pickupFresh() ? 'call it off (money back)' : `forfeit${g.bet ? ` (-$${g.bet})` : ''}`;
+      return { label, quit: () => this.quitPickup() };
+    }
+    if (this.dice.playing) return { label: 'get up from the dice game', quit: () => this.dice.leave() };
+    return null;
+  }
+
+  // In any game the map button (touchpad / M) is quit: hold it a second (a bar fills) and
+  // you're out, no pausing. A small hint in the corner says so. (A phone has its QUIT button.)
+  quitHoldStep(dt, a) {
+    const G = this.activeGame();
+    const hint = this.quitHint || (this.quitHint = Object.assign(document.createElement('div'), { id: 'quit-hint' }));
+    if (!hint.isConnected) document.body.appendChild(hint);
+    if (!G || this.input.touchMode) {
+      hint.classList.add('hidden');
       this.quitHold = 0;
       this.quitProg = null;
       return;
     }
-    const kb = this.input.mode !== 'pad';
+    const key = this.input.mode !== 'pad' ? 'M' : 'touchpad';
+    const text = `Hold ${key} to quit`;
+    if (hint.textContent !== text) hint.textContent = text;
+    hint.classList.remove('hidden');
     if (a.mapHeld) {
       this.quitHold = (this.quitHold || 0) + dt;
-      const what = g === this.sport && this.sport.solo && !this.sport.t33 ? 'stop shooting around' : this.pickupFresh() ? 'call it off (money back)' : `forfeit${g.bet ? ` (-$${g.bet})` : ''}`;
-      this.quitProg = { value: Math.min(1, this.quitHold), label: `Keep holding to ${what}` };
+      this.quitProg = { value: Math.min(1, this.quitHold), label: `Keep holding to ${G.label}` };
       if (this.quitHold >= 1) {
         this.quitHold = 0;
         this.quitProg = null;
-        this.quitPickup();
+        G.quit();
       }
     } else {
-      if (a.map) this.hud.toast(`Hold ${kb ? 'M' : 'the touchpad'} to quit`, '#9fc3ff');
       this.quitHold = 0;
       this.quitProg = null;
     }
@@ -2178,7 +2195,7 @@ class Game {
       // Full map: the game is paused underneath.
       if (a.map || a.closeClip || a.pause) this.mapView.hide();
       else this.mapView.update(dt, a);
-    } else if (a.map && !this.paused && !this.pickupGame()) {
+    } else if (a.map && !this.paused && !this.activeGame()) {
       this.mapView.show();
     } else if (a.pause) {
       this.setPaused(!this.paused);

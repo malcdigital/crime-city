@@ -15,7 +15,7 @@ import { crouchPose, makeCharacter } from './character.js';
 // hands you each ball, flies the ones you've let go of, keeps score and runs the clock.
 
 const TIME = 70;
-const GRAB_T = 0.85; // (turn to the rack, hands on it, back to the basket with it)
+const GRAB_T = 0.45; // (turn to the rack, hands on it, back to the basket with it)
 const RACK_TURN = 1.15; // (how far round to the left he turns for the rack: ~66°)
 const SLOT = 0.26; // (ball to ball on the rack)
 const ease = (k) => k * k * (3 - 2 * k);
@@ -136,7 +136,7 @@ export class Contest {
       const [rl, ry, rf] = reachPoint();
       const P = [sx + left[0] * rl + f[0] * rf, gy + ry, sz + left[1] * rl + f[1] * rf];
       const dl = Math.hypot(left[0] * rl + f[0] * rf, left[1] * rl + f[1] * rf) || 1;
-      const d = [(left[0] * rl + f[0] * rf) / dl, (left[1] * rl + f[1] * rf) / dl];
+      const d = [-f[0], -f[1]]; // (the rack runs back from the front ball, alongside him on his left, pointing at the basket)
       S.P = P;
       S.d = d;
       const metal = new THREE.MeshLambertMaterial({ color: 0x2b2f36 });
@@ -297,14 +297,14 @@ export class Contest {
         const b = G.b;
         // (it stays in the rack's front slot till the hands are on it (that's where his hands
         // land), then rides in them to the chest; the rest roll down a slot behind it)
-        if (G.t > G.T * 0.42) {
+        if (G.t > G.T * 0.27) {
           handsAt(p.char, _h);
-          const k = ease(Math.min(1, (G.t - G.T * 0.42) / (G.T * 0.14))); // (the hands get there a beat after the pose does: eased joints)
+          const k = ease(Math.min(1, (G.t - G.T * 0.27) / (G.T * 0.22))); // (the hands get there a beat after the pose does: eased joints)
           b.x = G.from[0] + (_h.x - G.from[0]) * k;
           b.y = G.from[1] + (_h.y - G.from[1]) * k;
           b.z = G.from[2] + (_h.z - G.from[2]) * k;
           b.mesh.position.set(b.x, b.y, b.z);
-          if (!G.rolled && G.t > G.T * 0.55) {
+          if (!G.rolled && G.t > G.T * 0.45) {
             G.rolled = true;
             for (const o of this.station().balls) if (o !== b && o.mode === 'rack') o.slotTo = Math.max(0, o.slot - 1);
           }
@@ -396,7 +396,7 @@ export class Contest {
     if (!G) return 0;
     const c = p.char;
     const k = Math.min(1, G.t / G.T);
-    const out = ease(Math.min(1, k / 0.36)) * (1 - ease(Math.max(0, (k - 0.55) / 0.45))); // (out to it, a beat on it, back)
+    const out = ease(Math.min(1, k / 0.3)) * (1 - ease(Math.max(0, (k - 0.42) / 0.58))); // (out to it, a beat on it, back)
     c.group.rotation.y = p.heading + RACK_TURN * out; // (round to the left, where the rack is)
     return reachPose(c, out);
   }
@@ -414,15 +414,14 @@ export class Contest {
     return Math.abs(d);
   }
 
-  // The way to the next station: round the front of its rack (it's on that spot's left, the
-  // side you're coming from), then in onto the spot.
+  // The way to the next station: round the front (basket) end of its rack (it runs back along
+  // that spot's left, the side you're coming from), then in onto the spot.
   route(S) {
     const [sx, sz] = S.spot;
-    const f = S.f;
-    const [, B] = S.rackSeg;
+    const { f, left, P } = S;
     return [
-      [B[0] + f[0] * 1.05 + S.d[0] * 0.35, B[1] + f[1] * 1.05 + S.d[1] * 0.35], // (round the far end of its rack, on the basket side)
-      [sx + f[0] * 1.0, sz + f[1] * 1.0], // (in front of the spot)
+      [P[0] + f[0] * 1.15 + left[0] * 0.45, P[2] + f[1] * 1.15 + left[1] * 0.45], // (round the front end of its rack, the basket end)
+      [sx + f[0] * 1.2, sz + f[1] * 1.2], // (in front of the spot)
       [sx, sz],
     ];
   }
