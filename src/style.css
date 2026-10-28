@@ -782,3 +782,5 @@ body.paused #dice-panel { display: none; }
 #touch .tb-dleave { right: 130px; bottom: 20px; }
 #touch .tb-dleft { right: 130px; bottom: 110px; }
 #touch .tb-dright { right: 56px; bottom: 130px; }
+#board3pt .c3-count { text-align: center; line-height: 1; }
+#board3pt .c3-count small { display: block; white-space: nowrap; margin-top: 8px; font-size: 13px; letter-spacing: 3px; color: #8fb8ff; text-shadow: 0 2px 6px rgba(0,0,0,.7); }

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { ballMesh } from './court.js';
 import { dist, lerpAngle } from './util.js';
 import { handsAt } from './passpose.js';
-import { crouchPose } from './character.js';
+import { crouchPose, makeCharacter } from './character.js';
 
 // The 3-point contest (solo, against the clock and the leaderboard), the way the league runs it:
 // five racks round the arc (the corners, the wings, the top), five balls each: four worth 1 and
@@ -15,9 +15,13 @@ import { crouchPose } from './character.js';
 // hands you each ball, flies the ones you've let go of, keeps score and runs the clock.
 
 const TIME = 70;
-const GRAB_T = 0.62; // (turn to the rack, hands on it, back to the basket with it)
+const GRAB_T = 0.85; // (turn to the rack, hands on it, back to the basket with it)
+const RACK_TURN = 1.15; // (how far round to the left he turns for the rack: ~66°)
+const SLOT = 0.26; // (ball to ball on the rack)
+const ease = (k) => k * k * (3 - 2 * k);
 const _h = new THREE.Vector3();
-const RACK_NAMES = ['Left corner', 'Left wing', 'Top', 'Right wing', 'Right corner'];
+const _ax = new THREE.Vector3();
+const RACK_NAMES = ['Left corner', 'Left wing', 'Top of the key', 'Right wing', 'Right corner'];
 export { RACK_NAMES };
 
 // The money ball: red, white and blue panels, the way the league's look; the deep ball gold.
@@ -60,6 +64,40 @@ function deepBall() {
   return m;
 }
 
+// Reaching for the rack, out = 0 (holding at the chest) .. 1 (hands on the ball): arms out and
+// down, a dip and a lean. (The turn to the left is the caller's.) Returns the crouch's height.
+function reachPose(c, out) {
+  c.group.rotation.x = 0.36 * out;
+  for (const [a, e, w, side] of [[c.armL, c.elbowL, c.wristL, 1], [c.armR, c.elbowR, c.wristR, -1]]) {
+    a.rotation.x = -0.55 - 0.4 * out;
+    a.rotation.z = side * (0.3 - 0.08 * out);
+    e.rotation.x = -1.05 + 0.95 * out;
+    w.rotation.x = -0.5 + 0.2 * out;
+  }
+  return crouchPose(c, 0.5 * out);
+}
+
+// Where his hands are at full reach, turned to the rack: [left, up, forward] from where he stands
+// facing the basket. The rack's front slot goes right there, so his hands land on the ball.
+let REACH = null;
+function reachPoint() {
+  if (REACH) return REACH;
+  try {
+    const c = makeCharacter();
+    c.group.position.set(0, 0, 0);
+    c.group.rotation.y = RACK_TURN;
+    c.group.position.y = reachPose(c, 1);
+    c.group.updateMatrixWorld(true);
+    const v = handsAt(c, new THREE.Vector3());
+    // (facing +z, his left is +x)
+    REACH = [v.x, v.y, v.z];
+    if (!(v.y > 0.35 && v.y < 1.4 && Math.hypot(v.x, v.z) > 0.25 && Math.hypot(v.x, v.z) < 1.2)) REACH = [0.62, 0.9, 0.3];
+  } catch {
+    REACH = [0.62, 0.9, 0.3];
+  }
+  return REACH;
+}
+
 const tint = (m, color) => {
   m.traverse((o) => {
     if (o.isMesh && o.material) {
@@ -91,45 +129,57 @@ export class Contest {
       const fl = Math.hypot(fx, fz) || 1;
       const f = [fx / fl, fz / fl];
       const left = [f[1], -f[0]];
+      S.f = f;
+      S.left = left;
       const gy = game.city.groundY?.(sx, sz) || 0;
+      // The front slot: where his hands land. The rack runs out from there, away from him.
+      const [rl, ry, rf] = reachPoint();
+      const P = [sx + left[0] * rl + f[0] * rf, gy + ry, sz + left[1] * rl + f[1] * rf];
+      const dl = Math.hypot(left[0] * rl + f[0] * rf, left[1] * rl + f[1] * rf) || 1;
+      const d = [(left[0] * rl + f[0] * rf) / dl, (left[1] * rl + f[1] * rf) / dl];
+      S.P = P;
+      S.d = d;
+      const metal = new THREE.MeshLambertMaterial({ color: 0x2b2f36 });
+      const topY = P[1] - 0.12 - 0.03; // (the ball sits on top)
       if (S.kind === 'rack') {
-        // A rack beside you (on your left as you face the basket), the front ball first.
-        const cx = sx + left[0] * 0.72 - f[0] * 0.1;
-        const cz = sz + left[1] * 0.72 - f[1] * 0.1;
+        const len = SLOT * 4 + 0.36;
         const frame = new THREE.Group();
-        const metal = new THREE.MeshLambertMaterial({ color: 0x2b2f36 });
-        const top = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.06, 1.4), metal);
-        top.position.y = 0.72;
+        const top = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.05, len), metal);
+        top.position.y = topY;
         frame.add(top);
-        for (const [ax, az] of [[-0.14, -0.62], [0.14, -0.62], [-0.14, 0.62], [0.14, 0.62]]) {
-          const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.72, 0.05), metal);
-          leg.position.set(ax, 0.36, az);
+        // (a lip at the front end: the balls roll down to it)
+        const lip = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.07, 0.04), metal);
+        lip.position.set(0, topY + 0.05, -len / 2);
+        frame.add(lip);
+        for (const [ax, az] of [[-0.13, -len / 2 + 0.06], [0.13, -len / 2 + 0.06], [-0.13, len / 2 - 0.06], [0.13, len / 2 - 0.06]]) {
+          const leg = new THREE.Mesh(new THREE.BoxGeometry(0.045, topY - gy, 0.045), metal);
+          leg.position.set(ax, (topY - gy) / 2, az);
           frame.add(leg);
         }
-        frame.position.set(cx, gy, cz);
-        frame.rotation.y = Math.atan2(f[0], f[1]);
+        const mid = SLOT * 2;
+        frame.position.set(P[0] + d[0] * mid, gy, P[2] + d[1] * mid);
+        frame.rotation.y = Math.atan2(d[0], d[1]);
         game.scene.add(frame);
         this.objs.push(frame);
+        S.rackSeg = [[P[0] - d[0] * 0.18, P[2] - d[1] * 0.18], [P[0] + d[0] * (SLOT * 4 + 0.18), P[2] + d[1] * (SLOT * 4 + 0.18)]];
         for (let k = 0; k < 5; k++) {
           const isMoney = k === 4 || S.i === money;
           const mesh = isMoney ? moneyBall() : ballMesh(); // (money balls: red, white and blue)
-          const along = 0.52 - k * 0.26;
-          const b = { mesh, x: cx + f[0] * along, y: gy + 0.75 + 0.12, z: cz + f[1] * along, vx: 0, vy: 0, vz: 0, mode: 'rack', holder: null, t: 0, pts: isMoney ? 2 : 1, ck: isMoney ? 'money' : 'reg', res: null }; // (ck: the contest's kind; the shot code uses kind)
+          const b = { mesh, x: P[0] + d[0] * SLOT * k, y: P[1], z: P[2] + d[1] * SLOT * k, vx: 0, vy: 0, vz: 0, mode: 'rack', holder: null, t: 0, pts: isMoney ? 2 : 1, ck: isMoney ? 'money' : 'reg', res: null, slot: k, slotTo: k }; // (ck: the contest's kind; the shot code uses kind)
           mesh.position.set(b.x, b.y, b.z);
           game.scene.add(mesh);
           this.objs.push(mesh);
           S.balls.push(b);
         }
       } else {
-        // A deep ball on its stand, worth 3.
-        const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 0.75, 10), new THREE.MeshLambertMaterial({ color: 0x2b2f36 }));
-        const cx = sx + left[0] * 0.6;
-        const cz = sz + left[1] * 0.6;
-        stand.position.set(cx, gy + 0.375, cz);
+        // A deep ball on its stand, worth 3, right where his hands go.
+        const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, topY - gy, 10), metal);
+        stand.position.set(P[0], gy + (topY - gy) / 2, P[2]);
         game.scene.add(stand);
         this.objs.push(stand);
+        S.rackSeg = [[P[0], P[2]], [P[0], P[2]]];
         const mesh = deepBall();
-        const b = { mesh, x: cx, y: gy + 0.75 + 0.12, z: cz, vx: 0, vy: 0, vz: 0, mode: 'rack', holder: null, t: 0, pts: 3, ck: 'deep', res: null };
+        const b = { mesh, x: P[0], y: P[1], z: P[2], vx: 0, vy: 0, vz: 0, mode: 'rack', holder: null, t: 0, pts: 3, ck: 'deep', res: null, slot: 0, slotTo: 0 };
         mesh.position.set(b.x, b.y, b.z);
         game.scene.add(mesh);
         this.objs.push(mesh);
@@ -186,15 +236,23 @@ export class Contest {
     // (the camera behind you at the basket)
     const want = Math.atan2(sb.rim.x - px, sb.rim.z - pz);
     game.camYaw = lerpAngle(game.camYaw, want, Math.min(1, dt * 4));
-    if (this.phase === 'move') {
-      const [tx, tz] = this.station().spot;
-      const dx = tx - px;
-      const dz = tz - pz;
-      const dl = Math.hypot(dx, dz) || 1;
+    if (this.phase === 'move' && this.path?.length) {
+      // (on round the front of the next rack, then easing onto the spot)
+      let [tx, tz] = this.path[0];
+      let dl = Math.hypot(tx - px, tz - pz);
+      while (this.path.length > 1 && dl < 0.45) {
+        this.path.shift();
+        [tx, tz] = this.path[0];
+        dl = Math.hypot(tx - px, tz - pz);
+      }
+      const last = this.path.length === 1;
+      const k = last ? Math.max(0.22, Math.min(1, dl / 1.1)) : 1; // (slowing down into it)
       const yaw = game.camYaw;
-      a.moveY = (dx * Math.sin(yaw) + dz * Math.cos(yaw)) / dl;
-      a.moveX = (dx * -Math.cos(yaw) + dz * Math.sin(yaw)) / dl;
-      a.bSprintNoX = a.sprint = dl > 0.8;
+      const dx = (tx - px) / (dl || 1);
+      const dz = (tz - pz) / (dl || 1);
+      a.moveY = (dx * Math.sin(yaw) + dz * Math.cos(yaw)) * k;
+      a.moveX = (dx * -Math.cos(yaw) + dz * Math.sin(yaw)) * k;
+      a.bSprintNoX = a.sprint = !last && this.pathLen() > 3.5;
     }
   }
 
@@ -212,19 +270,22 @@ export class Contest {
         this.t = 0;
         game.hud.toast('GO!', '#5ef2b0');
       }
-      this.face(p);
-    } else if (this.phase === 'shoot' || this.phase === 'move') {
+      this.face(p, dt);
+    } else if (this.phase === 'shoot' || this.phase === 'move' || this.phase === 'settle') {
       this.clock = Math.max(0, this.clock - dt);
       if (this.clock <= 0) this.horn();
     }
     if (this.phase === 'shoot') {
-      if (!sb.shot && !sb.you.fall) this.face(p);
+      if (!sb.shot && !sb.you.fall && !this.grab) this.face(p, dt);
       // Out of balls here (and your last one's away): on to the next station.
       if (this.ballsLeft() <= 0 && !sb.shot && !sb.you.fall && sb.has !== 'you') {
         this.si += 1;
         this.bi = 0;
         if (this.si >= this.stations.length) this.horn(true);
-        else this.phase = 'move';
+        else {
+          this.phase = 'move';
+          this.path = this.route(this.station());
+        }
       } else if (sb.has !== 'you' && !sb.shot && !sb.you.fall && !this.grab && this.ballsLeft() > 0) {
         // Grab the next ball off the rack (on your left): turn to it, both hands on it, in.
         const b = this.station().balls[this.bi];
@@ -234,14 +295,19 @@ export class Contest {
         const G = this.grab;
         G.t += dt;
         const b = G.b;
-        // (it stays on the rack till the hands get there, then rides in them to the chest)
-        if (G.t > G.T * 0.45) {
+        // (it stays in the rack's front slot till the hands are on it (that's where his hands
+        // land), then rides in them to the chest; the rest roll down a slot behind it)
+        if (G.t > G.T * 0.42) {
           handsAt(p.char, _h);
-          const k = Math.min(1, (G.t - G.T * 0.45) / (G.T * 0.2));
+          const k = ease(Math.min(1, (G.t - G.T * 0.42) / (G.T * 0.14))); // (the hands get there a beat after the pose does: eased joints)
           b.x = G.from[0] + (_h.x - G.from[0]) * k;
           b.y = G.from[1] + (_h.y - G.from[1]) * k;
           b.z = G.from[2] + (_h.z - G.from[2]) * k;
           b.mesh.position.set(b.x, b.y, b.z);
+          if (!G.rolled && G.t > G.T * 0.55) {
+            G.rolled = true;
+            for (const o of this.station().balls) if (o !== b && o.mode === 'rack') o.slotTo = Math.max(0, o.slot - 1);
+          }
         }
         if (G.t >= G.T) {
           b.mode = 'held';
@@ -253,11 +319,29 @@ export class Contest {
       }
     } else if (this.phase === 'move') {
       const [tx, tz] = this.station().spot;
-      if (dist(px, pz, tx, tz) < 0.35) {
+      if (this.path?.length === 1 && dist(px, pz, tx, tz) < 0.08) {
         p.x = tx;
         p.z = tz;
         p.speed = 0;
-        this.phase = 'shoot';
+        this.path = null;
+        this.phase = 'settle';
+      }
+    } else if (this.phase === 'settle') {
+      // (on the spot: turning to the basket before reaching for the first ball)
+      if (this.face(p, dt) < 0.08) this.phase = 'shoot';
+    }
+    // The balls left on the rack rolling down to the front.
+    for (const S of this.stations) {
+      if (!S.P) continue;
+      for (const b of S.balls) {
+        if (b.mode !== 'rack' || b.slot <= b.slotTo) continue;
+        const was = b.slot;
+        b.slot = Math.max(b.slotTo, b.slot - dt / 0.3);
+        b.x = S.P[0] + S.d[0] * SLOT * b.slot;
+        b.z = S.P[2] + S.d[1] * SLOT * b.slot;
+        b.mesh.position.set(b.x, b.y, b.z);
+        _ax.set(-S.d[1], 0, S.d[0]);
+        b.mesh.rotateOnWorldAxis(_ax, ((was - b.slot) * SLOT) / 0.12); // (rolling, not sliding)
       }
     }
     // The ones you've let go of: up, and in (or off the rim); then rolling about.
@@ -312,29 +396,46 @@ export class Contest {
     if (!G) return 0;
     const c = p.char;
     const k = Math.min(1, G.t / G.T);
-    const out = Math.sin(Math.min(1, k / 0.9) * Math.PI); // (out to it and back)
-    const [px, pz] = p.pos();
-    const want = Math.atan2(G.b.x - px, G.b.z - pz);
-    let turn = want - p.heading;
-    while (turn > Math.PI) turn -= Math.PI * 2;
-    while (turn < -Math.PI) turn += Math.PI * 2;
-    c.group.rotation.y = p.heading + turn * out * 0.85;
-    c.group.rotation.x = 0.28 * out;
-    const reach = k < 0.55 ? out : 1 - (k - 0.55) / 0.45; // (arms out to it, then in to the chest)
-    for (const [a, e, w, side] of [[c.armL, c.elbowL, c.wristL, 1], [c.armR, c.elbowR, c.wristR, -1]]) {
-      a.rotation.x = -0.55 - 0.55 * reach;
-      a.rotation.z = side * 0.28;
-      e.rotation.x = -1.05 + 0.85 * reach;
-      w.rotation.x = -0.4;
-    }
-    return crouchPose(c, 0.35 * out);
+    const out = ease(Math.min(1, k / 0.36)) * (1 - ease(Math.max(0, (k - 0.55) / 0.45))); // (out to it, a beat on it, back)
+    c.group.rotation.y = p.heading + RACK_TURN * out; // (round to the left, where the rack is)
+    return reachPose(c, out);
   }
 
-  face(p) {
+  // Turning to the basket (eased, never a snap). Returns how far off it still is.
+  face(p, dt) {
     const rim = this.sb.rim;
     const [px, pz] = p.pos();
-    p.heading = Math.atan2(rim.x - px, rim.z - pz);
+    const want = Math.atan2(rim.x - px, rim.z - pz);
+    p.heading = lerpAngle(p.heading, want, Math.min(1, dt * 7));
     p.char.group.rotation.y = p.heading;
+    let d = want - p.heading;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return Math.abs(d);
+  }
+
+  // The way to the next station: round the front of its rack (it's on that spot's left, the
+  // side you're coming from), then in onto the spot.
+  route(S) {
+    const [sx, sz] = S.spot;
+    const f = S.f;
+    const [, B] = S.rackSeg;
+    return [
+      [B[0] + f[0] * 1.05 + S.d[0] * 0.35, B[1] + f[1] * 1.05 + S.d[1] * 0.35], // (round the far end of its rack, on the basket side)
+      [sx + f[0] * 1.0, sz + f[1] * 1.0], // (in front of the spot)
+      [sx, sz],
+    ];
+  }
+
+  pathLen() {
+    const [px, pz] = this.game.player.pos();
+    let d = 0;
+    let [x, z] = [px, pz];
+    for (const [tx, tz] of this.path || []) {
+      d += Math.hypot(tx - x, tz - z);
+      [x, z] = [tx, tz];
+    }
+    return d;
   }
 
   // Your shot's away (streetball launch): it flies on its own; the next ball's yours to grab.
@@ -383,6 +484,7 @@ export class Contest {
       clock: this.clock,
       phase: this.phase,
       count: this.phase === 'count' ? Math.max(1, Math.ceil(2.2 - this.t - 0.4)) : 0,
+      moneyName: RACK_NAMES[this.money],
       score: this.score,
       best: this.best,
       cur: this.phase === 'shoot' ? [this.si, this.bi] : null,

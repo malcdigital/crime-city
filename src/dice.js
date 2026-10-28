@@ -3,6 +3,7 @@ import { dist, rand, pick, lerpAngle } from './util.js';
 import { crouchPose, setShirt } from './character.js';
 import { pushCircle } from './collision.js';
 import { GANGS, Soldier } from './turf.js';
+import { CFG } from './config.js';
 
 // Street dice around the city: a few people crouched in a circle on a corner, money down, dice
 // against the curb. Mostly in gang turf (and more at night), now and then on a neutral corner.
@@ -623,6 +624,7 @@ export class DiceManager {
 
   update(dt) {
     const game = this.game;
+    if (CFG.START_NEAR_DICE && !this.startDone && game.started && game.time > 1.5 && !game.player.vehicle) this.startNear();
     const [px, pz] = game.player.pos();
     for (const c of [...this.circles]) {
       // (a long way off: they pack up)
@@ -671,6 +673,39 @@ export class DiceManager {
       this.spawnAt(x, z, gang, Math.random() < 0.55 ? 'celo' : 'craps');
       return;
     }
+  }
+
+  // (testing) The nearest corner in a rival gang's turf: a game there, and you a few steps off it.
+  startNear() {
+    this.startDone = true;
+    const game = this.game;
+    const T = game.turfWars;
+    const [px, pz] = game.player.pos();
+    let best = null;
+    let bd = Infinity;
+    for (const q of game.city.walk?.pts || []) {
+      const g = T?.turfAt(q.x, q.z);
+      if (!g || g.hidden || g.id === 'crew' || !q.b || q.b.cx == null) continue;
+      const d = dist(q.x, q.z, px, pz);
+      if (d < bd) {
+        bd = d;
+        best = q;
+      }
+    }
+    if (!best) return;
+    const g = T.turfAt(best.x, best.z);
+    const l = dist(best.b.cx, best.b.cz, best.x, best.z) || 1;
+    const c = this.spawnAt(best.x + ((best.b.cx - best.x) / l) * 1.6, best.z + ((best.b.cz - best.z) / l) * 1.6, g.id, Math.random() < 0.5 ? 'celo' : 'craps', 4);
+    // (you: a few steps off, out toward the street, facing it)
+    const ox = best.x - (best.b.cx - best.x) / l * 1.5;
+    const oz = best.z - (best.b.cz - best.z) / l * 1.5;
+    const p = game.player;
+    const dl = dist(ox, oz, c.x, c.z) || 1;
+    p.x = c.x + ((ox - c.x) / dl) * 4.5;
+    p.z = c.z + ((oz - c.z) / dl) * 4.5;
+    p.heading = Math.atan2(c.x - p.x, c.z - p.z);
+    game.camYaw = p.heading;
+    game.hud.toast(`A ${GAME[c.kind].name.toLowerCase()} game on the corner (${g.name} turf)`, '#ffd23f');
   }
 
   // A circle here (3 to 5 of them; in gang turf they're that gang's).

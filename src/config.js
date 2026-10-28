@@ -19,6 +19,9 @@ export const CFG = {
   // START_IN_CAR and your safehouse). Right now: the Ledger Ave courts. (Harbor Field, next
   // to the quarterback: [1214, 1013, 180].)
   START_ON_FOOT: [1210, 733, 90],
+  // Testing switch: a few seconds in, a dice game on a corner in a rival gang's turf near the
+  // start, and you put a few steps from it (dice.js).
+  START_NEAR_DICE: true,
   // Testing switch: the interchange editor in the pause menu (reshape the ramps, then drive them).
   RAMP_EDITOR: true,
 

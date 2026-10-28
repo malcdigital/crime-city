@@ -195,7 +195,7 @@ export class Scoreboard {
     document.body.classList.add('scoreboard-on', 'board3pt-on');
     const sec = Math.ceil(v.clock);
     const ck = el.querySelector('.c3-clock');
-    ck.textContent = `0:${String(sec).padStart(2, '0')}`;
+    ck.textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
     ck.classList.toggle('low', v.clock <= 10 && v.phase !== 'count');
     const sc = el.querySelector('.c3-sc');
     if (sc.textContent !== String(v.score)) {
@@ -210,9 +210,13 @@ export class Scoreboard {
     if (racks.innerHTML !== html) racks.innerHTML = html;
     const cn = el.querySelector('.c3-count');
     const ctext = v.phase === 'count' ? String(v.count) : '';
-    if (cn.textContent !== ctext) {
-      cn.textContent = ctext;
-      if (ctext) this.restart(cn, 'pop');
+    if (cn.dataset.n !== ctext) {
+      cn.dataset.n = ctext;
+      cn.innerHTML = ctext ? `${ctext}<small></small>` : '';
+      if (ctext) {
+        cn.querySelector('small').textContent = `MONEY RACK: ${String(v.moneyName || '').toUpperCase()}`;
+        this.restart(cn, 'pop');
+      }
     }
   }
 

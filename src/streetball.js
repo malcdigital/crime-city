@@ -692,7 +692,7 @@ export class Streetball {
     [p.x, p.z] = spots[0];
     p.speed = 0;
     this.has = null;
-    game.hud.toast(`3-Point Contest · money rack: ${RACK_NAMES[money]}. 3... 2... 1...`, '#ffd23f');
+    // (no message: the countdown and the money rack show in the middle of the screen)
   }
 
   // (the results card's Run it back)
@@ -892,7 +892,7 @@ export class Streetball {
       });
       T.near = near;
       T.onRing = near != null && nd < 0.55;
-      if ((T.onRing && T.pick) || T.t > 25) {
+      if ((T.onRing && T.pick) || T.t > 12.5) {
         let mine = near;
         if (mine == null) mine = T.spots.map((sp, i) => i).sort((i, j) => dist(px, pz, ...T.spots[i]) - dist(px, pz, ...T.spots[j]))[0];
         this.claim33(Y, mine);
@@ -906,17 +906,17 @@ export class Streetball {
     if (T.phase === 'claims') {
       // (they take theirs, one at a time)
       const next = T.players.find((P) => P.spot == null);
-      if (next && T.t > 0.7) {
+      if (next && T.t > 0.35) {
         T.t = 0;
         const free = this.rings33.map((R, i) => (R.owner ? -1 : i)).filter((i) => i >= 0);
         this.claim33(next, pick(free));
       }
-      if (!next && T.t > 0.9) {
+      if (!next && T.t > 0.45) {
         // The order: left corner round to the right.
         T.players.sort((A, B) => A.spot - B.spot);
         T.phase = 'play';
         T.turn = 0;
-        T.wait = 1;
+        T.wait = 0.5;
         for (const P of T.players) if (P.who !== 'you') P.st = 'return';
         game.hud.toast(`Order: ${T.players.map((P) => P.name).join(' → ')}`, '#ffd23f');
         Y.st = 'return'; // (onto your spot if you're not quite on it)
@@ -958,7 +958,7 @@ export class Streetball {
     if (up.who === 'you') {
       if (b.mode === 'held' && b.holder === 'you' && !this.shot) {
         Y.shotClock += dt;
-        if (Y.shotClock > 12) {
+        if (Y.shotClock > 6) {
           game.hud.toast('Shot clock: that counts as a miss', '#ff8080');
           Y.shotClock = 0;
           this.result33(Y, false);
@@ -967,7 +967,7 @@ export class Streetball {
       }
     } else if (up.ball.holder === up.who) {
       const q = up.who;
-      if (!q.hp.s33) q.hp.s33 = { t: 0, rel: rand(0.9, 1.5) }; // (settles, a dribble or two, up)
+      if (!q.hp.s33) q.hp.s33 = { t: 0, rel: rand(0.45, 0.75) }; // (settles, a dribble or two, up)
       this.npcShot33(up);
     }
   }
@@ -1078,7 +1078,7 @@ export class Streetball {
     const T = this.t33;
     T.shots += 1;
     T.inAir = null;
-    T.wait = 0.6; // (a beat after every shot)
+    T.wait = 0.3; // (a beat after every shot)
     if (make) {
       T.pot += 3;
       game.hud.toast(`${P.who === 'you' ? 'Bucket' : `${P.name} hits`} · pot ${T.pot}`, P.who === 'you' ? '#7ee081' : '#ffd23f');
@@ -3143,6 +3143,10 @@ export class Streetball {
   // ---- The match, every frame (hoops.js hands the group over) ----
   step(dt) {
     const game = this.game;
+    // Once a frame: shooting around, main.js steps this; in 33 and the contest, the court's group
+    // does too (hoops.js: g.match). Twice ran everything (clocks, flights) at double speed.
+    if (this.stepAt === game.time) return;
+    this.stepAt = game.time;
     const b = this.g.ball;
     const H = this.H;
     const opp = this.opp;
@@ -3515,7 +3519,7 @@ export class Streetball {
       this.scoreboard = this.scoreboard || new Scoreboard();
       this.scoreboard.showContest({ ...V, game: this.gameNo });
       const K3 = this.keys();
-      hint = V.phase === 'count' ? 'Get ready...' : V.phase === 'move' ? 'Next rack...' : V.phase === 'shoot' ? (this.shot ? 'Let go in the green' : `${K3.shoot}: shoot, let go in the green`) : 'Time!';
+      hint = V.phase === 'count' ? 'Get ready...' : V.phase === 'move' || V.phase === 'settle' ? 'Next rack...' : V.phase === 'shoot' ? (this.shot ? 'Let go in the green' : `${K3.shoot}: shoot, let go in the green`) : 'Time!';
       game.hud.sport?.('3-POINT CONTEST', null, hint, null);
       this.floatHud(meter);
       return;
@@ -3530,7 +3534,7 @@ export class Streetball {
       else if (T.phase === 'claims') hint = 'They pick theirs...';
       else if (Y.st === 'chase' || Y.st === 'air') hint = 'Going after your rebound...';
       else if (Y.st === 'return') hint = 'Back to your spot...';
-      else if (up?.who === 'you') hint = this.shot ? 'Let go in the green' : T.inAir || T.wait > 0 || !T.players.every((P) => P.out || P.st === 'ready') ? 'Waiting on everybody to get back...' : `Your shot · pot ${T.pot}${this.pressure33() < 0.9 ? ' (pressure: tighter window)' : ''}: ${K.shoot}, let go in the green${Y.shotClock > 8 ? ` · ${Math.ceil(12 - Y.shotClock)}` : ''}`;
+      else if (up?.who === 'you') hint = this.shot ? 'Let go in the green' : T.inAir || T.wait > 0 || !T.players.every((P) => P.out || P.st === 'ready') ? 'Waiting on everybody to get back...' : `Your shot · pot ${T.pot}${this.pressure33() < 0.9 ? ' (pressure: tighter window)' : ''}: ${K.shoot}, let go in the green${Y.shotClock > 4 ? ` · ${Math.ceil(6 - Y.shotClock)}` : ''}`;
       else hint = `${up?.name || ''} shooting · pot ${T.pot}`;
       game.hud.sport?.(board, null, hint, null);
       this.scoreboard = this.scoreboard || new Scoreboard();

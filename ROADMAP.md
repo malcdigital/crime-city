@@ -4,7 +4,7 @@ Things we've decided to do later. Check here before planning new work.
 
 ## Don't forget
 - **Easter eggs around the city.** Hidden secrets to find (requested; details to plan when we get to it).
-- **Turn off the testing switches** in `src/config.js` before release: `INFINITE_AMMO`, `START_IN_CAR`, `START_AT`, `START_ON_FOOT`, `RAMP_EDITOR`, `CAR_SPAWN_KEY`, `TURF_FAST`, `GANG_RUNS_ANY_RANK`, `MARKET_HOT`, `TEST_INCIDENT`, `TEST_STING`, `TEST_DIRTY_COP`.
+- **Turn off the testing switches** in `src/config.js` before release: `INFINITE_AMMO`, `START_IN_CAR`, `START_AT`, `START_ON_FOOT`, `START_NEAR_DICE`, `RAMP_EDITOR`, `CAR_SPAWN_KEY`, `TURF_FAST`, `GANG_RUNS_ANY_RANK`, `MARKET_HOT`, `TEST_INCIDENT`, `TEST_STING`, `TEST_DIRTY_COP`.
 
 ## Later (agreed, not started)
 - **3-Point Contest with 2–5 real players** (online): rounds by field size (3 players: 2 rounds; 5 players: 3 rounds), the top scorers moving on; the solo mode and shared leaderboard are already in (contest.js, leaderboard.js).
