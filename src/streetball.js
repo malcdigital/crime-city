@@ -662,7 +662,8 @@ export class Streetball {
       const a = (deg * Math.PI) / 180;
       return at(Math.cos(a) * out, Math.sin(a) * out);
     };
-    const spots = [at(0.6, -7.16), wing(-42), wing(0), wing(42), at(0.6, 7.16)];
+    // (left to right as you face the basket: + across is your left)
+    const spots = [at(0.6, 7.16), wing(42), wing(0), wing(-42), at(0.6, -7.16)];
     // (everyone's own ball: yours is the court's; theirs come out of the bag) and a color each
     const players = [{ who: 'you', name: 'You', color: COLORS33[0] }, ...npcs.map((q, k) => ({ who: q, name: q.ballName, r: q.ballR, color: COLORS33[k + 1] }))].map((P) => {
       const Q = { ...P, score: 0, out: false, spot: null, home: null, st: 'ready', shotClock: 0 };
