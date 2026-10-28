@@ -244,7 +244,7 @@ export class Market {
         s.kingpin = true;
         s.health = 260;
         s.baseHeart = s.heart = 1;
-        setHeight(s.char, 1.96); // (a big man: 6'5")
+        setHeight(s.char, s.female ? 1.83 : 1.96); // (big: 6'5", or 6'0" for a woman)
         T.soldiers.push(s);
         this.kingpins[g] = { s, dead: false };
       }

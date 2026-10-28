@@ -21,7 +21,7 @@ const KINDS = {
   heavy: { cost: 1500, cooldown: 300, minTier: 1 }, // Hustler and up
 };
 const STAY = 120; // seconds they stick around after the last fight near you
-const NAMES = ['Lil Mike', 'Tre', 'Dub', 'Smoke', 'Juju', 'Peanut', 'Black', 'Tiny', 'Ghost', 'Bam', 'Nook', 'Rell'];
+const NAMES = ['Lil Mike', 'Tre', 'Dub', 'Smoke', 'Juju', 'Peanut', 'Black', 'Tiny', 'Ghost', 'Bam', 'Nook', 'Rell', 'Nae', 'Bree', 'Keke'];
 const money = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 

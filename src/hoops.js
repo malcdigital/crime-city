@@ -96,7 +96,7 @@ export class Hoops {
       const g = { rim, players: [], ball: { mesh, x: 0, y: FLOOR, z: 0, vx: 0, vy: 0, vz: 0, mode: 'held', holder: null, t: 0 }, last: null };
       for (let k = 0; k < n; k++) {
         const [x, z] = this.spot(g, 3, 7);
-        const p = this.game.peds.addAt(x, z);
+        const p = this.game.peds.addAt(x, z, Math.random() < 0.25); // (about one in four at the courts a woman)
         p.state = 'play';
         p.act = this;
         p.keep = true;

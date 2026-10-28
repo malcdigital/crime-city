@@ -74,7 +74,7 @@ export class Gridiron {
       if (!this.talk?.open) this.talk = null; // (walked off before he answered)
       return;
     }
-    if (!qb.ballName) qb.ballName = pick(NAMES);
+    if (!qb.ballName) qb.ballName = pick(qb.female ? ['Kiki', 'Nae', 'Jada', 'Shay'] : NAMES);
     // You ask; their quarterback answers; the menu comes up (the bet, which drive, or walk away).
     const T = this.talk;
     if (T) {
@@ -154,7 +154,7 @@ export class Gridiron {
     this.extra = [];
     for (const w of fb.wrs) {
       if (fb.dbs.some((d) => d.fb.mark === w)) continue;
-      const d = game.peds.addAt(w.x, w.z - 6);
+      const d = game.peds.addAt(w.x, w.z - 6, Math.random() < 0.2);
       d.state = 'play';
       d.act = fb;
       d.keep = true;
@@ -168,7 +168,7 @@ export class Gridiron {
     }
     // A running back on your side and a linebacker on theirs.
     const add = (role, x, z, shirt) => {
-      const q = game.peds.addAt(x, z);
+      const q = game.peds.addAt(x, z, Math.random() < 0.2);
       q.state = 'play';
       q.act = fb;
       q.keep = true;
@@ -251,7 +251,7 @@ export class Gridiron {
       return;
     }
     if (this.state === 'play' && b.holder === 'you' && !this.scramble) {
-      // A receiver's button (or, with a mouse, a click on the man you're looking at): tap for a
+      // A receiver's button (or, with a mouse, a click on the player you're looking at): tap for a
       // bullet, hold for a lob; it goes when you let go.
       const recv = this.receivers();
       if (!this.press) {
@@ -646,7 +646,7 @@ export class Gridiron {
     const playName = PLAYS[this.playI || 0].name;
     if (this.state === 'line') hint = `Play: ${playName} (${pk} to change) · ${this.ready ? `${kb ? 'E' : '✕'} hike` : 'get behind the line, in the middle'}`;
     else if (this.state === 'play' && this.carrier && b.holder === 'you') hint = kb && !game.input.touchMode ? 'Run! J / L juke · U spin · K stiff-arm' : game.input.touchMode ? 'Run! JUKE · SPIN · STIFF' : 'Run! right stick ← → juke · ↓ spin · □ stiff-arm';
-    else if (this.state === 'play' && b.holder === 'you') hint = this.scramble ? (kb && !game.input.touchMode ? 'Run it in! J / L juke · U spin · K stiff-arm' : 'Run it in! juke · spin · stiff-arm') : this.t > SACK - 1.5 ? 'Pocket collapsing: throw it!' : `${keys}: tap a bullet, hold a lob · left stick leads him${kb ? ' · or click the man you look at' : ''}`;
+    else if (this.state === 'play' && b.holder === 'you') hint = this.scramble ? (kb && !game.input.touchMode ? 'Run it in! J / L juke · U spin · K stiff-arm' : 'Run it in! juke · spin · stiff-arm') : this.t > SACK - 1.5 ? 'Pocket collapsing: throw it!' : `${keys}: tap a bullet, hold a lob · left stick leads him${kb ? ' · or click the player you look at' : ''}`;
     // (holding a button: how far toward a lob)
     const meter = this.press ? Math.min(1, this.press.t / 0.5) : null;
     game.hud.sport?.(this.board(), meter, hint);

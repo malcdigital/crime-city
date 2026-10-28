@@ -63,7 +63,7 @@ const PLUGS = [
 // Customers by cred tier (Nobody .. Kingpin): seconds between them, robbery chance, spend.
 const CUSTOMER_GAP = [90, 70, 55, 45, 35, 25];
 const ROB_CHANCE = [0.18, 0.13, 0.09, 0.06, 0.04, 0.02];
-const TELLS = ['seems nervous', 'shoes are too clean', 'keeps looking over his shoulder', 'asks a lot of questions', 'fresh haircut, no tattoos'];
+const TELLS = ['seems nervous', 'shoes are too clean', 'keeps looking back over a shoulder', 'asks a lot of questions', 'fresh haircut, no tattoos'];
 // How each plug texts. Voices follow the research notes (reports/AAVE for game dialogue.md):
 // the grammar carries it (zero copula, ain't, done/been, negative concord), slang stays light,
 // product talk is coded, and threats are short and calm (a trailing period reads cold).
@@ -191,7 +191,7 @@ export class Drugs {
   // The plug himself, on his corner. He can be killed (and gets replaced after a while).
   spawnPlug(plug) {
     const game = this.game;
-    const ped = game.peds.addAt(plug.sx, plug.sz);
+    const ped = game.peds.addAt(plug.sx, plug.sz, false); // (the plugs are men: Smokey, Doc, Marco)
     ped.shopkeeper = true; // stays on his corner
     ped.state = 'shop';
     ped.heading = ped.shopHeading = plug.heading;
@@ -1059,7 +1059,7 @@ export class Drugs {
       // A drive-up: he gets out of the car.
       const car = c.car;
       const [fx, fz] = car.forward();
-      cop = game.peds.addAt(car.x + fz * (car.radius + 0.8), car.z - fx * (car.radius + 0.8));
+      cop = game.peds.addAt(car.x + fz * (car.radius + 0.8), car.z - fx * (car.radius + 0.8), false);
       if (car.driver && car.driver.route) car.driver.driveTo([[car.x, car.z], [car.x, car.z]]);
     }
     this.customer = null;

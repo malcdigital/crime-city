@@ -80,6 +80,7 @@ function textSprite33(text, color) {
 const ASKS = ["Y'all wanna play?", "Y'all tryna run one?", 'Can I get in?', 'Who got next?', "Y'all tryna hoop?", 'Run it?', "What's up, y'all playing?"];
 const REPLIES = ["Yeah! What you wanna play?", 'Bet. What we playing?', "Aight, what you tryna run?", "You got next. What's the game?", 'Pull up. What you want?', "Say less. What we playing?", "Yeah, we need one. What's it gon' be?"];
 const NAMES = ['Dre', 'Tank', 'Lil Mike', 'Jojo', 'Smoke', 'Ray', 'Peanut', 'Boogie', 'Shorty', 'Deuce'];
+const WOMEN_NAMES = ['Kiki', 'Nae', 'Bree', 'Shay', 'Jada', 'Keke', 'Dee Dee', 'Peaches'];
 const G = 9.8;
 const _axis = new THREE.Vector3();
 const _v1 = new THREE.Vector3();
@@ -287,6 +288,9 @@ export function handoff(kind, from, to, k, y0 = 0.75) {
 // A dunk or an oop's leap gets the hands to the rim: someone shorter than the model (1.97 m)
 // has to get up higher (their standing reach is about 1.3 times their height).
 const reachLift = (c) => Math.max(0, (1 - (c?.group.scale.y ?? 1)) * 2.55);
+// Pronouns for whoever it is (players at the courts are men and women).
+const he = (q, cap = true) => (q?.female ? (cap ? 'She' : 'she') : cap ? 'He' : 'he');
+const him = (q) => (q?.female ? 'her' : 'him');
 export function dribbleFrom(ph, y, amp) {
   const a = Math.asin(Math.min(1, Math.max(0, (y - 0.18) / amp)));
   return Math.floor(ph / Math.PI) * Math.PI + a;
@@ -504,7 +508,7 @@ export class Streetball {
   askToPlay(a, near) {
     const game = this.game;
     const opp = near.g.players[0];
-    if (!opp.ballName) opp.ballName = pick(NAMES);
+    if (!opp.ballName) opp.ballName = pick(opp.female ? WOMEN_NAMES : NAMES);
     if (!opp.ballR) opp.ballR = Math.round(clamp(rand(58, 92) * 0.5 + rand(58, 92) * 0.5, 60, 90));
     const T = this.talk;
     if (T && T.g === near.g) {
@@ -820,7 +824,7 @@ export class Streetball {
     game.player.char.group.userData.sm = null;
     const npcs = g.players.slice(0, 4);
     for (const q of npcs) {
-      if (!q.ballName) q.ballName = pick(NAMES.filter((n) => !npcs.some((o) => o !== q && o.ballName === n)));
+      if (!q.ballName) q.ballName = pick((q.female ? WOMEN_NAMES : NAMES).filter((n) => !npcs.some((o) => o !== q && o.ballName === n)));
       if (!q.ballR) q.ballR = Math.round(clamp(rand(58, 92) * 0.5 + rand(58, 92) * 0.5, 60, 90));
       q.hp.role = 't33';
       q.hp.s33 = null;
@@ -1658,7 +1662,7 @@ export class Streetball {
         b.x = q.x;
         b.z = q.z;
         this.startOop('you', 'lob', q.x, q.z, Y.vx || 0, Y.vz || 0);
-        game.hud.toast('He throws it up!', '#ffd23f');
+        game.hud.toast(`${he(q)} throws it up!`, '#ffd23f');
         if (this.fetch && this.fetch.q === q) this.releaseFetch();
         return;
       }
@@ -1925,7 +1929,7 @@ export class Streetball {
     if (this.t33 || !this.heat) return;
     const H = this.heat[who];
     const game = this.game;
-    const name = who === 'you' ? 'You' : this.opp?.ballName || 'He';
+    const name = who === 'you' ? 'You' : this.opp?.ballName || he(this.opp);
     if (!make) {
       // A miss: shooting around it's over; in a game it only ends if he loses the ball
       // (possession), though a miss on fire still uses up one of the fire shots.
@@ -1962,7 +1966,7 @@ export class Streetball {
   heatLose(who) {
     const H = this.heat?.[who];
     if (!H) return;
-    const name = who === 'you' ? 'You' : this.opp?.ballName || 'He';
+    const name = who === 'you' ? 'You' : this.opp?.ballName || he(this.opp);
     if (H.st === 'fire') this.game.hud.toast(`${name} cooled off`, '#9fc3ff');
     H.n = 0;
     H.st = null;
@@ -1981,7 +1985,7 @@ export class Streetball {
   heatShot(who, type) {
     if (this.t33 || this.heat?.[who]?.st !== 'check') return;
     if (this.solo && (type === 'layup' || type === 'dunk')) return; // (shooting around: jumpers only)
-    const name = who === 'you' ? '' : `${this.opp?.ballName || 'He'}: `;
+    const name = who === 'you' ? '' : `${this.opp?.ballName || he(this.opp)}: `;
     this.game.hud.toast(`${name}HEAT CHECK!`, '#ffb36b');
   }
 
@@ -3866,9 +3870,9 @@ export class Streetball {
       const pct = S.att ? ` (${Math.round((S.made / S.att) * 100)}%)` : '';
       const put = `${game.input.label('interact')} put it down`;
       const pk = game.input.touchMode ? 'PASS' : game.input.mode === 'pad' ? '✕' : 'Q';
-      if (this.pass) hint = `Passing to ${this.pass.target ? 'him' : 'nobody'}: ${game.input.mode === 'pad' ? 'flick the right stick' : 'move the camera'} to pick, let go to pass`;
-      else if (this.has === 'npc') hint = 'He\'s got it...';
-      else if (this.fetch) hint = 'He\'s getting it for you';
+      if (this.pass) hint = `Passing to ${this.pass.target ? him(this.pass.target) : 'nobody'}: ${game.input.mode === 'pad' ? 'flick the right stick' : 'move the camera'} to pick, let go to pass`;
+      else if (this.has === 'npc') hint = `${he(this.g.ball.holder)}'s got it...`;
+      else if (this.fetch) hint = `${he(this.fetch.q)}'s getting it for you`;
       else if (O && O.by === 'you') hint = O.leap ? `${K.shoot} at the top to catch it` : `Run at it: you go up when you're in reach · ${K.shoot} at the top`;
       else if (this.g.ball.mode === 'loose' && dist(...game.player.pos(), this.g.ball.x, this.g.ball.z) > 7) hint = `Go get it, grab another ball, or ${pk} get somebody to fetch it · ${put}`;
       else hint = this.has === 'you' ? (this.shot ? 'Let go in the green' : `${K.shoot} shoot · ${pk} pass (hold to pick who) · ${K.d} hold: face up · ${K.block} off the glass · moves: ${K.moves} · ${put}`) : `Go get it · ${put}`;
@@ -3876,7 +3880,7 @@ export class Streetball {
       this.floatHud(meter);
       return;
     }
-    if (this.reset) hint = this.reset.fetch === 'you' ? `Get the ball and check it up to him · ${ck} skip` : `${this.opp.ballName} is getting the ball · ${ck} skip`;
+    if (this.reset) hint = this.reset.fetch === 'you' ? `Get the ball and check it up to ${him(this.opp)} · ${ck} skip` : `${this.opp.ballName} is getting the ball · ${ck} skip`;
     else if (C) hint = 'Checking it up...';
     else if (this.you.fallT > 0) hint = 'Ankles broken...';
     else if (this.has === 'you' && !this.cleared) hint = 'Take it back past the arc';
@@ -4341,7 +4345,7 @@ export class Streetball {
           b.vy = 1;
           this.has = null;
           this.lastShooter = 'opp';
-          game.hud.toast('Cut him off: he lost it!', '#7ee081');
+          game.hud.toast(`Cut ${him(this.opp)} off: ${he(this.opp, false)} lost it!`, '#7ee081');
         } else game.hud.toast('Cut off', '#9fc3ff');
         // Next he goes to a move or pulls up.
         if (this.has === 'opp') {
@@ -5305,7 +5309,7 @@ export class Streetball {
       return;
     }
 
-    const name = this.opp?.ballName || 'He';
+    const name = this.opp?.ballName || he(this.opp);
     const bet = this.bet;
     if (how === 'win') {
       const cred = this.r >= 82 ? 12 : 8;

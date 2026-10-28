@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { WOMEN_NAMES } from './character.js';
 import { CFG, CRED_TIERS } from './config.js';
 import { dist, rand } from './util.js';
 import { streetAt } from './city.js';
@@ -203,7 +204,7 @@ export class Claim {
     const game = this.game;
     const names = [...OWNER_NAMES].sort(() => Math.random() - 0.5);
     this.owners = this.shopSpots.map((s, i) => {
-      const p = game.peds.addAt(s.sx + s.nx * 0.4, s.sz + s.nz * 0.4);
+      const p = game.peds.addAt(s.sx + s.nx * 0.4, s.sz + s.nz * 0.4, WOMEN_NAMES.has(names[i])); // (Rosa, Mrs. Chen...: women)
       p.shopkeeper = true;
       p.state = 'shop';
       p.heading = Math.atan2(s.nx, s.nz);

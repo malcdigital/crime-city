@@ -1,7 +1,7 @@
 import { CFG } from './config.js';
 import { flinchPose, fallFace, markFlinch, fightStance, markPunch, punchPose, PUNCH_T } from './combatpose.js';
 import { closestOnBox } from './geom.js';
-import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES, setHeight, randomHeight } from './character.js';
+import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES, makePerson } from './character.js';
 import { pushCircle } from './collision.js';
 import { pick, rand, dist, lerpAngle } from './util.js';
 import { navStep, escapePoint } from './nav.js';
@@ -12,9 +12,10 @@ const SHIRTS = [0xe74c3c, 0x3498db, 0xf1c40f, 0x9b59b6, 0xecf0f1, 0x1abc9c, 0xe6
 const PANTS = [0x2c3e50, 0x1b1b1b, 0x5d4037, 0x34495e, 0x7f8c8d, 0x1f3a5f];
 
 export class Ped {
-  constructor(game, block, corner) {
+  constructor(game, block, corner, female) {
     this.game = game;
-    this.char = setHeight(makeCharacter({ shirt: pick(SHIRTS), pants: pick(PANTS), skin: pick(SKIN_TONES) }), randomHeight());
+    this.char = makePerson({ shirt: pick(SHIRTS), pants: pick(PANTS), skin: pick(SKIN_TONES), female }); // (a woman about half the time)
+    this.female = this.char.female;
     game.scene.add(this.char.group);
     this.dir = Math.random() < 0.5 ? 1 : -1;
     // Where on the sidewalks: heading for walk point `pt` (see sidewalk.js), from `prev`.
@@ -542,9 +543,9 @@ export class PedManager {
   }
 
   // Add a ped at a spot (e.g. a driver pulled out of a car).
-  addAt(x, z) {
+  addAt(x, z, female) {
     const W = this.game.city.walk;
-    const p = new Ped(this.game, W.pts[0].b, 0);
+    const p = new Ped(this.game, W.pts[0].b, 0, female);
     p.x = x;
     p.z = z;
     p.resumeWalking();

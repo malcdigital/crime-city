@@ -23,6 +23,7 @@ const GAME = {
 };
 const STAKES = [10, 20, 50, 100, 250, 500];
 const NAMES = ['Lil Mike', 'Dre', 'Smoke', 'Peanut', 'Boogie', 'Tank', 'Shorty', 'Black', 'Red', 'Juice', 'Pooh', 'Ant', 'Rell', 'Man-Man', 'Bird'];
+const WOMEN = ['Kiki', 'Peaches', 'Lady', 'Nay Nay', 'Keke', 'Dee Dee', 'Precious', 'Jada', 'Shay'];
 const MAX = 3; // (circles around at once)
 const SEAT_R = 1.15;
 const DIE = 0.08;
@@ -95,7 +96,7 @@ class Circle {
       p.act = this;
       p.state = 'play';
       p.keep = true;
-      p.diceName = pick(NAMES.filter((nm) => !this.peds.some((o) => o.name === nm)));
+      p.diceName = pick((p.female ? WOMEN : NAMES).filter((nm) => !this.peds.some((o) => o.name === nm)));
       if (gang && GANGS[gang]) setShirt(p.char, GANGS[gang].shirt);
       this.peds.push({ p, a, name: p.diceName, react: 0, reactKind: null, roll: 0 });
     }
@@ -570,7 +571,7 @@ class Round {
       return;
     }
     if (Math.random() < 0.45) {
-      this.say(`${A.s.name} sucks his teeth and lets it go`);
+      this.say(`${A.s.name} sucks ${A.s.p?.female ? 'her' : 'his'} teeth and lets it go`);
       this.tension = Math.min(1, this.tension + 0.15);
       this.phase = 'between';
       this.t = 0;

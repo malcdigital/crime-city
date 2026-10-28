@@ -21,16 +21,43 @@ const HEAD = new THREE.BoxGeometry(0.32, 0.34, 0.32);
 const CAP = new THREE.BoxGeometry(0.36, 0.1, 0.36);
 const BRIM = new THREE.BoxGeometry(0.34, 0.04, 0.16);
 const BAND = new THREE.BoxGeometry(0.34, 0.08, 0.34);
+// A woman's build: narrower shoulders and waist, a bust, hair.
+const BODY_F = new THREE.BoxGeometry(0.5, 0.42, 0.3);
+const BELLY_F = new THREE.BoxGeometry(0.44, 0.36, 0.28);
+const BUST = new THREE.BoxGeometry(0.38, 0.13, 0.07);
+const DELT_F = new THREE.BoxGeometry(0.17, 0.16, 0.2);
+const ARM_F = new THREE.BoxGeometry(0.14, 0.34, 0.16);
+const FOREARM_F = new THREE.BoxGeometry(0.13, 0.3, 0.15);
+const HIPS_F = new THREE.BoxGeometry(0.5, 0.16, 0.31); // (a little wider at the hips than the waist)
+const HAIR_TOP = new THREE.BoxGeometry(0.36, 0.11, 0.36);
+const HAIR_BANGS = new THREE.BoxGeometry(0.34, 0.07, 0.05);
+const THIGH_F = new THREE.BoxGeometry(0.2, 0.46, 0.24);
+const SHIN_F = new THREE.BoxGeometry(0.17, 0.44, 0.21);
+const HAIR_LONG = new THREE.BoxGeometry(0.34, 0.44, 0.08);
+const HAIR_TAIL = new THREE.BoxGeometry(0.1, 0.32, 0.1);
+const HAIR_BUN = new THREE.BoxGeometry(0.15, 0.14, 0.14);
+const HAIR_SIDE = new THREE.BoxGeometry(0.05, 0.34, 0.24);
+export const HAIR_COLORS = [0x120c0a, 0x1c120d, 0x2b1a12, 0x3b2416, 0x5a3a22, 0x8a5a33, 0xc9a35a, 0x7a2e16];
+export const HAIR_STYLES = ['long', 'pony', 'bun'];
 
 // Heights. The model is 1.97 m tall at scale 1; people are scaled to their own height. Real
 // adult men (US, CDC NHANES 2015-2018, age 20+): average 175.4 cm (5'9"), standard deviation
 // about 7.6 cm, so about two in three are 5'6"-6'0", one in six over 6'0", one in fifty over
 // 6'3", and one in six under 5'6".
 export const MODEL_H = 1.97;
-export function randomHeight() {
+// Real adult women (the same survey): average 161.3 cm (5'3.5"), standard deviation about
+// 7.1 cm, so about two in three are 5'1"-5'6", one in six over 5'6", one in fifty over 5'9".
+export function randomHeight(female = false) {
   const u = Math.max(1e-9, Math.random());
   const n = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * Math.random()); // (a normal draw)
-  return Math.max(1.55, Math.min(2.03, 1.754 + 0.076 * n));
+  return female ? Math.max(1.45, Math.min(1.88, 1.613 + 0.071 * n)) : Math.max(1.55, Math.min(2.03, 1.754 + 0.076 * n));
+}
+// A person to fill the street: a woman about half the time (share), with a height to match.
+// Names that are women's (the crew, the dice game, shop owners...): their bodies match.
+export const WOMEN_NAMES = new Set(['Kiki', 'Tasha', 'Nae', 'Bree', 'Shay', 'Peaches', 'Lady', 'Nay Nay', 'Keke', 'Dee Dee', 'Rosa', 'Ms. Lee', 'Abuela Rosa', 'Mrs. Chen', 'Precious', 'Jada']);
+export function makePerson(look = {}, share = 0.5) {
+  const female = look.female ?? Math.random() < share;
+  return setHeight(makeCharacter({ ...look, female }), randomHeight(female));
 }
 export function setHeight(c, m) {
   c.group.scale.setScalar(m / MODEL_H);
@@ -41,7 +68,7 @@ export function setHeight(c, m) {
 export const SKIN_TONES = [0x8d5524, 0xc68642, 0xe0ac69, 0xf1c27d, 0x5c3a1e, 0xffdbac];
 
 // A simple blocky person. Faces +z. Returns pivot groups so limbs can animate.
-export function makeCharacter({ shirt = 0x3366aa, pants = 0x222222, skin = 0xc68642, cap = null, bandana = null } = {}) {
+export function makeCharacter({ shirt = 0x3366aa, pants = 0x222222, skin = 0xc68642, cap = null, bandana = null, female = false, hair = null, hairStyle = null } = {}) {
   const g = new THREE.Group();
   g.rotation.order = 'YXZ';
   const add = (geo, color, x, y, z, parent = g) => {
@@ -62,11 +89,11 @@ export function makeCharacter({ shirt = 0x3366aa, pants = 0x222222, skin = 0xc68
   // Legs: hip pivot (thigh) with a knee pivot (shin) so they can bend.
   const leg = (x) => {
     const hip = pivot(x, 0.9);
-    add(THIGH, pants, 0, -0.22, 0, hip);
+    add(female ? THIGH_F : THIGH, pants, 0, -0.22, 0, hip);
     const knee = new THREE.Group();
     knee.position.set(0, -0.44, 0);
     hip.add(knee);
-    add(SHIN, pants, 0, -0.21, 0, knee);
+    add(female ? SHIN_F : SHIN, pants, 0, -0.21, 0, knee);
     return [hip, knee];
   };
   const [legL, kneeL] = leg(0.13);
@@ -84,28 +111,33 @@ export function makeCharacter({ shirt = 0x3366aa, pants = 0x222222, skin = 0xc68
   const neck = new THREE.Group();
   neck.position.set(0, NECK_Y - CHEST_Y, 0);
   chest.add(neck);
-  add(BELLY, shirt, 0, 1.08 - SPINE_Y, 0, spine);
-  add(BODY, shirt, 0, 1.41 - CHEST_Y, 0, chest);
+  add(female ? BELLY_F : BELLY, shirt, 0, 1.08 - SPINE_Y, 0, spine);
+  add(female ? BODY_F : BODY, shirt, 0, 1.41 - CHEST_Y, 0, chest);
+  if (female) {
+    add(BUST, shirt, 0, 1.4 - CHEST_Y, 0.17, chest);
+    add(HIPS_F, pants, 0, 0.94 - SPINE_Y, 0, spine);
+  }
   // Arms: the shoulder (armL / armR), the elbow and the wrist, each a pivot of its own.
   // An elbow bends with a negative x (the forearm comes forward); a wrist the same way.
   const arm = (x) => {
     const sh = new THREE.Group();
     sh.position.set(x, 1.56 - CHEST_Y, 0);
     chest.add(sh);
-    add(DELT, shirt, 0, -0.04, 0, sh);
-    add(ARM, shirt, 0, -0.16, 0, sh);
+    add(female ? DELT_F : DELT, shirt, 0, -0.04, 0, sh);
+    add(female ? ARM_F : ARM, shirt, 0, -0.16, 0, sh);
     const el = new THREE.Group();
     el.position.set(0, -0.32, 0);
     sh.add(el);
-    add(FOREARM, shirt, 0, -0.14, 0, el);
+    add(female ? FOREARM_F : FOREARM, shirt, 0, -0.14, 0, el);
     const wr = new THREE.Group();
     wr.position.set(0, -0.28, 0);
     el.add(wr);
     add(HAND, skin, 0, -0.06, 0, wr);
     return [sh, el, wr];
   };
-  const [armL, elbowL, wristL] = arm(0.37);
-  const [armR, elbowR, wristR] = arm(-0.37);
+  const SH = female ? 0.33 : 0.37; // (the shoulders: narrower on a woman)
+  const [armL, elbowL, wristL] = arm(SH);
+  const [armR, elbowR, wristR] = arm(-SH);
   const hd = (geo, color, x, y, z) => add(geo, color, x, y - NECK_Y, z, neck);
   hd(HEAD, skin, 0, 1.8, 0);
   if (cap) {
@@ -113,8 +145,25 @@ export function makeCharacter({ shirt = 0x3366aa, pants = 0x222222, skin = 0xc68
     hd(BRIM, cap, 0, 1.96, 0.22);
   }
   if (bandana) hd(BAND, bandana, 0, 1.9, 0);
+  if (female) {
+    // Hair: on top (under a cap if there's one), and down the back long, in a ponytail or a bun.
+    const hc = hair ?? HAIR_COLORS[Math.floor(Math.random() * HAIR_COLORS.length)];
+    const st = hairStyle ?? HAIR_STYLES[Math.floor(Math.random() * HAIR_STYLES.length)];
+    if (!cap) {
+      hd(HAIR_TOP, hc, 0, 2.0, -0.01);
+      hd(HAIR_BANGS, hc, 0, 1.93, 0.16); // (a fringe over the forehead)
+    }
+    if (st === 'long') {
+      hd(HAIR_LONG, hc, 0, 1.76, -0.17);
+      hd(HAIR_SIDE, hc, 0.175, 1.8, -0.04);
+      hd(HAIR_SIDE, hc, -0.175, 1.8, -0.04);
+    } else if (st === 'pony') {
+      hd(HAIR_BUN, hc, 0, 1.92, -0.18);
+      hd(HAIR_TAIL, hc, 0, 1.72, -0.22);
+    } else hd(HAIR_BUN, hc, 0, 2.0, -0.12);
+  }
 
-  return { group: g, spine, chest, neck, legL, legR, kneeL, kneeR, armL, armR, elbowL, elbowR, wristL, wristR };
+  return { group: g, female, spine, chest, neck, legL, legR, kneeL, kneeR, armL, armR, elbowL, elbowR, wristL, wristR };
 }
 
 export function animateWalk(c, phase, amount) {
@@ -310,7 +359,7 @@ export function crouchPose(c, depth = 1, shuffle = 0) {
 // A different shirt (a team jersey, say).
 export function setShirt(c, color) {
   c.group.traverse((m) => {
-    if (m.isMesh && (m.geometry === BODY || m.geometry === BELLY || m.geometry === ARM || m.geometry === FOREARM || m.geometry === DELT)) m.material = lam(color);
+    if (m.isMesh && (m.geometry === BODY || m.geometry === BELLY || m.geometry === BODY_F || m.geometry === BELLY_F || m.geometry === BUST || m.geometry === DELT_F || m.geometry === ARM_F || m.geometry === FOREARM_F || m.geometry === ARM || m.geometry === FOREARM || m.geometry === DELT)) m.material = lam(color);
   });
 }
 

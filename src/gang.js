@@ -1,7 +1,7 @@
 import { GANG_NAME, CREW_NAME } from './config.js';
 import { aimPose, lowReady, flinchPose, fallFace, markFlinch, kneelPose } from './combatpose.js';
 import * as THREE from 'three';
-import { makeCharacter, setDown, crouchPose, restPose, SKIN_TONES, lam, straightArms, setHeight, randomHeight } from './character.js';
+import { makeCharacter, setDown, crouchPose, restPose, SKIN_TONES, lam, straightArms, makePerson, WOMEN_NAMES } from './character.js';
 import { pushCircle, segmentBlocked } from './collision.js';
 import { dist, pick, rand, lerpAngle, clamp } from './util.js';
 import { navStep, escapePoint } from './nav.js';
@@ -109,7 +109,8 @@ function pickGun() {
 export class GangFighter {
   constructor(game, x, z, look) {
     this.game = game;
-    this.char = setHeight(makeCharacter(look), randomHeight());
+    this.char = makePerson(look, 0.2); // (about one in five a woman)
+    this.female = this.char.female;
     game.scene.add(this.char.group);
     this.x = x;
     this.z = z;
@@ -627,7 +628,7 @@ export class RivalMember extends GangFighter {
 // A homie in your crew: follows you, rides in your car, and fights your enemies.
 export class CrewMember extends GangFighter {
   constructor(game, x, z, name) {
-    super(game, x, z, { shirt: 0x1e7d32, pants: 0x263238, skin: pick(SKIN_TONES), bandana: 0x2e7d32 });
+    super(game, x, z, { shirt: 0x1e7d32, pants: 0x263238, skin: pick(SKIN_TONES), bandana: 0x2e7d32, female: WOMEN_NAMES.has(name) });
     this.name = name;
     this.isCrew = true;
     this.recruited = false;

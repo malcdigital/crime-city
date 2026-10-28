@@ -141,7 +141,7 @@ export function aimPose(c, weapon, pitch = 0, now = 0, hand = 'R', style = 'two'
     // rides up a little with it.
     const beta = -0.55 * mx;
     aimFrame(c, beta, p);
-    _t.set(-0.37 * mx, 1.56, 0).addScaledVector(_a, 0.55 - 0.05 * k);
+    _t.set(-Math.abs(c.armR.position.x) * mx, 1.56, 0).addScaledVector(_a, 0.55 - 0.05 * k);
     _t.y += 0.1 + 0.07 * k;
     _g.copy(_u);
     kickAim(0.5 * k);
@@ -156,7 +156,7 @@ export function aimPose(c, weapon, pitch = 0, now = 0, hand = 'R', style = 'two'
     // the gun at chin height, a little lean back; a shot throws the muzzle in and up.
     const beta = -0.35 * mx;
     aimFrame(c, beta, p);
-    _t.set(-0.37 * mx, 1.56, 0).addScaledVector(_a, 0.45 - 0.05 * k).addScaledVector(_l, 0.08 * mx);
+    _t.set(-Math.abs(c.armR.position.x) * mx, 1.56, 0).addScaledVector(_a, 0.45 - 0.05 * k).addScaledVector(_l, 0.08 * mx);
     _t.y += 0.03 + 0.04 * k;
     _h.copy(_l).multiplyScalar(mx); // (the gun's top: in)
     _g.copy(_h).addScaledVector(_u, 0.6).normalize();

@@ -77,7 +77,7 @@ export class Football {
     const F = this.site.field;
     this.los = rand(992, 1006); // line of scrimmage; they're going north (toward smaller z)
     const add = (role, home, shirt) => {
-      const p = this.game.peds.addAt(home[0], home[1]);
+      const p = this.game.peds.addAt(home[0], home[1], Math.random() < 0.2);
       p.state = 'play';
       p.act = this;
       p.keep = true;
