@@ -433,9 +433,11 @@ export class Streetball {
       const bet = betNow();
       const b = bet ? `$${bet}` : 'nothing';
       const items = [{ label: `Bet: ${b}`, price: 0, priceText: 'change', detail: 'What\'s riding on it (they match it). Pick this to change it, then pick the game.', can: true, buy: () => (this.betI = (this.betI + 1) % BETS.length) }];
-      for (const to of [11, 15, 21]) {
-        items.push({ label: `One-on-one with ${opp.ballName}, to ${to}`, price: 0, priceText: `${opp.ballR} OVR`, detail: `1s and 2s, check it up after every bucket. ${bet ? `$${bet} each, winner takes $${bet * 2}.` : 'Just for fun.'}`, can: true, buy: go((bt) => this.start(near.H, near.g, opp, bt, to)) });
-      }
+      // (one-on-one: one line, with its length on a line of its own to change)
+      const LENS = [11, 15, 21];
+      const to = LENS.includes(TARGETS[this.toI]) ? TARGETS[this.toI] : 11;
+      items.push({ label: `Game to: ${to}`, price: 0, priceText: 'change', detail: 'How long the one-on-one goes (first to 11, 15 or 21). Pick this to change it.', can: true, buy: () => (this.toI = TARGETS.indexOf(LENS[(LENS.indexOf(to) + 1) % LENS.length])) });
+      items.push({ label: `One-on-one with ${opp.ballName}, to ${to}`, price: 0, priceText: `${opp.ballR} OVR`, detail: `1s and 2s, check it up after every bucket. ${bet ? `$${bet} each, winner takes $${bet * 2}.` : 'Just for fun.'}`, can: true, buy: go((bt) => this.start(near.H, near.g, opp, bt, to)) });
       items.push({ label: `33 (${n} players)`, price: 0, priceText: bet ? `$${bet} in` : 'free', detail: `Everybody at this basket, from spots on the arc. Every make's 3 in the pot, a miss eats it, 33 and you're out. Last one standing${bet ? ` takes $${bet * n}` : ' wins'}.`, can: true, buy: go((bt) => this.start33(near.H, near.g, bt)) });
       items.push({ label: pick(['Nah, I\'m good', 'Maybe next time', 'Nah, just watching']), price: 0, priceText: '', detail: 'Walk away.', can: true, buy: () => shops.close() });
       return items;
