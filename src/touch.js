@@ -61,7 +61,7 @@ const BUTTONS = [
   ['tri', '△', B.TRIANGLE, ['map', 'qb'], 'hold', 'sm'], // (on foot and in the car, USE gets you in and out)
   ['crouch', 'DUCK', B.L3, ['foot'], 'hold', 'sm txt'],
   ['weapon', 'GUN', B.L1, ['foot', 'strip'], 'weapon', 'sm txt'],
-  ['use', 'USE', B.UP, ['foot', 'car', 'ball'], 'hold', 'pill'],
+  ['use', 'USE', B.UP, ['foot', 'car'], 'hold', 'pill'], // (not in a pickup game: QUIT leaves it)
   ['gas', 'GAS', B.R2, ['car'], 'hold', 'pedal green'],
   ['brake', 'BRAKE', B.L2, ['car'], 'hold', 'pedal'],
   ['hand', 'HAND\nBRAKE', B.R1, ['car'], 'hold', 'mid txt'],
@@ -540,7 +540,7 @@ export class TouchControls {
         this.gestTold = true;
         game.hud.toast('Dribble moves: right side of the screen — tap: hesi · swipe ← → crossover · ↑ spin · ↓ step-back. PASS twice: alley-oop', '#ffd23f');
       }
-      b.bd.el.classList.toggle('hidden', !!game.sport.solo);
+      b.bd.el.classList.toggle('hidden', !!game.sport.solo || off); // (D: on defense only; with the ball the back-pedal is automatic)
     }
     // QUIT: armed by the first tap (SURE?), quits on the second.
     const qb = this.el.buttons.quit;

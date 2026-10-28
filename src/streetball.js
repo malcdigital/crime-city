@@ -621,7 +621,7 @@ export class Streetball {
     this.g = { rim, players: [], match: this, ball: { mesh, x: px, y: 1, z: pz, vx: 0, vy: 0, vz: 0, mode: 'held', holder: 'you', t: 0 } };
     game.player.char.group.userData.sm = null;
     this.give('you');
-    game.hud.toast(`Shooting around. ${game.input.label('interact')} to put the ball down`, '#ffd23f');
+    game.hud.toast(`Shooting around. ${game.input.touchMode ? 'QUIT' : game.input.label('interact')} to put the ball down`, '#ffd23f'); // (a phone has no USE in a pickup game)
   }
 
   // ---- 33 ----
