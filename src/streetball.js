@@ -633,14 +633,20 @@ export class Streetball {
       q.hp.s33 = null;
     }
     g.players.slice(4).forEach((q) => (q.hp.role = 'watch'));
-    // The spots: five on the arc, corner to corner.
-    const spots = [];
-    for (const deg of [-78, -42, 0, 42, 78]) {
+    // The spots, corner to corner, all the way outside the painted three-point line (court.js:
+    // an arc 7.24 m out, straight in the corners 6.7 m to the side, the sideline at 7.62): the
+    // corners in the strip between the line and the sideline, the wings and the top a step
+    // outside the arc.
+    const rim = this.rim;
+    const px = -rim.dz; // (across the court)
+    const pz = rim.dx;
+    const at = (along, across) => [rim.x + rim.dx * along + px * across, rim.z + rim.dz * along + pz * across];
+    const out = 7.24 + 0.62; // (the ring's outer edge clear of the arc)
+    const wing = (deg) => {
       const a = (deg * Math.PI) / 180;
-      const ux = this.rim.dx * Math.cos(a) - this.rim.dz * Math.sin(a);
-      const uz = this.rim.dz * Math.cos(a) + this.rim.dx * Math.sin(a);
-      spots.push(this.onCourt(this.rim.x + ux * (ARC + 0.5), this.rim.z + uz * (ARC + 0.5)));
-    }
+      return at(Math.cos(a) * out, Math.sin(a) * out);
+    };
+    const spots = [at(0.6, -7.16), wing(-42), wing(0), wing(42), at(0.6, 7.16)];
     // (everyone's own ball: yours is the court's; theirs come out of the bag) and a color each
     const players = [{ who: 'you', name: 'You', color: COLORS33[0] }, ...npcs.map((q, k) => ({ who: q, name: q.ballName, r: q.ballR, color: COLORS33[k + 1] }))].map((P) => {
       const Q = { ...P, score: 0, out: false, spot: null, home: null, st: 'ready', shotClock: 0 };
@@ -663,9 +669,9 @@ export class Streetball {
         game.scene.add(m);
         return m;
       };
-      const burst = mk(0.5, 0.62);
+      const burst = mk(0.38, 0.48);
       burst.visible = false;
-      return { mesh: mk(0.42, 0.56), burst, burstT: -1, owner: null };
+      return { mesh: mk(0.32, 0.44), burst, burstT: -1, owner: null }; // (small enough for the corners)
     });
     this.labels33 = [];
     game.cash -= bet; // (everyone's buy-in is held till it's over)
@@ -848,7 +854,7 @@ export class Streetball {
       }
     } else if (up.ball.holder === up.who) {
       const q = up.who;
-      if (!q.hp.s33) q.hp.s33 = { t: 0, rel: rand(1.5, 2.5) }; // (settles, a few dribbles, up)
+      if (!q.hp.s33) q.hp.s33 = { t: 0, rel: rand(0.9, 1.5) }; // (settles, a dribble or two, up)
       this.npcShot33(up);
     }
   }
@@ -959,7 +965,7 @@ export class Streetball {
     const T = this.t33;
     T.shots += 1;
     T.inAir = null;
-    T.wait = 1; // (a beat after every shot)
+    T.wait = 0.6; // (a beat after every shot)
     if (make) {
       T.pot += 3;
       game.hud.toast(`${P.who === 'you' ? 'Bucket' : `${P.name} hits`} · pot ${T.pot}`, P.who === 'you' ? '#7ee081' : '#ffd23f');
@@ -1006,10 +1012,10 @@ export class Streetball {
     }
     if (P.st === 'chase') {
       const b = P.ball;
-      return { tx: b.x + b.vx * 0.25, tz: b.z + b.vz * 0.25, speed: 5 };
+      return { tx: b.x + b.vx * 0.25, tz: b.z + b.vz * 0.25, speed: 6 };
     }
     if (P.st === 'return' || (P.st === 'ready' && dist(p.x, p.z, ...P.home) > 0.3)) {
-      if (dist(p.x, p.z, ...P.home) > 0.25) return { tx: P.home[0], tz: P.home[1], speed: 3.4 };
+      if (dist(p.x, p.z, ...P.home) > 0.25) return { tx: P.home[0], tz: P.home[1], speed: 4.6 };
       if (P.st === 'return') P.st = 'ready';
     }
     face(this.rim.x, this.rim.z);
@@ -1623,8 +1629,7 @@ export class Streetball {
           sprint = true;
         } else if (Y.st === 'return' && Y.home && dist(px, pz, ...Y.home) > 0.25) {
           steer(...Y.home);
-          a.moveX *= 0.75;
-          a.moveY *= 0.75;
+          sprint = true; // (hustling back)
         }
         // (your shot: your turn, on your spot, everybody back, nothing in the air)
         const mine = T.phase === 'play' && T.players[T.turn] === Y && Y.st === 'ready' && !T.inAir && T.wait <= 0 && T.players.every((P) => P.out || P.st === 'ready');
