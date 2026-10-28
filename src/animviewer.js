@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeCharacter, animateWalk, crouchPose, crouchWalk, restPose, fallPose, lam } from './character.js';
 import { aimPose, lowReady, fightStance, markPunch, punchPose, markFlinch, flinchPose, markRecoil, reloadPose, kneelPose, FIGHT_STYLES, PUNCH_T } from './combatpose.js';
-import { shotForm, dribbleArm, hesiPush, handoff, dribbleFrom, HO_TOP, dribbleArms, pivotPose, fadePose, triplePose, anklePose } from './streetball.js';
+import { shotForm, dribbleArm, hesiPush, handoff, dribbleFrom, HO_TOP, SPIN_REL, dribbleArms, pivotPose, fadePose, triplePose, anklePose } from './streetball.js';
 import { dunkPose, dunkPhase } from './dunkpose.js';
 import { markJump, jumpPose } from './blockpose.js';
 import { readyPose, boxOutPose, markGrab, grabPose } from './reboundpose.js';
@@ -92,7 +92,22 @@ function list(game) {
     ['Basketball', 'Pump fake', 1.2, (c, t) => ({ y: triplePose(c, 1, { pump: t > 0.25 && t < 0.67 ? (t - 0.25) / 0.42 : 0 }), ball: 'two' })],
     ['Basketball', 'Ankles broken (and getting up)', 2.5, (c, t) => ({ y: t < 0.2 ? sb ? sb.defensePose(c, 0, 0, 0, 0, 0) : 0 : anklePose(c, Math.min(1.9, t - 0.2), 1.9, 1) })],
     ['Basketball', 'Hesitation', 1.1, (c, t) => { const T = 0.48; const y = sb ? sb.dribblePose(c, 0, t < T ? { kind: 'hesi', t, T, from: 1 } : null, 0, 1, false) : 0; const m = t < T ? hesiPush(t / T) : 0; return { y, ball: [-(0.42 + 0.24 * m), 0.18 + Math.abs(Math.sin(t * 7)) * 0.8, 0.46 + 0.1 * m], dribble: 'R' }; }], // (the ball pushed out wide, selling it)
-    ['Basketball', 'Spin move', 1.1, (c, t) => { const T = 0.48; const y = sb ? sb.dribblePose(c, 0, t < T ? { kind: 'spin', t, T, from: 1, to: -1 } : null, 0, -1, false) : 0; if (t < T) return { y, turn: -Math.PI * 2 * ease(t / T), ball: 'palmR', palmTo: 'L', palmW: Math.max(0, Math.min(1, (t / T - 0.7) / 0.3)) }; const ph = Math.PI - Math.asin(0.75) + (t - T) * 9; return { y, ball: [0.42, 0.18 + Math.abs(Math.sin(ph)) * 0.8, 0.46], dribble: 'L' }; }], // (palmed at the hip, pulled round on the same hand, then out of the other one)
+    ['Basketball', 'Spin move', 1.1, (c, t) => {
+      // (the same as the game's: turning toward the ball's side, the ball palmed and pulled round,
+      // let go and bounced once across in front into the other hand)
+      const T = 0.54;
+      const mv = t < T ? { kind: 'spin', t, T, from: 1, to: -1 } : null;
+      const k = t / (T * 0.85);
+      const y = sb ? sb.dribblePose(c, 0, mv, 0, k < SPIN_REL ? 1 : -1, false) : 0;
+      const turn = t < T ? -Math.PI * 2 * ease(t / T) : 0;
+      if (k < SPIN_REL) return { y, turn, ball: 'palmR' };
+      if (k < 1) {
+        const [s, fwd, by] = handoff('spin', 1, -1, k);
+        return { y, turn, ball: [-0.42 * s, by, fwd], dribble: s >= 0 ? 'R' : 'L', fromPalm: 'R', fromW: Math.min(1, (k - SPIN_REL) / 0.12) };
+      }
+      const ph = dribbleFrom(T * 0.85 * 9, HO_TOP, 0.8) + (t - T * 0.85) * 9;
+      return { y, turn, ball: [0.42, 0.18 + Math.abs(Math.sin(ph)) * 0.8, 0.46], dribble: 'L' };
+    }],
     ['Basketball', 'Jump shot', 1.8, (c, t) => {
       const rel = 0.55;
       const g0 = rel - 0.25;
@@ -387,6 +402,7 @@ export class AnimViewer {
     }
     else if (r.ball) {
       this.ball.position.set(r.ball[0], r.ball[1], r.ball[2]);
+      if (r.fromPalm && r.fromW < 1) { const e = r.fromW * r.fromW * (3 - 2 * r.fromW); this.ball.position.lerpVectors(palmBall(c, r.fromPalm, _v), this.ball.position.clone(), e); } // (just let go of the palm)
       // (dribbling: both arms the same as the game's: the hand riding the ball, the other guarding)
       if (r.dribble) {
         c.group.updateMatrixWorld(true);

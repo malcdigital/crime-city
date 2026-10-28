@@ -130,7 +130,7 @@ function jumperWindow(d) {
 const MOVES = {
   cross: { T: 0.32, beat: 0.3, risk: 0, name: 'Crossover' },
   behind: { T: 0.38, beat: 0.33, risk: 0.1, name: 'Behind the back' },
-  spin: { T: 0.48, beat: 0.4, risk: 0.08, name: 'Spin' },
+  spin: { T: 0.54, beat: 0.4, risk: 0.08, name: 'Spin' },
   hesi: { T: 0.48, beat: 0.3, risk: 0, name: 'Hesi' },
   step: { T: 0.34, beat: 0, risk: 0, name: 'Step-back' },
   legs: { T: 0.32, beat: 0.32, risk: 0.04, name: 'Between the legs' },
@@ -140,8 +140,13 @@ const MOVES = {
 const HANDOFF = { cross: 'front', spin: 'spin', behind: 'behind', legs: 'legs' };
 const SHUFFLES = new Set(['cross', 'legs', 'behind']); // (the hand switches you shuffle out of, not turn)
 const LOCKED = new Set(['cross', 'legs', 'behind', 'hesi']); // (moves that keep you facing the way you were)
-// A spin: the facing during it (a full turn toward the new hand's side, eased in and out).
-const spinHeading = (mv, k) => mv.h0 - (mv.to || 1) * Math.PI * 2 * (k * k * (3 - 2 * k));
+// A spin: the facing during it (a full turn toward the side the ball's on, the ball hand
+// leading, eased in and out).
+const spinHeading = (mv, k) => mv.h0 - (mv.from || 1) * Math.PI * 2 * (k * k * (3 - 2 * k));
+// A spin's ball (path k 0..1): palmed at the hip on the hand it was in and pulled round, then
+// let go before the end of the turn and dribbled across: one bounce in front into the other hand
+// (never handed from one hand to the other: that's a travel).
+export const SPIN_REL = 0.7;
 // Smoothing between poses (yours and his): every joint eases to where this frame's pose puts it
 // (about 0.1 s to settle), so moves, stances and shots blend instead of snapping.
 const JOINTS = ['armL', 'armR', 'legL', 'legR', 'kneeL', 'kneeR', 'elbowL', 'elbowR', 'wristL', 'wristR', 'spine', 'chest', 'neck'];
@@ -284,7 +289,12 @@ export function handoff(kind, from, to, k, y0 = 0.75) {
   // down, crosses low through the middle with the bounce, and comes up on the other side)
   const s = kind === 'front' ? from + (to - from) * k : from + (to - from) * ease(Math.max(0, Math.min(1, (k - 0.22) / 0.42)));
   const m = Math.sin(Math.PI * k);
-  if (kind === 'spin') return [s, 0.12, mix(y0, 0.78, Math.min(1, k * 4))]; // (pulled in tight at the hip and carried round)
+  if (kind === 'spin') {
+    if (k < SPIN_REL) return [from, 0.12, 0.78]; // (pulled in tight at the hip and carried round)
+    const w = (k - SPIN_REL) / (1 - SPIN_REL);
+    const yb = w < 0.4 ? 0.78 + (HO_FLOOR - 0.78) * Math.pow(w / 0.4, 1.3) : HO_FLOOR + (HO_TOP - HO_FLOOR) * (1 - Math.pow(1 - (w - 0.4) / 0.6, 2));
+    return [from + (to - from) * ease(w), 0.1 + 0.36 * ease(Math.min(1, w * 2)), yb]; // (pushed down across the front, up into the other hand)
+  }
   const y = k < HO_BOUNCE ? y0 + (HO_FLOOR - y0) * Math.pow(k / HO_BOUNCE, 1.4) : HO_FLOOR + (HO_TOP - HO_FLOOR) * (1 - Math.pow(1 - (k - HO_BOUNCE) / (1 - HO_BOUNCE), 2));
   if (kind === 'legs') return [s, 0.46 - 0.42 * m, y];
   if (kind === 'behind') return [s, 0.46 - 0.84 * m, y];
@@ -521,6 +531,15 @@ const _ds = new THREE.Vector3();
 // then brings it back (k: 0..1 through the move; returns 0..1, how far out).
 export function hesiPush(k) {
   return Math.sin(Math.PI * Math.min(1, k * 1.15));
+}
+// Just after a spin's release: eased from where it left the palm (p) onto the bounce path.
+function spinRelease(b, p, k) {
+  const w = Math.min(1, (k - SPIN_REL) / 0.12);
+  if (w >= 1) return;
+  const e = w * w * (3 - 2 * w);
+  b.x = p.x + (b.x - p.x) * e;
+  b.y = p.y + (b.y - p.y) * e;
+  b.z = p.z + (b.z - p.z) * e;
 }
 export function dribbleFrom(ph, y, amp) {
   const a = Math.asin(Math.min(1, Math.max(0, (y - 0.18) / amp)));
@@ -4025,7 +4044,7 @@ export class Streetball {
           // (it's in the new hand: back to the dribble from there)
           if (!this.hoDone) {
             this.hoDone = true;
-            this.dribble = dribbleFrom(this.dribble, path[0] === 'spin' ? 0.78 : HO_TOP, Y.sizeUp ? 0.55 : 0.8);
+            this.dribble = dribbleFrom(this.dribble, HO_TOP, Y.sizeUp ? 0.55 : 0.8);
             y = 0.18 + Math.abs(Math.sin(this.dribble)) * (Y.sizeUp ? 0.55 : 0.8);
           }
           side = path[2];
@@ -4037,17 +4056,16 @@ export class Streetball {
           y = 0.18 + Math.abs(Math.sin(this.dribble)) * (Y.sizeUp ? 0.55 : 0.8);
         }
         if (path && path[0] === 'spin') {
-          // (the spin: the ball palmed at the hip, carried round on the hand)
-          const sd = path[3] < 0.85 ? path[1] : path[2];
-          this.ballSide = sd;
-          // (the last of the turn: carried across the front from the one palm to the other)
+          // (the spin: the ball palmed at the hip, carried round on the hand; then the bounce)
+          this.ballSide = path[1];
           palmBall(p.char, path[1] >= 0 ? 'R' : 'L', _v1);
-          const w = Math.max(0, Math.min(1, (path[3] - 0.7) / 0.3));
-          if (w > 0) _v1.lerp(palmBall(p.char, path[2] >= 0 ? 'R' : 'L', _v2), w * w * (3 - 2 * w));
-          b.x = _v1.x;
-          b.y = _v1.y;
-          b.z = _v1.z;
-          return;
+          if (path[3] < SPIN_REL) {
+            b.x = _v1.x;
+            b.y = _v1.y;
+            b.z = _v1.z;
+            return;
+          }
+          // (let go: from the palm into the bounce across, below)
         }
         if (path) {
           [side, fwd, y] = handoff(...path, this.hoY0);
@@ -4065,6 +4083,7 @@ export class Streetball {
         b.x = px + (fx * fwd - fz * lat * side) * sc;
         b.z = pz + (fz * fwd + fx * lat * side) * sc;
         b.y = y * sc;
+        if (path?.[0] === 'spin') spinRelease(b, _v1, path[3]);
       }
     } else if (this.has === 'opp') {
       const opp = this.opp;
@@ -4120,7 +4139,7 @@ export class Streetball {
         if (path && path[3] >= 1) {
           if (!hp.hoDone) {
             hp.hoDone = true;
-            hp.dribble = dribbleFrom(hp.dribble, path[0] === 'spin' ? 0.78 : HO_TOP, 0.8);
+            hp.dribble = dribbleFrom(hp.dribble, HO_TOP, 0.8);
             y = 0.18 + Math.abs(Math.sin(hp.dribble)) * 0.8;
           }
           side = path[2];
@@ -4131,17 +4150,16 @@ export class Streetball {
           y = 0.18 + Math.abs(Math.sin(hp.dribble)) * 0.8;
         }
         if (path && path[0] === 'spin') {
-          const sd = path[3] < 0.85 ? path[1] : path[2];
-          hp.ballSide = sd;
-          // (the last of the turn: carried across the front from the one palm to the other)
+          hp.ballSide = path[1];
           palmBall(opp.char, path[1] >= 0 ? 'R' : 'L', _v1);
-          const w = Math.max(0, Math.min(1, (path[3] - 0.7) / 0.3));
-          if (w > 0) _v1.lerp(palmBall(opp.char, path[2] >= 0 ? 'R' : 'L', _v2), w * w * (3 - 2 * w));
-          b.x = _v1.x;
-          b.y = _v1.y;
-          b.z = _v1.z;
+          if (path[3] < SPIN_REL) {
+            b.x = _v1.x;
+            b.y = _v1.y;
+            b.z = _v1.z;
           this.dribbleHand('opp');
-          return;
+            return;
+          }
+          // (let go: from the palm into the bounce across, below)
         }
         if (path) {
           [side, fwd, y] = handoff(...path, hp.hoY0);
@@ -4158,6 +4176,7 @@ export class Streetball {
         b.x = opp.x + (fx * fwd - fz * lat * side) * sc;
         b.z = opp.z + (fz * fwd + fx * lat * side) * sc;
         b.y = y * sc;
+        if (path?.[0] === 'spin') spinRelease(b, _v1, path[3]);
         this.dribbleHand('opp'); // (his hand on it at the top of the bounce)
       }
     }
@@ -5247,19 +5266,22 @@ export class Streetball {
     if (mv && mv.kind === 'spin') {
       // (pivoting round: low, the ball tucked at the hip, the free elbow out wide)
       const k = Math.min(1, mv.t / mv.T);
-      const ball = (k < 0.85 ? mv.from || 1 : mv.to || 1) >= 0 ? c.armR : c.armL; // (pulled round on one hand, then across to the other) // (the ball hand pulls it all the way round)
+      const ball = (mv.from || 1) >= 0 ? c.armR : c.armL; // (pulled round on the hand it's in)
       const elbow = ball === c.armR ? c.armL : c.armR;
       // (the ball hand at the hip, out to the side, palm out round the ball: clear of the body)
       const bs = ball === c.armR ? 'R' : 'L';
       const sxb = bs === 'R' ? -1 : 1;
-      reachArm(c, bs, _sp1.set(sxb * 0.34, 1.04, 0.1), _sp2.set(sxb, -0.3, -0.8), _sp3.set(0, -1, 0.15), _v5.set(-sxb, 0, 0), 'group');
-      elbow.rotation.x = -1.1;
-      elbow.rotation.z = ball === c.armR ? 0.7 : -0.7;
-      (ball === c.armR ? c.elbowL : c.elbowR).rotation.x = -1.4; // (the free elbow out wide)
-      smoothArms(c);
+      if (k < SPIN_REL * 0.85) {
+        // (after the release the dribble arms take over: the bounce across into the other hand)
+        reachArm(c, bs, _sp1.set(sxb * 0.34, 1.04, 0.1), _sp2.set(sxb, -0.3, -0.8), _sp3.set(0, -1, 0.15), _v5.set(-sxb, 0, 0), 'group');
+        elbow.rotation.x = -1.1;
+        elbow.rotation.z = ball === c.armR ? 0.7 : -0.7;
+        (ball === c.armR ? c.elbowL : c.elbowR).rotation.x = -1.4; // (the free elbow out wide)
+        smoothArms(c);
+      }
 
-      bendSpine(c, 0.3, -(mv.to || 1) * 0.5 * Math.sin(Math.PI * k), 0); // (the chest leading the turn)
-      c.neck.rotation.set(-0.2, -(mv.to || 1) * 0.35 * Math.sin(Math.PI * k), 0);
+      bendSpine(c, 0.3, -(mv.from || 1) * 0.5 * Math.sin(Math.PI * k), 0); // (the chest leading the turn)
+      c.neck.rotation.set(-0.2, -(mv.from || 1) * 0.35 * Math.sin(Math.PI * k), 0);
       const dl = bendLeg(c.legL, c.kneeL, 0.55, 1.0);
       const dr = bendLeg(c.legR, c.kneeR, 0.45 + 0.25 * Math.sin(Math.PI * 2 * k), 0.8);
       c.legL.rotation.z = 0.15;
@@ -5499,7 +5521,7 @@ export class Streetball {
     if (catching(c, now) || scooping(c, now) || grabbing(c, now)) return;
     if (you ? this.you.triple : p.hp.triple) return; // (not dribbling yet)
     const mv = you ? this.you.move : p.hp.state === 'move' ? p.hp.mv : null;
-    if (mv?.kind === 'spin' && mv.from !== mv.to) return;
+    if (mv?.kind === 'spin' && mv.from !== mv.to && (you ? mv.t : p.hp.t) / (mv.T * 0.85) < SPIN_REL) return; // (palmed: the spin pose has the arm)
     const side = (you ? this.ballSide : p.hp.ballSide) >= 0 ? 'R' : 'L';
     c.group.updateMatrixWorld(true);
     dribbleArms(c, side, c.group.worldToLocal(_v1.set(b.x, b.y, b.z)), now);
