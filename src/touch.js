@@ -58,7 +58,7 @@ const BUTTONS = [
   ['rjuke', 'JUKE', 18, ['qb'], 'hold', 'sm txt'],
   ['rspin', 'SPIN', 21, ['qb'], 'hold', 'sm txt'],
   ['rstiff', 'STIFF', 20, ['qb'], 'hold', 'sm txt'],
-  ['tri', '△', B.TRIANGLE, ['foot', 'car', 'map', 'qb'], 'hold', 'sm'],
+  ['tri', '△', B.TRIANGLE, ['map', 'qb'], 'hold', 'sm'], // (on foot and in the car, USE gets you in and out)
   ['crouch', 'DUCK', B.L3, ['foot'], 'hold', 'sm txt'],
   ['weapon', 'GUN', B.L1, ['foot', 'strip'], 'weapon', 'sm txt'],
   ['use', 'USE', B.UP, ['foot', 'car', 'ball'], 'hold', 'pill'],
@@ -81,8 +81,8 @@ const BUTTONS = [
 ];
 // What the face buttons mean here, shown small under the symbol.
 const HINTS = {
-  foot: { cross: 'yes', circle: 'punch', tri: 'car', reload: 'reload' },
-  car: { cross: 'yes', circle: 'no', tri: 'exit' },
+  foot: { cross: 'yes', circle: 'punch', reload: 'reload' },
+  car: { cross: 'yes', circle: 'no' },
   phone: { cross: 'ok', circle: 'back' },
   menu: { cross: 'buy', circle: 'leave' },
   strip: { cross: 'give', reload: 'drop', weapon: 'close' },
@@ -91,6 +91,31 @@ const HINTS = {
   ball: { bblock: 'block', bd: 'hold' },
   qb: { cross: 'hike' },
 };
+
+// What the USE button does right now, in a word, read off the prompt the game is showing
+// ("Press USE to pick up from Dre" → PICK UP). Unknown wording falls back to its first verb.
+const VERBS = [
+  [/^pick ?up|^grab/i, 'PICK UP'], [/^drop off/i, 'DROP OFF'], [/^put it down/i, 'DROP'], [/^pay/i, 'PAY'],
+  [/^swap/i, 'SWAP'], [/^sell/i, 'SELL'], [/^rob/i, 'ROB'], [/^buy|^look at buying/i, 'BUY'], [/^bank/i, 'BANK'],
+  [/^use the atm/i, 'ATM'], [/^tag/i, 'TAG'], [/^recruit/i, 'RECRUIT'], [/^send/i, 'SEND'], [/^mod/i, 'MOD'],
+  [/^take the bus/i, 'BUS'], [/^hail/i, 'TAXI'], [/^get in the .*game/i, 'JOIN'], [/^get in\b/i, 'ENTER'], [/^carjack/i, 'JACK'], [/^get out/i, 'EXIT'], [/^start/i, 'START'], [/^shop|^browse/i, 'SHOP'],
+  [/^enter|^go in|^go inside/i, 'ENTER'], [/^talk/i, 'TALK'],
+];
+export function useVerb(prompt) {
+  if (!prompt || !/\bUSE\b/.test(prompt)) return null;
+  if (/USE:\s*"/.test(prompt)) return 'TALK'; // (asking a court to play)
+  let m = prompt.match(/(?:Press|Hold|Tap)\s+USE\s+(?:to|for)\s+(.+)/i) || prompt.match(/USE:?\s+(.+)/);
+  let phrase = m ? m[1] : '';
+  if (!phrase) {
+    // ("Pick up the ball and shoot around: USE")
+    m = prompt.match(/^(.+?):\s*USE\s*$/);
+    phrase = m ? m[1] : '';
+  }
+  if (/^for\b/i.test(phrase) || (m && /\bfor\s/.test(m[0]) && !/\sto\s/.test(m[0]))) return /safehouse|home|house|apartment|condo|loft|penthouse/i.test(phrase) ? 'ENTER' : 'OPEN'; // (yours: go in / open it up)
+  for (const [re, w] of VERBS) if (re.test(phrase.trim())) return w;
+  const w = (phrase.trim().split(/\s+/)[0] || '').replace(/[^a-z]/gi, '').toUpperCase();
+  return w && w.length <= 8 ? w : 'USE';
+}
 
 export class TouchControls {
   constructor(input, opts = {}) {
@@ -180,6 +205,7 @@ export class TouchControls {
     let lx = 0;
     let ly = 0;
     let downT = 0;
+    let pressed = null;
     el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -209,7 +235,9 @@ export class TouchControls {
         pid = null;
         return;
       }
-      this.press(b);
+      // (USE presses whatever it's showing: the interact button, or △ to get in / out of a car)
+      pressed = id === 'use' ? this.useB ?? b : b;
+      this.press(pressed);
     });
     el.addEventListener('pointermove', (e) => {
       if (e.pointerId !== pid || kind !== 'fire') return;
@@ -230,7 +258,8 @@ export class TouchControls {
         el.classList.add('on');
         return;
       }
-      this.release(b);
+      this.release(pressed ?? b);
+      pressed = null;
     };
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
@@ -397,9 +426,27 @@ export class TouchControls {
     // FIRE is dimmed until you aim (a gun only fires while aiming).
     const fire = this.el.buttons.fire;
     if (fire) fire.el.classList.toggle('dim', ctx === 'foot' && !game.aimingNow && !game.arsenal?.current()?.melee);
-    // USE lights up when there's something to do.
+    // USE is the one contextual button: it says what it'll do and lights up when there's
+    // something to do — the prompt's action (PICK UP, BUY, ROB, PAY, TALK...), or with nothing
+    // else around, ENTER the car you're next to / EXIT the one you're in.
     const use = this.el.buttons.use;
-    if (use) use.el.classList.toggle('hot', !!game.prompt && /\bUSE\b/.test(game.prompt));
+    if (use) {
+      let verb = useVerb(game.prompt);
+      this.useB = B.UP;
+      if (verb && /USE to (get in|carjack|get out)\b/.test(game.prompt || '')) this.useB = B.TRIANGLE; // (cars: the enter button)
+      if (!verb && ctx === 'foot' && game.nearestVehicle?.(3.8)) {
+        verb = 'ENTER';
+        this.useB = B.TRIANGLE;
+      } else if (!verb && ctx === 'car') {
+        verb = 'EXIT';
+        this.useB = B.TRIANGLE;
+      }
+      const text = verb || 'USE';
+      const tl = use.el.querySelector('.tl');
+      if (tl.textContent !== text) tl.textContent = text;
+      use.el.classList.toggle('hot', !!verb && verb !== 'EXIT');
+      use.el.classList.toggle('long', text.length > 6);
+    }
     const w = this.el.buttons.weapon;
     if (w && ctx === 'foot') w.el.querySelector('.tl').textContent = (game.arsenal?.current()?.name || 'GUN').split(' ')[0].toUpperCase().slice(0, 6);
   }

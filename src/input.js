@@ -12,7 +12,7 @@ const deadzone = (v) => (Math.abs(v) < DEAD ? 0 : (v - Math.sign(v) * DEAD) / (1
 // Button names shown in prompts, for keyboard and controller.
 // (Third: the touch buttons on a phone.)
 const LABELS = {
-  enter: ['F', '△', '△'],
+  enter: ['F', '△', 'USE'], // (a phone's USE button gets you in and out of cars)
   interact: ['E', 'D-pad ↑', 'USE'],
   fire: ['Left-click', 'R2', 'FIRE'],
   aim: ['Right-click', 'L2', 'AIM'],

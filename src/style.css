@@ -841,3 +841,4 @@ body.paused #dice-panel { display: none; }
   100% { transform: translateY(calc(-50% + var(--dy))); opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) { #shot-meter.slight, #shot-meter.slight::after, #shot-meter.slight .sweet { animation-duration: .01s; } }
+#touch .tb.pill.long { font-size: 12px; letter-spacing: 0; }

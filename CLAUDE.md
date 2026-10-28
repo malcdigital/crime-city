@@ -9,6 +9,7 @@
 
   On a phone, keep clear of the top-left info, the pause/QUIT buttons, the top-right cash/clock (or hide it while your board is up) and the touch buttons. Size boards to the room they have; don't use a fixed scale.
 - Your player and the opponents always change together: a new animation, rule or tweak applies to both.
+- On a phone, USE is the one contextual button: it shows the action of whatever prompt is up. Word new interaction prompts as `Press ${input.label('interact')} to <verb> ...` and add the verb to VERBS in src/touch.js if it needs a better word than its first one.
 - Every game quits without pausing: add it to `activeGame()` in src/main.js (hold M / touchpad; QUIT on a phone).
 - Testing switches in src/config.js (START_ON_FOOT, START_NEAR_DICE, CAR_SPAWN_KEY...) are listed in ROADMAP to turn off before release.
 - Test harness: tools/tests/launch.mjs and `window.__game`. Smoke test: `node tools/tests/smoke.mjs`.
