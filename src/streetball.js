@@ -602,8 +602,41 @@ export class Streetball {
     hp.handle = Math.round(clamp(this.r + (hp.style === 'slasher' ? 5 : hp.style === 'shooter' ? -3 : 0) + rand(-6, 6), 55, 99));
     hp.def = Math.round(clamp(this.r + (hp.style === 'balanced' ? 3 : hp.style === 'shooter' ? -4 : 0) + rand(-6, 6), 55, 99)); // (his defense)
     this.solo = false;
-    this.checkup(Math.random() < 0.5 ? 'you' : 'opp');
-    game.hud.toast(`One-on-one with ${opp.ballName} (${this.r} OVR, handle ${hp.handle} vs your ${Math.floor(this.handle)}, defense ${hp.def} vs your ${Math.floor(this.defense)})${bet ? ` · $${bet} on it` : ''}. First to ${to}`, '#ffd23f');
+    const first = Math.random() < 0.5 ? 'you' : 'opp';
+    this.checkup(first);
+    // The matchup: squared up at the top of the key for a short cinematic (the card: overalls,
+    // what it's to, what's on it, a line from him), then the check-up.
+    if (game.matchup) {
+      const rim = this.rim;
+      const p = game.player;
+      const [yx, yz] = this.onCourt(rim.x + rim.dx * 7.0, rim.z + rim.dz * 7.0);
+      const [hx, hz] = this.onCourt(rim.x + rim.dx * 5.3, rim.z + rim.dz * 5.3); // (face to face, close)
+      p.x = yx;
+      p.z = yz;
+      opp.x = hx;
+      opp.z = hz;
+      const dl = Math.hypot(hx - yx, hz - yz) || 1;
+      const dir = [(hx - yx) / dl, (hz - yz) / dl];
+      p.heading = Math.atan2(dir[0], dir[1]);
+      opp.heading = Math.atan2(-dir[0], -dir[1]);
+      for (const [q, x, z, h] of [[p, yx, yz, p.heading], [opp, hx, hz, opp.heading]]) {
+        q.char.group.position.x = x;
+        q.char.group.position.z = z;
+        q.char.group.rotation.y = h;
+      }
+      const yourOvr = Math.round((this.handle + this.defense) / 2);
+      game.matchup.play({
+        you: { ovr: yourOvr, sub: `HANDLE ${Math.floor(this.handle)} · D ${Math.floor(this.defense)}` },
+        opp: { name: opp.ballName, ovr: this.r, sub: `HANDLE ${hp.handle} · D ${hp.def}` },
+        line: `FIRST TO ${to}${bet ? ` · $${bet} EACH` : ''}`,
+        at: [(yx + hx) / 2, (yz + hz) / 2],
+        dir,
+      }, () => {
+        if (this.active && !this.solo && this.opp === opp) this.checkup(first);
+      });
+    } else {
+      game.hud.toast(`One-on-one with ${opp.ballName} (${this.r} OVR)${bet ? ` · $${bet} on it` : ''}. First to ${to}`, '#ffd23f');
+    }
   }
 
   // ---- Shooting around on your own ----

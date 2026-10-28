@@ -449,6 +449,7 @@ export class TouchControls {
     if (!this.enabled) return;
     let ctx = 'foot';
     if (!game.started || game.paused || game.wastedT > 0 || game.bustedT > 0 || game.clipPlayer?.open || game.travel?.active) ctx = 'none';
+    else if (game.matchup?.open) ctx = 'none'; // (the matchup cinematic: tap anywhere to skip)
     else if (game.moves?.open) ctx = 'moves'; // (the moves list: just its ? to close it)
     else if (game.courtMenu?.open || game.card?.open) ctx = 'none'; // (the court menu, the contest card: tap them directly)
     else if (game.shops.menu) ctx = 'menu';

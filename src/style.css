@@ -910,3 +910,43 @@ body.paused #dice-panel { display: none; }
 body.touch #moves { padding-top: 46px; }
 body.touch #moves .mv-r { font-size: 12px; padding: 4px 0; }
 body.moves-open #scoreboard, body.moves-open #board33, body.moves-open #board3pt, body.moves-open #shot-meter, body.moves-open #energy-float, body.moves-open #shot-badge { visibility: hidden; }
+
+/* The matchup cinematic before a one-on-one (matchup.js). Sizes follow the screen's height so
+   it fits a short phone as well as a desktop. */
+body.cine #hud, body.cine #touch, body.cine #minimap, body.cine #scoreboard, body.cine #sport, body.cine #quit-hint, body.cine #toast, body.cine #toasts, body.cine #shot-meter, body.cine #energy-float, body.cine #news-pop { visibility: hidden !important; }
+#matchup { position: fixed; inset: 0; z-index: 60; pointer-events: auto; color: #fff; font-family: inherit; overflow: hidden; opacity: 0; transition: opacity .35s; }
+#matchup.on { opacity: 1; }
+#matchup.out { opacity: 0; }
+#matchup.hidden { display: none; }
+#matchup .mu-lb { position: absolute; left: 0; right: 0; height: 7vh; background: #000; transform: scaleY(0); transition: transform .45s ease-out; }
+#matchup .mu-lb.top { top: 0; transform-origin: top; }
+#matchup .mu-lb.bot { bottom: 0; transform-origin: bottom; }
+#matchup.on .mu-lb { transform: scaleY(1); }
+#matchup .mu-head { position: absolute; top: calc(7vh + 10px); left: 0; display: flex; align-items: center; gap: 14px; padding: 6px 40px 6px max(18px, env(safe-area-inset-left)); background: linear-gradient(90deg, rgba(10,12,18,.92) 70%, rgba(10,12,18,0)); transform: translateX(-100%); animation: mu-in .45s .1s cubic-bezier(.2,1,.3,1) forwards; }
+#matchup .mu-head b { font-size: clamp(16px, 5vh, 28px); font-weight: 900; color: #ffd23f; letter-spacing: 1px; }
+#matchup .mu-head span { font-size: clamp(14px, 4.4vh, 24px); font-weight: 900; letter-spacing: 6px; }
+#matchup .mu-top { position: absolute; left: 50%; top: calc(7vh + clamp(40px, 12vh, 80px)); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: clamp(4px, 1.4vh, 8px); }
+#matchup .mu-card { display: flex; align-items: center; gap: clamp(6px, 2vw, 16px); }
+#matchup .mu-side { min-width: clamp(112px, 20vw, 190px); padding: clamp(4px, 1.6vh, 10px) clamp(10px, 2.2vw, 20px); background: rgba(12,15,22,.88); border: 1px solid rgba(255,255,255,.14); border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.5); text-align: center; opacity: 0; }
+#matchup .mu-side.you { animation: mu-left .5s .35s cubic-bezier(.2,1.2,.3,1) forwards; }
+#matchup .mu-side.opp { animation: mu-right .5s .35s cubic-bezier(.2,1.2,.3,1) forwards; }
+#matchup .mu-n { font-size: clamp(11px, 3.4vh, 17px); font-weight: 900; letter-spacing: 3px; color: #c9d1de; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#matchup .mu-o { font-size: clamp(24px, 9vh, 46px); font-weight: 900; line-height: 1.05; font-variant-numeric: tabular-nums; }
+#matchup .mu-o small { font-size: .5em; letter-spacing: 1px; }
+#matchup .mu-bar { height: 4px; margin: 4px 4px 0; background: rgba(255,255,255,.12); border-radius: 2px; overflow: hidden; }
+#matchup .mu-bar i { display: block; height: 100%; width: 0; border-radius: 2px; }
+#matchup .you .mu-bar i { background: #5ec269; }
+#matchup .opp .mu-bar i { background: #e05252; }
+#matchup .mu-sub { margin-top: 5px; font-size: clamp(8px, 2.4vh, 11px); font-weight: 800; letter-spacing: 1.5px; color: #8a93a3; }
+#matchup .mu-vs { font-size: clamp(30px, 11vh, 60px); font-weight: 900; font-style: italic; letter-spacing: -1px; background: linear-gradient(#ffe8a3, #e2a92f 55%, #b97c16); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 3px 6px rgba(0,0,0,.7)); transform: scale(2.4); opacity: 0; animation: mu-vs .45s .6s cubic-bezier(.2,1.6,.4,1) forwards; }
+#matchup .mu-line { padding: 4px 14px; background: rgba(12,15,22,.85); border-radius: 6px; font-size: clamp(10px, 3vh, 14px); font-weight: 900; letter-spacing: 3px; white-space: nowrap; opacity: 0; animation: mu-fade .4s .85s forwards; }
+#matchup .mu-talk { position: absolute; left: 50%; bottom: calc(7vh + 12px); transform: translateX(-50%); max-width: 86vw; padding: 7px 16px; background: rgba(8,10,14,.82); border-radius: 6px; font-size: clamp(11px, 3.6vh, 17px); font-weight: 700; text-align: center; opacity: 0; animation: mu-fade .45s 1.3s forwards; }
+#matchup .mu-skip { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: calc(7vh + 16px); font-size: clamp(9px, 2.6vh, 12px); font-weight: 800; letter-spacing: 2px; color: rgba(255,255,255,.75); }
+@keyframes mu-in { to { transform: translateX(0); } }
+@keyframes mu-left { from { opacity: 0; transform: translateX(-40px); } to { opacity: 1; transform: none; } }
+@keyframes mu-right { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: none; } }
+@keyframes mu-vs { to { transform: scale(1); opacity: 1; } }
+@keyframes mu-fade { to { opacity: 1; } }
+#matchup .mu-bar i { transform-origin: left; animation: mu-bar .7s .6s ease-out both; }
+@keyframes mu-bar { from { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) { #matchup *, #matchup { animation-duration: .01s !important; animation-delay: 0s !important; transition-duration: .01s !important; } }
