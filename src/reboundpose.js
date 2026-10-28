@@ -1,4 +1,4 @@
-import { bendLeg } from './character.js';
+import { bendLeg, bendSpine } from './character.js';
 
 // Rebounding, the same for everybody (you and him):
 //   ready    a shot's up: facing the rim, hands up at the shoulders, ready to go get it.
@@ -23,6 +23,8 @@ const GRAB_T = 0.55;
 const legDrop = (c) => Math.max(0, Math.min(bendLeg(c.legL, c.kneeL, -c.legL.rotation.x, c.kneeL.rotation.x), bendLeg(c.legR, c.kneeR, -c.legR.rotation.x, c.kneeR.rotation.x)));
 
 export function readyPose(c) {
+  bendSpine(c, 0.16); // (bent a little, eyes up on the ball)
+  c.neck.rotation.set(-0.35, 0, 0);
   for (const [a, e, w, out] of [[c.armL, c.elbowL, c.wristL, 1], [c.armR, c.elbowR, c.wristR, -1]]) {
     a.rotation.x = -1.9;
     a.rotation.z = 0.25 * out;
@@ -46,7 +48,9 @@ export function boxOutPose(c, phase, moving) {
     e.rotation.x = -1.0;
     w.rotation.x = 0;
   }
-  c.group.rotation.x = -0.12; // (sitting back into him)
+  c.group.rotation.x = -0.05; // (sitting back into him: the hips back, the chest forward)
+  bendSpine(c, 0.32);
+  c.neck.rotation.set(-0.4, 0, 0);
   return -Math.max(0, Math.max(0, Math.min(d1, d2)) * 0.92 - d0);
 }
 
@@ -85,6 +89,8 @@ export function grabPose(c, now) {
   const d0 = legDrop(c);
   const d1 = bendLeg(c.legL, c.kneeL, mix(-c.legL.rotation.x, 0.7, land), mix(c.kneeL.rotation.x, 1.2, land));
   const d2 = bendLeg(c.legR, c.kneeR, mix(-c.legR.rotation.x, 0.6, land), mix(c.kneeR.rotation.x, 1.1, land));
-  c.group.rotation.x = 0.12 * land;
+  c.group.rotation.x = 0.05 * land;
+  bendSpine(c, mix(-0.12 * snatch, 0.3, chin) * (1 - seg(k, 0.8, 1) * 0.6)); // (stretched for it, then curled over it)
+  c.neck.rotation.set(0.15 * chin - 0.3 * snatch, 0, 0);
   return -Math.max(0, Math.max(0, Math.min(d1, d2)) - d0);
 }

@@ -53,6 +53,8 @@ export function passPose(c, now, busy = false) {
     const back = ease(clamp01((t - 0.6) / 0.4)); // (and back)
     // (from the chest pocket, elbows in, to arms out straight, wrists turned through)
     set(mix(mix(-0.55, -1.3, push), -0.4, back), mix(mix(0.3, 0.26, push), 0.05, back), mix(mix(-1.05, -0.2, push), -0.35, back), mix(mix(-0.5, 0.55, push), 0, back));
+    c.spine.rotation.x = 0.1 * push * (1 - back); // (stepping into it)
+    c.chest.rotation.x = 0.08 * push * (1 - back);
     return true;
   }
   if (u.catchAt != null) {
@@ -61,6 +63,7 @@ export function passPose(c, now, busy = false) {
       // (hands up and out to it, palms facing it)
       const k = ease(clamp01(1 - left / REACH_T));
       set(mix(-0.5, -0.95, k), mix(0.2, 0.3, k), mix(-0.7, -0.55, k), mix(0, -0.6, k));
+      c.chest.rotation.x = 0.1 * k; // (leaning to it)
       return true;
     }
     if (left <= 0 && -left < GIVE_T) {

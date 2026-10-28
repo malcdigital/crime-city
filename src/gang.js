@@ -526,7 +526,9 @@ export class GangFighter {
     const wid = this.weapon?.id || 'pistol';
     this.tw = 0;
     if (this.char.armR.rotation.x < -1) {
-      this.tw = aimPose(this.char, wid, 0, now); // (side-on behind a long gun)
+      // (side-on behind a long gun; a pistol the way they like to hold it)
+      this.pistolStyle ??= ['side', 'one', 'one', 'two', 'side'][Math.floor(Math.random() * 5)];
+      this.tw = aimPose(this.char, wid, 0, now, 'R', this.pistolStyle);
       if (this.crouched) this.crouchY = kneelPose(this.char); // (crouched and shooting: on one knee, the same as you)
     }
     else if (this.state === 'fight' && this.behavior !== 'flee') lowReady(this.char, wid);

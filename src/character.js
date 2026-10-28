@@ -9,7 +9,10 @@ export function lam(color) {
 const SPINE_Y = 0.9; // (the spine pivot: hip height)
 const THIGH = new THREE.BoxGeometry(0.22, 0.46, 0.26);
 const SHIN = new THREE.BoxGeometry(0.2, 0.44, 0.24);
-const BODY = new THREE.BoxGeometry(0.56, 0.72, 0.32);
+const BODY = new THREE.BoxGeometry(0.56, 0.42, 0.32); // (the chest: shoulders to mid-back)
+const BELLY = new THREE.BoxGeometry(0.54, 0.36, 0.31); // (the lower back and belly)
+const CHEST_Y = 1.22; // (the mid-back pivot)
+const NECK_Y = 1.62;
 const ARM = new THREE.BoxGeometry(0.16, 0.34, 0.18); // (the upper arm)
 const FOREARM = new THREE.BoxGeometry(0.15, 0.3, 0.17);
 const DELT = new THREE.BoxGeometry(0.2, 0.18, 0.22); // (the shoulder cap)
@@ -52,20 +55,27 @@ export function makeCharacter({ shirt = 0x3366aa, pants = 0x222222, skin = 0xc68
   };
   const [legL, kneeL] = leg(0.13);
   const [legR, kneeR] = leg(-0.13);
-  // The spine: everything above the hips (the body, the head, the arms) hangs off a pivot at
-  // hip height, so the upper body can lean (a crouch, a fighting stance, a flinch). Its rotation
-  // is zeroed every frame (animateWalk), so nothing leans unless a pose says so.
+  // The spine, in three: the lower back (a pivot at the hips), the chest (a pivot mid-back,
+  // carrying the shoulders) and the neck (the head). Each can bend and turn, so the upper body
+  // curls, arches and twists. Their rotations are zeroed every frame (restPose, via
+  // animateWalk), so nothing bends unless a pose says so.
   const spine = new THREE.Group();
   spine.position.set(0, SPINE_Y, 0);
   g.add(spine);
-  const up = (geo, color, x, y, z) => add(geo, color, x, y - SPINE_Y, z, spine);
-  up(BODY, shirt, 0, 1.26, 0);
+  const chest = new THREE.Group();
+  chest.position.set(0, CHEST_Y - SPINE_Y, 0);
+  spine.add(chest);
+  const neck = new THREE.Group();
+  neck.position.set(0, NECK_Y - CHEST_Y, 0);
+  chest.add(neck);
+  add(BELLY, shirt, 0, 1.08 - SPINE_Y, 0, spine);
+  add(BODY, shirt, 0, 1.41 - CHEST_Y, 0, chest);
   // Arms: the shoulder (armL / armR), the elbow and the wrist, each a pivot of its own.
   // An elbow bends with a negative x (the forearm comes forward); a wrist the same way.
   const arm = (x) => {
     const sh = new THREE.Group();
-    sh.position.set(x, 1.56 - SPINE_Y, 0);
-    spine.add(sh);
+    sh.position.set(x, 1.56 - CHEST_Y, 0);
+    chest.add(sh);
     add(DELT, shirt, 0, -0.04, 0, sh);
     add(ARM, shirt, 0, -0.16, 0, sh);
     const el = new THREE.Group();
@@ -80,14 +90,15 @@ export function makeCharacter({ shirt = 0x3366aa, pants = 0x222222, skin = 0xc68
   };
   const [armL, elbowL, wristL] = arm(0.37);
   const [armR, elbowR, wristR] = arm(-0.37);
-  up(HEAD, skin, 0, 1.8, 0);
+  const hd = (geo, color, x, y, z) => add(geo, color, x, y - NECK_Y, z, neck);
+  hd(HEAD, skin, 0, 1.8, 0);
   if (cap) {
-    up(CAP, cap, 0, 2.0, 0);
-    up(BRIM, cap, 0, 1.96, 0.22);
+    hd(CAP, cap, 0, 2.0, 0);
+    hd(BRIM, cap, 0, 1.96, 0.22);
   }
-  if (bandana) up(BAND, bandana, 0, 1.9, 0);
+  if (bandana) hd(BAND, bandana, 0, 1.9, 0);
 
-  return { group: g, spine, legL, legR, kneeL, kneeR, armL, armR, elbowL, elbowR, wristL, wristR };
+  return { group: g, spine, chest, neck, legL, legR, kneeL, kneeR, armL, armR, elbowL, elbowR, wristL, wristR };
 }
 
 export function animateWalk(c, phase, amount) {
@@ -111,7 +122,14 @@ export function animateWalk(c, phase, amount) {
 // them every way), ready for the frame's poses.
 const ARM_JOINTS = ['armL', 'armR', 'elbowL', 'elbowR', 'wristL', 'wristR'];
 export function restPose(c) {
+  c.group.userData.guardUp = false;
   c.spine?.rotation.set(0, 0, 0);
+  c.chest?.rotation.set(0, 0, 0);
+  c.neck?.rotation.set(0, 0, 0);
+  for (const l of [c.legL, c.legR]) {
+    l.rotation.y = 0;
+    l.rotation.z = 0;
+  }
   for (const j of ARM_JOINTS) {
     c[j].rotation.y = 0;
     c[j].rotation.z = 0;
@@ -140,20 +158,35 @@ const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
 const _qs = new THREE.Quaternion();
+// How the chest is turned (the lower back's bend and the chest's on top of it).
+export function upperQuat(c, out) {
+  return out.copy(c.spine.quaternion).multiply(c.chest.quaternion);
+}
+
+// Bend the back: x forward (+) / back (-), y a turn (+ to the left), z a side bend; spread over
+// the lower back and the chest (more of a turn in the chest, as a body does).
+export function bendSpine(c, x = 0, y = 0, z = 0) {
+  c.spine.rotation.set(x * 0.55, y * 0.4, z * 0.5);
+  c.chest.rotation.set(x * 0.45, y * 0.6, z * 0.5);
+}
+
 export function reachArm(c, side, target, pole, aim = null, up = null, frame = 'body') {
   const L = side === 'L';
   const sh = L ? c.armL : c.armR;
   const el = L ? c.elbowL : c.elbowR;
   const wr = L ? c.wristL : c.wristR;
-  const sp = c.spine;
-  // (into the spine's own frame)
-  _qs.copy(sp.quaternion).invert();
-  _T.copy(target);
-  _T.y -= SPINE_Y;
+  // (into the chest's own frame: the shoulders hang off it)
+  upperQuat(c, _qs).invert();
   _P.copy(pole);
   if (frame === 'group') {
-    _T.applyQuaternion(_qs);
+    c.spine.updateMatrix();
+    c.chest.updateMatrix();
+    _m.multiplyMatrices(c.spine.matrix, c.chest.matrix).invert();
+    _T.copy(target).applyMatrix4(_m);
     _P.applyQuaternion(_qs);
+  } else {
+    _T.copy(target);
+    _T.y -= CHEST_Y;
   }
   _d.subVectors(_T, sh.position);
   const dist = _d.length() || 1e-4;
@@ -203,17 +236,32 @@ export function crouchWalk(c, phase, amount = 1) {
   const lift = Math.cos(phase) * amount;
   const dl = bendLeg(c.legL, c.kneeL, 0.85 + s * 0.5, 1.42 + Math.max(0, lift) * 0.45 - Math.max(0, -s) * 0.25);
   const dr = bendLeg(c.legR, c.kneeR, 0.85 - s * 0.5, 1.42 + Math.max(0, -lift) * 0.45 - Math.max(0, s) * 0.25);
+  // (still, the feet open out to shoulder width, knees over them)
+  const splay = 0.45 * (1 - Math.min(1, amount * 2.5));
+  c.legL.rotation.z = splay;
+  c.legR.rotation.z = -splay;
   const bob = Math.abs(Math.sin(phase)) * amount;
-  c.spine.rotation.x = 0.42 + bob * 0.05;
-  c.spine.rotation.y = -s * 0.12; // (the shoulders turning against the step)
+  bendSpine(c, 0.42 + bob * 0.05 - splay * 0.15, -s * 0.15); // (the shoulders turning against the step)
+  c.neck.rotation.set(-0.3, s * 0.08, 0); // (head up, eyes ahead)
   // (arms bent, hands low in front, swinging a little against the legs)
-  c.armL.rotation.set(-0.35 + s * 0.3, 0, -0.12);
-  c.armR.rotation.set(-0.35 - s * 0.3, 0, 0.12);
+  c.armL.rotation.set(-0.35 + s * 0.3, 0, -0.12 - splay * 0.2);
+  c.armR.rotation.set(-0.35 - s * 0.3, 0, 0.12 + splay * 0.2);
   c.elbowL.rotation.set(-1.25 - Math.max(0, -s) * 0.2, 0, 0);
   c.elbowR.rotation.set(-1.25 - Math.max(0, s) * 0.2, 0, 0);
   c.wristL.rotation.set(0, 0, 0);
   c.wristR.rotation.set(0, 0, 0);
-  return -Math.min(dl, dr) + bob * 0.03;
+  const h = (L1 + L2 - Math.min(dl, dr)) * Math.cos(splay);
+  return -(L1 + L2 - h) + bob * 0.03;
+}
+
+// Where a wrist is right now, in the character's own frame (to blend a hand from wherever it
+// is to a new spot).
+const _wm = new THREE.Matrix4();
+export function wristPos(c, side, out) {
+  const w = side === 'L' ? c.wristL : c.wristR;
+  w.updateWorldMatrix(true, false);
+  _wm.copy(c.group.matrixWorld).invert().multiply(w.matrixWorld);
+  return out.setFromMatrixPosition(_wm);
 }
 
 // Straight arms (for aiming a gun down them, say). Pass 'R' or 'L' for one.
@@ -244,13 +292,13 @@ export function crouchPose(c, depth = 1, shuffle = 0) {
 // A different shirt (a team jersey, say).
 export function setShirt(c, color) {
   c.group.traverse((m) => {
-    if (m.isMesh && (m.geometry === BODY || m.geometry === ARM || m.geometry === FOREARM || m.geometry === DELT)) m.material = lam(color);
+    if (m.isMesh && (m.geometry === BODY || m.geometry === BELLY || m.geometry === ARM || m.geometry === FOREARM || m.geometry === DELT)) m.material = lam(color);
   });
 }
 
 // Lay the character down (knocked down, shot) or stand it back up. The fall plays out over
-// ~0.45 s (stepFalls, every frame): on its back by default, face down if the hit came from
-// behind (face: 'front').
+// about a second (fallPose, every frame from stepFalls): on its back by default, face down if
+// the hit came from behind (face: 'front'), then it stays in the pose it landed in.
 const FALLING = new Map();
 export function setDown(c, down, face = 'back') {
   if (!down) {
@@ -259,27 +307,85 @@ export function setDown(c, down, face = 'back') {
     return;
   }
   const target = face === 'front' ? Math.PI / 2 : -Math.PI / 2;
-  if (Math.abs(c.group.rotation.x - target) < 0.01) return;
+  const F = FALLING.get(c);
+  if (F && F.target === target) return;
+  if (!F && Math.abs(c.group.rotation.x - target) < 0.01) return;
   c.group.rotation.x = target * 0.002; // (down already, so whoever places it lifts it off the ground)
-  c.kneeL.rotation.x = c.kneeR.rotation.x = 0;
-  straightArms(c);
-  FALLING.set(c, { t0: performance.now() / 1000, target });
+  FALLING.set(c, { t0: performance.now() / 1000, target, face });
 }
 
-// The falls in progress: tipping over, quicker as it goes, the arms coming up; the lift that
-// "down" adds (lying on the ground) eased in so it doesn't pop.
+const sq = (k) => k * k;
+const ease = (k) => k * k * (3 - 2 * k);
+const seg = (t, a, b) => Math.max(0, Math.min(1, (t - a) / (b - a)));
+const mixv = (a, b, k) => a + (b - a) * k;
+const setArm = (sh, el, x, out, e, left) => {
+  sh.rotation.set(x, 0, left ? out : -out);
+  el.rotation.set(e, 0, 0);
+};
+
+// A fall, t seconds in: the joints posed, and { rot: the body's tip (rotation.x), y: the
+// height against lying flat (whoever places a downed body lifts it 0.2 m) }.
+//   back (shot from the front): the hit jolts the chest back and the head with it, arms flung
+//   up; the knees buckle and the body sags; then it tips over backwards, picking up speed, the
+//   legs coming out from under it; it lands flat with a little bounce, arms out to the sides,
+//   one knee up, the head rolled to the side.
+//   front (shot from behind): the back arches and the arms fly back; a stumbling step forward,
+//   folding at the waist; the knees go and it pitches forward, the arms coming out to catch it;
+//   it lands face down, the head turned to one side, one knee out, the hands up by the head.
+export function fallPose(c, t, face = 'back') {
+  restPose(c);
+  for (const w of [c.wristL, c.wristR]) w.rotation.set(0, 0, 0);
+  const hit = ease(seg(t, 0, 0.12)) * (1 - ease(seg(t, 0.15, 0.45)));
+  const land = ease(seg(t, 0.95, 1.2));
+  const bounce = Math.sin(seg(t, 0.92, 1.25) * Math.PI) * (1 - seg(t, 0.92, 1.25));
+  if (face === 'front') {
+    const step = ease(seg(t, 0.12, 0.4)) * (1 - ease(seg(t, 0.45, 0.8)));
+    const fold = ease(seg(t, 0.35, 0.7));
+    const tip = sq(seg(t, 0.4, 0.95));
+    bendSpine(c, -0.45 * hit + 0.4 * step + 0.25 * fold * (1 - tip), 0, 0.1 * land);
+    c.neck.rotation.set(-0.5 * hit + 0.2 * step - 0.25 * land + 0.1 * bounce, 1.1 * land, 0);
+    // (legs: the stumble, the knees going, then out behind it, one knee drawn up and out)
+    const dl = bendLeg(c.legL, c.kneeL, mixv(0.7 * step + 0.45 * fold, 0.55, land), mixv(0.45 * step + 1.1 * fold * (1 - tip * 0.6), 1.15, land));
+    const dr = bendLeg(c.legR, c.kneeR, mixv(-0.15 * step + 0.45 * fold, 0.05, land), mixv(0.25 * step + 1.1 * fold * (1 - tip * 0.7), 0.2, land));
+    c.legL.rotation.z = 0.45 * land;
+    // (arms: flung back, then out in front to catch it, ending bent up by the head)
+    const catchK = ease(seg(t, 0.4, 0.9));
+    setArm(c.armL, c.elbowL, mixv(mixv(0.7 * hit - 0.9 * step, -2.4, catchK), -2.25, land), mixv(0.6 * hit, 0.35, catchK), mixv(-0.3, -0.6, catchK) - 0.6 * land, true);
+    setArm(c.armR, c.elbowR, mixv(mixv(0.7 * hit - 0.7 * step, -2.2, catchK), -1.3, land), mixv(0.6 * hit, 0.3, catchK) + 0.3 * land, mixv(-0.3, -0.6, catchK) - 0.3 * land, false);
+    const drop = -Math.min(dl, dr) * (1 - tip);
+    return { rot: (Math.PI / 2) * tip, y: (drop - 0.2) * (1 - tip) + 0.03 * bounce };
+  }
+  const sag = ease(seg(t, 0.12, 0.5));
+  const tip = sq(seg(t, 0.42, 0.95));
+  bendSpine(c, -0.4 * hit + 0.3 * sag * (1 - tip) - 0.05 * land, 0.15 * hit, 0);
+  c.neck.rotation.set(-0.6 * hit + 0.3 * sag * (1 - tip) - 0.35 * tip + 0.25 * bounce + 0.2 * land, 0.9 * land, 0);
+  // (legs: buckling, coming out from under it, one knee up)
+  const dl = bendLeg(c.legL, c.kneeL, mixv(1.0 * sag * (1 - tip * 0.5), 0.6, land), mixv(1.8 * sag * (1 - tip * 0.4), 1.1, land));
+  const dr = bendLeg(c.legR, c.kneeR, mixv(0.9 * sag * (1 - tip * 0.8), 0.1, land), mixv(1.6 * sag * (1 - tip * 0.8), 0.2, land));
+  c.legR.rotation.z = -0.15 * land;
+  // (arms: flung up with the hit, dropping as it sags, out wide on the ground)
+  const fly = Math.max(hit, 0.6 * tip * (1 - land));
+  setArm(c.armL, c.elbowL, -1.6 * fly - 0.3 * land, 0.3 * fly + 1.25 * land + 0.08 * bounce, -0.4 * fly - 0.5 * land, true);
+  setArm(c.armR, c.elbowR, -1.3 * fly - 0.5 * land, 0.3 * fly + 1.0 * land + 0.08 * bounce, -0.3 * fly - 0.8 * land, false);
+  const drop = -Math.min(dl, dr) * (1 - tip);
+  return { rot: (-Math.PI / 2) * tip, y: (drop - 0.2) * (1 - tip) + 0.03 * bounce };
+}
+
+// Every frame (after everyone's placed): the falls under way, and the bodies already down held
+// in the pose they landed in.
 export function stepFalls() {
   const now = performance.now() / 1000;
   for (const [c, F] of FALLING) {
-    const k = Math.min(1, (now - F.t0) / 0.45);
-    c.group.rotation.x = F.target * k * k;
-    // (undo last frame's drop if nobody's placed it since, then this frame's)
-    if (F.setY != null && Math.abs(c.group.position.y - F.setY) < 1e-6) c.group.position.y += F.adj;
-    F.adj = 0.2 * (1 - k);
-    c.group.position.y -= F.adj;
+    if (!c.group.parent) {
+      FALLING.delete(c);
+      continue;
+    }
+    const f = fallPose(c, Math.min(1.3, now - F.t0), F.face);
+    c.group.rotation.x = f.rot;
+    // (undo last frame's height if nobody's placed it since, then this frame's)
+    if (F.setY != null && Math.abs(c.group.position.y - F.setY) < 1e-6) c.group.position.y -= F.adj;
+    F.adj = f.y;
+    c.group.position.y += F.adj;
     F.setY = c.group.position.y;
-    const arms = Math.sin(k * Math.PI) * 0.9;
-    c.armL.rotation.x = c.armR.rotation.x = -arms;
-    if (k >= 1) FALLING.delete(c);
   }
 }

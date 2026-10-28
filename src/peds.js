@@ -1,5 +1,5 @@
 import { CFG } from './config.js';
-import { flinchPose, fallFace, markFlinch, fightStance, markPunch, punchPose } from './combatpose.js';
+import { flinchPose, fallFace, markFlinch, fightStance, markPunch, punchPose, PUNCH_T } from './combatpose.js';
 import { closestOnBox } from './geom.js';
 import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES } from './character.js';
 import { pushCircle } from './collision.js';
@@ -238,14 +238,17 @@ export class Ped {
         if (d < 1.4 && this.punchCD <= 0) {
           this.punchCD = rand(0.75, 1.35);
           this.punchN = (this.punchN || 0) + 1;
-          this.punchKind = this.punchN % 3 === 0 ? 'cross' : 'jab';
-          markPunch(this.char, game.time, this.punchKind, 0.32);
-          this.punchHitAt = game.time + 0.11;
+          // (mostly jabs, a cross every third; now and then a hook, an uppercut or a kick)
+          const r = Math.random();
+          this.punchKind = r < 0.1 ? 'kick' : r < 0.2 ? 'uppercut' : r < 0.32 ? 'hook' : this.punchN % 3 === 0 ? 'cross' : 'jab';
+          markPunch(this.char, game.time, this.punchKind, PUNCH_T[this.punchKind]);
+          this.punchHitAt = game.time + { jab: 0.11, cross: 0.11, hook: 0.16, uppercut: 0.17, kick: 0.25 }[this.punchKind];
         }
         if (this.punchHitAt && game.time >= this.punchHitAt) {
           this.punchHitAt = 0;
           const facing = ((qx - this.x) * Math.sin(this.heading) + (qz - this.z) * Math.cos(this.heading)) / (d || 1);
-          if (d < 1.5 && facing > 0.5) game.hurtPlayer(this.punchKind === 'cross' ? 9 : 6);
+          const reach = this.punchKind === 'kick' ? 1.9 : 1.5;
+          if (d < reach && facing > 0.5) game.hurtPlayer({ jab: 6, cross: 9, hook: 9, uppercut: 10, kick: 11 }[this.punchKind], this.punchKind);
         }
       }
     } else if (this.state === 'cower') {
@@ -412,7 +415,8 @@ export class Ped {
     let twist = 0;
     if (this.state === 'brawl' && this.standing) {
       // (fists up, punches out of it)
-      const drop = fightStance(c, game.time + (this.id || 0), Math.min(1, speed / 2));
+      this.fightStyle ??= ['orthodox', 'orthodox', 'street', 'street', 'philly', 'peekaboo'][Math.floor(Math.random() * 6)];
+      const drop = fightStance(c, game.time, Math.min(1, speed / 2), this.fightStyle, this.id || 0);
       if (speed < 0.3) yOff = drop;
       twist = punchPose(c, game.time) || 0;
     }

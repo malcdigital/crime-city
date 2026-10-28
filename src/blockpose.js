@@ -1,4 +1,4 @@
-import { bendLeg } from './character.js';
+import { bendLeg, bendSpine } from './character.js';
 
 // Jumping on defense, the same for everybody (you and him): a block, or going up for a rebound.
 // The height comes from the jump itself (streetball.js); this poses the body over it.
@@ -71,7 +71,10 @@ export function jumpPose(c, now) {
     const sx = mix(mix(-0.5, -3.05, up), -2.6, swipe * 0.6);
     set(A, mix(mix(sx, -2.15, swat), -0.9, down), mix(-0.4, -0.08, up), mix(mix(-0.4, 0.6, swipe), 1.1, swat), mix(0.05, -0.08, up));
     set(B, mix(mix(-0.4, -2.2, up), -0.8, down), -0.45, 0, mix(0.15, 0.55, up));
-    c.group.rotation.x = 0.12 * up * (1 - down) + 0.1 * swat;
+    c.group.rotation.x = 0.06 * up * (1 - down) + 0.05 * swat;
+    // (stretched tall and reaching, then snapping down over the swat)
+    bendSpine(c, -0.14 * up * (1 - down) + 0.3 * swat, 0, (R ? -1 : 1) * 0.12 * up * (1 - down));
+    c.neck.rotation.set(-0.35 * up * (1 - down), 0, 0);
   } else {
     // Both hands up high and together, then the ball pulled down to the chest.
     const up = seg(k, 0.05, 0.4);
@@ -80,7 +83,10 @@ export function jumpPose(c, now) {
     const e = mix(mix(-0.4, -0.15, up), -1.35, pull);
     set(A, x, e, mix(0, -0.3, up), mix(0.1, -0.12, up));
     set(B, x, e, mix(0, -0.3, up), mix(0.1, -0.12, up));
-    c.group.rotation.x = 0.06 * pull;
+    c.group.rotation.x = 0.03 * pull;
+    // (stretched up for it, then curling over it as it comes down to the chest)
+    bendSpine(c, -0.1 * up * (1 - pull) + 0.3 * pull);
+    c.neck.rotation.set(mix(-0.4 * up, 0.15, pull), 0, 0);
   }
   return -Math.max(0, Math.min(d1, d2)) * ground;
 }

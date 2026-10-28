@@ -3,10 +3,11 @@ const _c = new THREE.Vector3();
 const _e = new THREE.Euler(0, 0, 0, 'YXZ');
 const GETUP = 1.0; // seconds to get back up after a tumble
 import { CFG } from './config.js';
-import { makeCharacter, animateWalk, setDown, crouchPose, crouchWalk, lam, straightArms } from './character.js';
+import { makeCharacter, animateWalk, setDown, crouchPose, crouchWalk, bendSpine, lam, straightArms } from './character.js';
+const COMBO = ['jab', 'cross', 'hook', 'uppercut', 'kick']; // (press after press)
 import { pushCircle } from './collision.js';
 import { clamp, lerp, lerpAngle } from './util.js';
-import { aimPose, lowReady, fightStance, markPunch, punchPose, reloadPose, kneelPose, flinchPose, flinching } from './combatpose.js';
+import { aimPose, lowReady, fightStance, markPunch, punchPose, reloadPose, kneelPose, flinchPose, flinching, PUNCH_T } from './combatpose.js';
 const _aim = new THREE.Vector3();
 
 export class Player {
@@ -317,19 +318,21 @@ export class Player {
     this.twist = 0;
     this.fightT = Math.max(0, (this.fightT || 0) - dt);
     const aiming = !!game.aimingNow || faceYaw !== null;
-    // (hit, and not aiming: the jolt over whatever else)
-    if (flinching(c, now) && !game.aimingNow) {
+    const guardUp = fists && (this.fistsUp || this.fightT > 0 || this.punchT > 0);
+    // (hit, and not aiming or squared up: the jolt over whatever else)
+    if (flinching(c, now) && !game.aimingNow && !guardUp) {
       const lean = flinchPose(c, now);
       if (lean) this.twist = 0;
       this.punchT = Math.max(0, this.punchT - dt);
       return;
     }
     if (fists) {
-      if (this.fistsUp || this.fightT > 0 || this.punchT > 0) {
+      if (guardUp) {
         const moving = Math.min(1, this.speed / 2);
-        const drop = fightStance(c, now, this.lowProfile ? 1 : moving);
+        const drop = fightStance(c, now, this.lowProfile ? 1 : moving, game.style?.fight);
         if (!this.lowProfile && !this.cover) this.poseY = Math.min(this.poseY, drop);
         this.twist = punchPose(c, now) ?? 0; // (side-on, and into a punch)
+        flinchPose(c, now); // (hit with the hands up: the guard knocked back)
       }
       this.punchT = Math.max(0, this.punchT - dt);
       return;
@@ -344,23 +347,23 @@ export class Player {
     if (aiming) {
       // Crouched out in the open: down on one knee to shoot (in cover you still pop up).
       if (this.crouched && !this.cover && game.aimingNow) this.poseY = Math.min(this.poseY, kneelPose(c));
-      c.spine.rotation.set(Math.min(c.spine.rotation.x, 0.12), 0, 0); // (up out of the sneak to shoot)
+      bendSpine(c, Math.min(c.spine.rotation.x + c.chest.rotation.x, 0.12)); // (up out of the sneak to shoot)
       game.camera.getWorldDirection(_aim);
       const pitch = Math.asin(Math.max(-1, Math.min(1, _aim.y))) + 0.08;
-      this.twist = aimPose(c, w.id, pitch, now, this.gunHand); // (side-on behind a long gun)
+      this.twist = aimPose(c, w.id, pitch, now, this.gunHand, game.style?.grip); // (side-on behind a long gun or one-handed)
     } else if (!this.cover) {
       lowReady(c, w.id, this.gunHand);
     }
   }
 
-  // A punch (main.js punch): jab, cross, jab, hook... out of the stance.
+  // A punch (main.js punch): jab, cross, hook, uppercut, kick... out of the stance.
   throwPunch() {
     const now = this.game.time;
-    const seq = ['jab', 'cross', 'jab', 'hook'];
-    this.punchN = now - (this.lastPunchAt ?? -9) < 1.1 ? ((this.punchN ?? -1) + 1) % seq.length : 0;
+    const seq = COMBO;
+    this.punchN = now - (this.lastPunchAt ?? -9) < 1.2 ? ((this.punchN ?? -1) + 1) % seq.length : 0;
     this.lastPunchAt = now;
     const kind = seq[this.punchN];
-    markPunch(this.char, now, kind, kind === 'hook' ? 0.4 : 0.3);
+    markPunch(this.char, now, kind, PUNCH_T[kind]);
     this.fightT = 1.6; // (the hands stay up a moment after)
     return kind;
   }

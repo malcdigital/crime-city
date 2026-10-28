@@ -47,7 +47,7 @@ import { MapView } from './mapview.js';
 import { MovesList } from './moveslist.js';
 import { Matchup } from './matchup.js';
 import { AnimViewer } from './animviewer.js';
-import { markRecoil, markFlinch } from './combatpose.js';
+import { markRecoil, markFlinch, PUNCH_T, FIGHT_STYLES, PISTOL_STYLES } from './combatpose.js';
 import { stepFalls } from './character.js';
 import { Shops } from './shops.js';
 import { Drugs } from './drugs.js';
@@ -119,6 +119,13 @@ class Game {
     this.moves = new MovesList(this); // (how to play the pickup game you're in: pauses it)
     this.matchup = new Matchup(this); // (the cinematic before a one-on-one)
     this.animViewer = new AnimViewer(this); // (every pose and move, one at a time: from the pause menu)
+    // Your style (the pause menu): how you hold a pistol, how you stand with your fists up.
+    this.style = { grip: 'two', fight: 'orthodox' };
+    try {
+      Object.assign(this.style, JSON.parse(localStorage.getItem('crimecity.style.v1') || '{}'));
+    } catch {}
+    if (!PISTOL_STYLES[this.style.grip]) this.style.grip = 'two';
+    if (!FIGHT_STYLES[this.style.fight]) this.style.fight = 'orthodox';
     this.gpsLine = new GpsLine(THREE, this.scene);
     this.aircam = new AirCam(this);
     this.clipPlayer = new ClipPlayer();
@@ -312,6 +319,7 @@ class Game {
     this.paused = p;
     this.hud.pause(p, this);
     document.body.classList.toggle('paused', !!p); // (the scoreboards hide under the pause menu)
+    if (p) this.showStyle();
     // (in a pickup game: a button to quit it)
     const q = document.getElementById('quit-game');
     const g = this.pickupGame();
@@ -971,7 +979,7 @@ class Game {
     }
   }
 
-  hurtPlayer(dmg) {
+  hurtPlayer(dmg, blow = null) {
     if (this.wastedT > 0 || this.bustedT > 0) return;
     const v = this.player.vehicle;
     if (v) {
@@ -990,7 +998,7 @@ class Game {
     // (hit: a jolt; aiming, just a kick so you stay on target)
     if (!v) {
       if (this.aimingNow) markRecoil(this.player.char, this.time);
-      else markFlinch(this.player.char, this.time, dmg > 12 ? 'shot' : 'hit');
+      else markFlinch(this.player.char, this.time, blow ? 'hit' : dmg > 12 ? 'shot' : 'hit', blow || 'jab');
     }
     if (this.health <= 0) this.wasted();
   }
@@ -1408,11 +1416,30 @@ class Game {
     this.player.enter(v);
   }
 
+  // Your pistol grip or fight style, the next one along (saved).
+  cycleStyle(which) {
+    const list = Object.keys(which === 'grip' ? PISTOL_STYLES : FIGHT_STYLES);
+    this.style[which] = list[(list.indexOf(this.style[which]) + 1) % list.length];
+    try {
+      localStorage.setItem('crimecity.style.v1', JSON.stringify(this.style));
+    } catch {}
+    this.showStyle();
+  }
+
+  showStyle() {
+    const g = document.getElementById('grip-btn');
+    const f = document.getElementById('fight-btn');
+    const pad = this.input.mode === 'pad';
+    if (g) g.textContent = `Pistol grip: ${PISTOL_STYLES[this.style.grip]} ▸ ${pad ? '(◀)' : this.input.touchMode ? '' : '(G)'}`;
+    if (f) f.textContent = `Fight style: ${FIGHT_STYLES[this.style.fight].name} ▸ ${pad ? '(▶)' : this.input.touchMode ? '' : '(B)'}`;
+  }
+
   punch() {
     const p = this.player;
     if (p.punchT > 0.08) return; // (the next one can start as this one comes back)
     const kind = p.throwPunch();
-    p.punchT = kind === 'hook' ? 0.4 : 0.3;
+    p.punchT = PUNCH_T[kind];
+    const reach = kind === 'kick' ? 2.0 : 1.7;
     const fx = Math.sin(p.heading);
     const fz = Math.cos(p.heading);
     for (const t of this.characters()) {
@@ -1420,14 +1447,15 @@ class Game {
       const dx = t.x - p.x;
       const dz = t.z - p.z;
       const d = Math.hypot(dx, dz);
-      if (d > 1.7 || (dx * fx + dz * fz) / (d || 1) < 0.4) continue;
-      markFlinch(t.char, this.time);
+      if (d > reach || (dx * fx + dz * fz) / (d || 1) < 0.4) continue;
+      markFlinch(t.char, this.time, 'hit', kind);
       if (kind === 'jab') {
-        // (a jab staggers them back a step; the cross and the hook put them down)
+        // (a jab staggers them back a step; the cross, hook, uppercut and kick put them down,
+        // the kick furthest)
         const k = 0.35 / (d || 1);
         t.x += dx * k;
         t.z += dz * k;
-      } else t.knockDown(p.x, p.z, kind === 'hook' ? 0.9 : 0.6);
+      } else t.knockDown(p.x, p.z, { hook: 0.9, uppercut: 0.75, kick: 1.3 }[kind] || 0.6);
       if (t.isCop) this.crime('assaultCop', t.x, t.z);
       else if (t.isGang) this.gang.anger();
       else {
@@ -2223,6 +2251,10 @@ class Game {
       this.animViewer.update(dt, a);
     } else if (this.paused && (this.input.hit?.('KeyV') || (this.input.mode === 'pad' && a.reload))) {
       this.animViewer.show(); // (V / □ in the pause menu)
+    } else if (this.paused && (this.input.hit?.('KeyG') || (this.input.mode === 'pad' && a.phoneLeft))) {
+      this.cycleStyle('grip'); // (G / D-pad ◀ in the pause menu)
+    } else if (this.paused && (this.input.hit?.('KeyB') || (this.input.mode === 'pad' && a.phoneRight))) {
+      this.cycleStyle('fight'); // (B / D-pad ▶ in the pause menu)
     } else if (this.matchup.open) {
       // The matchup cinematic before a one-on-one: the game waits.
       this.matchup.update(dt, a);
@@ -2601,6 +2633,9 @@ document.getElementById('play').addEventListener('click', () => game.start());
 document.getElementById('resume').addEventListener('click', () => game.setPaused(false));
 document.getElementById('quit-game').addEventListener('click', () => game.quitPickup());
 document.getElementById('anim-btn').addEventListener('click', () => game.animViewer.show());
+document.getElementById('grip-btn').addEventListener('click', () => game.cycleStyle('grip'));
+document.getElementById('fight-btn').addEventListener('click', () => game.cycleStyle('fight'));
+game.showStyle();
 // Interchange editor (testing) in the pause menu.
 if (game.rampEditor) {
   const b = document.getElementById('rampedit-btn');

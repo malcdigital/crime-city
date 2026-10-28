@@ -1,4 +1,4 @@
-import { bendLeg } from './character.js';
+import { bendLeg, bendSpine } from './character.js';
 
 // Dunks, the same for everybody (you and him): the whole body, by phase.
 //
@@ -64,18 +64,25 @@ export function dunkPose(c, style, ph, k, hand = 1) {
       set(M, mix(sx, -2.25, slam), mix(ex, -0.15, slam), slam * 0.7, 0.12);
       set(O, mix(sx, -2.25, slam), mix(ex, -0.15, slam), slam * 0.7, 0.12);
       two = true;
+      // (arched back with the ball behind the head, then curling down into the throw-down)
+      bendSpine(c, -0.22 * back * (1 - slam) + 0.4 * slam);
+      c.neck.rotation.set(-0.3 * (1 - slam) + 0.15 * slam, 0, 0);
     } else if (style === 'one') {
       const lift = seg(k, 0.25, 0.8);
       const snap = seg(k, 0.84, 1);
       set(M, mix(mix(-1.3, -3.15, lift), -2.3, snap), mix(mix(-0.5, -0.35, lift), -0.05, snap), snap * 0.9, 0.05);
       set(O, mix(-1.3, -1.0, lift), mix(-0.5, -0.9, lift), 0, mix(0.1, 0.55, lift)); // (the off arm out for balance)
       two = g < 1 && k < 0.3;
+      bendSpine(c, -0.12 * lift * (1 - snap) + 0.32 * snap, 0, (R ? 1 : -1) * -0.12 * lift);
+      c.neck.rotation.set(-0.28 * (1 - snap), 0, 0);
     } else if (style === 'windmill') {
       // The ball hand goes all the way round: down, back, over the top, down through the rim.
       const r = seg(k, 0.18, 1);
       set(M, -1.3 + 5.35 * r, mix(-0.5, -0.1, seg(k, 0.15, 0.3)), r > 0.9 ? (r - 0.9) * 8 : 0, 0.08);
       set(O, mix(-1.3, -0.7, seg(k, 0.15, 0.4)), -0.5, 0, mix(0.1, 0.7, seg(k, 0.15, 0.4)));
       two = k < 0.18;
+      bendSpine(c, 0.08 + 0.3 * seg(k, 0.85, 1), (R ? 1 : -1) * 0.35 * Math.sin(r * Math.PI), 0); // (the shoulders winding round with the arm)
+      c.neck.rotation.set(-0.25, 0, 0);
     } else {
       // Tomahawk: wound way back behind the head (elbow folded), then whipped forward.
       const wind = seg(k, 0.15, 0.72);
@@ -83,7 +90,9 @@ export function dunkPose(c, style, ph, k, hand = 1) {
       set(M, mix(mix(-1.3, -3.6, wind), -2.05, whip), mix(mix(-0.5, -1.75, wind), -0.05, whip), whip * 1.0, 0.1);
       set(O, mix(-1.3, -1.9, wind), mix(-0.5, -0.4, wind), 0, mix(0.1, 0.35, wind));
       two = k < 0.15;
-      c.group.rotation.x -= wind * (1 - whip) * 0.18; // (arched back loading it)
+      c.group.rotation.x -= wind * (1 - whip) * 0.06;
+      bendSpine(c, -0.4 * wind * (1 - whip) + 0.45 * whip, (R ? 1 : -1) * 0.15 * wind * (1 - whip)); // (arched back loading it, then whipped through)
+      c.neck.rotation.set(-0.3 * (1 - whip), 0, 0);
     }
   } else if (ph === 'hang') {
     // On the rim: both hands up on it, the legs dangling, swinging under it.
@@ -92,6 +101,8 @@ export function dunkPose(c, style, ph, k, hand = 1) {
     set(O, -2.95, -0.15, 0.2, 0.15);
     legs([0.35 + sw, 0.55], [0.25 + sw, 0.45]);
     c.group.rotation.x = 0.1 - sw * 0.8;
+    bendSpine(c, 0.08 + sw * 0.5);
+    c.neck.rotation.set(-0.2, 0, 0);
   } else {
     // Down: the arms come down, then the knees take the landing.
     const a = seg(k, 0, 0.6);
@@ -100,7 +111,8 @@ export function dunkPose(c, style, ph, k, hand = 1) {
     const land = seg(k, 0.6, 1) * (1 - seg(k, 0.92, 1) * 0.3);
     const d = legs([mix(0.35, 1.0, land), mix(0.5, 1.7, land)], [mix(0.25, 1.0, land), mix(0.45, 1.7, land)]);
     y = -Math.max(0, d); // (shorter legs: the hips come down, the feet stay on the floor)
-    c.group.rotation.x = mix(0.1, 0.25, land);
+    c.group.rotation.x = mix(0.1, 0.12, land);
+    bendSpine(c, 0.3 * land);
   }
   return { y, two };
 }

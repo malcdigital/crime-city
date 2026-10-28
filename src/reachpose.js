@@ -1,4 +1,4 @@
-import { bendLeg } from './character.js';
+import { bendLeg, bendSpine } from './character.js';
 
 // A reach-in (a steal try), the same for everybody (you on him, him on you), played over the
 // defensive stance: a quick lunge step in, low, the hand on the ball's side shooting out at it
@@ -72,6 +72,7 @@ export function reachPose(c, now, heading) {
     // From the stance: the feet stay set, a short lean and a twist into the poke.
     c.group.rotation.x = mix(c.group.rotation.x, c.group.rotation.x + (u.reachWhiff && t > OUT ? 0.22 : 0.14), k);
     c.group.rotation.y = heading - u.reachSide * 0.18 * k;
+    bendSpine(c, mix(c.spine.rotation.x / 0.55, 0.42, k), -u.reachSide * 0.3 * k, 0); // (the shoulder dipping in after it)
     return 0;
   }
   // The lunge: the leg on the reaching side steps in, the other pushes; low, leaning, twisting.
@@ -80,7 +81,8 @@ export function reachPose(c, now, heading) {
   const d0 = Math.max(0, Math.min(bendLeg(Lin, Kin, -Lin.rotation.x, Kin.rotation.x), bendLeg(Lout, Kout, -Lout.rotation.x, Kout.rotation.x))); // (the stance's own)
   const d1 = bendLeg(Lin, Kin, mix(-Lin.rotation.x, 1.15, k), mix(Kin.rotation.x, 1.55, k));
   const d2 = bendLeg(Lout, Kout, mix(-Lout.rotation.x, 0.25, k), mix(Kout.rotation.x, 0.9, k));
-  c.group.rotation.x = mix(c.group.rotation.x, u.reachWhiff && t > OUT ? 0.48 : 0.36, k);
+  c.group.rotation.x = mix(c.group.rotation.x, u.reachWhiff && t > OUT ? 0.3 : 0.2, k);
+  bendSpine(c, 0.3 * k, -u.reachSide * 0.35 * k, 0);
   c.group.rotation.y = heading - u.reachSide * 0.3 * k; // (turning into the hand that's reaching)
   return -Math.max(0, Math.max(0, Math.min(d1, d2)) - d0); // (the hips come down further with the lunge)
 }
