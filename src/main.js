@@ -44,6 +44,7 @@ import { Arsenal, WEAPONS, raycast, rayBox, rayHitBox } from './weapons.js';
 import { lam } from './character.js';
 import { segmentBlocked, pushCircle } from './collision.js';
 import { MapView } from './mapview.js';
+import { MovesList } from './moveslist.js';
 import { Shops } from './shops.js';
 import { Drugs } from './drugs.js';
 import { Bank } from './bank.js';
@@ -111,6 +112,7 @@ class Game {
     this.input.touch = new TouchControls(this.input, { spawnButton: CFG.CAR_SPAWN_KEY, force: new URLSearchParams(location.search).has('touch') });
     this.hud = new Hud(this.city);
     this.mapView = new MapView(this);
+    this.moves = new MovesList(this); // (how to play the pickup game you're in: pauses it)
     this.gpsLine = new GpsLine(THREE, this.scene);
     this.aircam = new AirCam(this);
     this.clipPlayer = new ClipPlayer();
@@ -2191,6 +2193,11 @@ class Game {
     } else if (this.shops.menu) {
       // Shop menu: the game is paused underneath.
       this.shops.updateMenu(a);
+    } else if (this.moves.open) {
+      // The moves list: the game is paused underneath.
+      if (a.moves || a.menuBack || a.pause || !this.pickupGame()) this.moves.hide();
+    } else if (a.moves && !this.paused && this.pickupGame()) {
+      this.moves.show();
     } else if (this.mapView.open) {
       // Full map: the game is paused underneath.
       if (a.map || a.closeClip || a.pause) this.mapView.hide();

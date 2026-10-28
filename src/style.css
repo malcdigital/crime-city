@@ -886,3 +886,26 @@ body.paused #dice-panel { display: none; }
   #scoreboard .sc-place { display: none; }
   body.scoreboard-on #top-right { visibility: hidden; }
 }
+
+/* The moves list (moveslist.js): how to play the game you're in; it pauses the game. */
+#touch .tb-moves { left: 50%; top: 6px; margin-left: 6px; font-size: 18px; }
+@media (max-width: 760px) { #touch .tb-moves { margin-left: 36px; } }
+#touch[data-ctx="moves"] .tz { display: none; }
+#touch[data-ctx="moves"] .tb-moves { background: rgba(255,210,63,.85); color: #111; text-shadow: none; border-color: #fff; }
+#moves { position: fixed; inset: 0; z-index: 48; display: flex; align-items: center; justify-content: center; padding: 48px 12px 12px; background: rgba(6,8,12,.72); }
+#moves.hidden { display: none; }
+#moves .mv-card { width: 560px; max-width: 100%; max-height: 100%; display: flex; flex-direction: column; background: linear-gradient(#141a24, #0d1118); border: 2px solid #2b303b; border-radius: 14px; box-shadow: 0 14px 48px rgba(0,0,0,.65); color: #e8ecf2; overflow: hidden; }
+#moves .mv-top { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 2px solid #2b303b; }
+#moves .mv-top span { font-size: 13px; font-weight: 900; letter-spacing: 3px; color: #ffd23f; }
+#moves .mv-top em { font-style: normal; font-size: 10px; font-weight: 800; letter-spacing: 2px; color: #8a93a3; border: 1px solid #3a404b; border-radius: 6px; padding: 2px 6px; }
+#moves .mv-x { margin-left: auto; background: none; border: 0; color: #c9d1de; font-size: 18px; font-weight: 900; cursor: pointer; padding: 2px 6px; }
+#moves .mv-list { overflow-y: auto; padding: 4px 14px 8px; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
+#moves .mv-h { margin: 10px 0 4px; font-size: 10px; font-weight: 900; letter-spacing: 2.5px; color: #8a93a3; }
+#moves .mv-r { display: flex; justify-content: space-between; gap: 14px; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 13px; }
+#moves .mv-r span { color: #c9d1de; }
+#moves .mv-r b { color: #fff; text-align: right; font-weight: 800; }
+#moves .mv-note { padding: 8px 14px; font-size: 11px; color: #9fc3ff; border-top: 1px solid rgba(255,255,255,.06); }
+#moves .mv-foot { padding: 7px 14px 9px; font-size: 10px; font-weight: 800; letter-spacing: 1.5px; color: #8a93a3; border-top: 2px solid #2b303b; text-align: center; }
+body.touch #moves { padding-top: 46px; }
+body.touch #moves .mv-r { font-size: 12px; padding: 4px 0; }
+body.moves-open #scoreboard, body.moves-open #board33, body.moves-open #board3pt, body.moves-open #shot-meter, body.moves-open #energy-float, body.moves-open #shot-badge { visibility: hidden; }

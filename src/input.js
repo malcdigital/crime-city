@@ -216,6 +216,7 @@ export class Input {
     a.brakeHeld = k('KeyS') || k('ArrowDown') || this.btnVal(PAD.L2) > 0.5;
     a.pause = this.hit('KeyP') || this.btnHit(PAD.OPTIONS);
     a.phoneToggle = this.hit('KeyT') || this.btnHit(PAD.CREATE);
+    a.moves = this.hit('Tab') || this.btnHit(PAD.CREATE) || !!this.touch?.takeMoves?.(); // (the moves list, in a pickup game)
     a.phone = a.phoneToggle || this.btnHit(PAD.RIGHT);
     // Working the phone (and the inventory strip): D-pad / arrows, ✕ / Enter, ○ / Backspace.
     a.arrowY = (k('ArrowUp') ? 1 : 0) - (k('ArrowDown') ? 1 : 0);

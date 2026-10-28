@@ -248,7 +248,7 @@ export class Scoreboard {
     const touch = document.body.classList.contains('touch') || innerWidth < 760;
     let left = 0; // (the right edge of the pause / QUIT buttons up top, or of the info top left)
     if (touch) {
-      for (const b of document.querySelectorAll('.tb-quit, .tb-pause')) {
+      for (const b of document.querySelectorAll('.tb-quit, .tb-pause, .tb-moves')) {
         const r = b.getBoundingClientRect();
         if (r.width && r.top < 80) left = Math.max(left, r.right);
       }

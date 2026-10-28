@@ -78,6 +78,8 @@ const BUTTONS = [
   ['spawn', 'CAR', B.R3, ['foot'], 'hold', 'top txt test'],
   // Quit the pickup game (tap, then tap SURE? to confirm: a stray tap won't forfeit the bet).
   ['quit', 'QUIT', -1, ['ball', 'qb'], 'quit', 'top txt'],
+  // The moves list for the game you're in (pauses it), right of QUIT.
+  ['moves', '?', -1, ['ball', 'qb', 'moves'], 'moves', 'top'],
 ];
 // What the face buttons mean here, shown small under the symbol.
 const HINTS = {
@@ -210,6 +212,13 @@ export class TouchControls {
     this.lastT = performance.now();
   }
 
+  // The ? button was tapped (input.js asks once a frame).
+  takeMoves() {
+    const t = this.movesNow;
+    this.movesNow = false;
+    return t;
+  }
+
   // One quick press, seen by the game for a frame.
   tap(b) {
     this.fresh.add(b);
@@ -239,6 +248,12 @@ export class TouchControls {
       lx = e.clientX;
       ly = e.clientY;
       downT = e.timeStamp; // (when the finger landed, even if the page was busy)
+      if (kind === 'moves') {
+        this.movesNow = true;
+        this.lastT = performance.now();
+        pid = null;
+        return;
+      }
       if (kind === 'quit') {
         if (this.quitArm > e.timeStamp) this.quitNow = true;
         else this.quitArm = e.timeStamp + 2500;
@@ -472,6 +487,7 @@ export class TouchControls {
     if (!this.enabled) return;
     let ctx = 'foot';
     if (!game.started || game.paused || game.wastedT > 0 || game.bustedT > 0 || game.clipPlayer?.open || game.travel?.active) ctx = 'none';
+    else if (game.moves?.open) ctx = 'moves'; // (the moves list: just its ? to close it)
     else if (game.courtMenu?.open || game.card?.open) ctx = 'none'; // (the court menu, the contest card: tap them directly)
     else if (game.shops.menu) ctx = 'menu';
     else if (game.mapView.open) ctx = 'map';
@@ -538,11 +554,6 @@ export class TouchControls {
       b.bpass.el.classList.toggle('hidden', dead || !!game.sport.t33 || !(off || (game.sport.solo && game.sport.g?.ball?.mode === 'loose'))); // (passing / the oop; a fetch shooting around)
       b.bpass.hint.textContent = off ? '2× oop' : '';
       this.dribbleGest = off; // (the right side: tap hesi, swipe cross / spin / step back)
-      if (off && !this.gestTold) {
-        // (once a session: the moves are gestures now, so say so)
-        this.gestTold = true;
-        game.hud.toast('Dribble moves: right side of the screen — tap: hesi · swipe ← → crossover · ↑ spin · ↓ step-back. PASS twice: alley-oop', '#ffd23f');
-      }
       b.bd.el.classList.toggle('hidden', !!game.sport.solo || off || dead); // (GUARD: on defense only; with the ball the back-pedal is automatic)
     }
     // QUIT: armed by the first tap (SURE?), quits on the second.
