@@ -46,7 +46,9 @@ import { segmentBlocked, pushCircle } from './collision.js';
 import { MapView } from './mapview.js';
 import { MovesList } from './moveslist.js';
 import { Matchup } from './matchup.js';
+import { AnimViewer } from './animviewer.js';
 import { markRecoil, markFlinch } from './combatpose.js';
+import { stepFalls } from './character.js';
 import { Shops } from './shops.js';
 import { Drugs } from './drugs.js';
 import { Bank } from './bank.js';
@@ -116,6 +118,7 @@ class Game {
     this.mapView = new MapView(this);
     this.moves = new MovesList(this); // (how to play the pickup game you're in: pauses it)
     this.matchup = new Matchup(this); // (the cinematic before a one-on-one)
+    this.animViewer = new AnimViewer(this); // (every pose and move, one at a time: from the pause menu)
     this.gpsLine = new GpsLine(THREE, this.scene);
     this.aircam = new AirCam(this);
     this.clipPlayer = new ClipPlayer();
@@ -708,7 +711,7 @@ class Game {
         });
         this.effects.impact(hit.x, hit.y, hit.z);
       } else if (hit.type === 'heli') {
-        const down = hit.target.takeHit(w.dmg);
+        const down = hit.target.takeHit(w.dmg, this.player.x, this.player.z);
         this.effects.impact(hit.x, hit.y, hit.z);
         anyHit = true;
         anyKill = anyKill || down;
@@ -984,6 +987,11 @@ class Game {
     this.health -= dmg;
     this.lastHurt = this.time;
     this.hud.hurt();
+    // (hit: a jolt; aiming, just a kick so you stay on target)
+    if (!v) {
+      if (this.aimingNow) markRecoil(this.player.char, this.time);
+      else markFlinch(this.player.char, this.time, dmg > 12 ? 'shot' : 'hit');
+    }
     if (this.health <= 0) this.wasted();
   }
 
@@ -1423,8 +1431,13 @@ class Game {
       if (t.isCop) this.crime('assaultCop', t.x, t.z);
       else if (t.isGang) this.gang.anger();
       else {
+        const fighting = t.state === 'brawl';
         this.crime('assault', t.x, t.z);
         this.scareNearby(t.x, t.z, 14);
+        // (some of them won't take it: they square up and fight you; already fighting, they keep at it)
+        t.tough ??= !t.shopkeeper && !t.kid && Math.random() < 0.35;
+        if (fighting && t.state !== 'down') t.state = 'brawl';
+        else if (t.tough && t.standing && t.state !== 'down' && t.startBrawl && (t.rounds || 0) < 2) t.startBrawl();
       }
       return;
     }
@@ -2205,6 +2218,11 @@ class Game {
     } else if (this.shops.menu) {
       // Shop menu: the game is paused underneath.
       this.shops.updateMenu(a);
+    } else if (this.animViewer.open) {
+      // The animation viewer: the game's paused under it (it draws its own little set).
+      this.animViewer.update(dt, a);
+    } else if (this.paused && (this.input.hit?.('KeyV') || (this.input.mode === 'pad' && a.reload))) {
+      this.animViewer.show(); // (V / □ in the pause menu)
     } else if (this.matchup.open) {
       // The matchup cinematic before a one-on-one: the game waits.
       this.matchup.update(dt, a);
@@ -2227,7 +2245,9 @@ class Game {
       this.update(dt, a);
       this.quitHoldStep(dt, a);
     }
-    this.renderer.render(this.scene, this.camera);
+    stepFalls(); // (anyone tipping over: character.js)
+    if (this.animViewer.open) this.animViewer.render(this.renderer);
+    else this.renderer.render(this.scene, this.camera);
     this.interactWasHeld = a.interactHeld;
     this.input.endFrame();
     requestAnimationFrame((t) => this.frame(t));
@@ -2381,7 +2401,9 @@ class Game {
       p.updateRolling(dt);
     } else {
       const combat = gun && (this.aimingNow || this.time - this.lastShot < 0.8 || a.fire);
-      let faceYaw = combat ? this.camYaw : null;
+      // (fists out and aiming: hands up, squared to where you're looking)
+      p.fistsUp = !gun && !pickup && !!a.aim && !this.dice.playing;
+      let faceYaw = combat || p.fistsUp ? this.camYaw : null;
       if (combat && this.lockTarget) faceYaw = Math.atan2(this.lockTarget.x - p.x, this.lockTarget.z - p.z);
       p.updateOnFoot(dt, a, this.camYaw, faceYaw);
       if (pickup) pickup.late(dt);
@@ -2578,6 +2600,7 @@ game.__raycast = raycast; // handy for debugging shots from the console
 document.getElementById('play').addEventListener('click', () => game.start());
 document.getElementById('resume').addEventListener('click', () => game.setPaused(false));
 document.getElementById('quit-game').addEventListener('click', () => game.quitPickup());
+document.getElementById('anim-btn').addEventListener('click', () => game.animViewer.show());
 // Interchange editor (testing) in the pause menu.
 if (game.rampEditor) {
   const b = document.getElementById('rampedit-btn');

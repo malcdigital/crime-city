@@ -950,3 +950,23 @@ body.cine #hud, body.cine #touch, body.cine #minimap, body.cine #scoreboard, bod
 #matchup .mu-bar i { transform-origin: left; animation: mu-bar .7s .6s ease-out both; }
 @keyframes mu-bar { from { transform: scaleX(0); } }
 @media (prefers-reduced-motion: reduce) { #matchup *, #matchup { animation-duration: .01s !important; animation-delay: 0s !important; transition-duration: .01s !important; } }
+
+/* The animation viewer (animviewer.js): over everything, the game paused under it. */
+#animview { position: fixed; inset: 0; z-index: 70; color: #fff; font-family: inherit; user-select: none; -webkit-user-select: none; touch-action: none; }
+#animview.hidden { display: none; }
+body.animview-on #pause, body.animview-on #touch, body.animview-on #hud, body.animview-on #minimap { visibility: hidden !important; }
+#animview .av-top { position: absolute; top: max(10px, env(safe-area-inset-top)); left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); display: flex; align-items: center; gap: 12px; }
+#animview .av-top b { font-size: 14px; font-weight: 900; letter-spacing: 4px; color: #ffd23f; }
+#animview .av-n { font-size: 11px; font-weight: 800; letter-spacing: 2px; color: #8a93a3; }
+#animview button { pointer-events: auto; background: rgba(12,15,22,.85); color: #fff; border: 1px solid rgba(255,255,255,.25); border-radius: 10px; font: inherit; font-weight: 900; cursor: pointer; }
+#animview .av-x { margin-left: auto; width: 40px; height: 36px; font-size: 16px; }
+#animview .av-bar { position: absolute; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; align-items: center; gap: 10px; width: min(560px, calc(100vw - 28px)); }
+#animview .av-prev, #animview .av-next { width: 52px; height: 52px; font-size: 18px; flex: none; }
+#animview .av-name { flex: 1; min-width: 0; text-align: center; background: rgba(12,15,22,.85); border-radius: 12px; padding: 7px 10px; }
+#animview .av-name small { display: block; font-size: 10px; font-weight: 900; letter-spacing: 2.5px; color: #8a93a3; }
+#animview .av-name span { display: block; font-size: 16px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#animview .av-tools { position: absolute; right: max(14px, env(safe-area-inset-right)); top: 54px; display: flex; flex-direction: column; gap: 8px; }
+#animview .av-tools button { padding: 8px 12px; font-size: 11px; letter-spacing: 1.5px; }
+#animview .av-tools button.on { background: rgba(255,210,63,.85); color: #111; }
+#animview .av-hint { position: absolute; left: max(14px, env(safe-area-inset-left)); top: 44px; font-size: 11px; color: rgba(255,255,255,.6); max-width: 55vw; }
+@media (max-height: 340px) { #animview .av-prev, #animview .av-next { width: 44px; height: 44px; } #animview .av-name span { font-size: 14px; } #animview .av-tools { top: 46px; } }

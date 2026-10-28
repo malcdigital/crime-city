@@ -128,9 +128,38 @@ export function setShirt(c, color) {
   });
 }
 
-// Lay the character on its back (knocked down) or stand it back up.
-export function setDown(c, down) {
-  c.group.rotation.x = down ? -Math.PI / 2 : 0;
-  if (down) c.kneeL.rotation.x = c.kneeR.rotation.x = 0;
-  if (down) straightArms(c);
+// Lay the character down (knocked down, shot) or stand it back up. The fall plays out over
+// ~0.45 s (stepFalls, every frame): on its back by default, face down if the hit came from
+// behind (face: 'front').
+const FALLING = new Map();
+export function setDown(c, down, face = 'back') {
+  if (!down) {
+    FALLING.delete(c);
+    c.group.rotation.x = 0;
+    return;
+  }
+  const target = face === 'front' ? Math.PI / 2 : -Math.PI / 2;
+  if (Math.abs(c.group.rotation.x - target) < 0.01) return;
+  c.group.rotation.x = target * 0.002; // (down already, so whoever places it lifts it off the ground)
+  c.kneeL.rotation.x = c.kneeR.rotation.x = 0;
+  straightArms(c);
+  FALLING.set(c, { t0: performance.now() / 1000, target });
+}
+
+// The falls in progress: tipping over, quicker as it goes, the arms coming up; the lift that
+// "down" adds (lying on the ground) eased in so it doesn't pop.
+export function stepFalls() {
+  const now = performance.now() / 1000;
+  for (const [c, F] of FALLING) {
+    const k = Math.min(1, (now - F.t0) / 0.45);
+    c.group.rotation.x = F.target * k * k;
+    // (undo last frame's drop if nobody's placed it since, then this frame's)
+    if (F.setY != null && Math.abs(c.group.position.y - F.setY) < 1e-6) c.group.position.y += F.adj;
+    F.adj = 0.2 * (1 - k);
+    c.group.position.y -= F.adj;
+    F.setY = c.group.position.y;
+    const arms = Math.sin(k * Math.PI) * 0.9;
+    c.armL.rotation.x = c.armR.rotation.x = -arms;
+    if (k >= 1) FALLING.delete(c);
+  }
 }

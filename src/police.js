@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { aimPose, flinchPose } from './combatpose.js';
+import { aimPose, flinchPose, fallFace, markFlinch, kneelPose } from './combatpose.js';
 import { CFG } from './config.js';
 import { Vehicle } from './vehicle.js';
 import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES, straightArms } from './character.js';
@@ -92,15 +92,16 @@ export class Officer {
     setDown(this.char, true);
   }
 
-  takeHit(dmg) {
+  takeHit(dmg, fromX, fromZ) {
     if (this.state === 'dead' || this.state === 'inCar') return false;
     this.health -= dmg;
     if (this.health <= 0) {
       this.state = 'dead';
       this.crouched = false;
-      setDown(this.char, true);
+      setDown(this.char, true, fallFace(this.x, this.z, this.heading, fromX, fromZ));
       return true;
     }
+    markFlinch(this.char, this.game.time, 'shot'); // (hit, still up: the jolt)
     return false;
   }
 
@@ -270,6 +271,8 @@ export class Officer {
       aimPose(this.char, gun, 0, game.time);
       if (speed === 0 && this.alertAt) this.heading = lerpAngle(this.heading, Math.atan2(this.alertAt[0] - this.x, this.alertAt[1] - this.z), Math.min(1, dt * 6));
     }
+    // (crouched behind the car with the gun up: down on one knee, the same as you)
+    if (this.crouched && this.char.armR.rotation.x < -1) this.crouchY = kneelPose(this.char);
     flinchPose(this.char, game.time);
     this.place();
   }

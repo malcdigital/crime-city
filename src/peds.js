@@ -1,5 +1,5 @@
 import { CFG } from './config.js';
-import { flinchPose } from './combatpose.js';
+import { flinchPose, fallFace, markFlinch, fightStance, markPunch, punchPose } from './combatpose.js';
 import { closestOnBox } from './geom.js';
 import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES } from './character.js';
 import { pushCircle } from './collision.js';
@@ -58,9 +58,10 @@ export class Ped {
     if (this.health <= 0) {
       this.state = 'dead';
       this.t = 40;
-      setDown(this.char, true);
+      setDown(this.char, true, fallFace(this.x, this.z, this.heading, fromX, fromZ));
       return true;
     }
+    markFlinch(this.char, this.game.time, 'shot'); // (hit, still up: the jolt)
     if (this.state !== 'down') this.scare(fromX, fromZ);
     return false;
   }
@@ -187,7 +188,10 @@ export class Ped {
       this.t -= dt;
       if (this.t <= 0) {
         setDown(this.char, false);
-        this.scare(...this.threat);
+        // (a tough one gets back up for another round, once; the rest run)
+        const [qx, qz] = game.player.pos();
+        if (this.tough && (this.rounds || 0) < 2 && !game.player.vehicle && dist(this.x, this.z, qx, qz) < 8) this.startBrawl();
+        else this.scare(...this.threat);
       }
     } else if (this.state === 'flee') {
       this.t -= dt;
@@ -217,6 +221,33 @@ export class Ped {
       this.calmT -= dt;
       if (this.t <= 0 && this.calmT <= 0) this.recover();
       else if (this.t <= 0) this.t = 0.01;
+    } else if (this.state === 'brawl') {
+      // Fighting you: squared up, closing in, throwing hands (combatpose.js, the same as yours).
+      this.t -= dt;
+      const [qx, qz] = game.player.pos();
+      const d = dist(this.x, this.z, qx, qz);
+      if (this.t <= 0 || game.player.vehicle || d > 14 || game.wastedT > 0) {
+        this.scare(qx, qz);
+      } else {
+        this.heading = lerpAngle(this.heading, Math.atan2(qx - this.x, qz - this.z), Math.min(1, dt * 8));
+        if (d > 1.15) {
+          [tx, tz] = [qx, qz];
+          speed = d > 4 ? 3.6 : 2.2;
+        }
+        this.punchCD -= dt;
+        if (d < 1.4 && this.punchCD <= 0) {
+          this.punchCD = rand(0.75, 1.35);
+          this.punchN = (this.punchN || 0) + 1;
+          this.punchKind = this.punchN % 3 === 0 ? 'cross' : 'jab';
+          markPunch(this.char, game.time, this.punchKind, 0.32);
+          this.punchHitAt = game.time + 0.11;
+        }
+        if (this.punchHitAt && game.time >= this.punchHitAt) {
+          this.punchHitAt = 0;
+          const facing = ((qx - this.x) * Math.sin(this.heading) + (qz - this.z) * Math.cos(this.heading)) / (d || 1);
+          if (d < 1.5 && facing > 0.5) game.hurtPlayer(this.punchKind === 'cross' ? 9 : 6);
+        }
+      }
     } else if (this.state === 'cower') {
       this.calmT -= dt;
       if (this.calmT <= 0) this.recover();
@@ -378,9 +409,26 @@ export class Ped {
       c.armR.rotation.x = -2.7;
     }
     if (this.state === 'play') yOff = this.act.pose(this);
+    let twist = 0;
+    if (this.state === 'brawl' && this.standing) {
+      // (fists up, punches out of it)
+      const drop = fightStance(c, game.time + (this.id || 0), Math.min(1, speed / 2));
+      if (speed < 0.3) yOff = drop;
+      twist = punchPose(c, game.time) || 0;
+    }
     flinchPose(c, game.time); // (staggered by a jab: combatpose.js)
     c.group.position.set(this.x, y + yOff, this.z);
-    this.char.group.rotation.y = this.heading;
+    this.char.group.rotation.y = this.heading + twist;
+  }
+
+  // Punched and not having it: fight back (a few of them; combatpose.js does the hands).
+  startBrawl() {
+    this.state = 'brawl';
+    this.t = rand(10, 16);
+    this.punchCD = rand(0.4, 0.8);
+    this.rounds = (this.rounds || 0) + 1;
+    this.flagging = false;
+    this.act = null;
   }
 
   // What a civilian does once they've run far enough.

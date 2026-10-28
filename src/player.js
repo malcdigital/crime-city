@@ -6,7 +6,7 @@ import { CFG } from './config.js';
 import { makeCharacter, animateWalk, setDown, crouchPose, lam, straightArms } from './character.js';
 import { pushCircle } from './collision.js';
 import { clamp, lerp, lerpAngle } from './util.js';
-import { aimPose, lowReady, fightStance, markPunch, punchPose } from './combatpose.js';
+import { aimPose, lowReady, fightStance, markPunch, punchPose, reloadPose, kneelPose, flinchPose, flinching } from './combatpose.js';
 const _aim = new THREE.Vector3();
 
 export class Player {
@@ -317,8 +317,15 @@ export class Player {
     this.twist = 0;
     this.fightT = Math.max(0, (this.fightT || 0) - dt);
     const aiming = !!game.aimingNow || faceYaw !== null;
+    // (hit, and not aiming: the jolt over whatever else)
+    if (flinching(c, now) && !game.aimingNow) {
+      const lean = flinchPose(c, now);
+      if (lean) this.twist = 0;
+      this.punchT = Math.max(0, this.punchT - dt);
+      return;
+    }
     if (fists) {
-      if (aiming || this.fightT > 0 || this.punchT > 0) {
+      if (this.fistsUp || this.fightT > 0 || this.punchT > 0) {
         const moving = Math.min(1, this.speed / 2);
         const drop = fightStance(c, now, this.lowProfile ? 1 : moving);
         if (!this.lowProfile && !this.cover) this.poseY = Math.min(this.poseY, drop);
@@ -329,7 +336,15 @@ export class Player {
       return;
     }
     this.punchT = Math.max(0, this.punchT - dt);
+    // Reloading: the mag out and in, the slide or the handle racked.
+    const ar = game.arsenal;
+    if (ar.reloadT > 0 && w.reload) {
+      reloadPose(c, w.id, 1 - ar.reloadT / w.reload, this.gunHand);
+      return;
+    }
     if (aiming) {
+      // Crouched out in the open: down on one knee to shoot (in cover you still pop up).
+      if (this.crouched && !this.cover && game.aimingNow) this.poseY = Math.min(this.poseY, kneelPose(c));
       game.camera.getWorldDirection(_aim);
       const pitch = Math.asin(Math.max(-1, Math.min(1, _aim.y))) + 0.08;
       aimPose(c, w.id, pitch, now, this.gunHand);

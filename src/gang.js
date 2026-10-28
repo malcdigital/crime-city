@@ -1,5 +1,5 @@
 import { GANG_NAME, CREW_NAME } from './config.js';
-import { aimPose, lowReady, flinchPose } from './combatpose.js';
+import { aimPose, lowReady, flinchPose, fallFace, markFlinch, kneelPose } from './combatpose.js';
 import * as THREE from 'three';
 import { makeCharacter, setDown, crouchPose, SKIN_TONES, lam, straightArms } from './character.js';
 import { pushCircle, segmentBlocked } from './collision.js';
@@ -170,7 +170,7 @@ export class GangFighter {
     this.gunMesh = gun;
   }
 
-  takeHit(dmg) {
+  takeHit(dmg, fromX, fromZ) {
     if (!this.alive || this.state === 'inCar') return false;
     this.health -= dmg * (this.dmgK || 1); // crew vests
     this.onHurt();
@@ -179,11 +179,12 @@ export class GangFighter {
       this.state = 'dead';
       this.t = 45;
       this.crouched = false;
-      setDown(this.char, true);
+      setDown(this.char, true, fallFace(this.x, this.z, this.heading, fromX, fromZ));
       this.place();
       this.onDeath();
       return true;
     }
+    markFlinch(this.char, this.game.time, 'shot'); // (hit, still up: the jolt)
     // Getting shot rattles you (less so if you're fearless).
     this.shaken(0.05);
     return false;
@@ -522,7 +523,10 @@ export class GangFighter {
     // carried low across the body in a fight otherwise; knocked back a step when hit)
     const now = this.game.time;
     const wid = this.weapon?.id || 'pistol';
-    if (this.char.armR.rotation.x < -1) aimPose(this.char, wid, 0, now);
+    if (this.char.armR.rotation.x < -1) {
+      aimPose(this.char, wid, 0, now);
+      if (this.crouched) this.crouchY = kneelPose(this.char); // (crouched and shooting: on one knee, the same as you)
+    }
     else if (this.state === 'fight' && this.behavior !== 'flee') lowReady(this.char, wid);
     flinchPose(this.char, now);
   }

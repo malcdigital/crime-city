@@ -10,7 +10,11 @@ import { crouchPose, bendLeg } from './character.js';
 //               little bounce.
 //   punchPose   a jab (lead hand), a cross (rear hand, the body turning into it) or a hook
 //               (round from the side), out of the stance and back to it (markPunch).
-//   flinchPose  hit: knocked back a step, hands coming up (markFlinch).
+//   flinchPose  hit: knocked back a step, hands coming up (markFlinch); shot, a harder jolt,
+//               the hand going to the hit (markFlinch(c, now, 'shot')).
+//   reloadPose  a reload, over its length (k 0..1): a pistol's mag out and a new one in, the
+//               slide racked; a long gun's mag out and in at the well, the charging handle.
+//   kneelPose   down on one knee to shoot (crouched and aiming).
 //
 // The arms: x raises them forward (negative), z swings them in across the body (positive on
 // the right arm, negative on the left), an elbow bends with a negative x, a wrist likewise.
@@ -137,8 +141,22 @@ export function punchPose(c, now) {
 
 // Hit (a punch, say): from (fx, fz), the direction it came from relative to them is worked out
 // by the caller; this only poses. Returns the lean back (radians) or null.
-export function markFlinch(c, now) {
-  if (c) c.group.userData.flinchAt = now;
+// Which way someone falls when hit from (fx, fz): face down if it came from behind them.
+export function fallFace(x, z, heading, fx, fz) {
+  if (fx == null) return 'back';
+  return (fx - x) * Math.sin(heading) + (fz - z) * Math.cos(heading) < 0 ? 'front' : 'back';
+}
+
+export function markFlinch(c, now, kind = 'hit') {
+  if (!c) return;
+  c.group.userData.flinchAt = now;
+  c.group.userData.flinchKind = kind;
+  c.group.userData.flinchSide = Math.random() < 0.5 ? -1 : 1;
+}
+
+export function flinching(c, now) {
+  const at = c?.group.userData.flinchAt;
+  return at != null && now - at >= 0 && now - at < 0.45;
 }
 
 export function flinchPose(c, now) {
@@ -150,9 +168,46 @@ export function flinchPose(c, now) {
     return null;
   }
   const k = t < 0.2 ? ease(t / 0.2) : 1 - ease((t - 0.2) / 0.8);
+  if (u.flinchKind === 'shot') {
+    // (shot: a jolt, one hand going to where it hit, the other arm flung out)
+    const hit = u.flinchSide > 0 ? [c.armR, c.elbowR, c.wristR, 1] : [c.armL, c.elbowL, c.wristL, -1];
+    const other = u.flinchSide > 0 ? [c.armL, c.elbowL, c.wristL, -1] : [c.armR, c.elbowR, c.wristR, 1];
+    set(hit, mix(hit[0].rotation.x, -0.7, k), 0.75 * k, -1.9 * k, 0.3 * k);
+    set(other, mix(other[0].rotation.x, -0.5, k), -0.7 * k, -0.4 * k, 0);
+    crouchPose(c, 0.22 * k);
+    return 0.28 * k;
+  }
   // (hands coming up, the head snapped back)
   set([c.armL, c.elbowL, c.wristL, -1], -1.2 * k, 0.3 * k, -1.6 * k, 0);
   set([c.armR, c.elbowR, c.wristR, 1], -1.0 * k, 0.3 * k, -1.8 * k, 0);
   crouchPose(c, 0.15 * k);
   return 0.18 * k;
+}
+
+// A reload over its length, k 0..1 (weapon: its id; hand: 'R' / 'L').
+export function reloadPose(c, weapon, k, hand = 'R') {
+  const { g, s } = arms(c, hand);
+  const seg = (a, b) => ease(clamp01((k - a) / (b - a)));
+  if (LONG.has(weapon)) {
+    // The gun tipped in at chest height; the support hand pulls the mag (to the belt), slaps a
+    // new one in, then reaches over and racks the handle.
+    set(g, -0.75, 0.3, -1.25, LEVEL + 0.35 - (-0.75) - (-1.25));
+    const down = seg(0.1, 0.35) * (1 - seg(0.45, 0.65));
+    const rack = seg(0.75, 0.85) * (1 - seg(0.88, 1));
+    set(s, mix(-1.05, -0.25, down) - rack * 0.35, mix(0.55, 0.15, down) + rack * 0.35, mix(-0.75, -0.3, down) - rack * 0.5, 0.15);
+    return;
+  }
+  // A pistol brought in close, muzzle up a little; the mag dropped, the support hand down to the
+  // belt and back up with a new one, then over the top to rack the slide.
+  set(g, -0.95, 0.32, -1.3, LEVEL + 0.45 - (-0.95) - (-1.3));
+  const down = seg(0.1, 0.35) * (1 - seg(0.45, 0.7));
+  const rack = seg(0.75, 0.86) * (1 - seg(0.9, 1));
+  set(s, mix(-0.95, -0.2, down) - rack * 0.25, mix(0.55, 0.12, down) + rack * 0.2, mix(-1.3, -0.35, down) - rack * 0.3, 0);
+}
+
+// Down on the right knee, the left foot planted forward: shooting low. Returns the drop.
+export function kneelPose(c) {
+  const d1 = bendLeg(c.legL, c.kneeL, 1.35, 1.45);
+  const d2 = bendLeg(c.legR, c.kneeR, 0.15, 1.85);
+  return -Math.min(0.62, Math.max(d1, d2) * 0.82);
 }
