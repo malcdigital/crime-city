@@ -752,3 +752,33 @@ body.paused #board3pt { display: none; }
 #contest-card .cc-btns { display: flex; gap: 10px; margin-top: 14px; }
 #contest-card .cc-btn { flex: 1; padding: 10px; border-radius: 10px; border: 2px solid #2b303b; font-weight: 900; letter-spacing: 1px; cursor: pointer; }
 #contest-card .cc-btn.go { background: #ffd23f; color: #141a24; border-color: #ffd23f; }
+
+/* Street dice (dice.js): the panel while you're in a game, and the phone's buttons. */
+#dice-panel { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 6; pointer-events: none; color: #fff; }
+#dice-panel.hidden { display: none; }
+#dice-panel .dp-box { min-width: 300px; max-width: 420px; background: linear-gradient(#161c27f0, #0c1017f0); border: 2px solid #2b303b; border-radius: 14px; box-shadow: 0 6px 22px rgba(0,0,0,.5); padding: 8px 14px 9px; }
+#dice-panel .dp-box.rival { border-color: #7a2b2b; }
+#dice-panel .dp-head { display: flex; justify-content: space-between; gap: 14px; align-items: baseline; }
+#dice-panel .dp-t { font-size: 11px; font-weight: 900; letter-spacing: 2px; color: #ffd23f; }
+#dice-panel .dp-box.rival .dp-t { color: #ff8a7a; }
+#dice-panel .dp-pot { font-size: 16px; font-weight: 900; color: #7ee081; }
+#dice-panel .dp-rows { margin: 6px 0 4px; }
+#dice-panel .dp-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 700; padding: 2px 6px; border-radius: 6px; }
+#dice-panel .dp-row.you { color: #5ef2b0; }
+#dice-panel .dp-row.now { background: rgba(255,255,255,.07); }
+#dice-panel .dp-r { color: #c9d1de; font-weight: 800; }
+#dice-panel .dp-lines { border-top: 1px solid #2b303b; padding-top: 4px; }
+#dice-panel .dp-line { font-size: 11px; color: #9aa3b2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#dice-panel .dp-line:first-child { color: #fff; font-weight: 700; }
+#dice-panel .dp-foot { display: flex; justify-content: space-between; gap: 12px; margin-top: 6px; font-size: 11px; font-weight: 800; letter-spacing: .5px; }
+#dice-panel .dp-net.up { color: #7ee081; }
+#dice-panel .dp-net.down { color: #ff8080; }
+#dice-panel .dp-hint { color: #c9d1de; }
+#dice-panel .dp-hint b { color: #ffd23f; }
+body.dice-on #sport { display: none; }
+body.touch #dice-panel { top: 4px; left: calc(50% + 8px); transform: scale(.7); transform-origin: top left; }
+body.paused #dice-panel { display: none; }
+#touch .tb-droll { right: 22px; bottom: 26px; }
+#touch .tb-dleave { right: 130px; bottom: 20px; }
+#touch .tb-dleft { right: 130px; bottom: 110px; }
+#touch .tb-dright { right: 56px; bottom: 130px; }

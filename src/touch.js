@@ -37,6 +37,11 @@ const BUTTONS = [
   ['circle', '○', B.CIRCLE, ['foot', 'car', 'phone', 'menu', 'map', 'stop', 'qb'], 'hold', 'sm'],
   ['fight', '□', B.SQUARE, ['stop'], 'hold', 'sm'], // (a police stop: fight back)
   // Pickup basketball (streetball.js): NBA 2K style.
+  // Street dice (dice.js): roll, walk away, and craps' with / fade.
+  ['droll', 'ROLL', B.CROSS, ['dice'], 'hold', 'big red txt'],
+  ['dleave', 'LEAVE', B.CIRCLE, ['dice'], 'hold', 'mid txt'],
+  ['dleft', '◀', B.LEFT, ['dice'], 'hold', 'sm'],
+  ['dright', '▶', B.RIGHT, ['dice'], 'hold', 'sm'],
   ['bshoot', 'SHOOT', B.SQUARE, ['ball'], 'hold', 'big red txt'],
   ['bblock', '△', B.TRIANGLE, ['ball'], 'hold', 'sm'],
   ['bpass', 'PASS', B.CROSS, ['ball'], 'hold', 'mid txt'],
@@ -320,6 +325,7 @@ export class TouchControls {
     else if (this.latched || game.inventory?.open) ctx = 'strip';
     else if (game.stop) ctx = 'stop'; // (pulled over: go quietly, bribe, or fight)
     else if (game.player.vehicle) ctx = 'car';
+    else if (game.dice?.playing) ctx = 'dice'; // (street dice: roll, leave, with / fade)
     else if (game.sport?.active) ctx = 'ball'; // (one-on-one: shoot, moves, steal, block)
     else if (game.gridiron?.active) ctx = 'qb'; // (quarterback: throw, hike)
     this.carSpeed = game.player.vehicle ? Math.abs(game.player.vehicle.speed) : 0;

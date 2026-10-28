@@ -89,6 +89,7 @@ export const CRIMES = {
   possession: { heat: 1, cred: 0, min: 1, label: 'Drug possession' },
   fleeStop: { heat: 1.2, cred: 4, min: 1, label: 'Fleeing a traffic stop' },
   carTheft: { heat: 0.5, cred: 2, label: 'Car theft' },
+  gambling: { heat: 0.6, cred: 1, min: 1, label: 'Illegal gambling' },
 };
 
 export const GANG_NAME = 'Southside Kings';

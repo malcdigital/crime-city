@@ -24,7 +24,7 @@ const HOUR = 120; // game.time seconds in a game hour
 const HOURS = {
   assault: 2, hitAndRun: 3, carjack: 4, assaultCop: 6, runOverCop: 10, stealCopCar: 5,
   robberyAlarm: 0, robbery: 8, gunfire: 2, murder: 18, copKilled: 36, gangKill: 10, explosion: 6,
-  drugRaid: 4, drugRaidBig: 8, drugDeal: 6, possession: 2, fleeStop: 2, carTheft: 2,
+  drugRaid: 4, drugRaidBig: 8, drugDeal: 6, possession: 2, fleeStop: 2, carTheft: 2, gambling: 1,
   resisting: 3, bribery: 3,
 };
 const LABELS = { resisting: 'Resisting arrest', bribery: 'Bribing an officer' };
