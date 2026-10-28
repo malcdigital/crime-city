@@ -112,6 +112,7 @@ function kickAim(q) {
   _a.copy(_h).normalize();
 }
 const _g = V();
+const _top = V();
 // (the head turned to look where the gun points)
 function look(c, yaw, down = 0, tilt = 0) {
   c.neck.rotation.set(down, yaw, tilt);
@@ -158,10 +159,11 @@ export function aimPose(c, weapon, pitch = 0, now = 0, hand = 'R', style = 'two'
     aimFrame(c, beta, p);
     _t.set(-Math.abs(c.armR.position.x) * mx, 1.56, 0).addScaledVector(_a, 0.45 - 0.05 * k).addScaledVector(_l, 0.08 * mx);
     _t.y += 0.03 + 0.04 * k;
-    _h.copy(_l).multiplyScalar(mx); // (the gun's top: in)
-    _g.copy(_h).addScaledVector(_u, 0.6).normalize();
+    _top.copy(_l).multiplyScalar(mx); // (the gun's top: turned in)
+    _g.copy(_top).addScaledVector(_u, 0.6).normalize();
     kickAim(0.45 * k);
-    reachArm(c, gs, _t, _p.set(-1 * mx, 0.9, -0.1), _a, _h);
+    _top.addScaledVector(_a, -_top.dot(_a)).normalize(); // (still square to the barrel after the kick)
+    reachArm(c, gs, _t, _p.set(-1 * mx, 0, -0.35), _a, _top); // (the elbow out to the side, about level)
     reachArm(c, ss, _s.set(0.44 * mx, 1.0, -0.02), _p.set(0.3 * mx, 0, -1));
     bendSpine(c, -0.06, 0, 0);
     look(c, beta * 0.8, -p * 0.3, 0.14 * mx);
@@ -465,15 +467,16 @@ export function flinchPose(c, now) {
   const hit = t < 0.13 ? ease(t / 0.13) : 1 - ease((t - 0.13) / 0.87); // (the snap, then back)
   const late = phase(t, 0.08, 0.3) * (1 - phase(t, 0.6, 1)); // (what follows it)
   if (u.flinchKind === 'shot') {
-    // A jolt back, then doubling over; a hand to the wound, the other arm flung out.
-    wristPos(c, side > 0 ? 'R' : 'L', _w0);
-    wristPos(c, side > 0 ? 'L' : 'R', _w1);
-    bendSpine(c, mix(c.spine.rotation.x / 0.55, t < 0.15 ? -0.4 : 0.5, Math.max(hit, late)), 0.2 * side * hit, 0.12 * side * late);
-    c.neck.rotation.set(mix(-0.4, 0.35, phase(t, 0.1, 0.3)) * Math.max(hit, late), 0, 0);
-    _t.set(0.1 * side, 1.18, 0.2).lerp(_w0, 1 - late);
-    reachArm(c, side > 0 ? 'R' : 'L', _t, _p.set(-0.6 * side, -1, 0), null, null, 'group');
-    _s.set(0.55 * side, 1.25, 0.05).lerp(_w1, 1 - hit);
-    reachArm(c, side > 0 ? 'L' : 'R', _s, _p.set(0.4 * side, -1, -0.4), null, null, 'group');
+    // A jolt back, then doubling over; a hand to the wound, the other arm flung out. The arms
+    // turn smoothly from wherever they were (no re-solving: they never spin round).
+    const R = side > 0;
+    const back = t < 0.15 ? hit : 0;
+    bendSpine(c, -0.35 * back + 0.45 * late, 0.2 * side * hit, 0.12 * side * late);
+    c.neck.rotation.set(-0.4 * back + 0.3 * late, 0, 0);
+    // (the hand to the wound: the forearm across the belly, the elbow in at the side)
+    toward(c, R ? 'R' : 'L', -0.45, R ? 0.55 : -0.55, -1.75, 0.2, late);
+    // (the other arm: flung out and up with the hit, then dropping)
+    toward(c, R ? 'L' : 'R', -0.6, R ? -0.75 : 0.75, -0.35, 0, Math.max(hit * 0.9, late * 0.4));
     crouchPose(c, 0.25 * late);
     return 0.3 * hit;
   }
@@ -493,17 +496,28 @@ export function flinchPose(c, now) {
     bendLeg(c.legL, c.kneeL, c.legL.rotation.x * -1 + 0.1 * late, c.kneeL.rotation.x + 0.25 * late);
     return 0.3 * hit;
   }
-  // Hands come up to cover, a step back.
-  wristPos(c, 'L', _w0);
-  wristPos(c, 'R', _w1);
+  // Hands come up to cover the face, a step back (turning smoothly from wherever they were).
   bendSpine(c, -0.6 * hit + 0.1 * late, side * 0.45 * hit * (1 - headUp), side * 0.15 * hit);
-  _t.set(0.12, 1.7, 0.28).lerp(_w0, 1 - late);
-  reachArm(c, 'L', _t, _p.set(0.6, -1, -0.2), null, null, 'group');
-  _s.set(-0.12, 1.68, 0.26).lerp(_w1, 1 - late);
-  reachArm(c, 'R', _s, _p.set(-0.6, -1, -0.2), null, null, 'group');
+  toward(c, 'L', -1.25, -0.3, -1.85, 0.1, late);
+  toward(c, 'R', -1.2, 0.3, -1.9, 0.1, late);
   bendLeg(c.legR, c.kneeR, -0.4 * late, 0.3 * late);
   bendLeg(c.legL, c.kneeL, 0.15 * late, 0.35 * late);
   return 0.3 * hit;
+}
+
+// An arm turned part way (k) from wherever it is to a pose: shoulder forward x, out / in z (as
+// the joint takes it: + on the right arm swings it in), elbow and wrist bends. Quaternions are
+// blended, so it goes the short way round and never spins.
+const _qa = new THREE.Quaternion();
+const _ea = new THREE.Euler();
+function toward(c, side, x, z, el, wr, k) {
+  if (k <= 0) return;
+  const L = side === 'L';
+  const parts = [[L ? c.armL : c.armR, x, z], [L ? c.elbowL : c.elbowR, el, 0], [L ? c.wristL : c.wristR, wr, 0]];
+  for (const [j, ax, az] of parts) {
+    _qa.setFromEuler(_ea.set(ax, 0, az));
+    j.quaternion.slerp(_qa, Math.min(1, k));
+  }
 }
 
 // Down on the right knee, the left foot planted forward: shooting low. Returns the drop.
