@@ -2657,8 +2657,15 @@ export class Streetball {
       if (blockHit && Y.blockT <= 0) {
         Y.blockT = 0.9;
         Y.jumpT = 0.55;
-        if (this.has === 'opp' && hp.state === 'shoot') this.tryBlock(dO);
+        Y.blockTry = true; // (the block's live for the whole jump, not just the frame you pressed)
       }
+      // (going up with him: up a beat early, it still counts when his shot gets near the release
+      // while you're still in the air; one try per jump)
+      if (Y.blockTry && (Y.jumpT || 0) > 0 && this.has === 'opp' && hp.state === 'shoot' && (hp.t >= (hp.rel ?? 0) - 0.15 || Y.jumpT < 0.1)) {
+        Y.blockTry = false;
+        this.tryBlock(dO);
+      }
+      if ((Y.jumpT || 0) <= 0) Y.blockTry = false;
     }
     // Beaten off the dribble: a step slow.
     if (Y.beatT > 0) {
