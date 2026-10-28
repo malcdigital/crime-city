@@ -3620,13 +3620,16 @@ export class Streetball {
     const at = { mx: ((v.x + 1) / 2) * W, my: ((1 - v.y) / 2) * H };
     v.set(px, 0.02, pz).project(cam);
     at.ex = ((v.x + 1) / 2) * W;
-    at.ey = ((1 - v.y) / 2) * H + 34; // (well below his feet)
+    at.ey = Math.min(H - 14, ((1 - v.y) / 2) * H + 34); // (well below his feet, but on screen)
+    at.my = Math.max(52, Math.min(H - 52, at.my)); // (the meter: all of it on screen)
     game.hud.sportFloat(at, meter, this.you.st);
     // The timing badge sits under the energy bar; the green pulse on the floor at your feet.
     const B = this.badgeEl;
     if (B) {
-      B.style.left = `${at.ex}px`;
-      B.style.top = `${at.ey + (game.input.touchMode ? 10 : 14)}px`;
+      B.style.left = `${Math.max(B.offsetWidth / 2 + 6, Math.min(W - B.offsetWidth / 2 - 6, at.ex))}px`;
+      const below = at.ey + (game.input.touchMode ? 10 : 14);
+      const bh = B.offsetHeight;
+      B.style.top = `${Math.max(8, below + bh <= H - 6 ? below : at.ey - bh - 6)}px`; // (under the energy bar, or just over it when there's no room: always on screen)
     }
     const P = this.pulse;
     if (P && P.visible) {

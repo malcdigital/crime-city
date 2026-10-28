@@ -734,7 +734,17 @@ body.board3pt-on #sport { top: 120px; }
 body.touch #board3pt { top: max(4px, env(safe-area-inset-top)); left: auto; right: max(8px, env(safe-area-inset-right)); transform: scale(var(--c3s, .68)); transform-origin: top right; }
 body.touch.board3pt-on #top-right { visibility: hidden; } /* (the cash and clock, under the board: back after the contest) */
 body.touch #c3-count { top: 24vh; font-size: 64px; }
-body.touch.board3pt-on #sport { top: 84px; }
+body.touch.board3pt-on #sport { display: none; } /* (the board says it all) */
+/* On a phone: one compact line (clock · the racks · score and best), sized to fit by scoreboard.js. */
+body.touch #board3pt .c3-box { display: flex; align-items: center; gap: 8px; padding: 4px 9px; border-radius: 10px; border-width: 1px; }
+body.touch #board3pt .c3-head { display: contents; }
+body.touch #board3pt .c3-t { display: none; }
+body.touch #board3pt .c3-clock { font-size: 19px; line-height: 1; min-width: 40px; text-align: left; }
+body.touch #board3pt .c3-racks { margin: 0; gap: 5px; }
+body.touch #board3pt .c3-st { gap: 2px; padding: 2px 3px; border-radius: 5px; }
+body.touch #board3pt .c3-st i { width: 9px; height: 9px; }
+body.touch #board3pt .c3-foot { flex-direction: column; align-items: flex-end; gap: 1px; font-size: 7px; letter-spacing: 1px; line-height: 1; white-space: nowrap; }
+body.touch #board3pt .c3-foot b { font-size: 13px; }
 body.paused #board3pt, body.paused #c3-count { display: none; }
 
 /* The results card after a contest run. */

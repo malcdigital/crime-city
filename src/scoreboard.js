@@ -246,7 +246,9 @@ export class Scoreboard {
     if (this.fitKey === key) return;
     this.fitKey = key;
     const w = el.offsetWidth; // (unscaled: transforms don't change it)
-    const s = touch ? Math.max(0.45, Math.min(0.9, (innerWidth - left - 10 - Math.max(8, innerWidth * 0.01)) / w)) : Math.min(1, (innerWidth - 16) / w);
+    const h = el.offsetHeight;
+    // (a phone: the room right of the buttons, and no taller than ~12% of the screen)
+    const s = touch ? Math.max(0.5, Math.min(1, (innerWidth - left - 10 - Math.max(8, innerWidth * 0.01)) / w, (innerHeight * 0.12) / h)) : Math.min(1, (innerWidth - 16) / w, (innerHeight * 0.2) / h);
     el.style.setProperty('--c3s', s.toFixed(3));
   }
 
