@@ -81,7 +81,7 @@ const BUTTONS = [
 ];
 // What the face buttons mean here, shown small under the symbol.
 const HINTS = {
-  foot: { cross: 'yes', circle: 'no', weapon: 'hold: reload' },
+  foot: { cross: 'yes', circle: 'no' },
   car: { cross: 'yes', circle: 'no' },
   phone: { cross: 'ok', circle: 'back' },
   menu: { cross: 'buy', circle: 'leave' },
@@ -247,8 +247,7 @@ export class TouchControls {
         this.wHold = { t0: performance.now(), y0: e.clientY, done: false };
         return;
       }
-      // (USE presses whatever it's showing: the interact button, △ to get in / out of a car, or
-      // ○ to punch)
+      // (USE presses whatever it's showing: the interact button, or △ to get in / out of a car)
       pressed = id === 'use' ? this.useB ?? b : b;
       this.press(pressed);
     });
@@ -446,9 +445,16 @@ export class TouchControls {
         if (armed) game.quitPickup?.();
       }
     }
-    // FIRE is dimmed until you aim (a gun only fires while aiming).
+    // FIRE is dimmed until you aim (a gun only fires while aiming); with your fists (or a melee
+    // weapon) out it's your punch / swing, and says so.
     const fire = this.el.buttons.fire;
-    if (fire) fire.el.classList.toggle('dim', ctx === 'foot' && !game.aimingNow && !game.arsenal?.current()?.melee);
+    if (fire) {
+      const mw = game.arsenal?.current();
+      fire.el.classList.toggle('dim', ctx === 'foot' && !game.aimingNow && !mw?.melee);
+      const ft = ctx === 'foot' && mw?.melee ? (/fist/i.test(mw.name || '') ? 'PUNCH' : 'SWING') : 'FIRE';
+      const fl = fire.el.querySelector('.tl');
+      if (fl.textContent !== ft) fl.textContent = ft;
+    }
     // USE is the one contextual button: it says what it'll do and lights up when there's
     // something to do — the prompt's action (PICK UP, BUY, ROB, PAY, TALK...), or with nothing
     // else around, ENTER the car you're next to / EXIT the one you're in.
@@ -463,15 +469,12 @@ export class TouchControls {
       } else if (!verb && ctx === 'car') {
         verb = 'EXIT';
         this.useB = B.TRIANGLE;
-      } else if (!verb && ctx === 'foot' && !(game.time - (game.askedAt ?? -99) < 0.3)) {
-        verb = 'PUNCH';
-        this.useB = B.CIRCLE;
       }
       const text = verb || 'USE';
       const tl = use.el.querySelector('.tl');
       if (tl.textContent !== text) tl.textContent = text;
-      use.el.classList.toggle('hot', !!verb && verb !== 'EXIT' && verb !== 'PUNCH');
-      use.el.classList.toggle('ready', verb === 'PUNCH' || verb === 'EXIT'); // (always there: not dimmed)
+      use.el.classList.toggle('hot', !!verb && verb !== 'EXIT');
+      use.el.classList.toggle('ready', verb === 'EXIT'); // (always there: not dimmed)
       use.el.classList.toggle('long', text.length > 6);
     }
     const w = this.el.buttons.weapon;
@@ -486,7 +489,6 @@ export class TouchControls {
       const tl = w.el.querySelector('.tl');
       if (tl.textContent !== t) tl.textContent = t;
       w.el.classList.toggle('reloading', game.arsenal?.reloadT > 0);
-      w.hint.textContent = wpn?.melee || game.arsenal?.reloadT > 0 ? '' : 'hold: reload';
     }
   }
 
