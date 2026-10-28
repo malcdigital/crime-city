@@ -37,7 +37,7 @@ import { AirCam, ClipPlayer } from './aircam.js';
 import { TurfManager, GANGS } from './turf.js';
 import { Arsenal, WEAPONS, raycast, rayBox, rayHitBox } from './weapons.js';
 import { lam } from './character.js';
-import { segmentBlocked } from './collision.js';
+import { segmentBlocked, pushCircle } from './collision.js';
 import { MapView } from './mapview.js';
 import { Shops } from './shops.js';
 import { Drugs } from './drugs.js';
@@ -2399,6 +2399,37 @@ class Game {
     const h = p.vehicle ? p.vehicle.heading : p.heading;
     const side = p.vehicle ? 3.5 : 3;
     const car = new Vehicle(this.scene, 'sports', x - Math.cos(h) * side, z + Math.sin(h) * side, h);
+    // (not into a fence, a wall or a building: if that spot's blocked, the first clear one
+    // around you: either side, ahead or behind, a few meters further out, turned either way)
+    const clear = () => car.circles().every(([cx, cz]) => !pushCircle(cx, cz, car.radius + 0.35, this.city.colliders).hit);
+    if (!clear()) {
+      const rx = -Math.cos(h);
+      const rz = Math.sin(h);
+      const fx = Math.sin(h);
+      const fz = Math.cos(h);
+      let found = false;
+      for (const d of [3, 4.5, 6, 8, 10]) {
+        for (const [ox, oz] of [[rx, rz], [-rx, -rz], [fx, fz], [-fx, -fz], [rx + fx, rz + fz], [-rx + fx, -rz + fz], [rx - fx, rz - fz], [-rx - fx, -rz - fz]]) {
+          const l = Math.hypot(ox, oz);
+          for (const hh of [h, h + Math.PI / 2, h - Math.PI / 2, h + Math.PI]) {
+            car.x = x + (ox / l) * d;
+            car.z = z + (oz / l) * d;
+            car.heading = hh;
+            if (clear()) {
+              found = true;
+              break;
+            }
+          }
+          if (found) break;
+        }
+        if (found) break;
+      }
+      if (!found) {
+        car.x = x;
+        car.z = z;
+        car.heading = h;
+      }
+    }
     this.vehicles.push(car);
     this.testCar = car;
     if (p.vehicle) p.exit();
