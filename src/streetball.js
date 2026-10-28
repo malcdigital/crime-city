@@ -2336,7 +2336,8 @@ export class Streetball {
     const pivot = off > 1.2;
     const turnT = pivot ? off / 9 : 0;
     this.heatShot('you', type);
-    this.shot = { type, t: 0, T: SHOTS[type].T + turnT, W: greenWindow(type, this.onFire('you') ? Math.min(D.d, FIRE_RANGE) : D.d), d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false, pivot, turnT };
+    // (the 3-point contest: a quick catch-and-shoot release, ~28% faster; the window's the same width)
+    this.shot = { type, t: 0, T: (SHOTS[type].T + turnT) * (this.t3 ? 0.72 : 1), W: greenWindow(type, this.onFire('you') ? Math.min(D.d, FIRE_RANGE) : D.d), d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false, pivot, turnT };
     // (a jumper off your right hand; a layup or floater off the hand the ball's in)
     this.shot.hand = type === 'jumper' ? 1 : (this.ballSide ?? Y.hand ?? 1) >= 0 ? 1 : -1;
     // A layup's hand: the side you're holding the left stick (right of the rim: right hand),
