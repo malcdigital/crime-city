@@ -572,11 +572,13 @@ export class Streetball {
   }
 
   // ---- 33 ----
-  // 2-5 players, each on a spot on the three-point line (left corner round to the right: that's
-  // the order you shoot in). Every make puts 3 in the pot; a miss takes the whole pot onto your
-  // score. 33 or more and you're out. Last one standing wins (everyone's buy-in).
-  // You pick your spot (stand on a ring: ✕ / E / SHOOT), they take the rest. You shoot from yours
-  // with the shot meter; they shoot on their ratings, the same green windows as anyone.
+  // 2-5 players. The order's drawn at random; the screen fades and everyone's on a spot on the
+  // three-point line. Every make puts 3 in the pot; a miss takes the whole pot onto your score;
+  // 33 or more and you're out; last one standing wins (everyone's buy-in). Everyone has his own
+  // ball: after your first shot (from your spot) you can shoot from anywhere behind the arc, and
+  // after every shot you go get your own rebound (yours runs itself: you've got control again
+  // once it's in your hands). A ring blinks under whoever's up. The bigger the pot, the smaller
+  // the green window: the pressure.
   start33(H, g, bet) {
     const game = this.game;
     this.active = true;
@@ -609,9 +611,8 @@ export class Streetball {
       q.hp.role = 't33';
       q.hp.s33 = null;
     }
-    // (anyone past the first four at that basket watches)
     g.players.slice(4).forEach((q) => (q.hp.role = 'watch'));
-    // The spots: five on the arc, corner to corner.
+    // The spots on the arc, corner to corner; who gets which (and so the order) is drawn.
     const spots = [];
     for (const deg of [-78, -42, 0, 42, 78]) {
       const a = (deg * Math.PI) / 180;
@@ -619,159 +620,215 @@ export class Streetball {
       const uz = this.rim.dz * Math.cos(a) + this.rim.dx * Math.sin(a);
       spots.push(this.onCourt(this.rim.x + ux * (ARC + 0.5), this.rim.z + uz * (ARC + 0.5)));
     }
-    this.t33 = {
-      bet,
-      pot: 0,
-      spots,
-      players: [{ who: 'you', name: 'You', score: 0, out: false, spot: null }, ...npcs.map((q) => ({ who: q, name: q.ballName, score: 0, out: false, spot: null, r: q.ballR }))],
-      phase: 'pick',
-      turn: 0,
-      wait: 0,
-      shots: 0,
-      shotClock: 0,
-      t: 0,
-    };
-    // (rings on the floor at the spots)
-    this.rings33 = spots.map(([x, z]) => {
-      const m = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.55, 24), new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.85, side: THREE.DoubleSide }));
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(x, (game.city.groundY?.(x, z) || 0) + 0.12, z); // (just above the court's surface)
-      m.renderOrder = 5;
-      game.scene.add(m);
-      return m;
+    const shuffle = (arr) => arr.map((v) => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map((v) => v[1]);
+    const order = shuffle([{ who: 'you', name: 'You' }, ...npcs.map((q) => ({ who: q, name: q.ballName, r: q.ballR }))]);
+    const draw = shuffle(spots);
+    // (everyone's own ball: yours is the court's; theirs come out of the bag)
+    const players = order.map((P, k) => {
+      const Q = { ...P, score: 0, out: false, home: draw[k], st: 'ready', shotOnce: false, shotClock: 0 };
+      if (P.who !== 'you') {
+        const mesh = ballMesh();
+        game.scene.add(mesh);
+        Q.ball = { mesh, x: P.who.x, y: 1, z: P.who.z, vx: 0, vy: 0, vz: 0, mode: 'held', holder: P.who, t: 0 };
+      }
+      return Q;
     });
+    this.t33 = { bet, pot: 0, players, phase: 'fadeOut', turn: 0, shots: 0, t: 0, inAir: null };
+    // (the ring that blinks under whoever's up)
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.6, 28), new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.renderOrder = 5;
+    ring.visible = false;
+    game.scene.add(ring);
+    this.ring33 = ring;
     game.cash -= bet; // (everyone's buy-in is held till it's over)
-    // The ball sits with the first of them till it starts.
-    const b = g.ball;
-    b.mode = 'held';
-    b.holder = npcs[0];
-    this.has = 'npc';
-    this.npc = null;
-    game.hud.toast(`33 with ${npcs.map((q) => q.ballName).join(', ')}${bet ? ` · $${bet} each, winner takes $${bet * (npcs.length + 1)}` : ''}. Pick your spot on the arc`, '#ffd23f');
+    this.give('you');
+    this.fade33(true);
+    game.hud.toast(`33 with ${npcs.map((q) => q.ballName).join(', ')}${bet ? ` · $${bet} each, winner takes $${bet * (npcs.length + 1)}` : ''}`, '#ffd23f');
+  }
+
+  // The screen going black and coming back (everyone to their spots in between).
+  fade33(on) {
+    let el = document.getElementById('fade33');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'fade33';
+      el.style.cssText = 'position:fixed;inset:0;background:#000;opacity:0;transition:opacity .45s;pointer-events:none;z-index:40';
+      document.body.appendChild(el);
+    }
+    el.style.opacity = on ? '1' : '0';
+  }
+
+  // How much the pressure shrinks the green window (a bigger pot, a smaller window).
+  pressure33() {
+    return 1 - Math.min(0.5, (this.t33?.pot || 0) / 40);
   }
 
   // Every frame of a game of 33 (from step).
   step33(dt) {
     const T = this.t33;
     const game = this.game;
+    const p = game.player;
     const b = this.g.ball;
-    const [px, pz] = game.player.pos();
     T.t += dt;
     for (const P of T.players) if (P.who !== 'you' && P.who.hp.s33) P.who.hp.s33.t += dt; // (their shots' clocks)
-    if (T.phase === 'pick') {
-      // (you pick by standing on a ring and pressing; after 20 s you get the one you're nearest)
-      const free = T.spots.map((sp, i) => i).filter((i) => !T.players.some((P) => P.spot === i));
-      let near = null;
-      for (const i of free) if (dist(px, pz, ...T.spots[i]) < 0.9) near = i;
-      T.near = near;
-      if ((near != null && T.pick) || T.t > 20) {
-        const mine = near ?? free.reduce((best, i) => (best == null || dist(px, pz, ...T.spots[i]) < dist(px, pz, ...T.spots[best]) ? i : best), null);
-        T.players[0].spot = mine;
-        // (they take the rest at random)
-        const left = free.filter((i) => i !== mine).sort(() => Math.random() - 0.5);
-        T.players.slice(1).forEach((P, k) => (P.spot = left[k]));
-        // The order: left corner round to the right.
-        T.players.sort((A, B) => A.spot - B.spot);
-        T.phase = 'walk';
-        T.t = 0;
-        // (you're on yours: if the clock picked it for you, you go there)
-        const [mx, mz] = T.spots[mine];
-        if (dist(px, pz, mx, mz) > 0.9) {
-          game.player.x = mx;
-          game.player.z = mz;
-        }
-        game.player.heading = Math.atan2(this.rim.x - mx, this.rim.z - mz);
-        for (const m of this.rings33 || []) m.visible = false;
-        game.hud.toast(`Order: ${T.players.map((P) => P.name).join(' → ')}`, '#ffd23f');
-      }
-      T.pick = false;
-      return;
-    }
-    if (T.phase === 'walk') {
-      // (everyone gets to their spot)
-      const ready = T.players.every((P) => P.who === 'you' || dist(P.who.x, P.who.z, ...T.spots[P.spot]) < 0.6);
-      if ((ready && T.t > 1) || T.t > 6) this.nextTurn33(true);
-      return;
-    }
-    if (T.phase === 'wait') {
-      // (between shots: the ball comes back out to whoever's up)
-      T.wait -= dt;
-      if (T.wait <= 0) this.feed33();
-      return;
-    }
-    if (T.phase === 'shoot') {
-      const P = T.players[T.turn];
-      if (P.who === 'you') {
-        // (a shot clock: 10 s and it counts as a miss)
-        if (!this.shot && b.mode === 'held' && b.holder === 'you') {
-          T.shotClock += dt;
-          if (T.shotClock > 10) {
-            game.hud.toast('Shot clock: that counts as a miss', '#ff8080');
-            b.mode = 'loose';
-            b.holder = null;
-            this.has = null;
-            return this.result33(false);
+    if (T.phase === 'fadeOut') {
+      if (T.t >= 0.5) {
+        // (in the dark: everyone on his spot, facing the basket)
+        for (const P of T.players) {
+          const [x, z] = P.home;
+          const h = Math.atan2(this.rim.x - x, this.rim.z - z);
+          if (P.who === 'you') {
+            p.x = x;
+            p.z = z;
+            p.heading = h;
+            game.camYaw = h;
+          } else {
+            P.who.x = x;
+            P.who.z = z;
+            P.who.heading = h;
           }
         }
-      } else this.npcShot33(P, dt);
+        T.phase = 'fadeIn';
+        T.t = 0;
+        this.fade33(false);
+        game.hud.toast(`Order: ${T.players.map((P) => P.name).join(' → ')}`, '#ffd23f');
+      }
+      return;
     }
-  }
-
-  // Whose turn next (the next one still in, round the arc).
-  nextTurn33(first = false) {
-    const T = this.t33;
-    const n = T.players.length;
-    if (!first) {
-      for (let k = 1; k <= n; k++) {
-        const i = (T.turn + k) % n;
-        if (!T.players[i].out) {
-          T.turn = i;
-          break;
+    if (T.phase === 'fadeIn') {
+      if (T.t >= 0.6) {
+        T.phase = 'play';
+        T.t = 0;
+      }
+      return;
+    }
+    // Their balls: in the air, rolling, in their hands.
+    for (const P of T.players) if (P.ball && !P.out) this.npcBall33(P, dt);
+    // Yours: off to get it once it's down (it runs itself; control's yours when you've got it).
+    const Y = T.players.find((P) => P.who === 'you');
+    if (Y.st === 'chase' && b.mode === 'loose') {
+      const [px, pz] = p.pos();
+      if (dist(px, pz, b.x, b.z) < 0.9 && b.y < 1.6) {
+        this.give('you');
+        Y.st = 'ready';
+      }
+    }
+    // Your shot's gone up.
+    if (Y.st === 'ready' && b.mode === 'flight' && (b.kind === 'shot' || b.kind === 'bank')) {
+      Y.st = 'air';
+      Y.shotOnce = true;
+      T.inAir = Y;
+    }
+    // The ring under whoever's up (blinking).
+    const up = T.players[T.turn];
+    const r = this.ring33;
+    if (up && !up.out) {
+      const [ux, uz] = up.who === 'you' ? p.pos() : [up.who.x, up.who.z];
+      r.position.set(ux, (game.city.groundY?.(ux, uz) || 0) + 0.12, uz);
+      r.visible = Math.sin(this.clock * 9) > -0.3;
+    } else r.visible = false;
+    // Turns: the next one shoots once the last shot's down and he's set (his ball, behind the
+    // arc). He waits for nobody else's rebound.
+    if (T.inAir || !up) return;
+    if (up.out) return this.nextTurn33();
+    if (up.who === 'you') {
+      if (Y.st === 'ready' && b.mode === 'held' && b.holder === 'you' && !this.shot) {
+        Y.shotClock += dt;
+        if (Y.shotClock > 12) {
+          game.hud.toast('Shot clock: that counts as a miss', '#ff8080');
+          Y.shotClock = 0;
+          this.result33(Y, false);
         }
       }
-    } else T.turn = T.players.findIndex((P) => !P.out);
-    T.phase = 'wait';
-    T.wait = first ? 0.2 : 0.9;
-  }
-
-  // The ball out to whoever's up.
-  feed33() {
-    const T = this.t33;
-    const b = this.g.ball;
-    const P = T.players[T.turn];
-    const [tx, tz] = P.who === 'you' ? this.game.player.pos() : [P.who.x, P.who.z];
-    if (b.mode === 'held' && (b.holder === P.who || (P.who === 'you' && b.holder === 'you'))) return this.up33();
-    if (b.mode === 'held' && b.holder && b.holder !== 'you') {
-      b.x = b.holder.x;
-      b.z = b.holder.z;
-    }
-    b.y = Math.max(b.y, 1);
-    this.H.launch(b, tx, 1.2, tz, 0.35 + dist(b.x, b.z, tx, tz) / 14);
-    b.kind = 'feed33';
-    this.has = null;
-    T.phase = 'feeding';
-  }
-
-  // It's got to him: he's up.
-  up33() {
-    const T = this.t33;
-    const b = this.g.ball;
-    const P = T.players[T.turn];
-    T.phase = 'shoot';
-    T.shotClock = 0;
-    if (P.who === 'you') {
-      this.give('you');
-      this.game.hud.toast(`You're up · pot ${T.pot}`, '#ffd23f');
-    } else {
-      b.mode = 'held';
-      b.holder = P.who;
-      this.has = 'npc';
-      P.who.hp.s33 = { t: 0, rel: rand(0.9, 1.4) }; // (a dribble or two, then up)
+    } else if (up.st === 'ready' && up.ball.holder === up.who) {
+      const q = up.who;
+      if (!q.hp.s33) q.hp.s33 = { t: 0, rel: rand(0.8, 1.3) };
+      this.npcShot33(up);
     }
   }
 
-  // Theirs: set, rise, release at the top (the same form as yours), the ball off on his rating.
-  npcShot33(P, dt) {
+  // His ball, every frame: flying, rolling (he goes after it), or in his hands.
+  npcBall33(P, dt) {
+    const b = P.ball;
+    const q = P.who;
+    if (b.mode === 'flight') {
+      b.t += dt;
+      const k = Math.min(1, b.t / b.T);
+      b.x = b.p0[0] + (b.p1[0] - b.p0[0]) * k;
+      b.z = b.p0[2] + (b.p1[2] - b.p0[2]) * k;
+      const t = Math.min(b.t, b.T);
+      b.y = b.p0[1] + b.vy0 * t - 0.5 * G * t * t;
+      if (b.t >= b.T) {
+        b.mode = 'loose';
+        b.holder = null;
+        this.bounce33(b, b.make);
+        P.st = 'chase';
+        this.result33(P, !!b.make);
+      }
+    } else if (b.mode === 'loose') {
+      this.H.roll(b, dt);
+      if (P.st === 'chase' && dist(q.x, q.z, b.x, b.z) < 0.8 && b.y < 1.4) {
+        b.mode = 'held';
+        b.holder = q;
+        P.st = 'return';
+        // (back out behind the arc, somewhere)
+        const a = rand(-1.25, 1.25);
+        const ux = this.rim.dx * Math.cos(a) - this.rim.dz * Math.sin(a);
+        const uz = this.rim.dz * Math.cos(a) + this.rim.dx * Math.sin(a);
+        P.dest = this.onCourt(this.rim.x + ux * (ARC + rand(0.6, 2.2)), this.rim.z + uz * (ARC + rand(0.6, 2.2)));
+      }
+    } else if (b.holder === q) {
+      const S = q.hp.s33;
+      if (S && S.t >= S.rel - 0.4) {
+        this.shotBall(b, q.char, 1, clamp((S.t - (S.rel - 0.25)) / 0.15, 0, 1));
+      } else {
+        // (dribbling, on his right)
+        const rx = -Math.cos(q.heading);
+        const rz = Math.sin(q.heading);
+        b.x = q.x + Math.sin(q.heading) * 0.35 + rx * 0.3;
+        b.z = q.z + Math.cos(q.heading) * 0.35 + rz * 0.3;
+        b.y = 0.2 + Math.abs(Math.sin(this.clock * 9 + P.score)) * 0.8;
+      }
+    }
+    b.mesh.position.set(b.x, b.y, b.z);
+  }
+
+  // Through the net, or off the rim.
+  bounce33(b, make) {
+    if (make) {
+      b.x = this.rim.x;
+      b.z = this.rim.z;
+      b.vx = b.vz = 0;
+      b.vy = -1.5;
+      this.game.sfx?.swish?.();
+      return;
+    }
+    const side = rand(-1, 1);
+    const sp = rand(1.5, 3.2);
+    const L = Math.hypot(side, 1);
+    b.vx = ((this.rim.dx - this.rim.dz * side) / L) * sp;
+    b.vz = ((this.rim.dz + this.rim.dx * side) / L) * sp;
+    b.vy = rand(0.8, 2.6);
+  }
+
+  // Whose turn next (the next one still in).
+  nextTurn33() {
+    const T = this.t33;
+    const n = T.players.length;
+    for (let k = 1; k <= n; k++) {
+      const i = (T.turn + k) % n;
+      if (!T.players[i].out) {
+        T.turn = i;
+        break;
+      }
+    }
+    for (const P of T.players) P.shotClock = 0;
+  }
+
+  // Theirs: set, rise, release at the top (the same form as yours), the ball off on his rating
+  // and the pressure.
+  npcShot33(P) {
     const q = P.who;
     const S = q.hp.s33;
     if (!S || S.done) return;
@@ -781,28 +838,28 @@ export class Streetball {
     const d = dist(q.x, q.z, this.rim.x, this.rim.z);
     const u = 1 - Math.random();
     const e = ((150 - P.r) / 1000) * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * Math.random());
-    const w = greenWindow('jumper', d);
+    const w = greenWindow('jumper', d) * this.pressure33();
     const m = Math.abs(e) - w / 2;
     const green = m <= 0;
     const tm = green ? 1 : m < 0.06 ? 0.7 : m < 0.16 ? 0.4 : 0.12;
-    const make = green || Math.random() < this.base(d) * tm;
-    const b = this.g.ball;
+    const make = green || Math.random() < this.base(d) * tm * (0.6 + 0.4 * this.pressure33());
+    const b = P.ball;
     this.shotBall(b, q.char, 1, 1);
     const miss = make ? 0 : rand(0.22, 0.4);
     const a = rand(0, Math.PI * 2);
     this.H.launch(b, this.rim.x + Math.cos(a) * miss, this.rim.y + 0.08, this.rim.z + Math.sin(a) * miss * 0.6, 0.75 + d * 0.06);
-    b.kind = 'shot';
     b.make = make;
-    this.flight = { by: 'npc33', pts: 3, counts: true };
-    this.has = null;
+    P.st = 'air';
+    P.shotOnce = true;
+    this.t33.inAir = P;
   }
 
   // A shot's come down (or the shot clock ran out): the pot, the score, who's out, who's next.
-  result33(make) {
+  result33(P, make) {
     const game = this.game;
     const T = this.t33;
-    const P = T.players[T.turn];
     T.shots += 1;
+    T.inAir = null;
     if (make) {
       T.pot += 3;
       game.hud.toast(`${P.who === 'you' ? 'Bucket' : `${P.name} hits`} · pot ${T.pot}`, P.who === 'you' ? '#7ee081' : '#ffd23f');
@@ -818,7 +875,10 @@ export class Streetball {
           return this.end('lose');
         }
         game.hud.toast(`${P.name} is out (${P.score})`, '#7ee081');
-        if (P.who.hp) P.who.hp.cheerT = 0;
+        if (P.ball) {
+          game.scene.remove(P.ball.mesh);
+          P.ball.mode = 'gone';
+        }
       }
     }
     const left = T.players.filter((Q) => !Q.out);
@@ -826,24 +886,32 @@ export class Streetball {
     this.nextTurn33();
   }
 
-  // Theirs in a game of 33: to their spot, facing the basket; the shooter's form.
+  // Theirs in a game of 33: on his spot till his first shot; after a shot, after his ball; then
+  // back out behind the arc to wait his turn.
   drive33(p, dt) {
     const T = this.t33;
     const P = T.players.find((Q) => Q.who === p);
     const face = (x, z) => {
       p.heading = lerpAngle(p.heading, Math.atan2(x - p.x, z - p.z), Math.min(1, dt * 8));
     };
-    if (!P || P.out || P.spot == null) {
-      // (out, or still picking: off to the side, watching)
-      if (P && P.out) {
-        const sp = P.outSpot || (P.outSpot = this.onCourt(this.rim.x + this.rim.dx * 9 + rand(-3, 3), this.rim.z + this.rim.dz * 9 + rand(-3, 3)));
-        if (dist(p.x, p.z, ...sp) > 0.4) return { tx: sp[0], tz: sp[1], speed: 2 };
-      }
+    if (!P || T.phase !== 'play') {
       face(this.rim.x, this.rim.z);
       return { speed: 0 };
     }
-    const [sx, sz] = T.spots[P.spot];
-    if (dist(p.x, p.z, sx, sz) > 0.3 && !(p.hp.s33 && !p.hp.s33.done)) return { tx: sx, tz: sz, speed: 2.6 };
+    if (P.out) {
+      const sp = P.outSpot || (P.outSpot = this.onCourt(this.rim.x + this.rim.dx * 9 + rand(-3, 3), this.rim.z + this.rim.dz * 9 + rand(-3, 3)));
+      if (dist(p.x, p.z, ...sp) > 0.4) return { tx: sp[0], tz: sp[1], speed: 2 };
+      face(this.rim.x, this.rim.z);
+      return { speed: 0 };
+    }
+    if (P.st === 'chase') {
+      const b = P.ball;
+      return { tx: b.x + b.vx * 0.25, tz: b.z + b.vz * 0.25, speed: 5.5 };
+    }
+    if (P.st === 'return' && P.dest) {
+      if (dist(p.x, p.z, ...P.dest) > 0.35) return { tx: P.dest[0], tz: P.dest[1], speed: 3.6 };
+      P.st = 'ready';
+    }
     face(this.rim.x, this.rim.z);
     return { speed: 0 };
   }
@@ -852,12 +920,13 @@ export class Streetball {
   pose33(p) {
     const c = p.char;
     const S = p.hp.s33;
+    const P = this.t33.players.find((Q) => Q.who === p);
     c.group.rotation.x = 0;
     if (S) {
       const rel = S.rel;
       const g0 = rel - 0.25; // (off the floor)
       const tg = rel - 0.4; // (the gather)
-      if (S.t < tg && this.g.ball.holder === p) {
+      if (S.t < tg) {
         // (a dribble or two first)
         dribbleArm(c, 1, this.clock * 9, 0);
         return 0.04 + crouchPose(c, 0.15);
@@ -868,10 +937,7 @@ export class Streetball {
       if (f > 0.7) p.hp.s33 = null;
       return 0.04 + jump + r.y;
     }
-    if (this.g.ball.holder === p) {
-      c.armL.rotation.x = c.armR.rotation.x = -1.1;
-      c.elbowL.rotation.x = c.elbowR.rotation.x = -0.9;
-    }
+    if (P?.ball && P.ball.holder === p && P.ball.mode === 'held') dribbleArm(c, 1, this.clock * 9 + P.score, 0);
     return 0.04;
   }
 
@@ -1415,7 +1481,7 @@ export class Streetball {
     const opp = this.opp;
     const hp = opp.hp;
     const b = this.g.ball;
-    const shootHeld = a.bShoot;
+    let shootHeld = a.bShoot;
     const stealHit = a.bSteal;
     const blockHit = a.bBlock;
     const intense = a.bIntense;
@@ -1423,16 +1489,34 @@ export class Streetball {
     this.oopHits = { shoot: (this.oopHits?.shoot || (shootHeld && !this.prevShoot)), block: (this.oopHits?.block || blockHit) };
     let sprint = this.solo ? a.bSprintNoX : a.bSprint; // (shooting around, ✕ passes)
     if (this.t33) {
-      // 33: you stand on your spot (you pick it first); your turn, you shoot from it.
+      // 33: on your spot till your first shot; after it, anywhere (you shoot from behind the
+      // arc, on your turn). Going after your rebound runs itself.
       const T = this.t33;
-      if (T.phase === 'pick') {
-        if (a.dealYes || (shootHeld && !this.prevShoot) || (a.interactHeld && !game.interactWasHeld)) T.pick = true;
-      } else {
+      const Y = T.players.find((P) => P.who === 'you');
+      const [px, pz] = p.pos();
+      if (T.phase !== 'play' || !Y.shotOnce) {
         a.moveX = a.moveY = 0;
         sprint = false;
+        a.bMove = null;
+        a.bStickX = a.bStickY = 0;
       }
-      a.bMove = null;
-      a.bStickX = a.bStickY = 0;
+      if (Y.st === 'chase' || Y.st === 'air') {
+        // (after your ball)
+        const b = this.g.ball;
+        a.moveX = a.moveY = 0;
+        if (b.mode === 'loose' && dist(px, pz, b.x, b.z) > 0.3) {
+          const dx = b.x + b.vx * 0.25 - px;
+          const dz = b.z + b.vz * 0.25 - pz;
+          const dl = Math.hypot(dx, dz) || 1;
+          const yaw = game.camYaw;
+          a.moveY = (dx * Math.sin(yaw) + dz * Math.cos(yaw)) / dl;
+          a.moveX = (dx * -Math.cos(yaw) + dz * Math.sin(yaw)) / dl;
+          sprint = true;
+        }
+      }
+      // (your shot: only on your turn, set, behind the arc, with nothing else in the air)
+      const mine = T.players[T.turn] === Y && Y.st === 'ready' && !T.inAir && T.phase === 'play' && dist(px, pz, this.rim.x, this.rim.z) >= ARC + 0.1;
+      if (!mine && !this.shot) shootHeld = false;
       a.interactHeld = false;
     }
     if (this.solo && !this.t33 && this.passing(dt, a)) {
@@ -2386,6 +2470,7 @@ export class Streetball {
     if (s.stepback) w *= 0.9;
     if (s.pivot) w *= 0.85; // (a turnaround's harder)
     if (this.you.st < 0.4) w *= 0.75;
+    if (this.t33) w *= this.pressure33(); // (33: the bigger the pot, the tighter)
     if (game.input.touchMode) w *= 1.4;
     return { w, lv };
   }
@@ -2672,7 +2757,6 @@ export class Streetball {
         else if (b.kind === 'pass') this.passArrive();
         else if (b.kind === 'back') this.backArrive();
         else if (b.kind === 'oop') this.oopBounce();
-        else if (b.kind === 'feed33') this.up33();
         else if (b.kind === 'bank') {
           // (off the glass, down into the rim)
           this.H.launch(b, b.bankTo[0], b.bankTo[1], b.bankTo[2], 0.2);
@@ -2699,7 +2783,7 @@ export class Streetball {
     } else if (b.mode === 'loose') {
       H.roll(b, dt);
       if (this.t33) {
-        // (33: nobody chases rebounds; the ball comes back out to the next shooter)
+        // (33: your rebound's yours to go and get: step33 hands it to you)
       } else if (this.dead) {
         this.dead.t -= dt;
         if (this.dead.t <= 0) {
@@ -2789,22 +2873,6 @@ export class Streetball {
     const game = this.game;
     const b = this.g.ball;
     if (b.mode !== 'held') return;
-    if (this.has === 'npc' && this.t33 && b.holder?.hp) {
-      // (33: dribbling at his spot, then in his hands for the shot)
-      const q = b.holder;
-      const S = q.hp.s33;
-      if (S && S.t >= S.rel - 0.4) {
-        const one = clamp((S.t - (S.rel - 0.25)) / 0.15, 0, 1);
-        this.shotBall(b, q.char, 1, one);
-      } else {
-        const rx = -Math.cos(q.heading);
-        const rz = Math.sin(q.heading);
-        b.x = q.x + Math.sin(q.heading) * 0.35 + rx * 0.3;
-        b.z = q.z + Math.cos(q.heading) * 0.35 + rz * 0.3;
-        b.y = S ? 0.2 + Math.abs(Math.sin(this.clock * 9)) * 0.8 : 1.15;
-      }
-      return;
-    }
     if (this.has === 'npc') {
       const q = b.holder;
       b.x = q.x + Math.sin(q.heading) * 0.35;
@@ -2929,10 +2997,12 @@ export class Streetball {
       const T = this.t33;
       const up = T.players[T.turn];
       const board = `33 · POT ${T.pot} · ` + T.players.map((P) => `${P.name.toUpperCase()} ${P.out ? 'OUT' : P.score}`).join(' · ');
-      if (T.phase === 'pick') hint = `Pick your spot: stand on a ring on the arc and press ${game.input.touchMode ? 'SHOOT' : game.input.mode === 'pad' ? '✕' : 'E'} (left corner shoots first)`;
-      else if (T.phase === 'walk') hint = 'Everybody to their spots...';
-      else if (up?.who === 'you') hint = this.shot ? 'Let go in the green' : `Your shot · pot ${T.pot}: ${K.shoot}, let go in the green${T.shotClock > 6 ? ` · ${Math.ceil(10 - T.shotClock)}` : ''}`;
-      else hint = `${up?.name || ''} shooting · pot ${T.pot}`;
+      const Y = T.players.find((P) => P.who === 'you');
+      const [px, pz] = game.player.pos();
+      if (T.phase !== 'play') hint = 'Drawing the order...';
+      else if (Y.st === 'chase' || Y.st === 'air') hint = 'Going after your rebound...';
+      else if (up?.who === 'you') hint = this.shot ? 'Let go in the green' : T.inAir ? 'Wait for it to come down...' : dist(px, pz, this.rim.x, this.rim.z) < ARC + 0.1 ? 'Your shot: get behind the line' : `Your shot · pot ${T.pot}${this.pressure33() < 0.9 ? ' (pressure: tighter window)' : ''}: ${K.shoot}, let go in the green${Y.shotClock > 8 ? ` · ${Math.ceil(12 - Y.shotClock)}` : ''}`;
+      else hint = `${up?.name || ''} shooting · pot ${T.pot}${Y.shotOnce ? ' · move anywhere behind the line' : ''}`;
       game.hud.sport?.(board, null, hint, null);
       this.floatHud(meter);
       return;
@@ -2995,21 +3065,12 @@ export class Streetball {
     this.lastShooter = s ? s.by : null;
     b.mode = 'loose';
     if (this.t33) {
-      if (b.make) {
-        b.x = this.rim.x;
-        b.z = this.rim.z;
-        b.vx = b.vz = 0;
-        b.vy = -1.5;
-        game.sfx?.swish?.();
-      } else {
-        const side = rand(-1, 1);
-        const sp = rand(1.5, 3.2);
-        const L = Math.hypot(side, 1);
-        b.vx = ((this.rim.dx - this.rim.dz * side) / L) * sp;
-        b.vz = ((this.rim.dz + this.rim.dx * side) / L) * sp;
-        b.vy = rand(0.8, 2.6);
-      }
-      return this.result33(!!b.make);
+      // (your shot: through the net or off the rim; then you go get it)
+      this.bounce33(b, b.make);
+      const Y = this.t33.players.find((P) => P.who === 'you');
+      Y.st = 'chase';
+      this.result33(Y, !!b.make);
+      return;
     }
     if (this.solo) {
       const S = this.stats;
@@ -4048,8 +4109,10 @@ export class Streetball {
         game.cash += T.bet;
         game.hud.toast('33 called off', '#9fc3ff');
       }
-      for (const m of this.rings33 || []) game.scene.remove(m);
-      this.rings33 = null;
+      for (const P of T.players) if (P.ball && P.ball.mode !== 'gone') game.scene.remove(P.ball.mesh);
+      if (this.ring33) game.scene.remove(this.ring33);
+      this.ring33 = null;
+      this.fade33(false);
       this.t33 = null;
       this.solo = false;
       const g = this.g;
