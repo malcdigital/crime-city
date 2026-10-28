@@ -316,8 +316,27 @@ export function crouchWalk(c, phase, amount = 1) {
   c.wristL.rotation.set(0, 0, 0);
   c.wristR.rotation.set(0, 0, 0);
   const sc = c.group.scale.y;
-  const h = ((L1 + L2) * sc - Math.min(dl, dr)) * Math.cos(splay);
-  return -((L1 + L2) * sc - h) + bob * 0.03 * sc;
+  void dl;
+  void dr;
+  return -lowestPoint(c) + bob * 0.03 * sc; // (measured: the soles on the floor, splayed or not)
+}
+
+// How far the lowest visible part of the body is below the character's base, as posed right now
+// (world meters; negative: something's under the floor). For poses that lie or sit on the floor:
+// returning -lowestPoint(c) as the height puts the body exactly on it.
+const _box = new THREE.Box3();
+const _bb = new THREE.Box3();
+export function lowestPoint(c) {
+  c.group.updateMatrixWorld(true);
+  _box.makeEmpty();
+  c.group.traverseVisible((m) => {
+    if (!m.isMesh || !m.geometry) return;
+    if ((m.parent === c.wristL || m.parent === c.wristR) && m.geometry !== HAND) return; // (a gun in the hand: not the body)
+    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+    _bb.copy(m.geometry.boundingBox).applyMatrix4(m.matrixWorld);
+    _box.union(_bb);
+  });
+  return _box.isEmpty() ? 0 : _box.min.y - c.group.position.y;
 }
 
 // Where a wrist is right now, in the character's own frame (to blend a hand from wherever it
@@ -340,11 +359,23 @@ const L1 = 0.44;
 const L2 = 0.44;
 // Bend at the hips and knees: thigh forward by `hip` rad, shin back by `knee` rad.
 // Returns how far to lower the body so the feet stay on the ground.
-// (the drop comes back in world meters: scaled by the person's size)
+// (the drop comes back in world meters: scaled by the person's size). The foot is the bottom of
+// the shin box, so a tilted shin stands on its front or back edge: that corner's what touches.
+const SHIN_L = 0.43; // (knee to the sole)
+const SHIN_D = 0.12; // (half the shin's depth: how far its edge is off the middle)
+const LEG_H = L1 + SHIN_L;
 export function bendLeg(hipP, kneeP, hip, knee) {
   hipP.rotation.x = -hip;
   kneeP.rotation.x = knee;
-  return (hipP.parent?.scale.y ?? 1) * (L1 + L2 - (L1 * Math.cos(hip) + L2 * Math.cos(knee - hip)));
+  const sh = knee - hip;
+  return (hipP.parent?.scale.y ?? 1) * (LEG_H - (L1 * Math.cos(hip) + SHIN_L * Math.cos(sh) + SHIN_D * Math.abs(Math.sin(sh))));
+}
+// Legs splayed out sideways by z: they reach less far down (and stand on the shin's side edge),
+// so the hips come down that bit more. d: the drop from bendLeg. Returns the new drop.
+export function splayDrop(c, d, z) {
+  const s = c.group.scale.y || 1;
+  const L = LEG_H * s;
+  return L - ((L - d) * Math.cos(z) - 0.1 * s * Math.abs(Math.sin(z)));
 }
 
 // Crouch: both knees bent (depth 0 = standing, 1 = full crouch). `shuffle` adds a small step.

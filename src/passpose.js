@@ -111,6 +111,20 @@ const _b = new THREE.Vector3();
 
 // Where a ball held between both palms is (world), from how the arms were posed last frame:
 // between the two hands, a touch in from the wrists.
+// The ball on one palm (side 'R' / 'L'): the palm is the hand's front (-z), the ball a radius
+// off it; and the ball between both palms.
+export function palmBall(c, side, out) {
+  c.group.updateMatrixWorld(true);
+  const s = c.group.scale.y || 1;
+  return (side === 'L' ? c.wristL : c.wristR).localToWorld(out.set(0, -0.08, -(0.07 + 0.12 / s)));
+}
+export function twoHandBall(c, out) {
+  c.group.updateMatrixWorld(true);
+  c.wristL.localToWorld(_a.set(0, -0.1, -0.03));
+  c.wristR.localToWorld(_b.set(0, -0.1, -0.03));
+  return out.copy(_a).add(_b).multiplyScalar(0.5);
+}
+
 export function handsAt(c, out) {
   c.group.updateMatrixWorld(true);
   c.wristL.localToWorld(_a.set(0, -0.13, 0));

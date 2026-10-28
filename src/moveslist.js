@@ -7,6 +7,11 @@
 const BALL = {
   title: 'BASKETBALL',
   sections: [
+    ['TRIPLE THREAT (WITH IT, BEFORE YOU DRIBBLE)', [
+      ['Start the dribble', 'move the stick', 'left stick (or R2 + a dribble move)', 'WASD (or Shift + a move key)'],
+      ['Jab step (forward, side, crossing over)', 'swipe on the right side', 'right stick: flick that way', 'J / L / I / K'],
+      ['Pump fake (still no dribble)', 'SHOOT: quick tap', '□ quick tap', 'Space: quick tap'],
+    ]],
     ['WITH THE BALL', [
       ['Shoot (let go in the green)', 'SHOOT: hold, let go', '□ hold, let go', 'Space / click hold'],
       ['Pump fake', 'SHOOT: quick tap', '□ quick tap', 'Space: quick tap'],
@@ -34,7 +39,7 @@ const BALL = {
       ['This list', '?', 'Create', 'Tab'],
     ]],
   ],
-  notes: 'Every make, miss and turnover resets the play: make it, take it; a miss is the other one\'s ball.',
+  notes: 'You get the ball in triple threat: no dribble until you move. Every make, miss and turnover resets the play: make it, take it; a miss is the other one\'s ball.',
 };
 
 const FOOTBALL = {

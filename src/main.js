@@ -46,6 +46,7 @@ import { segmentBlocked, pushCircle } from './collision.js';
 import { MapView } from './mapview.js';
 import { MovesList } from './moveslist.js';
 import { Matchup } from './matchup.js';
+import { ContestCine } from './contestcine.js';
 import { AnimViewer } from './animviewer.js';
 import { markRecoil, markFlinch, PUNCH_T, FIGHT_STYLES, PISTOL_STYLES } from './combatpose.js';
 import { stepFalls } from './character.js';
@@ -118,6 +119,7 @@ class Game {
     this.mapView = new MapView(this);
     this.moves = new MovesList(this); // (how to play the pickup game you're in: pauses it)
     this.matchup = new Matchup(this); // (the cinematic before a one-on-one)
+    this.contestCine = new ContestCine(this); // (the 3-point contest's intro, record and finish)
     this.animViewer = new AnimViewer(this); // (every pose and move, one at a time: from the pause menu)
     // Your style (the pause menu): how you hold a pistol, how you stand with your fists up.
     this.style = { grip: 'two', fight: 'orthodox' };
@@ -320,6 +322,8 @@ class Game {
     this.hud.pause(p, this);
     document.body.classList.toggle('paused', !!p); // (the scoreboards hide under the pause menu)
     if (p) this.showStyle();
+    // (a controller starts on RESUME; closing clears the highlight)
+    this.setPauseFocus(p && this.input.mode === 'pad' ? document.getElementById('resume') : null);
     // (in a pickup game: a button to quit it)
     const q = document.getElementById('quit-game');
     const g = this.pickupGame();
@@ -1416,6 +1420,66 @@ class Game {
     this.player.enter(v);
   }
 
+  // The pause menu on a controller: the D-pad moves the highlight to the nearest button that
+  // way (rows and columns as laid out on screen, whatever the layout), ✕ presses it. Returns
+  // true if it used the input.
+  pauseNav(a) {
+    const pad = this.input.mode === 'pad';
+    const up = a.menuUp;
+    const down = a.menuDown;
+    const left = pad && a.phoneLeft;
+    const right = pad && a.phoneRight;
+    const ok = a.menuOk && (pad || !!this.pauseFocus); // (keyboard: Enter once the arrows have picked one)
+    if (!(up || down || left || right || ok)) return false;
+    const btns = [...document.querySelectorAll('#pause button')].filter((b) => b.offsetParent && !b.classList.contains('hidden'));
+    if (!btns.length) return false;
+    let cur = btns.indexOf(this.pauseFocus);
+    if (cur < 0) {
+      // (nothing picked yet: RESUME)
+      this.setPauseFocus(btns.find((b) => b.id === 'resume') || btns[0]);
+      if (!ok) return true;
+      cur = btns.indexOf(this.pauseFocus);
+    }
+    const f = btns[cur];
+    if (ok) {
+      f.click();
+      return true;
+    }
+    const r0 = f.getBoundingClientRect();
+    const cx = r0.left + r0.width / 2;
+    const cy = r0.top + r0.height / 2;
+    const [dx, dy] = up ? [0, -1] : down ? [0, 1] : left ? [-1, 0] : [1, 0];
+    // (the nearest row (or column) that way, then the one in it most in line)
+    const cand = [];
+    for (const b of btns) {
+      if (b === f) continue;
+      const r = b.getBoundingClientRect();
+      const x = r.left + r.width / 2 - cx;
+      const y = r.top + r.height / 2 - cy;
+      const along = x * dx + y * dy;
+      // (in line: overlapping it across the way we're going, a button in the same row or column)
+      const inLine = dx ? r.top < r0.bottom - 4 && r.bottom > r0.top + 4 : r.left < r0.right - 4 && r.right > r0.left + 4;
+      if (along > 4) cand.push({ b, along, inLine, across: Math.abs(x * dy - y * dx) });
+    }
+    let best = null;
+    const line = cand.filter((c) => c.inLine);
+    if (line.length) best = line.sort((p, q) => p.along - q.along)[0].b;
+    else if (cand.length) {
+      const near = Math.min(...cand.map((c) => c.along));
+      best = cand.filter((c) => c.along <= near + 12).sort((p, q) => p.across - q.across)[0].b;
+    }
+    if (best) this.setPauseFocus(best);
+    return true;
+  }
+
+  setPauseFocus(b) {
+    this.pauseFocus?.classList.remove('pad-focus');
+    this.pauseFocus = b;
+    if (!b) return;
+    b.classList.add('pad-focus');
+    b.scrollIntoView({ block: 'nearest' });
+  }
+
   // Your pistol grip or fight style, the next one along (saved).
   cycleStyle(which) {
     const list = Object.keys(which === 'grip' ? PISTOL_STYLES : FIGHT_STYLES);
@@ -1430,8 +1494,8 @@ class Game {
     const g = document.getElementById('grip-btn');
     const f = document.getElementById('fight-btn');
     const pad = this.input.mode === 'pad';
-    if (g) g.textContent = `Pistol grip: ${PISTOL_STYLES[this.style.grip]} ▸ ${pad ? '(◀)' : this.input.touchMode ? '' : '(G)'}`;
-    if (f) f.textContent = `Fight style: ${FIGHT_STYLES[this.style.fight].name} ▸ ${pad ? '(▶)' : this.input.touchMode ? '' : '(B)'}`;
+    if (g) g.textContent = `Pistol grip: ${PISTOL_STYLES[this.style.grip]} ▸ ${pad || this.input.touchMode ? '' : '(G)'}`;
+    if (f) f.textContent = `Fight style: ${FIGHT_STYLES[this.style.fight].name} ▸ ${pad || this.input.touchMode ? '' : '(B)'}`;
   }
 
   punch() {
@@ -2251,13 +2315,18 @@ class Game {
       this.animViewer.update(dt, a);
     } else if (this.paused && (this.input.hit?.('KeyV') || (this.input.mode === 'pad' && a.reload))) {
       this.animViewer.show(); // (V / □ in the pause menu)
-    } else if (this.paused && (this.input.hit?.('KeyG') || (this.input.mode === 'pad' && a.phoneLeft))) {
-      this.cycleStyle('grip'); // (G / D-pad ◀ in the pause menu)
-    } else if (this.paused && (this.input.hit?.('KeyB') || (this.input.mode === 'pad' && a.phoneRight))) {
-      this.cycleStyle('fight'); // (B / D-pad ▶ in the pause menu)
+    } else if (this.paused && this.input.hit?.('KeyG')) {
+      this.cycleStyle('grip'); // (G in the pause menu)
+    } else if (this.paused && this.input.hit?.('KeyB')) {
+      this.cycleStyle('fight'); // (B in the pause menu)
+    } else if (this.paused && this.pauseNav(a)) {
+      // (the controller in the pause menu: the D-pad picks a button, ✕ presses it)
     } else if (this.matchup.open) {
       // The matchup cinematic before a one-on-one: the game waits.
       this.matchup.update(dt, a);
+    } else if (this.contestCine.open) {
+      // The 3-point contest's intro or finish: the game waits.
+      this.contestCine.update(dt, a);
     } else if (this.moves.open) {
       // The moves list: the game is paused underneath.
       if (a.moves || a.menuBack || a.pause || !this.pickupGame()) this.moves.hide();
@@ -2274,7 +2343,9 @@ class Game {
     } else if (this.paused && a.enter && this.pickupGame()) {
       this.quitPickup(); // (△ / F in the pause menu)
     } else if (!this.paused) {
-      this.update(dt, a);
+      // (a beat of slow motion: breaking the 3-point record)
+      this.slowT = Math.max(0, (this.slowT || 0) - dt);
+      this.update(this.slowT > 0 ? dt * 0.3 : dt, a);
       this.quitHoldStep(dt, a);
     }
     stepFalls(); // (anyone tipping over: character.js)

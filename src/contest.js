@@ -189,14 +189,28 @@ export class Contest {
     this.si = 0; // (station)
     this.bi = 0; // (ball there)
     this.clock = TIME;
-    this.phase = 'count'; // count -> shoot / move -> horn -> done
+    this.phase = 'intro'; // intro -> count -> shoot / move -> horn -> done
     this.t = 0;
     this.score = 0;
     this.flying = []; // (let go of, on their way)
     this.loose = []; // (shot, rolling about)
     this.grab = null;
     this.best = 0;
-    game.leaderboard?.best().then((v) => (this.best = v));
+    // (the record to beat, then the intro: contestcine.js; not waiting long if it's slow)
+    let started = false;
+    const go = () => {
+      if (started || this.phase !== 'intro' || !sb.active) return;
+      started = true;
+      game.contestCine.intro({ stations: this.stations.filter((S) => S.kind === 'rack').map((S) => S.spot), rim, money: RACK_NAMES[money], best: this.best }, () => {
+        this.phase = 'count';
+        this.t = 0;
+      });
+    };
+    (game.leaderboard?.best() || Promise.resolve(0)).then((v) => {
+      this.best = v || 0;
+      go();
+    }).catch(go);
+    setTimeout(go, 1500);
   }
 
   station() {
@@ -263,6 +277,10 @@ export class Contest {
     const p = game.player;
     const [px, pz] = p.pos();
     this.t += dt;
+    if (this.phase === 'intro') {
+      this.face(p, dt);
+      return;
+    }
     if (this.phase === 'count') {
       // (3, 2, 1, go)
       if (this.t > 2.2) {
@@ -366,6 +384,12 @@ export class Contest {
           b.vy = -1.5;
           this.score += b.pts;
           b.res = 'make';
+          // (past the record: the banner, the crowd, a beat of slow motion)
+          if (!this.recordShown && this.best > 0 && this.score > this.best) {
+            this.recordShown = true;
+            game.contestCine.record(this.score);
+            game.slowT = 1.1;
+          }
           game.sfx?.swish?.();
           if (b.ck !== 'reg') game.hud.toast(b.ck === 'deep' ? 'DEEP BALL! +3' : 'Money ball! +2', '#5ef2b0');
         } else {
@@ -473,8 +497,12 @@ export class Contest {
     const lb = game.leaderboard;
     const res = lb ? await lb.submit(score) : { best: 0, newBest: false };
     const board = lb ? await lb.top(10) : { shared: false, rows: [], rank: 0, mine: score };
-    this.sb.endContest();
-    game.card?.show({ score, ...res, board, again: () => this.sb.again3 && this.sb.again3() });
+    // (the finish: the camera round you, the score, the record; then the results card)
+    const made = this.stations.reduce((n, S) => n + S.balls.filter((b) => b.res === 'make').length, 0);
+    game.contestCine.outro({ score, best: res.best, newBest: res.newBest && score > 0, made }, () => {
+      this.sb.endContest();
+      game.card?.show({ score, ...res, board, again: () => this.sb.again3 && this.sb.again3() });
+    });
   }
 
   // The board: the clock, the score, each station's balls.

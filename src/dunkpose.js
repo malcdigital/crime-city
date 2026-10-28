@@ -133,7 +133,7 @@ export function dunkBall(b, c, two, hand, v1, v2) {
     c.wristL.localToWorld(v1.set(0, -0.14, 0));
     c.wristR.localToWorld(v2.set(0, -0.14, 0));
     v1.add(v2).multiplyScalar(0.5);
-  } else (hand >= 0 ? c.wristR : c.wristL).localToWorld(v1.set(0, -0.16, 0));
+  } else (hand >= 0 ? c.wristR : c.wristL).localToWorld(v1.set(0, -0.08, -(0.07 + 0.12 / (c.group.scale.y || 1)))); // (on the palm)
   b.x = v1.x;
   b.y = v1.y;
   b.z = v1.z;
