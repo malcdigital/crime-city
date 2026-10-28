@@ -3,6 +3,7 @@
 - Every feature works on all three: a phone (iPhone, touch controls), a PS5 controller and keyboard/mouse.
 - Every piece of UI fits every display. Check it with screenshots before shipping, at least:
   - phones in landscape, touch mode on: 667x375 (iPhone SE), 844x390 (iPhone 14), 932x430 (Pro Max)
+  - short phone screens too (browser bars and the app frame take height): 667x300, 844x320
   - a tablet: 1024x768 with touch
   - desktop: 1280x720, plus a narrow window (640x480)
 
