@@ -26,6 +26,13 @@ Tie each one back to the crime side: owned businesses can launder drug money, ga
 4. **Amusement park**: an ownable business with 2–3 rides first, a rollercoaster as the centerpiece (more rides later if they're used). Later: a simple piece-by-piece coaster builder for the owner (the track can reuse the freeway curve code; the hard part is a build tool that works on a controller and a phone). It's worth most once other players can ride what you build.
 5. **Multiplayer parts of the above**: player performers at the arena, sharing songs, riding other players' coasters.
 
+## Football next (agreed, not started)
+Timing-based throwing and catching throughout (a meter or a ring for the throw, a catch button timed to the ball's arrival), with slow-motion on big moments when playing offline (if it isn't feasible online, offline only).
+1. **QB challenge**: hit targets and moving receivers for points against the clock; a leaderboard and side bets.
+2. **2v2 touch**: a quarterback and a receiver per side, one defender, four downs to score, then the other side's ball; buy-in pot.
+3. **Simple catch**: throwing and catching with somebody (an NPC now, a real player later), timing both ends.
+(500 / Jackpot was suggested too; not picked for now.)
+
 ## Ideas list (realism and polish, best value first)
 Done: car lights, daily rhythms, parked cars / buses / taxis / delivery trucks, street props (hydrants, trash cans, benches, bus shelters, litter, graffiti), traffic enforcement.
 

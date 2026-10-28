@@ -300,7 +300,7 @@ class Game {
     if (p && g) {
       const key = this.input.touchMode ? '' : this.input.mode === 'pad' ? ' · △' : ' · F';
       const fresh = this.pickupFresh();
-      q.textContent = g === this.sport && this.sport.solo
+      q.textContent = g === this.sport && this.sport.solo && !this.sport.t33
         ? `Stop shooting around${key}`
         : `Quit the game${fresh ? (g === this.sport ? ' (no score yet: your money back)' : ' (no snap yet: your money back)') : g.bet ? ` (forfeit: -$${g.bet})` : ' (forfeit)'}${key}`;
     }
@@ -1505,7 +1505,7 @@ class Game {
   quitPickup() {
     const g = this.pickupGame();
     if (!g) return;
-    if (g === this.sport && this.sport.solo) g.end('done');
+    if (g === this.sport && this.sport.solo && !this.sport.t33) g.end('done');
     else g.end(this.pickupFresh() ? 'off' : 'forfeit');
     this.setPaused(false);
   }
@@ -1514,6 +1514,7 @@ class Game {
   // quitting calls it off and you get your money back.
   pickupFresh() {
     const g = this.pickupGame();
+    if (g === this.sport && this.sport.t33) return !this.sport.t33.shots; // (33: nobody's shot yet)
     if (g === this.sport) return !this.sport.solo && this.sport.score.you + this.sport.score.opp === 0;
     return !!g && !(g.snaps > 0);
   }
