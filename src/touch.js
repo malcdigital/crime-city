@@ -27,7 +27,7 @@ const PAD_DEAD = 0.18; // input.js's stick deadzone (the shaped steering skips p
 
 // [id, label, button, contexts, kind, class]
 // kind: 'hold' (pressed while touched), 'toggle' (tap on / tap off), 'fire' (hold + drag to
-// look), 'weapon' (tap = swap; long-press opens the inventory strip until the next tap),
+// look), 'weapon' (tap = swap; hold = reload; swipe up opens the inventory strip until the next tap),
 // 'quit' (tap twice to quit the pickup game).
 const BUTTONS = [
   ['fire', 'FIRE', B.R2, ['foot'], 'fire', 'big red'],
@@ -101,6 +101,22 @@ const VERBS = [
   [/^take the bus/i, 'BUS'], [/^hail/i, 'TAXI'], [/^get in the .*game/i, 'JOIN'], [/^get in\b/i, 'ENTER'], [/^carjack/i, 'JACK'], [/^get out/i, 'EXIT'], [/^start/i, 'START'], [/^shop|^browse/i, 'SHOP'],
   [/^enter|^go in|^go inside/i, 'ENTER'], [/^talk/i, 'TALK'],
 ];
+// Simple icons (white, drawn at 24×24) for the buttons that are things rather than actions.
+const svg = (body, fill = false) => `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="${fill ? 'currentColor' : 'none'}" stroke="${fill ? 'none' : 'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+const ICONS = {
+  map: svg('<path d="M3 6.5l5.5-2 7 2 5.5-2v13l-5.5 2-7-2-5.5 2z"/><path d="M8.5 4.5v13M15.5 6.5v13"/>'),
+  phone: svg('<rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/>'),
+  spawn: svg('<path d="M2.5 15.5v-3l2.5-1 2.5-4h8l3 4 3 1v3h-2"/><path d="M7.5 15.5h8"/><circle cx="6" cy="16" r="2"/><circle cx="17.5" cy="16" r="2"/>'),
+};
+// The GUN button shows what's in your hands.
+const WEAPON_ICONS = {
+  fists: svg('<rect x="4.6" y="5.2" width="3.9" height="6.6" rx="1.95"/><rect x="8.6" y="3.8" width="3.9" height="8" rx="1.95"/><rect x="12.6" y="4.2" width="3.9" height="7.6" rx="1.95"/><rect x="16.5" y="5.8" width="3.4" height="6" rx="1.7"/><path d="M4.6 10.2h15.3v4.3a6.6 6.6 0 0 1-6.6 6.6h-2A6.7 6.7 0 0 1 4.6 14.4z"/><path d="M5.2 13.6h6.4a1.7 1.7 0 0 0 0-3.4H9.4" fill="none" stroke="rgba(15,18,26,.85)" stroke-width="1.5" stroke-linecap="round"/>', true),
+  pistol: svg('<path d="M3 7h16.5l1 1.6v2.2h-6.6l-1 1.2h-2.2l-1.4 5.5H5.1l1.6-6.1H3z"/>', true),
+  smg: svg('<path d="M2 8h17.5l1.5 1.5V11h-5.5l-.8 1H12l-1 6H8.6l.8-6H7.5l-.4 3.5H5L5.4 11H2z"/>', true),
+  rifle: svg('<path d="M1 9.5h4l1-1.5h12l1.5-1h3v2.5h-3.5l-1 1H14l-.6 1H11l-1.3 4.5H7.5l1-4.5H6.5L4.5 14H1.5l1.5-3.5H1z"/>', true),
+  shotgun: svg('<path d="M1 10.5l3.5-1.5H23v1.8h-8v1.4H8.5l-1.2.8H5.5l-2.5 3H1z"/>', true),
+};
+
 export function useVerb(prompt) {
   if (!prompt || !/\bUSE\b/.test(prompt)) return null;
   if (/USE:\s*"/.test(prompt)) return 'TALK'; // (asking a court to play)
@@ -171,7 +187,9 @@ export class TouchControls {
       if (id === 'spawn' && !this.showSpawn) continue;
       const el = document.createElement('div');
       el.className = `tb tb-${id} ${cls} hidden`;
-      el.innerHTML = `<span class="tl">${label.replace('\n', '<br>')}</span><span class="th"></span>`;
+      el.innerHTML = `<span class="tl">${ICONS[id] || label.replace('\n', '<br>')}</span><span class="th"></span>`;
+      if (ICONS[id]) el.classList.add('icon');
+      el.setAttribute('aria-label', id === 'spawn' ? 'car' : id);
       el.dataset.ctx = ctx.join(' ');
       root.appendChild(el);
       this.el.buttons[id] = { el, b, kind, ctx, hint: el.querySelector('.th') };
@@ -485,10 +503,14 @@ export class TouchControls {
     }
     if (w && ctx === 'foot') {
       const wpn = game.arsenal?.current();
-      const t = game.arsenal?.reloadT > 0 ? 'RELOAD' : (wpn?.name || 'GUN').split(' ')[0].toUpperCase().slice(0, 6);
-      const tl = w.el.querySelector('.tl');
-      if (tl.textContent !== t) tl.textContent = t;
-      w.el.classList.toggle('reloading', game.arsenal?.reloadT > 0);
+      const id = WEAPON_ICONS[wpn?.id] ? wpn.id : 'pistol';
+      if (this.wIcon !== id) {
+        this.wIcon = id;
+        w.el.querySelector('.tl').innerHTML = WEAPON_ICONS[id];
+        w.el.classList.add('icon');
+        w.el.setAttribute('aria-label', wpn?.name || 'weapon');
+      }
+      w.el.classList.toggle('reloading', game.arsenal?.reloadT > 0); // (an amber ring runs round it while you reload)
     }
   }
 

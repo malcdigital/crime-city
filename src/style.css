@@ -406,14 +406,27 @@ body.touch #sport .sh { display: none; }
 #touch .tb-bhesi { right: 112px; bottom: 96px; }
 #touch .tb-bstep { right: 196px; bottom: 98px; }
 #touch .tb-bspin { right: 98px; bottom: 166px; }
-#touch .tb-aim { right: 116px; bottom: 14px; }
+/* On foot: everything in an arc round FIRE (bottom right), the way the thumb swings:
+   AIM to its left, the GUN button up-left, DUCK above; USE out past them where it's easy to
+   find but hard to hit by accident. ✕ / ○ (yes / no) only show while you're being asked. */
+#touch .tb-aim { right: 128px; bottom: 30px; width: 60px; height: 60px; font-size: 14px; }
+#touch .tb-weapon { right: 106px; bottom: 112px; width: 56px; height: 56px; }
+#touch .tb-crouch { right: 36px; bottom: 136px; }
+#touch .tb-use { right: 150px; bottom: 186px; }
 #touch .tb-reload { right: 130px; bottom: 86px; }
-#touch .tb-cross { right: 104px; bottom: 148px; }
-#touch .tb-circle { right: 34px; bottom: 120px; }
+#touch .tb-cross { right: 210px; bottom: 30px; }
+#touch .tb-circle { right: 210px; bottom: 96px; }
 #touch .tb-tri { right: 26px; bottom: 186px; }
-#touch .tb-crouch { right: 192px; bottom: 30px; }
-#touch .tb-weapon { right: 196px; bottom: 98px; width: 58px; }
-#touch .tb-use { right: 92px; bottom: 214px; }
+/* Short screens (browser bars, the app frame): the arc tightens so nothing reaches the cash. */
+@media (max-height: 340px) {
+  #touch .tb-fire { right: 18px; bottom: 18px; }
+  #touch .tb-aim { right: 112px; bottom: 18px; width: 54px; height: 54px; }
+  #touch .tb-weapon { right: 96px; bottom: 100px; width: 50px; height: 50px; }
+  #touch .tb-crouch { right: 26px; bottom: 112px; width: 46px; height: 46px; }
+  #touch .tb-use { right: 150px; bottom: 150px; }
+  #touch .tb-cross { right: 186px; bottom: 18px; }
+  #touch .tb-circle { right: 186px; bottom: 78px; }
+}
 /* Driving */
 #touch .tb-gas { right: 22px; bottom: 22px; }
 #touch .tb-brake { right: 108px; bottom: 22px; }
@@ -450,8 +463,8 @@ body.touch #sport .sh { display: none; }
 /* Top row */
 #touch .tb-pause { left: 50%; top: 6px; margin-left: -102px; }
 #touch .tb-phone { left: 50%; top: 6px; margin-left: -52px; }
-#touch .tb-map { left: 50%; top: 6px; margin-left: -2px; width: 52px; }
-#touch .tb-spawn { left: 50%; top: 6px; margin-left: 56px; width: 48px; }
+#touch .tb-map { left: 50%; top: 6px; margin-left: -2px; }
+#touch .tb-spawn { left: 50%; top: 6px; margin-left: 48px; }
 #touch .tb-quit { left: 50%; top: 6px; margin-left: -52px; width: 52px; }
 #touch .tb-quit.hot { background: rgba(230,70,70,.9); border-color: #fff; }
 #touch[data-ctx="phone"] .tb-phone { left: auto; right: 270px; top: 10px; margin: 0; }
@@ -844,3 +857,18 @@ body.paused #dice-panel { display: none; }
 #touch .tb.pill.long { font-size: 12px; letter-spacing: 0; }
 #touch .tb.pill.ready { opacity: .9; }
 #touch .tb-weapon.reloading { background: rgba(255,184,77,.55); border-color: #ffd08a; }
+
+/* Icon buttons (map, phone, the test car, the GUN button). */
+#touch .tb.icon .tl { display: flex; align-items: center; justify-content: center; line-height: 0; }
+#touch .tb.icon svg { width: 22px; height: 22px; filter: drop-shadow(0 1px 1px rgba(0,0,0,.6)); }
+#touch .tb-weapon.icon svg { width: 34px; height: 34px; }
+#touch .tb-weapon.reloading { background: rgba(255,184,77,.35); border-color: #ffd08a; }
+#touch .tb-weapon.reloading::after { content: ''; position: absolute; inset: -5px; border-radius: 50%; border: 3px solid transparent; border-top-color: #ffb84d; border-right-color: #ffb84d; animation: wreload .7s linear infinite; }
+@keyframes wreload { to { transform: rotate(360deg); } }
+/* Narrow phones: the top row moves right a little so it clears the info in the top left. */
+@media (max-width: 760px) {
+  #touch .tb-pause { margin-left: -72px; }
+  #touch .tb-phone, #touch .tb-quit { margin-left: -22px; }
+  #touch .tb-map { margin-left: 28px; }
+  #touch .tb-spawn { margin-left: 78px; }
+}
