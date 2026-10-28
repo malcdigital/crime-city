@@ -66,7 +66,7 @@ export class CourtMenu {
     const rows = o.games.map((g, i) => ({ kind: 'game', i }));
     const gid = o.games[this.gi].id;
     o.rules.forEach((r, i) => {
-      if (!r.only || r.only === gid) rows.push({ kind: 'rule', i });
+      if (!r.only || r.only === gid || (Array.isArray(r.only) && r.only.includes(gid))) rows.push({ kind: 'rule', i });
     });
     rows.push({ kind: 'start' });
     rows.push({ kind: 'watch' });
@@ -147,7 +147,7 @@ export class CourtMenu {
       .join('');
     const gid = o.games[this.gi].id;
     const rules = o.rules
-      .filter((r) => !r.only || r.only === gid)
+      .filter((r) => !r.only || r.only === gid || (Array.isArray(r.only) && r.only.includes(gid)))
       .map((r) => {
         const row = k++;
         return `<div class="cm-rule${this.focus === row ? ' focus' : ''}" data-row="${row}"><span>${r.label}</span><span class="cm-val"><b data-step="-1">‹</b><i>${r.fmt(r.values[r.i])}</i><b data-step="1">›</b></span></div>`;

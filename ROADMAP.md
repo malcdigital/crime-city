@@ -7,6 +7,7 @@ Things we've decided to do later. Check here before planning new work.
 - **Turn off the testing switches** in `src/config.js` before release: `INFINITE_AMMO`, `START_IN_CAR`, `START_AT`, `START_ON_FOOT`, `RAMP_EDITOR`, `CAR_SPAWN_KEY`, `TURF_FAST`, `GANG_RUNS_ANY_RANK`, `MARKET_HOT`, `TEST_INCIDENT`, `TEST_STING`, `TEST_DIRTY_COP`.
 
 ## Later (agreed, not started)
+- **3-Point Contest with 2–5 real players** (online): rounds by field size (3 players: 2 rounds; 5 players: 3 rounds), the top scorers moving on; the solo mode and shared leaderboard are already in (contest.js, leaderboard.js).
 - **Multiplayer**: other players in your crew answer "Call a player for backup" (the phone row is already there), shared economy, player-owned companies, betting another player on a pickup game (one-on-one at the courts, a drive at Harbor Field: the bet is already held the same way against NPCs).
 - **Player Presidents**: players run for office and set the budget, taxes and orders (NPC Presidents stand in until then).
 - **Interiors**: gang bases (meetings inside), stores, homes.

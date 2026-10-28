@@ -313,7 +313,7 @@ export class TouchControls {
     if (!this.enabled) return;
     let ctx = 'foot';
     if (!game.started || game.paused || game.wastedT > 0 || game.bustedT > 0 || game.clipPlayer?.open || game.travel?.active) ctx = 'none';
-    else if (game.courtMenu?.open) ctx = 'none'; // (the court menu: tap it directly)
+    else if (game.courtMenu?.open || game.card?.open) ctx = 'none'; // (the court menu, the contest card: tap them directly)
     else if (game.shops.menu) ctx = 'menu';
     else if (game.mapView.open) ctx = 'map';
     else if (game.hud.phoneOpen) ctx = 'phone';
@@ -353,13 +353,14 @@ export class TouchControls {
     }
     if (ctx === 'ball') {
       // (on defense: SHOOT is steal, the moves are hidden)
-      const off = game.sport.has === 'you';
+      const off = game.sport.has === 'you' && !game.sport.t3; // (the contest: just SHOOT)
       const b = this.el.buttons;
       b.bshoot.el.querySelector('.tl').textContent = off || game.sport.has !== 'opp' ? 'SHOOT' : 'STEAL';
       b.bblock.hint.textContent = game.sport.has === 'opp' ? 'block' : off ? 'oop' : 'rebound';
       for (const id of ['bcross', 'bstep', 'bspin']) b[id].el.classList.toggle('hidden', !off);
       // (HESI on offense; on defense it's HANDS: hold to keep your hands up and contest)
       b.bhesi.el.classList.toggle('hidden', !off && game.sport.has !== 'opp');
+      b.bblock.el.classList.toggle('hidden', !!game.sport.t3);
       b.bhesi.el.querySelector('.tl').textContent = off ? 'HESI' : 'HANDS';
       b.bpass.el.classList.toggle('hidden', !(game.sport.solo && (off || game.sport.g?.ball?.mode === 'loose'))); // (passing / a fetch: shooting around)
       b.bd.el.classList.toggle('hidden', !!game.sport.solo);

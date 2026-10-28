@@ -62,6 +62,7 @@ export class Hoops {
       if (sb?.active && sb.H === this) {
         if (sb.g?.ball && !balls.includes(sb.g.ball)) balls.push(sb.g.ball);
         for (const P of sb.t33?.players || []) if (P.ball) balls.push(P.ball);
+        if (sb.t3) balls.push(...sb.t3.allBalls());
       }
       for (const n of S.nets) n.step(dt, balls);
     }

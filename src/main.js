@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { CFG, CRIMES, GANG_NAME } from './config.js';
 import { CourtMenu } from './courtmenu.js';
+import { ResultsCard } from './contest.js';
+import { Leaderboard } from './leaderboard.js';
 import { PostGame } from './postgame.js';
 import { buildCity, districtAt, streetAt } from './city.js';
 import { buildSidewalks } from './sidewalk.js';
@@ -129,6 +131,8 @@ class Game {
     this.sport = new Streetball(this); // (one-on-one with somebody at the courts)
     this.gridiron = new Gridiron(this); // (quarterback a drive at Harbor Field)
     this.courtMenu = new CourtMenu(this); // (what we playing? courts and the field)
+    this.leaderboard = new Leaderboard(); // (the 3-point contest's: shared in the published game)
+    this.card = new ResultsCard(this); // (a contest run's results)
     this.postGame = new PostGame(this); // (after a game: dap, hug... or heated)
     this.playground = new Playground(this); // (kids at the Market St playground, people by the statue)
     this.pursuit = new Pursuit(this); // (police tactics, lying low, the radio)
@@ -2157,6 +2161,9 @@ class Game {
           ? 'This page blocks controllers. Run the game locally (npm run dev) to use a PS5 controller.'
           : 'Plug in or pair a PS5 controller and press any button, then ✕ to play.';
       if (a.start) this.start();
+    } else if (this.card?.open) {
+      // The 3-point contest's results (contest.js): the game waits.
+      this.card.update(a);
     } else if (this.courtMenu?.open) {
       // A court's menu of games (courtmenu.js): the game waits.
       this.courtMenu.update(a);

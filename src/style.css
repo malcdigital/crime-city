@@ -705,3 +705,50 @@ body.touch #shot-badge { padding: 3px 10px 4px; border-radius: 9px; }
 body.touch #shot-badge .sb-t { font-size: 12px; }
 body.touch #shot-badge .sb-s { font-size: 8px; }
 body.paused #shot-badge { display: none; }
+
+/* The 3-point contest board (scoreboard.js showContest). */
+#board3pt { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 6; pointer-events: none; text-align: center; color: #fff; }
+#board3pt.hidden { display: none; }
+#board3pt .c3-box { background: linear-gradient(#161c27f0, #0c1017f0); border: 2px solid #2b303b; border-radius: 14px; box-shadow: 0 6px 22px rgba(0,0,0,.5); padding: 7px 14px 8px; }
+#board3pt .c3-head { display: flex; justify-content: space-between; align-items: baseline; gap: 18px; }
+#board3pt .c3-t { font-size: 11px; font-weight: 900; letter-spacing: 2.5px; color: #ffd23f; }
+#board3pt .c3-clock { font-size: 26px; font-weight: 900; font-variant-numeric: tabular-nums; }
+#board3pt .c3-clock.low { color: #ff6b6b; animation: flash 1s infinite; }
+#board3pt .c3-racks { display: flex; gap: 10px; justify-content: center; margin: 6px 0 5px; }
+#board3pt .c3-st { display: flex; gap: 3px; padding: 3px 4px; border-radius: 7px; background: rgba(255,255,255,.05); }
+#board3pt .c3-st.deep { background: rgba(255,210,63,.1); }
+#board3pt .c3-st i { width: 11px; height: 11px; border-radius: 50%; background: #3a404b; box-shadow: inset 0 0 0 1px #59606d; transition: background .2s, transform .2s; }
+#board3pt .c3-st i.money { box-shadow: inset 0 0 0 2px #6fa8ff; }
+#board3pt .c3-st i.deep { box-shadow: inset 0 0 0 2px #ffd23f; }
+#board3pt .c3-st i.make { background: #5ef2b0; transform: scale(1.15); }
+#board3pt .c3-st i.miss { background: #ff6b6b; opacity: .7; }
+#board3pt .c3-st i.cur { outline: 2px solid #fff; outline-offset: 1px; }
+#board3pt .c3-foot { display: flex; justify-content: space-between; font-size: 10px; font-weight: 900; letter-spacing: 2px; color: #8a93a3; }
+#board3pt .c3-foot b { color: #fff; font-size: 15px; margin-left: 4px; display: inline-block; }
+#board3pt .c3-foot b.bump { animation: b3-bump .45s cubic-bezier(.2, 1.5, .4, 1); }
+#board3pt .c3-count { position: fixed; left: 50%; top: 32vh; transform: translateX(-50%); font-size: 90px; font-weight: 900; color: #ffd23f; text-shadow: 0 4px 18px rgba(0,0,0,.6); }
+#board3pt .c3-count.pop { animation: b3-bump .5s cubic-bezier(.2, 1.5, .4, 1); }
+body.board3pt-on #sport { top: 120px; }
+body.touch #board3pt { top: 4px; left: calc(50% + 8px); transform: scale(.68); transform-origin: top left; }
+body.touch.board3pt-on #sport { top: 84px; }
+body.paused #board3pt { display: none; }
+
+/* The results card after a contest run. */
+#contest-card { position: fixed; inset: 0; z-index: 46; display: flex; align-items: center; justify-content: center; background: rgba(6,8,12,.6); padding: 12px; }
+#contest-card.hidden { display: none; }
+#contest-card .cc-box { width: 380px; max-width: 100%; max-height: calc(100vh - 24px); overflow-y: auto; background: linear-gradient(#141a24, #0d1118); border: 2px solid #2b303b; border-radius: 14px; box-shadow: 0 14px 48px rgba(0,0,0,.65); padding: 16px 20px 14px; color: #e8ecf2; text-align: center; }
+#contest-card .cc-h { font-size: 13px; font-weight: 900; letter-spacing: 3px; color: #ffd23f; }
+#contest-card .cc-score { font-size: 64px; font-weight: 900; line-height: 1.05; font-variant-numeric: tabular-nums; }
+#contest-card .cc-sub { font-size: 12px; font-weight: 800; color: #c9d1de; letter-spacing: 1px; }
+#contest-card .cc-sub b { color: #5ef2b0; }
+#contest-card .cc-lh { margin: 14px 0 6px; font-size: 11px; font-weight: 800; letter-spacing: 2px; color: #8a93a3; text-align: left; }
+#contest-card .cc-row { display: flex; gap: 10px; padding: 5px 8px; border-radius: 8px; font-size: 14px; font-weight: 700; text-align: left; }
+#contest-card .cc-row:nth-child(odd) { background: rgba(255,255,255,.04); }
+#contest-card .cc-row.you { background: rgba(94,242,176,.14); color: #5ef2b0; }
+#contest-card .cc-rk { width: 22px; color: #8a93a3; }
+#contest-card .cc-nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#contest-card .cc-sc { font-variant-numeric: tabular-nums; }
+#contest-card .cc-empty { font-size: 13px; color: #8a93a3; padding: 6px 0; }
+#contest-card .cc-btns { display: flex; gap: 10px; margin-top: 14px; }
+#contest-card .cc-btn { flex: 1; padding: 10px; border-radius: 10px; border: 2px solid #2b303b; font-weight: 900; letter-spacing: 1px; cursor: pointer; }
+#contest-card .cc-btn.go { background: #ffd23f; color: #141a24; border-color: #ffd23f; }

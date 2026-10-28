@@ -180,6 +180,47 @@ export class Scoreboard {
     node.classList.add(cls);
   }
 
+  // The 3-point contest: the clock, the score, a row of dots per station (green made, red
+  // missed, the money balls blue-ringed, the deep balls gold), the ball you're on outlined.
+  showContest(v) {
+    if (!this.elC) {
+      const el = document.createElement('div');
+      el.id = 'board3pt';
+      el.innerHTML = `<div class="c3-box"><div class="c3-head"><span class="c3-t">3-POINT CONTEST</span><span class="c3-clock"></span></div><div class="c3-racks"></div><div class="c3-foot"><span>SCORE <b class="c3-sc"></b></span><span>BEST <b class="c3-best"></b></span></div></div><div class="c3-count"></div>`;
+      document.body.appendChild(el);
+      this.elC = el;
+    }
+    const el = this.elC;
+    el.classList.remove('hidden');
+    document.body.classList.add('scoreboard-on', 'board3pt-on');
+    const sec = Math.ceil(v.clock);
+    const ck = el.querySelector('.c3-clock');
+    ck.textContent = `0:${String(sec).padStart(2, '0')}`;
+    ck.classList.toggle('low', v.clock <= 10 && v.phase !== 'count');
+    const sc = el.querySelector('.c3-sc');
+    if (sc.textContent !== String(v.score)) {
+      sc.textContent = String(v.score);
+      this.restart(sc, 'bump');
+    }
+    el.querySelector('.c3-best').textContent = String(Math.max(v.best || 0, 0));
+    const html = v.stations
+      .map((S, si) => `<div class="c3-st ${S.kind}">${S.balls.map((b, bi) => `<i class="${b.kind}${b.res ? ` ${b.res}` : ''}${v.cur && v.cur[0] === si && v.cur[1] === bi ? ' cur' : ''}"></i>`).join('')}</div>`)
+      .join('');
+    const racks = el.querySelector('.c3-racks');
+    if (racks.innerHTML !== html) racks.innerHTML = html;
+    const cn = el.querySelector('.c3-count');
+    const ctext = v.phase === 'count' ? String(v.count) : '';
+    if (cn.textContent !== ctext) {
+      cn.textContent = ctext;
+      if (ctext) this.restart(cn, 'pop');
+    }
+  }
+
+  hideContest() {
+    if (this.elC) this.elC.classList.add('hidden');
+    document.body.classList.remove('board3pt-on');
+  }
+
   hide33() {
     if (this.el33) this.el33.classList.add('hidden');
     document.body.classList.remove('scoreboard-on', 'board33-on');
@@ -188,6 +229,7 @@ export class Scoreboard {
 
   hide() {
     this.hide33();
+    this.hideContest();
     if (this.el) this.el.classList.add('hidden');
     document.body.classList.remove('scoreboard-on');
     this.last = null;

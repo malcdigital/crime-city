@@ -3,6 +3,7 @@ import { dist, rand, pick, lerpAngle, clamp, wrapAngle } from './util.js';
 import { crouchPose, bendLeg } from './character.js';
 import { ballMesh } from './court.js';
 import { Scoreboard } from './scoreboard.js';
+import { Contest, RACK_NAMES } from './contest.js';
 import { HeatFx } from './heatfx.js';
 import { dunkPose, dunkPhase, dunkBall } from './dunkpose.js';
 import { markReach, reachWhiff, reachHit, reachPose } from './reachpose.js';
@@ -496,21 +497,25 @@ export class Streetball {
       games: [
         { id: '1v1', title: `1 on 1 vs. ${name}`, sub: (st) => `${opp.ballR} OVR · First to ${st.to}` },
         { id: '33', title: `33 · ${n} players`, sub: (st) => `Every player for themselves${st.wager ? ` · winner takes $${st.wager * n}` : ''}` },
+        { id: '3pt', title: '3-Point Contest · solo', sub: (st) => `70 seconds · money rack: ${RACK_NAMES[st.money]} · beat the high score` },
       ],
       rules: [
-        { id: 'wager', label: 'Wager', values: bets, i: bi, fmt: (v) => (v ? `$${v}` : 'None') },
+        { id: 'wager', label: 'Wager', values: bets, i: bi, fmt: (v) => (v ? `$${v}` : 'None'), only: ['1v1', '33'] },
+        { id: 'money', label: 'Money rack', values: [0, 1, 2, 3, 4], i: this.moneyI ?? 4, fmt: (v) => RACK_NAMES[v], only: '3pt' },
         { id: 'to', label: 'Play to', values: LENS, i: LENS.indexOf(to0), fmt: (v) => String(v), only: '1v1' },
       ],
-      start: (st) => `START GAME${st.wager ? ` · $${st.wager}` : ''}`,
+      start: (st) => (st.game === '3pt' ? 'START THE CLOCK' : `START GAME${st.wager ? ` · $${st.wager}` : ''}`),
       watch: pick(['Watch courtside', 'Nah, just watching', 'Maybe next time']),
       onChange: (R) => {
         // (remembered for next time)
         if (R.id === 'wager') this.betI = BETS.indexOf(R.values[R.i]);
         if (R.id === 'to') this.toI = TARGETS.indexOf(R.values[R.i]);
+        if (R.id === 'money') this.moneyI = R.values[R.i];
       },
       onStart: (st) => {
         this.talk = null;
         if (st.game === '33') this.start33(near.H, near.g, st.wager);
+        else if (st.game === '3pt') this.startContest(near.H, near.g, st.money);
         else this.start(near.H, near.g, opp, st.wager, st.to);
       },
       onClose: () => {
@@ -624,6 +629,82 @@ export class Streetball {
   // his spot; the next one shoots once everybody's back. Every make puts 3 in the pot; a miss
   // takes the whole pot onto your score; 33 or more and you're out; last one standing wins
   // (everyone's buy-in). The bigger the pot, the smaller the green window.
+  // ---- The 3-point contest (solo; contest.js keeps the racks, the clock and the score) ----
+  startContest(H, g, money) {
+    const game = this.game;
+    this.active = true;
+    this.solo = true;
+    this.H = H;
+    this.realG = g;
+    this.money3 = money;
+    this.rim = g.rim;
+    this.r = 75;
+    this.to = Infinity;
+    this.score = { you: 0, opp: 0 };
+    this.gameNo = (this.gameNo || 0) + 1;
+    this.heat = null; // (no heat checks in the contest)
+    this.poss = null;
+    this.stats = { att: 0, made: 0, streak: 0, best: 0 };
+    this.cleared = true;
+    this.shot = null;
+    this.outT = 0;
+    this.dead = null;
+    this.foul = null;
+    this.check = null;
+    this.flight = null;
+    this.lastShooter = null;
+    this.touch = null;
+    this.clock = 0;
+    this.strays = [];
+    this.fetch = null;
+    this.you = { st: 1, beatT: 0, fallT: 0, jumpT: 0, move: null, combo: 0, lastMoveEnd: -9, rhythm: 0, hand: 1, stealT: 0, lastSteal: -9, blockT: 0, intense: false, ps: { on: false, t: 0, x: 0, y: 0 }, sizeUp: false };
+    this.opp = { x: 1e5, z: 1e5, heading: 0, speed: 0, state: 'play', removed: false, ballName: '', hp: { st: 1, beatT: 0, fallT: 0, lagT: 0, jumpT: 0 } };
+    g.match = this;
+    game.player.char.group.userData.sm = null;
+    // (everybody at that basket steps off and watches)
+    const C = H.site.court;
+    g.players.forEach((q, k) => {
+      q.hp.role = 'watch';
+      const along = this.rim.dz !== 0;
+      q.hp.spot = along ? [C.x0 - 1.2, this.rim.z + this.rim.dz * (5 + k * 2.5)] : [this.rim.x + this.rim.dx * (5 + k * 2.5), C.z0 - 1.2];
+      q.x = q.hp.spot[0];
+      q.z = q.hp.spot[1];
+    });
+    // The rack spots (the same as 33's: corner to corner, just outside the arc) and the two deep
+    // spots between the wings and the top, a couple of meters back.
+    const rim = this.rim;
+    const ax = -rim.dz;
+    const az = rim.dx;
+    const at = (along, across) => [rim.x + rim.dx * along + ax * across, rim.z + rim.dz * along + az * across];
+    const ring = (deg, r) => {
+      const a = (deg * Math.PI) / 180;
+      return at(Math.cos(a) * r, Math.sin(a) * r);
+    };
+    const spots = [at(0.6, 7.16), ring(42, 7.86), ring(0, 7.86), ring(-42, 7.86), at(0.6, -7.16)];
+    const deep = [ring(21, 9.2), ring(-21, 9.2)];
+    this.t3 = new Contest(this, spots, deep, money);
+    // (a stand-in group: the ball you're on is whichever rack ball's next)
+    this.g = { ball: this.t3.stations[0].balls[0], players: g.players, rim: g.rim };
+    const p = game.player;
+    [p.x, p.z] = spots[0];
+    p.speed = 0;
+    this.has = null;
+    game.hud.toast(`3-Point Contest · money rack: ${RACK_NAMES[money]}. 3... 2... 1...`, '#ffd23f');
+  }
+
+  // (the results card's Run it back)
+  again3() {
+    const H = this.H;
+    const g = this.realG;
+    if (!H || !g || this.active) return;
+    this.startContest(H, g, this.money3 ?? 4);
+  }
+
+  // (the contest's over: contest.js shows the results)
+  endContest() {
+    this.end('contest');
+  }
+
   start33(H, g, bet) {
     const game = this.game;
     this.active = true;
@@ -1794,6 +1875,7 @@ export class Streetball {
 
   // ---- Your buttons (main.js, before you move; they're taken off the action list) ----
   input(dt, a) {
+    if (this.t3) this.t3.input(dt, a); // (the contest: your spot, the next ball, the run between racks)
     const game = this.game;
     const p = game.player;
     const Y = this.you;
@@ -1850,7 +1932,7 @@ export class Streetball {
       }
       a.interactHeld = false;
     }
-    if (this.solo && !this.t33 && this.passing(dt, a)) {
+    if (this.solo && !this.t33 && !this.t3 && this.passing(dt, a)) {
       a.fire = a.firePressed = a.aim = a.aimPressed = a.melee = a.reload = a.dealYes = a.enter = a.crouch = false;
       a.sprint = sprint;
       this.prevShoot = a.bShoot;
@@ -1858,7 +1940,7 @@ export class Streetball {
     }
     const stick = this.proStick(dt, a);
     const checkHit = a.dealYes || (a.interactHeld && !game.interactWasHeld && !this.solo) || (shootHeld && !this.prevShoot);
-    if (this.solo && !this.t33 && a.interactHeld && !game.interactWasHeld) {
+    if (this.solo && !this.t33 && !this.t3 && a.interactHeld && !game.interactWasHeld) {
       this.end('done');
       return;
     }
@@ -2979,6 +3061,7 @@ export class Streetball {
     this.flight = { by, pts, counts: this.cleared, foul: this.foulOnShot, type: type || (T ? 'dunk' : null) };
     this.foulOnShot = false;
     this.has = null;
+    if (this.t3) this.t3.release(b, make); // (the contest: it flies on its own; on to the next ball)
   }
 
   // ---- Your defense ----
@@ -3067,6 +3150,10 @@ export class Streetball {
     const off = px < P.x0 - 1 || px > P.x1 + 1 || pz < P.z0 - 1 || pz > P.z1 + 1;
     this.outT = off ? this.outT + dt : 0;
     if (this.outT > 2.5 || game.player.vehicle || game.stars > 0 || game.wastedT > 0 || game.bustedT > 0) return this.end(this.solo && !this.t33 ? 'done' : 'forfeit');
+    if (this.t3) {
+      this.t3.step(dt);
+      if (!this.active) return;
+    }
     // A reach-in foul's whistle: everything holds a beat, then the check-up.
     if (this.foul) {
       this.foul.t += dt;
@@ -3310,8 +3397,8 @@ export class Streetball {
         dunkBall(b, game.player.char, Y.dunkTwo ?? true, Y.dunk.hand ?? 1, _v1, _v2);
         return;
       }
-      if (catching(game.player.char, game.time)) {
-        handsAt(game.player.char, _v1); // (pulling a catch in: it's in both hands)
+      if (catching(game.player.char, game.time) || (this.t3 && !this.shot)) {
+        handsAt(game.player.char, _v1); // (pulling a catch in, or off the rack in the contest: it's in both hands)
         b.x = _v1.x;
         b.y = _v1.y;
         b.z = _v1.z;
@@ -3402,7 +3489,7 @@ export class Streetball {
     this.tiredFx(this.t33 ? 1 : this.you.st);
     // (no minimap in a one-on-one or 33: just the game)
     const mm = document.getElementById('minimap');
-    if (mm) mm.style.visibility = !this.solo || this.t33 ? 'hidden' : '';
+    if (mm) mm.style.visibility = !this.solo || this.t33 || this.t3 ? 'hidden' : '';
     const K = this.keys();
     let meter = null;
     const O = this.oop;
@@ -3420,6 +3507,16 @@ export class Streetball {
     let hint = '';
     const C = this.check;
     const ck = game.input.touchMode ? 'SHOOT' : game.input.mode === 'pad' ? '✕' : 'E';
+    if (this.t3) {
+      const V = this.t3.view();
+      this.scoreboard = this.scoreboard || new Scoreboard();
+      this.scoreboard.showContest({ ...V, game: this.gameNo });
+      const K3 = this.keys();
+      hint = V.phase === 'count' ? 'Get ready...' : V.phase === 'move' ? 'Next rack...' : V.phase === 'shoot' ? (this.shot ? 'Let go in the green' : `${K3.shoot}: shoot, let go in the green`) : 'Time!';
+      game.hud.sport?.('3-POINT CONTEST', null, hint, null);
+      this.floatHud(meter);
+      return;
+    }
     if (this.t33) {
       const T = this.t33;
       const up = T.players[T.turn];
@@ -4520,6 +4617,7 @@ export class Streetball {
     this.lateRaw(dt);
     // (checking it up with the ball: held in both hands)
     if (this.has === 'check' && this.g.ball.holder === 'you') holdPose(this.game.player.char);
+    if (this.t3 && this.has === 'you' && !this.shot) holdPose(this.game.player.char); // (the contest: ball off the rack, set to shoot)
     // (a reach-in going on: the lunge and swipe over the stance)
     if (!this.check && !this.t33) {
       const p = this.game.player;
@@ -4734,6 +4832,27 @@ export class Streetball {
     this.fx?.clear();
     document.body.classList.remove('hooping');
     this.heat = null;
+    if (this.t3) {
+      // The contest's over (or walked away from): the racks and balls go, his group gets its court back.
+      this.t3.clear();
+      for (const b of [...this.t3.flying.map((F) => F.b)]) game.scene.remove(b.mesh);
+      if (how !== 'contest') game.hud.toast('Contest called off', '#9fc3ff');
+      this.t3 = null;
+      this.solo = false;
+      this.active = false;
+      this.again = game.time + 0.6;
+      this.shot = null;
+      this.flight = null;
+      this.has = null;
+      const g = this.realG;
+      if (g) {
+        g.match = null;
+        for (const q of g.players) if (!q.removed) this.H.toWait(q);
+      }
+      this.g = g || this.g;
+      game.hud.sport?.(null);
+      return;
+    }
     if (this.t33) {
       // 33's over: the pot (everyone's buy-in) to the winner, back to shooting around.
       const T = this.t33;
