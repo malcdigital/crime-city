@@ -44,6 +44,9 @@ const SHOT_NAMES = { jumper: 'Jump shot', layup: 'Layup', floater: 'Floater', du
 const ARC = 6.75;
 const BETS = [0, 50, 100, 250, 500];
 const TARGETS = [11, 15, 21, 33]; // (33: the game called 33, everyone at the court)
+// Asking to play, and their answers (one of each, picked at random).
+const ASKS = ["Y'all wanna play?", "Y'all tryna run one?", 'Can I get in?', 'Who got next?', "Y'all tryna hoop?", 'Run it?', "What's up, y'all playing?"];
+const REPLIES = ["Yeah! What you wanna play?", 'Bet. What we playing?', "Aight, what you tryna run?", "You got next. What's the game?", 'Pull up. What you want?', "Say less. What we playing?", "Yeah, we need one. What's it gon' be?"];
 const NAMES = ['Dre', 'Tank', 'Lil Mike', 'Jojo', 'Smoke', 'Ray', 'Peanut', 'Boogie', 'Shorty', 'Deuce'];
 const G = 9.8;
 const _axis = new THREE.Vector3();
@@ -372,31 +375,76 @@ export class Streetball {
       if (a.interactHeld && !game.interactWasHeld) this.startSolo(spare.H, this.soloRim(spare.H), spare);
       return;
     }
-    if (!near) return;
-    const kb = game.input.mode === 'kb';
-    if (a.dealNo) {
-      this.betI = (this.betI + 1) % BETS.length;
-      a.melee = false; // (○ changes the bet here, it doesn't throw a punch)
+    if (!near) {
+      this.talk = null;
+      return;
     }
-    if (a.reload) {
-      this.toI = (this.toI + 1) % TARGETS.length;
-      a.reload = false;
-    }
-    let bet = BETS[this.betI];
-    while (bet > game.cash && bet > 0) bet = BETS[BETS.indexOf(bet) - 1];
+    return this.askToPlay(a, near);
+  }
+
+  // Walking up to a court: you ask if they want to play, one of them answers, and the games come
+  // up in a menu (one-on-one to 11 / 15 / 21, or 33 with everybody there; the bet's in there
+  // too). What's said changes every time.
+  askToPlay(a, near) {
+    const game = this.game;
     const opp = near.g.players[0];
     if (!opp.ballName) opp.ballName = pick(NAMES);
     if (!opp.ballR) opp.ballR = Math.round(clamp(rand(58, 92) * 0.5 + rand(58, 92) * 0.5, 60, 90));
-    const to = TARGETS[this.toI];
-    if (to === 33) {
-      // 33: everybody at that basket (2-5 of you) shoots threes from their spot on the arc.
-      const n = Math.min(4, near.g.players.length) + 1;
-      game.prompt = `${opp.ballName}: "Run 33? ${n} of us. Every make's 3 in the pot, a miss eats it, 33 and you're out. Last man standing." ${game.input.label('interact')} to play · ${kb ? 'Q' : '○'} buy-in: ${bet ? `$${bet} each` : 'nothing'} · ${kb ? 'R' : '□'} game: 33`;
-      if (a.interactHeld && !game.interactWasHeld) this.start33(near.H, near.g, bet);
+    const T = this.talk;
+    if (T && T.g === near.g) {
+      // (waiting on his answer, then the menu)
+      if (!T.open && game.time >= T.at) {
+        T.open = true;
+        game.hud.toast(`${opp.ballName}: "${pick(REPLIES)}"`, '#ffd23f');
+        this.gameMenu(near, opp);
+      }
+      if (!T.open) game.prompt = '';
       return;
     }
-    game.prompt = `${opp.ballName} (${opp.ballR} OVR): "Run it? One-on-one, to ${to}." ${game.input.label('interact')} to play · ${kb ? 'Q' : '○'} bet: ${bet ? `$${bet}` : 'nothing'} · ${kb ? 'R' : '□'} game to ${to}`;
-    if (a.interactHeld && !game.interactWasHeld) this.start(near.H, near.g, opp, bet, to);
+    if (!this.askFor || this.askFor !== near.g) {
+      this.askFor = near.g;
+      this.askLine = pick(ASKS);
+    }
+    game.prompt = `${game.input.label('interact')}: "${this.askLine}"`;
+    if (a.interactHeld && !game.interactWasHeld) {
+      game.hud.toast(`You: "${this.askLine}"`, '#ffffff');
+      this.talk = { g: near.g, at: game.time + 0.9, open: false };
+      this.askFor = null; // (something different next time)
+    }
+  }
+
+  // The menu of games (the shop menu: the game waits while it's up).
+  gameMenu(near, opp) {
+    const game = this.game;
+    const shops = game.shops;
+    const n = Math.min(4, near.g.players.length) + 1;
+    const betNow = () => {
+      let bet = BETS[this.betI];
+      while (bet > game.cash && bet > 0) bet = BETS[BETS.indexOf(bet) - 1];
+      return bet;
+    };
+    const go = (fn) => () => {
+      shops.onClose = null;
+      shops.close();
+      this.talk = null;
+      fn(betNow());
+    };
+    shops.openCustom(`${opp.ballName}'s run`, () => {
+      const bet = betNow();
+      const b = bet ? `$${bet}` : 'nothing';
+      const items = [{ label: `Bet: ${b}`, price: 0, priceText: 'change', detail: 'What\'s riding on it (they match it). Pick this to change it, then pick the game.', can: true, buy: () => (this.betI = (this.betI + 1) % BETS.length) }];
+      for (const to of [11, 15, 21]) {
+        items.push({ label: `One-on-one with ${opp.ballName}, to ${to}`, price: 0, priceText: `${opp.ballR} OVR`, detail: `1s and 2s, check it up after every bucket. ${bet ? `$${bet} each, winner takes $${bet * 2}.` : 'Just for fun.'}`, can: true, buy: go((bt) => this.start(near.H, near.g, opp, bt, to)) });
+      }
+      items.push({ label: `33 (${n} players)`, price: 0, priceText: bet ? `$${bet} in` : 'free', detail: `Everybody at this basket, from spots on the arc. Every make's 3 in the pot, a miss eats it, 33 and you're out. Last one standing${bet ? ` takes $${bet * n}` : ' wins'}.`, can: true, buy: go((bt) => this.start33(near.H, near.g, bt)) });
+      items.push({ label: pick(['Nah, I\'m good', 'Maybe next time', 'Nah, just watching']), price: 0, priceText: '', detail: 'Walk away.', can: true, buy: () => shops.close() });
+      return items;
+    });
+    shops.el.querySelector('.shop-help').textContent = game.input.touchMode ? 'Tap to choose, tap again to pick · ○: leave' : game.input.mode === 'pad' ? 'D-pad ↑↓: choose · ✕: pick · ○: leave' : '↑↓ / W S: choose · Enter / click: pick · Esc: leave';
+    shops.onClose = () => {
+      this.talk = null;
+      this.again = game.time + 0.8; // (the button that closed it doesn't ask again)
+    };
   }
 
   start(H, g, opp, bet, to) {
@@ -1384,10 +1432,12 @@ export class Streetball {
       a.moveX = a.moveY = 0;
       a.sprint = false;
       const C = this.check;
-      if (checkHit && C.stage === 'ready') {
+      // (it goes on its own after a beat: checked up and checked back)
+      const auto = C.t > 0.55;
+      if ((checkHit || auto) && C.stage === 'ready') {
         C.stage = 'toDef';
         this.checkPass('opp');
-      } else if (checkHit && C.stage === 'youHold') {
+      } else if ((checkHit || auto) && C.stage === 'youHold') {
         C.stage = 'back';
         this.checkPass('opp');
       }
@@ -2861,7 +2911,7 @@ export class Streetball {
       this.floatHud(meter);
       return;
     }
-    if (C) hint = C.stage === 'ready' ? `${ck} check it up` : C.stage === 'youHold' ? `${ck} check it back` : 'Checking it up...';
+    if (C) hint = 'Checking it up...';
     else if (this.you.fallT > 0) hint = 'Ankles broken...';
     else if (this.has === 'you' && !this.cleared) hint = 'Take it back past the arc';
     else if (this.has === 'you') hint = this.shot ? 'Let go in the green' : `${K.shoot} shoot (tap: pump fake) · ${K.sprint} sprint · ${K.d} hold: face up · ${K.block} off the glass · moves: ${K.moves}`;
