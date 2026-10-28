@@ -322,6 +322,41 @@ export class Streetball {
     return best?.sp || null;
   }
 
+  // A group's ball lying loose right by you (after a game of 33 or a one-on-one, say): you can
+  // pick it up too. They get the nearest spare on the court in its place (no spare left: it's
+  // theirs).
+  nearGroupBall() {
+    const [px, pz] = this.game.player.pos();
+    for (const H of this.game.hoops || []) {
+      for (const g of H.groups) {
+        const b = g.ball;
+        if (!b || g.match || b.mode !== 'loose' || b.y > 1 || dist(px, pz, b.x, b.z) > 1.6) continue;
+        let sub = null;
+        for (const sp of this.spares) if (sp.H === H && sp.mesh.visible && (!sub || dist(g.rim.x, g.rim.z, sp.mesh.position.x, sp.mesh.position.z) < dist(g.rim.x, g.rim.z, sub.mesh.position.x, sub.mesh.position.z))) sub = sp;
+        if (!sub) continue;
+        return {
+          H,
+          get mesh() {
+            return b.mesh;
+          },
+          take: () => {
+            // (swap: you get their ball, they get the spare where it lies)
+            const mine = { H, mesh: b.mesh, home: [b.x, b.z] };
+            b.mesh = sub.mesh;
+            b.x = sub.mesh.position.x;
+            b.z = sub.mesh.position.z;
+            b.y = 0.12;
+            b.vx = b.vy = b.vz = 0;
+            this.spares.splice(this.spares.indexOf(sub), 1);
+            this.spares.push(mine);
+            return mine;
+          },
+        };
+      }
+    }
+    return null;
+  }
+
   // The basket to shoot at: the nearest one nobody's using (or just the nearest).
   soloRim(H) {
     const [px, pz] = this.game.player.pos();
@@ -369,10 +404,14 @@ export class Streetball {
     const game = this.game;
     if (this.active || game.player.vehicle || game.stars > 0 || game.stop || game.time < (this.again || 0)) return;
     const near = this.nearGame();
-    const spare = this.nearSpare();
+    let spare = this.nearSpare();
+    // (the ball a group's playing with, lying loose at your feet, counts too: they get a spare
+    // off the sideline in its place)
+    const gb = !spare && this.nearGroupBall();
+    if (gb) spare = gb;
     if (spare) {
       game.prompt = `Pick up the ball and shoot around: ${game.input.label('interact')}`;
-      if (a.interactHeld && !game.interactWasHeld) this.startSolo(spare.H, this.soloRim(spare.H), spare);
+      if (a.interactHeld && !game.interactWasHeld) this.startSolo(spare.H, this.soloRim(spare.H), spare.take ? spare.take() : spare);
       return;
     }
     if (!near) {
