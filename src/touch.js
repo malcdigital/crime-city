@@ -32,7 +32,7 @@ const PAD_DEAD = 0.18; // input.js's stick deadzone (the shaped steering skips p
 const BUTTONS = [
   ['fire', 'FIRE', B.R2, ['foot'], 'fire', 'big red'],
   ['aim', 'AIM', B.L2, ['foot'], 'toggle', 'mid'],
-  ['reload', '□', B.SQUARE, ['foot', 'strip', 'qb'], 'hold', 'sm'],
+  ['reload', '□', B.SQUARE, ['strip', 'qb'], 'hold', 'sm'], // (on foot: hold the GUN button to reload)
   ['cross', '✕', B.CROSS, ['foot', 'car', 'phone', 'menu', 'strip', 'map', 'stop', 'qb'], 'hold', 'sm'],
   ['circle', '○', B.CIRCLE, ['foot', 'car', 'phone', 'menu', 'map', 'stop', 'qb'], 'hold', 'sm'],
   ['fight', '□', B.SQUARE, ['stop'], 'hold', 'sm'], // (a police stop: fight back)
@@ -81,7 +81,7 @@ const BUTTONS = [
 ];
 // What the face buttons mean here, shown small under the symbol.
 const HINTS = {
-  foot: { cross: 'yes', circle: 'punch', reload: 'reload' },
+  foot: { cross: 'yes', circle: 'no', weapon: 'hold: reload' },
   car: { cross: 'yes', circle: 'no' },
   phone: { cross: 'ok', circle: 'back' },
   menu: { cross: 'buy', circle: 'leave' },
@@ -192,6 +192,12 @@ export class TouchControls {
     this.lastT = performance.now();
   }
 
+  // One quick press, seen by the game for a frame.
+  tap(b) {
+    this.fresh.add(b);
+    this.lastT = performance.now();
+  }
+
   release(b) {
     const n = (this.held.get(b) || 0) - 1;
     if (n <= 0) this.held.delete(b);
@@ -235,11 +241,25 @@ export class TouchControls {
         pid = null;
         return;
       }
-      // (USE presses whatever it's showing: the interact button, or △ to get in / out of a car)
+      if (kind === 'weapon') {
+        // (the GUN button: tap swaps, hold reloads, swipe up opens the inventory strip; decided
+        // as it goes, in update and pointermove)
+        this.wHold = { t0: performance.now(), y0: e.clientY, done: false };
+        return;
+      }
+      // (USE presses whatever it's showing: the interact button, △ to get in / out of a car, or
+      // ○ to punch)
       pressed = id === 'use' ? this.useB ?? b : b;
       this.press(pressed);
     });
     el.addEventListener('pointermove', (e) => {
+      if (e.pointerId === pid && kind === 'weapon' && this.wHold && !this.wHold.done && e.clientY - this.wHold.y0 < -28) {
+        // (swiped up: the inventory strip, open until the next tap)
+        this.wHold.done = true;
+        this.latched = true;
+        el.classList.add('on');
+        return;
+      }
       if (e.pointerId !== pid || kind !== 'fire') return;
       // Drag off the fire button to aim while shooting.
       this.lookDX += (e.clientX - lx) * LOOK;
@@ -252,10 +272,14 @@ export class TouchControls {
       pid = null;
       el.classList.toggle('on', kind === 'toggle' && this.toggled.has(b));
       if (kind === 'toggle') return;
-      if (kind === 'weapon' && e.timeStamp - downT > 350) {
-        // Long press: keep the strip open until the next tap.
-        this.latched = true;
-        el.classList.add('on');
+      if (kind === 'weapon') {
+        const W = this.wHold;
+        this.wHold = null;
+        if (this.latched) {
+          el.classList.add('on');
+          return;
+        }
+        if (W && !W.done) this.tap(b); // (a tap: swap weapons)
         return;
       }
       this.release(pressed ?? b);
@@ -380,8 +404,7 @@ export class TouchControls {
       const ask = game.time - (game.askedAt ?? -99) < 0.3;
       const bx = this.el.buttons;
       bx.cross.el.classList.toggle('hidden', !ask);
-      if (ctx === 'car') bx.circle.el.classList.toggle('hidden', !ask);
-      else bx.circle.hint.textContent = ask ? 'no' : 'punch';
+      bx.circle.el.classList.toggle('hidden', !ask); // (on foot, punching is on USE)
     }
     if (ctx === 'stop') this.el.buttons.fight.hint.textContent = game.player.vehicle ? 'floor it' : 'fight';
     if (ctx === 'qb') {
@@ -440,15 +463,31 @@ export class TouchControls {
       } else if (!verb && ctx === 'car') {
         verb = 'EXIT';
         this.useB = B.TRIANGLE;
+      } else if (!verb && ctx === 'foot' && !(game.time - (game.askedAt ?? -99) < 0.3)) {
+        verb = 'PUNCH';
+        this.useB = B.CIRCLE;
       }
       const text = verb || 'USE';
       const tl = use.el.querySelector('.tl');
       if (tl.textContent !== text) tl.textContent = text;
-      use.el.classList.toggle('hot', !!verb && verb !== 'EXIT');
+      use.el.classList.toggle('hot', !!verb && verb !== 'EXIT' && verb !== 'PUNCH');
+      use.el.classList.toggle('ready', verb === 'PUNCH' || verb === 'EXIT'); // (always there: not dimmed)
       use.el.classList.toggle('long', text.length > 6);
     }
     const w = this.el.buttons.weapon;
-    if (w && ctx === 'foot') w.el.querySelector('.tl').textContent = (game.arsenal?.current()?.name || 'GUN').split(' ')[0].toUpperCase().slice(0, 6);
+    // (held a moment: reload; the label says so while it's reloading)
+    if (this.wHold && !this.wHold.done && performance.now() - this.wHold.t0 > 350) {
+      this.wHold.done = true;
+      if (ctx === 'foot') this.tap(B.SQUARE);
+    }
+    if (w && ctx === 'foot') {
+      const wpn = game.arsenal?.current();
+      const t = game.arsenal?.reloadT > 0 ? 'RELOAD' : (wpn?.name || 'GUN').split(' ')[0].toUpperCase().slice(0, 6);
+      const tl = w.el.querySelector('.tl');
+      if (tl.textContent !== t) tl.textContent = t;
+      w.el.classList.toggle('reloading', game.arsenal?.reloadT > 0);
+      w.hint.textContent = wpn?.melee || game.arsenal?.reloadT > 0 ? '' : 'hold: reload';
+    }
   }
 
   // The virtual controller for this frame (same shape as a Gamepad).

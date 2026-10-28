@@ -842,3 +842,5 @@ body.paused #dice-panel { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { #shot-meter.slight, #shot-meter.slight::after, #shot-meter.slight .sweet { animation-duration: .01s; } }
 #touch .tb.pill.long { font-size: 12px; letter-spacing: 0; }
+#touch .tb.pill.ready { opacity: .9; }
+#touch .tb-weapon.reloading { background: rgba(255,184,77,.55); border-color: #ffd08a; }
