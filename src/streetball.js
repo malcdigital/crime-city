@@ -3179,6 +3179,11 @@ export class Streetball {
       else if (up?.who === 'you') hint = this.shot ? 'Let go in the green' : T.inAir || T.wait > 0 || !T.players.every((P) => P.out || P.st === 'ready') ? 'Waiting on everybody to get back...' : `Your shot · pot ${T.pot}${this.pressure33() < 0.9 ? ' (pressure: tighter window)' : ''}: ${K.shoot}, let go in the green${Y.shotClock > 8 ? ` · ${Math.ceil(12 - Y.shotClock)}` : ''}`;
       else hint = `${up?.name || ''} shooting · pot ${T.pot}`;
       game.hud.sport?.(board, null, hint, null);
+      this.scoreboard = this.scoreboard || new Scoreboard();
+      this.scoreboard.show33({
+        game: this.gameNo, pot: T.pot, turn: T.phase === 'play' ? T.turn : -1,
+        players: T.players.map((P) => ({ name: P.name, score: P.score, out: P.out, color: P.color, you: P.who === 'you' })),
+      });
       this.floatHud(meter);
       return;
     }
