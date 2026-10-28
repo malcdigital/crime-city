@@ -899,6 +899,7 @@ export class Drugs {
       c.flagT = (c.flagT || 0) + dt;
       c.t = Math.min(c.t, 5);
       const pad = game.input.mode === 'pad';
+      game.askedAt = game.time; // (a yes / no question up: the phone shows ✕ and ○)
       this.prompt = `Someone across the street is waving you down — ${pad ? '✕' : 'E'} wave them over · ${pad ? '○' : 'Q'} ignore`;
       if (a.dealYes) {
         ped.jaywalk = true; // they cross wherever they are
@@ -919,6 +920,7 @@ export class Drugs {
     c.wait += dt;
     const k = game.input.mode === 'pad';
     const tell = (c.tell ? ` · ${c.tell}` : '') + (c.pushed ? ' · pushing it' : '');
+    game.askedAt = game.time; // (a yes / no question up: the phone shows ✕ and ○)
     this.prompt = `"${c.line}" — ${amountText(c.kind, c.units)} · ${money(c.price)}${tell} — ${k ? '✕' : 'E'} sell · ${k ? '○' : 'Q'} no`;
     if (a.dealYes) this.sell(c);
     else if (a.dealNo || c.wait > 10 || this.busy()) {

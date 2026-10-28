@@ -173,6 +173,7 @@ export class Enforcement {
     }
     const fine = p.vio.fine;
     const held = game.drugs.holding();
+    game.askedAt = game.time; // (a yes / no question up: the phone shows ✕)
     game.prompt = `Officer: "License and registration. You ${p.vio.label}." Ticket $${fine}. ${pad ? '✕' : 'E'} pay it · drive off to run`;
     // Something in the car? A good chance he smells it.
     if (held && !p.searched && p.t > 2.5) {

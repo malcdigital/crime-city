@@ -127,6 +127,7 @@ export class TurfRisk {
     if (dist(s.x, s.z, px, pz) > 2.6) return '';
     tx.wait += dt;
     const pad = game.input.mode === 'pad';
+    game.askedAt = game.time; // (a yes / no question up: the phone shows ✕ and ○)
     const prompt = `${GANGS[tx.g].name}: "this our block. u eatin here, we eatin. ${money(tx.cut)}" — ${pad ? '✕' : 'E'} pay · ${pad ? '○' : 'Q'} refuse`;
     if (a.dealYes) {
       if (game.cash >= tx.cut) {

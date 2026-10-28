@@ -345,6 +345,15 @@ export class TouchControls {
         B0.hint.textContent = (HINTS[ctx] && HINTS[ctx][id]) || '';
       }
     }
+    // On foot and in the car, ✕ (and the car's ○) are only for answering: a buyer's offer, a
+    // corner tax, a ticket. They show while a question's up, and hide the rest of the time.
+    if (ctx === 'foot' || ctx === 'car') {
+      const ask = game.time - (game.askedAt ?? -99) < 0.3;
+      const bx = this.el.buttons;
+      bx.cross.el.classList.toggle('hidden', !ask);
+      if (ctx === 'car') bx.circle.el.classList.toggle('hidden', !ask);
+      else bx.circle.hint.textContent = ask ? 'no' : 'punch';
+    }
     if (ctx === 'stop') this.el.buttons.fight.hint.textContent = game.player.vehicle ? 'floor it' : 'fight';
     if (ctx === 'qb') {
       const M = game.gridiron;
