@@ -186,13 +186,19 @@ export class Scoreboard {
     if (!this.elC) {
       const el = document.createElement('div');
       el.id = 'board3pt';
-      el.innerHTML = `<div class="c3-box"><div class="c3-head"><span class="c3-t">3-POINT CONTEST</span><span class="c3-clock"></span></div><div class="c3-racks"></div><div class="c3-foot"><span>SCORE <b class="c3-sc"></b></span><span>BEST <b class="c3-best"></b></span></div></div><div class="c3-count"></div>`;
-      document.body.appendChild(el);
+      el.innerHTML = `<div class="c3-box"><div class="c3-head"><span class="c3-t">3-POINT CONTEST</span><span class="c3-clock"></span></div><div class="c3-racks"></div><div class="c3-foot"><span>SCORE <b class="c3-sc"></b></span><span>BEST <b class="c3-best"></b></span></div></div>`;
+      // (the 3-2-1 is its own element, centered on the screen, not inside the scaled board)
+      const cn = document.createElement('div');
+      cn.id = 'c3-count';
+      document.body.append(el, cn);
       this.elC = el;
+      this.elCount = cn;
     }
     const el = this.elC;
     el.classList.remove('hidden');
+    this.elCount.classList.remove('hidden');
     document.body.classList.add('scoreboard-on', 'board3pt-on');
+    this.fitContest();
     const sec = Math.ceil(v.clock);
     const ck = el.querySelector('.c3-clock');
     ck.textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
@@ -208,7 +214,7 @@ export class Scoreboard {
       .join('');
     const racks = el.querySelector('.c3-racks');
     if (racks.innerHTML !== html) racks.innerHTML = html;
-    const cn = el.querySelector('.c3-count');
+    const cn = this.elCount;
     const ctext = v.phase === 'count' ? String(v.count) : '';
     if (cn.dataset.n !== ctext) {
       cn.dataset.n = ctext;
@@ -220,8 +226,33 @@ export class Scoreboard {
     }
   }
 
+  // Sizing the contest board to the screen. On a phone it sits in the top-right corner, in the
+  // space between the pause / QUIT buttons and the edge (the cash and clock hide under it while
+  // the contest's on), scaled to fit whatever the width; anywhere else it's centered at the
+  // top, scaled down only if the window's too narrow for it. Rechecked when the window or the
+  // touch layout changes.
+  fitContest() {
+    const el = this.elC;
+    const touch = document.body.classList.contains('touch');
+    let left = 0; // (the right edge of the pause / QUIT buttons up top)
+    if (touch) {
+      for (const b of document.querySelectorAll('.tb-quit, .tb-pause')) {
+        const r = b.getBoundingClientRect();
+        if (r.width && r.top < 80) left = Math.max(left, r.right);
+      }
+      if (!left) left = innerWidth * 0.5;
+    }
+    const key = `${innerWidth}x${innerHeight}:${touch}:${Math.round(left)}`;
+    if (this.fitKey === key) return;
+    this.fitKey = key;
+    const w = el.offsetWidth; // (unscaled: transforms don't change it)
+    const s = touch ? Math.max(0.45, Math.min(0.9, (innerWidth - left - 10 - Math.max(8, innerWidth * 0.01)) / w)) : Math.min(1, (innerWidth - 16) / w);
+    el.style.setProperty('--c3s', s.toFixed(3));
+  }
+
   hideContest() {
     if (this.elC) this.elC.classList.add('hidden');
+    if (this.elCount) this.elCount.classList.add('hidden');
     document.body.classList.remove('board3pt-on');
   }
 

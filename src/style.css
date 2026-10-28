@@ -707,7 +707,7 @@ body.touch #shot-badge .sb-s { font-size: 8px; }
 body.paused #shot-badge { display: none; }
 
 /* The 3-point contest board (scoreboard.js showContest). */
-#board3pt { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 6; pointer-events: none; text-align: center; color: #fff; }
+#board3pt { position: fixed; top: 8px; left: 50%; transform: translateX(-50%) scale(var(--c3s, 1)); transform-origin: top center; z-index: 6; pointer-events: none; text-align: center; color: #fff; }
 #board3pt.hidden { display: none; }
 #board3pt .c3-box { background: linear-gradient(#161c27f0, #0c1017f0); border: 2px solid #2b303b; border-radius: 14px; box-shadow: 0 6px 22px rgba(0,0,0,.5); padding: 7px 14px 8px; }
 #board3pt .c3-head { display: flex; justify-content: space-between; align-items: baseline; gap: 18px; }
@@ -726,12 +726,16 @@ body.paused #shot-badge { display: none; }
 #board3pt .c3-foot { display: flex; justify-content: space-between; font-size: 10px; font-weight: 900; letter-spacing: 2px; color: #8a93a3; }
 #board3pt .c3-foot b { color: #fff; font-size: 15px; margin-left: 4px; display: inline-block; }
 #board3pt .c3-foot b.bump { animation: b3-bump .45s cubic-bezier(.2, 1.5, .4, 1); }
-#board3pt .c3-count { position: fixed; left: 50%; top: 32vh; transform: translateX(-50%); font-size: 90px; font-weight: 900; color: #ffd23f; text-shadow: 0 4px 18px rgba(0,0,0,.6); }
-#board3pt .c3-count.pop { animation: b3-bump .5s cubic-bezier(.2, 1.5, .4, 1); }
+#c3-count { position: fixed; z-index: 6; pointer-events: none; left: 50%; top: 32vh; transform: translateX(-50%); text-align: center; line-height: 1; font-size: 90px; font-weight: 900; color: #ffd23f; text-shadow: 0 4px 18px rgba(0,0,0,.6); }
+#c3-count.hidden { display: none; }
+#c3-count.pop { animation: c3-pop .5s cubic-bezier(.2, 1.5, .4, 1); }
+@keyframes c3-pop { 0% { transform: translateX(-50%) scale(1); } 35% { transform: translateX(-50%) scale(1.35); } 100% { transform: translateX(-50%) scale(1); } }
 body.board3pt-on #sport { top: 120px; }
-body.touch #board3pt { top: 4px; left: calc(50% + 8px); transform: scale(.68); transform-origin: top left; }
+body.touch #board3pt { top: max(4px, env(safe-area-inset-top)); left: auto; right: max(8px, env(safe-area-inset-right)); transform: scale(var(--c3s, .68)); transform-origin: top right; }
+body.touch.board3pt-on #top-right { visibility: hidden; } /* (the cash and clock, under the board: back after the contest) */
+body.touch #c3-count { top: 24vh; font-size: 64px; }
 body.touch.board3pt-on #sport { top: 84px; }
-body.paused #board3pt { display: none; }
+body.paused #board3pt, body.paused #c3-count { display: none; }
 
 /* The results card after a contest run. */
 #contest-card { position: fixed; inset: 0; z-index: 46; display: flex; align-items: center; justify-content: center; background: rgba(6,8,12,.6); padding: 12px; }
@@ -782,8 +786,7 @@ body.paused #dice-panel { display: none; }
 #touch .tb-dleave { right: 130px; bottom: 20px; }
 #touch .tb-dleft { right: 130px; bottom: 110px; }
 #touch .tb-dright { right: 56px; bottom: 130px; }
-#board3pt .c3-count { text-align: center; line-height: 1; }
-#board3pt .c3-count small { display: block; white-space: nowrap; margin-top: 8px; font-size: 13px; letter-spacing: 3px; color: #8fb8ff; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
+#c3-count small { display: block; white-space: nowrap; margin-top: 8px; font-size: 13px; letter-spacing: 3px; color: #8fb8ff; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
 /* Hold-to-quit hint while you're in any game (main.js quitHoldStep). */
 #quit-hint { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 6; font: 600 11px/1 system-ui, sans-serif; letter-spacing: 1px; color: rgba(255,255,255,.72); background: rgba(0,0,0,.38); padding: 5px 10px; border-radius: 10px; pointer-events: none; }
 #quit-hint.hidden, body.paused #quit-hint { display: none; }
