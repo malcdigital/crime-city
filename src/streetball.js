@@ -104,7 +104,8 @@ function greenWindow(type, d) {
 // Heat check / on fire, per player: n makes in a row; st null, 'check' (the next shot is a heat
 // check: the ball smokes) or 'fire' (left: shots still on fire).
 const newHeat = () => ({ you: { n: 0, st: null, left: 0 }, opp: { n: 0, st: null, left: 0 } });
-const FIRE_RANGE = 8; // (on fire, the window and the odds never shrink past this distance)
+const FIRE_RANGE = 8;
+const REB_READY = 3.5; // (inside this far from the rim, hands come up for the rebound while a shot's up) // (on fire, the window and the odds never shrink past this distance)
 
 function jumperWindow(d) {
   if (d <= 2) return 0.15;
@@ -4078,7 +4079,7 @@ export class Streetball {
           p.heading = Math.atan2(p.x - qx, p.z - qz); // (his back into you)
           p.char.group.rotation.y = p.heading;
           y += boxOutPose(p.char, this.clock * 7, Math.hypot(hp.vx || 0, hp.vz || 0) > 0.4);
-        } else if (!busy && this.has === null && this.g.ball.mode === 'flight' && this.flight) readyPose(p.char);
+        } else if (!busy && this.has === null && this.g.ball.mode === 'flight' && this.flight && dist(p.x, p.z, this.rim.x, this.rim.z) < REB_READY) readyPose(p.char); // (only in close, the same as you)
         const gd = grabPose(p.char, this.game.time);
         if (gd != null) y += gd;
       }
@@ -4387,7 +4388,7 @@ export class Streetball {
           p.char.group.rotation.y = p.heading;
           Y.boxPh = (Y.boxPh || 0) + dt * 7;
           p.char.group.position.y += boxOutPose(p.char, Y.boxPh, Math.hypot(p.vx || 0, p.vz || 0) > 0.4);
-        } else if (!busy && this.has === null && b.mode === 'flight' && this.flight) readyPose(p.char);
+        } else if (!busy && this.has === null && b.mode === 'flight' && this.flight && dist(p.x, p.z, this.rim.x, this.rim.z) < REB_READY) readyPose(p.char); // (only in close, where the rebound is)
         const gd = grabPose(p.char, this.game.time);
         if (gd != null) p.char.group.position.y += gd;
       }
