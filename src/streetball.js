@@ -132,17 +132,6 @@ const SHUFFLES = new Set(['cross', 'legs', 'behind']); // (the hand switches you
 const LOCKED = new Set(['cross', 'legs', 'behind', 'hesi']); // (moves that keep you facing the way you were)
 // A spin: the facing during it (a full turn toward the new hand's side, eased in and out).
 const spinHeading = (mv, k) => mv.h0 - (mv.to || 1) * Math.PI * 2 * (k * k * (3 - 2 * k));
-// Names for moves strung together (shown when you chain them).
-const MOVE_WORDS = { cross: 'crossover', behind: 'behind the back', legs: 'between the legs', spin: 'spin', hesi: 'hesi', step: 'step-back' };
-function comboName(chain) {
-  const n = chain.length;
-  const a = chain[n - 2];
-  const b = chain[n - 1];
-  if (b === 'cross' && a === 'cross') return n >= 3 && chain[n - 3] === 'cross' ? 'Triple crossover' : 'Double crossover';
-  if (a === 'hesi' && b === 'cross') return 'Hesi crossover';
-  const w = MOVE_WORDS[a] || a;
-  return `${w[0].toUpperCase()}${w.slice(1)} into ${MOVE_WORDS[b] || b}`;
-}
 // Smoothing between poses (yours and his): every joint eases to where this frame's pose puts it
 // (about 0.1 s to settle), so moves, stances and shots blend instead of snapping.
 const JOINTS = ['armL', 'armR', 'legL', 'legR', 'kneeL', 'kneeR', 'elbowL', 'elbowR', 'wristL', 'wristR'];
@@ -2099,10 +2088,8 @@ export class Streetball {
     const quick = !big && (kind === 'cross' || kind === 'hesi');
     const T = quick ? (kind === 'cross' ? 0.2 : 0.28) : kind === 'hesi' ? 0.36 : M.T;
     Y.move = { kind, side, t: 0, T: T * (1.15 - 0.15 * Y.st), from, to, big: !quick, h0: p.heading };
-    if (chain) {
-      Y.chainKinds.push(kind);
-      this.game.hud.toast(comboName(Y.chainKinds), '#ffd23f');
-    } else Y.chainKinds = [kind];
+    if (chain) Y.chainKinds.push(kind);
+    else Y.chainKinds = [kind];
     Y.st = Math.max(0, Y.st - 0.027);
     Y.hand = to;
     Y.sizeUp = false;
@@ -2139,7 +2126,7 @@ export class Streetball {
         hp.fallT = 1.2;
         game.hud.toast(`ANKLE BREAKER! ${opp.ballName}'s on the floor`, '#7ee081');
         for (const q of this.g.players) if (q.hp.role === 'watch') q.hp.cheerT = 1.2;
-      } else game.hud.toast(`${M.name}: you got by him`, '#7ee081');
+      }
     }
   }
 
@@ -2316,7 +2303,6 @@ export class Streetball {
     // Euro step: a Pro Stick move during the layup gather.
     if (s.type === 'layup' && stick && !s.euro && s.t < 0.3) {
       s.euro = true;
-      this.game.hud.toast('Euro step', '#ffd23f');
     }
     if (s.type === 'dunk') {
       if (s.t >= s.T) this.resolveYou(0);
@@ -3974,7 +3960,7 @@ export class Streetball {
         Y.fallT = 1.1;
         game.hud.toast(`${p.ballName} broke your ankles`, '#ff8080');
         for (const q of this.g.players) if (q.hp.role === 'watch') q.hp.cheerT = 1.2;
-      } else game.hud.toast(`${M.name}: ${p.ballName} got by you`, '#ff8080');
+      }
     }
     return { speed: 0 };
   }

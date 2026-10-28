@@ -51,9 +51,20 @@ export class PostGame {
     this.game.prompt = '';
   }
 
-  // (hoops.js, for his group: nothing else to run)
-  step() {
+  // (hoops.js, for his group: the ball comes down out of the net and rolls on its own; nothing
+  // else to run)
+  step(dt) {
     if (!this.active) return;
+    const b = this.g?.ball;
+    if (b && b.mode !== 'held') {
+      if (b.mode !== 'loose') {
+        // (still in the air when it ended: it just drops from there)
+        b.mode = 'loose';
+        b.vx = b.vz = b.vy = 0;
+      }
+      this.H.roll(b, dt);
+      b.mesh?.position.set(b.x, b.y, b.z);
+    }
     const w = this.who;
     if (!w || w.removed || w.state !== 'play') this.finish();
   }
