@@ -475,40 +475,46 @@ export class Streetball {
     }
   }
 
-  // The menu of games (the shop menu: the game waits while it's up).
+  // The menu of games (courtmenu.js: the game waits while it's up): one-on-one with him or 33
+  // with everybody there; the house rules (the wager, how long the one-on-one goes); START, or
+  // watch from the side.
   gameMenu(near, opp) {
     const game = this.game;
-    const shops = game.shops;
     const n = Math.min(4, near.g.players.length) + 1;
-    const betNow = () => {
-      let bet = BETS[this.betI];
-      while (bet > game.cash && bet > 0) bet = BETS[BETS.indexOf(bet) - 1];
-      return bet;
-    };
-    const go = (fn) => () => {
-      shops.onClose = null;
-      shops.close();
-      this.talk = null;
-      fn(betNow());
-    };
-    shops.openCustom(`${opp.ballName}'s run`, () => {
-      const bet = betNow();
-      const b = bet ? `$${bet}` : 'nothing';
-      const items = [{ label: `Bet: ${b}`, price: 0, priceText: 'change', detail: 'What\'s riding on it (they match it). Pick this to change it, then pick the game.', can: true, buy: () => (this.betI = (this.betI + 1) % BETS.length) }];
-      // (one-on-one: one line, with its length on a line of its own to change)
-      const LENS = [11, 15, 21];
-      const to = LENS.includes(TARGETS[this.toI]) ? TARGETS[this.toI] : 11;
-      items.push({ label: `Game to: ${to}`, price: 0, priceText: 'change', detail: 'How long the one-on-one goes (first to 11, 15 or 21). Pick this to change it.', can: true, buy: () => (this.toI = TARGETS.indexOf(LENS[(LENS.indexOf(to) + 1) % LENS.length])) });
-      items.push({ label: `One-on-one with ${opp.ballName}, to ${to}`, price: 0, priceText: `${opp.ballR} OVR`, detail: `1s and 2s, check it up after every bucket. ${bet ? `$${bet} each, winner takes $${bet * 2}.` : 'Just for fun.'}`, can: true, buy: go((bt) => this.start(near.H, near.g, opp, bt, to)) });
-      items.push({ label: `33 (${n} players)`, price: 0, priceText: bet ? `$${bet} in` : 'free', detail: `Everybody at this basket, from spots on the arc. Every make's 3 in the pot, a miss eats it, 33 and you're out. Last one standing${bet ? ` takes $${bet * n}` : ' wins'}.`, can: true, buy: go((bt) => this.start33(near.H, near.g, bt)) });
-      items.push({ label: pick(['Nah, I\'m good', 'Maybe next time', 'Nah, just watching']), price: 0, priceText: '', detail: 'Walk away.', can: true, buy: () => shops.close() });
-      return items;
+    const LENS = [11, 15, 21];
+    const bets = BETS.filter((v) => v <= game.cash);
+    let bi = bets.indexOf(BETS[this.betI]);
+    if (bi < 0) bi = bets.length - 1;
+    const to0 = LENS.includes(TARGETS[this.toI]) ? TARGETS[this.toI] : 11;
+    const name = opp.ballName.toUpperCase();
+    game.courtMenu.show({
+      title: `${opp.ballName}'s run`,
+      place: near.H.site?.name || 'The court',
+      games: [
+        { id: '1v1', title: `1 on 1 vs. ${name}`, sub: (st) => `${opp.ballR} OVR · First to ${st.to}` },
+        { id: '33', title: `33 · ${n} players`, sub: (st) => `Every player for themselves${st.wager ? ` · winner takes $${st.wager * n}` : ''}` },
+      ],
+      rules: [
+        { id: 'wager', label: 'Wager', values: bets, i: bi, fmt: (v) => (v ? `$${v}` : 'None') },
+        { id: 'to', label: 'Play to', values: LENS, i: LENS.indexOf(to0), fmt: (v) => String(v), only: '1v1' },
+      ],
+      start: (st) => `START GAME${st.wager ? ` · $${st.wager}` : ''}`,
+      watch: pick(['Watch courtside', 'Nah, just watching', 'Maybe next time']),
+      onChange: (R) => {
+        // (remembered for next time)
+        if (R.id === 'wager') this.betI = BETS.indexOf(R.values[R.i]);
+        if (R.id === 'to') this.toI = TARGETS.indexOf(R.values[R.i]);
+      },
+      onStart: (st) => {
+        this.talk = null;
+        if (st.game === '33') this.start33(near.H, near.g, st.wager);
+        else this.start(near.H, near.g, opp, st.wager, st.to);
+      },
+      onClose: () => {
+        this.talk = null;
+        this.again = game.time + 0.8; // (the button that closed it doesn't ask again)
+      },
     });
-    shops.el.querySelector('.shop-help').textContent = game.input.touchMode ? 'Tap to choose, tap again to pick · ○: leave' : game.input.mode === 'pad' ? 'D-pad ↑↓: choose · ✕: pick · ○: leave' : '↑↓ / W S: choose · Enter / click: pick · Esc: leave';
-    shops.onClose = () => {
-      this.talk = null;
-      this.again = game.time + 0.8; // (the button that closed it doesn't ask again)
-    };
   }
 
   start(H, g, opp, bet, to) {

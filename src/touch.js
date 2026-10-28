@@ -313,6 +313,7 @@ export class TouchControls {
     if (!this.enabled) return;
     let ctx = 'foot';
     if (!game.started || game.paused || game.wastedT > 0 || game.bustedT > 0 || game.clipPlayer?.open || game.travel?.active) ctx = 'none';
+    else if (game.courtMenu?.open) ctx = 'none'; // (the court menu: tap it directly)
     else if (game.shops.menu) ctx = 'menu';
     else if (game.mapView.open) ctx = 'map';
     else if (game.hud.phoneOpen) ctx = 'phone';

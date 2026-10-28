@@ -564,3 +564,37 @@ body.touch #phone-body .ph-row { padding: 11px 8px; }
 #rampedit .re-legend i { display: inline-block; width: 12px; height: 4px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
 #rampedit .re-text { position: absolute; left: 10%; right: 10%; top: 25%; height: 40%; font-size: 11px; background: #111; color: #9f9; border-radius: 8px; padding: 8px; }
 #rampedit .hidden, #rampedit.hidden { display: none; }
+
+/* The court menu (courtmenu.js): what we playing? */
+#court-menu { position: fixed; inset: 0; z-index: 46; display: flex; align-items: center; justify-content: center; background: rgba(6,8,12,.6); padding: 12px; text-shadow: none; font-family: inherit; }
+#court-menu.hidden { display: none; }
+#court-menu .cm-box { width: 460px; max-width: 100%; max-height: calc(100vh - 24px); overflow-y: auto; background: linear-gradient(#141a24, #0d1118); border: 2px solid #2b303b; border-radius: 14px; box-shadow: 0 14px 48px rgba(0,0,0,.65); padding: 16px 20px 12px; color: #e8ecf2; }
+#court-menu .cm-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+#court-menu .cm-title { font-size: 22px; font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase; color: #ffd23f; }
+#court-menu .cm-place { font-size: 13px; color: #8a93a3; margin-top: 2px; }
+#court-menu .cm-cash { font-size: 17px; font-weight: 800; color: #8ff08f; white-space: nowrap; }
+#court-menu .cm-h { font-size: 11px; font-weight: 800; letter-spacing: 2px; color: #8a93a3; margin: 12px 0 6px; }
+#court-menu .cm-game { padding: 9px 14px; border: 2px solid transparent; border-radius: 10px; cursor: pointer; margin-bottom: 4px; }
+#court-menu .cm-game.on { border-color: #ffd23f; background: rgba(255,210,63,.08); }
+#court-menu .cm-game.focus { box-shadow: 0 0 0 2px #2d6cdf inset; }
+#court-menu .cm-gt { font-size: 16px; font-weight: 900; letter-spacing: .5px; text-transform: uppercase; }
+#court-menu .cm-gs { font-size: 12px; color: #a8b0bd; margin-top: 2px; }
+#court-menu .cm-rule { display: flex; justify-content: space-between; align-items: center; padding: 7px 14px; border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer; }
+#court-menu .cm-rule.focus { background: #1d2a44; box-shadow: 0 0 0 2px #2d6cdf inset; }
+#court-menu .cm-val { display: flex; align-items: center; gap: 10px; }
+#court-menu .cm-val i { font-style: normal; min-width: 54px; text-align: center; color: #ffd23f; }
+#court-menu .cm-val b { font-size: 20px; color: #8a93a3; padding: 0 6px; cursor: pointer; user-select: none; }
+#court-menu .cm-val b:hover { color: #fff; }
+#court-menu .cm-start { margin: 14px auto 6px; width: max-content; padding: 10px 26px; border-radius: 10px; background: #2b303b; font-size: 16px; font-weight: 900; letter-spacing: 1px; cursor: pointer; }
+#court-menu .cm-start.focus { background: #ffd23f; color: #111; box-shadow: 0 0 18px rgba(255,210,63,.45); }
+#court-menu .cm-watch { text-align: center; font-size: 13px; color: #8a93a3; padding: 6px; border-radius: 8px; cursor: pointer; }
+#court-menu .cm-watch.focus { color: #fff; background: #1d2a44; }
+#court-menu .cm-help { text-align: center; font-size: 12px; color: #6b7280; margin-top: 8px; padding-top: 8px; border-top: 1px solid #222936; }
+@media (max-height: 440px) {
+  #court-menu .cm-box { padding: 10px 14px 8px; }
+  #court-menu .cm-title { font-size: 17px; }
+  #court-menu .cm-h { margin: 6px 0 3px; }
+  #court-menu .cm-game { padding: 5px 10px; }
+  #court-menu .cm-rule { padding: 4px 12px; }
+  #court-menu .cm-start { margin: 8px auto 4px; padding: 7px 20px; }
+}

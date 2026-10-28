@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CFG, CRIMES, GANG_NAME } from './config.js';
+import { CourtMenu } from './courtmenu.js';
 import { buildCity, districtAt, streetAt } from './city.js';
 import { buildSidewalks } from './sidewalk.js';
 import { Streets } from './streets.js';
@@ -126,6 +127,7 @@ class Game {
     this.football = new Football(this); // (football practice at Harbor Field)
     this.sport = new Streetball(this); // (one-on-one with somebody at the courts)
     this.gridiron = new Gridiron(this); // (quarterback a drive at Harbor Field)
+    this.courtMenu = new CourtMenu(this); // (what we playing? courts and the field)
     this.playground = new Playground(this); // (kids at the Market St playground, people by the statue)
     this.pursuit = new Pursuit(this); // (police tactics, lying low, the radio)
     this.justice = new Justice(this); // (charges, booking, bail, jail time, your record)
@@ -2118,6 +2120,9 @@ class Game {
           ? 'This page blocks controllers. Run the game locally (npm run dev) to use a PS5 controller.'
           : 'Plug in or pair a PS5 controller and press any button, then ✕ to play.';
       if (a.start) this.start();
+    } else if (this.courtMenu?.open) {
+      // A court's menu of games (courtmenu.js): the game waits.
+      this.courtMenu.update(a);
     } else if (this.shops.menu) {
       // Shop menu: the game is paused underneath.
       this.shops.updateMenu(a);
