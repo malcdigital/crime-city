@@ -45,6 +45,8 @@ const ARC = 6.75;
 const BETS = [0, 50, 100, 250, 500];
 const TARGETS = [11, 15, 21, 33]; // (33: the game called 33, everyone at the court)
 // 33: each player's color (yours first).
+// 33: an easy, unhurried dribble while you wait and set up (a game's is 9).
+const DRIBBLE33 = 5.5;
 const COLORS33 = [0xffd23f, 0x6fa8ff, 0xff6b6b, 0x3ddc97, 0xff79c6];
 // A name floating over a spot (33): a label that always faces the camera.
 function textSprite33(text, color) {
@@ -894,7 +896,7 @@ export class Streetball {
         const rz = Math.sin(q.heading);
         b.x = q.x + Math.sin(q.heading) * 0.35 + rx * 0.3;
         b.z = q.z + Math.cos(q.heading) * 0.35 + rz * 0.3;
-        b.y = 0.2 + Math.abs(Math.sin(this.clock * 8 + P.score)) * 0.8;
+        b.y = 0.2 + Math.abs(Math.sin(this.clock * DRIBBLE33 + P.score)) * 0.8;
       }
     }
     b.mesh.position.set(b.x, b.y, b.z);
@@ -1034,7 +1036,7 @@ export class Streetball {
       const tg = rel - 0.4; // (the gather)
       if (S.t < tg) {
         // (a dribble or two first)
-        dribbleArm(c, 1, this.clock * 9, 0);
+        dribbleArm(c, 1, this.clock * DRIBBLE33 + (P?.score || 0), 0);
         return 0.04 + crouchPose(c, 0.15);
       }
       const f = S.t >= rel ? S.t - rel : -1;
@@ -1043,7 +1045,7 @@ export class Streetball {
       if (f > 0.7) p.hp.s33 = null;
       return 0.04 + jump + r.y;
     }
-    if (P?.ball && P.ball.holder === p && P.ball.mode === 'held') dribbleArm(c, 1, this.clock * 9 + P.score, 0);
+    if (P?.ball && P.ball.holder === p && P.ball.mode === 'held') dribbleArm(c, 1, this.clock * DRIBBLE33 + P.score, 0);
     return 0.04;
   }
 
@@ -3013,7 +3015,7 @@ export class Streetball {
       const fx = Math.sin(p.heading);
       const fz = Math.cos(p.heading);
       const Y = this.you;
-      this.dribble = (this.dribble || 0) + dt * (Y.sizeUp ? 12 : 9);
+      this.dribble = (this.dribble || 0) + dt * (this.t33 ? DRIBBLE33 : Y.sizeUp ? 12 : 9); // (33: a slow, easy bounce)
       if (Y.dunk) {
         // (in the hand going up: where the arm puts it)
         const [ar, al] = this.dunkArms();
