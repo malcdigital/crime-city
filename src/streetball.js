@@ -97,10 +97,13 @@ const LATE = 0.35; // (held this long past the top it goes up anyway: very late)
 // The green window by shot (seconds, full width). A three from the arc out to 8 m keeps its
 // 80 ms; everything else is set from there: wide for layups, wider the closer a jumper is, and
 // shrinking fast past 8 m (half court ~20 ms, three-quarter court a couple of ms).
+// Jumpers go up 28% quicker than they used to, everybody's, and their green windows shrink by
+// the same amount (a three's is now ~66 ms). Layups, floaters and dunks are as they were.
+const SHOT_SPEED = 0.72;
 function greenWindow(type, d) {
   if (type === 'layup') return 0.2;
   if (type === 'floater') return 0.12;
-  return jumperWindow(d) * 1.15; // (+15% since the jump got quicker: a three is now ~92 ms)
+  return jumperWindow(d) * 1.15 * SHOT_SPEED;
 }
 // Heat check / on fire, per player: n makes in a row; st null, 'check' (the next shot is a heat
 // check: the ball smokes) or 'fire' (left: shots still on fire).
@@ -2336,8 +2339,7 @@ export class Streetball {
     const pivot = off > 1.2;
     const turnT = pivot ? off / 9 : 0;
     this.heatShot('you', type);
-    // (the 3-point contest: a quick catch-and-shoot release, ~28% faster; the window's the same width)
-    this.shot = { type, t: 0, T: (SHOTS[type].T + turnT) * (this.t3 ? 0.72 : 1), W: greenWindow(type, this.onFire('you') ? Math.min(D.d, FIRE_RANGE) : D.d), d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false, pivot, turnT };
+    this.shot = { type, t: 0, T: SHOTS[type].T * (type === 'jumper' ? SHOT_SPEED : 1) + turnT, W: greenWindow(type, this.onFire('you') ? Math.min(D.d, FIRE_RANGE) : D.d), d0: D.d, pts: D.d > ARC ? 2 : 1, onRun: moving && p.speed > 3, sprint, stepback, euro: false, pivot, turnT };
     // (a jumper off your right hand; a layup or floater off the hand the ball's in)
     this.shot.hand = type === 'jumper' ? 1 : (this.ballSide ?? Y.hand ?? 1) >= 0 ? 1 : -1;
     // A layup's hand: the side you're holding the left stick (right of the rim: right hand),
@@ -4204,7 +4206,7 @@ export class Streetball {
     const [qx, qz] = this.game.player.pos();
     hp.fade = type === 'jumper' && (stepback || (dist(p.x, p.z, qx, qz) < 1.6 && Math.random() < 0.4));
     hp.t = 0;
-    hp.rel = type === 'jumper' ? 0.32 : type === 'dunk' ? 0.5 : 0.28;
+    hp.rel = type === 'jumper' ? 0.32 * SHOT_SPEED : type === 'dunk' ? 0.5 : 0.28; // (his jumper quicker, the same as yours)
     // Layups and dunks: the same footwork as yours. The gather, two steps (a dunk from 1-2 m:
     // one; inside 1 m: a jump stop), up off the last one. The release comes after that.
     hp.appr = null;
