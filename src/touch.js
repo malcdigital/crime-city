@@ -513,6 +513,7 @@ export class TouchControls {
       b.tri.hint.textContent = meter ? 'lob' : '';
       // (a ball coming to you: CATCH is the only button)
       const incoming = cat && ((game.football?.ball?.mode === 'flight' && game.football.ball.to === 'you') || !!M?.cat?.late);
+      this.el.root.classList.toggle('catching', incoming); // (CATCH alone, and big: style.css)
       if (meter) b.cross.hint.textContent = incoming ? 'catch' : 'touch';
       b.circle.el.classList.toggle('hidden', running || meter);
       b.qr1.el.classList.toggle('hidden', running || meter);
@@ -523,6 +524,7 @@ export class TouchControls {
       b.tprev.el.classList.toggle('hidden', !qbc);
       b.tnext.el.classList.toggle('hidden', !qbc);
     }
+    if (ctx !== 'qb') this.el.root.classList.remove('catching');
     this.dribbleGest = false;
     if (ctx === 'ball') {
       // (on defense: SHOOT is steal, the moves are hidden)

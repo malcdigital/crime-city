@@ -394,6 +394,10 @@ body.touch #sport .sh { display: none; }
 #touch[data-ctx="qb"] .tb-reload { right: 168px; bottom: 100px; color: #ff79c6; }
 #touch[data-ctx="qb"] .tb-circle { right: 24px; bottom: 100px; color: #ff6b6b; }
 #touch[data-ctx="qb"] .tb-cross { right: 96px; bottom: 30px; color: #6fa8ff; }
+/* (a throw coming to you: CATCH is the only button, and a big one) */
+#touch[data-ctx="qb"].catching .tb-cross { width: 124px; height: 124px; font-size: 52px; right: 48px; bottom: 34px; border-width: 3px; }
+#touch[data-ctx="qb"].catching .tb-cross .th { font-size: 15px; font-weight: 800; }
+@media (max-height: 340px) { #touch[data-ctx="qb"].catching .tb-cross { width: 108px; height: 108px; font-size: 46px; bottom: 22px; } }
 #touch .tb-clong, #touch .tb-cclose { right: 18px; width: 64px; height: 50px; font-size: 13px; border-radius: 12px; }
 #touch .tb-clong { bottom: 150px; color: #ffd23f; }
 #touch .tb-cclose { bottom: 90px; color: #9fc3ff; }
