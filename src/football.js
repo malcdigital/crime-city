@@ -641,7 +641,7 @@ export class Football {
       if (b.holder === p) {
         if (f.throwT > 0) throwPose(c, 1 - Math.max(0, f.throwT - 0.12) / 0.23, 0); // (winding up)
         else if (p.speed > (f.role === 'qb' ? 4 : 0.5)) tuckCarry(c, p.speed); // (high and tight; a quarterback dropping back keeps two hands on it)
-        else if (!set) holdBall(c, f.role === 'qb' ? Math.sin(this.t * 1.6) * 0.8 : 0); // (in the pocket, scanning)
+        else if (!set) y = holdBall(c, f.role === 'qb' ? Math.sin(this.t * 1.6) * 0.8 : 0, p.speed < 0.6, this.t) + 0.04; // (in the pocket, scanning, feet at shoulder width)
       } else if (f.relT > 0) {
         throwPose(c, 1, 1 - f.relT / 0.4); // (the throw and the follow-through)
       } else if (b.mode === 'flight' && b.to === p && b.T - b.t < 0.6) {

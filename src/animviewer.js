@@ -61,9 +61,9 @@ function list(game) {
     ['Fighting', 'Shot from behind: falls forward', 2.6, (c, t) => S_fall(c, t - 0.3, 'front')],
     // ---- Football (footballpose.js: yours and theirs) ----
     ['Football', 'QB stance (at the line)', 2, (c) => ({ y: qbStance(c), fball: 1 })],
-    ['Football', 'In the pocket (scanning)', 3, (c, t) => { holdBall(c, Math.sin((t / 3) * Math.PI * 2) * 0.8); return { fball: 1 }; }],
+    ['Football', 'In the pocket (scanning)', 3, (c, t) => ({ y: holdBall(c, Math.sin((t / 3) * Math.PI * 2) * 0.8, true, t), fball: 1 })],
     ['Football', 'Throw (wind up, release, follow-through)', 1.6, (c, t) => {
-      if (t < 0.25) { holdBall(c, 0); return { fball: 1 }; }
+      if (t < 0.25) return { y: holdBall(c, 0, true, t), fball: 1 };
       if (t < 0.55) { throwPose(c, (t - 0.25) / 0.3, 0); return { fball: 1 }; }
       throwPose(c, 1, Math.min(1, (t - 0.55) / 0.4));
       return { fball: 1 };

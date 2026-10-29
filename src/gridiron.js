@@ -780,7 +780,7 @@ export class Gridiron {
         c.group.rotation.y = p.heading - Math.PI * 2 * (k * k * (3 - 2 * k));
       } else if (M && M.kind === 'stiff') stiffArmPose(c, M.t / M.T, sp);
       else if (this.scramble || (sp > 3 && !this.dropping)) tuckCarry(c, sp); // (high and tight; dropping back it stays in both hands)
-      else holdBall(c, this.dropping ? 0 : Math.sin(game.time * 1.4) * 0.5); // (two hands on it at the chest, scanning)
+      else c.group.position.y += holdBall(c, this.dropping ? 0 : Math.sin(game.time * 1.4) * 0.5, !this.dropping && sp < 0.6, game.time); // (two hands on it at the chest, scanning; feet at shoulder width)
       this.placeBall(c, b);
     } else if (this.throwT > 0) throwPose(c, 1, 1 - this.throwT / 0.4); // (the follow-through)
   }

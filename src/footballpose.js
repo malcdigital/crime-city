@@ -75,12 +75,23 @@ export function dbStance(c) {
 
 // In the pocket: two hands on the ball high at the chest, elbows in; look (-1..1, + his left)
 // turns the head and shoulders to scan.
-export function holdBall(c, look = 0) {
-  bendSpine(c, 0.12, look * 0.3, 0);
-  c.neck.rotation.set(-0.05, look * 0.6, 0);
+// still: standing in the pocket (not dropping back or moving): the base under it, feet out to
+// shoulder width, knees soft, the front (left) foot a half step ahead, the weight on the balls
+// of the feet, the feet alive (a light quick shuffle, now: seconds). Returns the height change.
+export function holdBall(c, look = 0, still = true, now = 0) {
+  bendSpine(c, 0.16, look * 0.3, 0);
+  c.neck.rotation.set(-0.08, look * 0.6, 0);
   reachArm(c, 'R', _a.set(-0.07, 1.3, 0.32), _b.set(-1, -0.6, -0.2), _c.set(0.2, 0.3, 1), null, 'body');
   reachArm(c, 'L', _a.set(0.07, 1.3, 0.32), _b.set(1, -0.6, -0.2), _c.set(-0.2, 0.3, 1), null, 'body');
   grip(c, 'two');
+  if (!still) return 0;
+  const hop = Math.max(0, Math.sin(now * 9)) * 0.06; // (alive on the toes, one foot then the other)
+  const hop2 = Math.max(0, -Math.sin(now * 9)) * 0.06;
+  bendLeg(c.legL, c.kneeL, 0.42 + hop, 0.55 + hop * 2); // (the front foot, a half step ahead)
+  bendLeg(c.legR, c.kneeR, 0.18 + hop2, 0.55 + hop2 * 2);
+  c.legL.rotation.z = 0.24; // (out to shoulder width)
+  c.legR.rotation.z = -0.24;
+  return -lowestPoint(c);
 }
 
 // Running with it: high and tight (the ball against the ribs, the hand over its front tip, the
