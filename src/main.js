@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CFG, CRIMES, GANG_NAME } from './config.js';
 import { CourtMenu } from './courtmenu.js';
+import { METER_STYLES } from './throwmeter.js';
 import { ResultsCard } from './contest.js';
 import { Leaderboard } from './leaderboard.js';
 import { DiceManager } from './dice.js';
@@ -122,12 +123,13 @@ class Game {
     this.contestCine = new ContestCine(this); // (the 3-point contest's intro, record and finish)
     this.animViewer = new AnimViewer(this); // (every pose and move, one at a time: from the pause menu)
     // Your style (the pause menu): how you hold a pistol, how you stand with your fists up.
-    this.style = { grip: 'two', fight: 'orthodox' };
+    this.style = { grip: 'two', fight: 'orthodox', meter: 'needle' };
     try {
       Object.assign(this.style, JSON.parse(localStorage.getItem('crimecity.style.v1') || '{}'));
     } catch {}
     if (!PISTOL_STYLES[this.style.grip]) this.style.grip = 'two';
     if (!FIGHT_STYLES[this.style.fight]) this.style.fight = 'orthodox';
+    if (!METER_STYLES[this.style.meter]) this.style.meter = 'needle';
     this.gpsLine = new GpsLine(THREE, this.scene);
     this.aircam = new AirCam(this);
     this.clipPlayer = new ClipPlayer();
@@ -1482,7 +1484,7 @@ class Game {
 
   // Your pistol grip or fight style, the next one along (saved).
   cycleStyle(which) {
-    const list = Object.keys(which === 'grip' ? PISTOL_STYLES : FIGHT_STYLES);
+    const list = Object.keys(which === 'grip' ? PISTOL_STYLES : which === 'meter' ? METER_STYLES : FIGHT_STYLES);
     this.style[which] = list[(list.indexOf(this.style[which]) + 1) % list.length];
     try {
       localStorage.setItem('crimecity.style.v1', JSON.stringify(this.style));
@@ -1496,6 +1498,8 @@ class Game {
     const pad = this.input.mode === 'pad';
     if (g) g.textContent = `Pistol grip: ${PISTOL_STYLES[this.style.grip]} ▸ ${pad || this.input.touchMode ? '' : '(G)'}`;
     if (f) f.textContent = `Fight style: ${FIGHT_STYLES[this.style.fight].name} ▸ ${pad || this.input.touchMode ? '' : '(B)'}`;
+    const m = document.getElementById('meter-btn');
+    if (m) m.textContent = `Throw meter: ${METER_STYLES[this.style.meter]} ▸ ${pad || this.input.touchMode ? '' : '(H)'}`;
   }
 
   punch() {
@@ -2327,6 +2331,8 @@ class Game {
       this.cycleStyle('grip'); // (G in the pause menu)
     } else if (this.paused && this.input.hit?.('KeyB')) {
       this.cycleStyle('fight'); // (B in the pause menu)
+    } else if (this.paused && this.input.hit?.('KeyH')) {
+      this.cycleStyle('meter'); // (H in the pause menu: playing catch's throw meter)
     } else if (this.paused && this.pauseNav(a)) {
       // (the controller in the pause menu: the D-pad picks a button, ✕ presses it)
     } else if (this.matchup.open) {
@@ -2353,7 +2359,8 @@ class Game {
     } else if (!this.paused) {
       // (a beat of slow motion: breaking the 3-point record)
       this.slowT = Math.max(0, (this.slowT || 0) - dt);
-      this.update(this.slowT > 0 ? dt * 0.3 : dt, a);
+      // (and while you wind up a throw playing catch: fieldmodes.js eases timeScale to half)
+      this.update(dt * (this.slowT > 0 ? 0.3 : this.timeScale || 1), a);
       this.quitHoldStep(dt, a);
     }
     stepFalls(); // (anyone tipping over: character.js)
@@ -2714,6 +2721,7 @@ document.getElementById('quit-game').addEventListener('click', () => game.quitPi
 document.getElementById('anim-btn').addEventListener('click', () => game.animViewer.show());
 document.getElementById('grip-btn').addEventListener('click', () => game.cycleStyle('grip'));
 document.getElementById('fight-btn').addEventListener('click', () => game.cycleStyle('fight'));
+document.getElementById('meter-btn').addEventListener('click', () => game.cycleStyle('meter'));
 game.showStyle();
 // Interchange editor (testing) in the pause menu.
 if (game.rampEditor) {

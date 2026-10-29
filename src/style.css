@@ -478,9 +478,9 @@ body.touch #mouse-hint, body.touch #phone-hint, body.touch .controls, body.touch
 .touch-help { display: none; margin-top: 12px; font-size: 13px; line-height: 1.5; }
 .touch-help b { color: #ffd23f; }
 body.touch .touch-help { display: block; }
-.style-row { display: flex; gap: 8px; }
+.style-row { display: flex; flex-wrap: wrap; gap: 8px; }
 #pause button.pad-focus { outline: 3px solid #ffd23f; outline-offset: 2px; box-shadow: 0 0 14px rgba(255,210,63,.55); }
-.style-row .quality { flex: 1; min-width: 0; font-size: 13px; }
+.style-row .quality { flex: 1 1 150px; min-width: 0; font-size: 13px; }
 .quality { width: 100%; margin-top: 12px; padding: 10px; font-size: 14px; font-weight: 700; background: #1d2433; color: #fff; border: 1px solid #2f3a50; border-radius: 6px; cursor: pointer; }
 body.touch #shop .shop-row { padding: 12px 18px; }
 body.touch #phone-body .ph-row { padding: 11px 8px; }
@@ -1028,3 +1028,16 @@ body.animview-on #pause, body.animview-on #touch, body.animview-on #hud, body.an
 .c3-burst::before { content: ''; position: absolute; inset: -40% -30%; background: radial-gradient(closest-side, rgba(255,215,90,.55), rgba(255,215,90,0)); z-index: -1; }
 @keyframes c3c-burst { 0% { opacity: 0; transform: translate(-50%, -50%) scale(2.6); } 14% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -62%) scale(.96); } }
 @media (prefers-reduced-motion: reduce) { #cine3 *, #cine3, .c3-burst { animation-duration: .01s !important; animation-delay: 0s !important; transition-duration: .01s !important; } }
+
+/* Playing catch's throw meter (throwmeter.js): beside you, the SVG of the chosen look, and the
+   verdict under it. */
+#throw-meter { position: fixed; z-index: 12; pointer-events: none; transform: translate(-50%, -50%); width: 140px; text-align: center; filter: drop-shadow(0 2px 4px rgba(0,0,0,.6)); }
+#throw-meter.hidden { display: none; }
+#throw-meter svg { display: block; }
+#throw-meter .tm-label { margin-top: 2px; font-size: 13px; font-weight: 900; letter-spacing: 1px; white-space: nowrap; color: #fff; text-shadow: 0 1px 3px #000; }
+#throw-meter .tm-label.cue { color: #ffd23f; animation: tm-pulse .35s ease-in-out infinite alternate; }
+#throw-meter .tm-label.good { color: #3ddc78; }
+#throw-meter .tm-label.ok { color: #ffd23f; }
+#throw-meter .tm-label.bad { color: #ff6b6b; }
+@keyframes tm-pulse { from { transform: scale(1); } to { transform: scale(1.15); } }
+@media (max-height: 420px) { #throw-meter { transform: translate(-50%, -50%) scale(.72); } }

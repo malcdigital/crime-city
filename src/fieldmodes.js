@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { dist, rand, pick, lerpAngle } from './util.js';
 import { throwPose, catchPose } from './footballpose.js';
+import { ThrowMeter, PERFECT } from './throwmeter.js';
 
 // The other games at Harbor Field (mixed into Gridiron: gridiron.js), picked from the field's
 // menu the way you pick a game at the courts (courtmenu.js):
@@ -41,7 +42,9 @@ const RING_Y = 1.7;
 // other (past it, backing off fights you and he comes in). Three throws, each held for power:
 // the green zone on the meter is the power his distance needs (early: short, late: long).
 const LEASH = 50 * YD;
-const FILL = 1.1; // (seconds to a full meter)
+const FILL = 0.6; // (game seconds to a full meter: about 1.2 s with time slowed to half)
+const ACC_T = 0.45; // (game seconds for the accuracy needle: about 0.9 s slowed; the perfect tap's halfway)
+const SLOW = 0.5; // (time while you hold and tap)
 const CTYPES = {
   bullet: { max: 40, T: (L) => 0.25 + L / 26, win: 0.05, err: 0.35, h: 1.3 }, // (on a line: quick, the least forgiving)
   touch: { max: 46, T: (L) => 0.5 + L / 19, win: 0.065, err: 0.45, h: 1.35 }, // (over the top of somebody, dropped in)
@@ -214,6 +217,12 @@ export const FieldModes = {
       throwPose(c, 1, 1 - this.throwT / 0.4); // (the follow-through)
       return true;
     }
+    if (this.mode === 'catch' && this.cat?.acc) {
+      // (the arm coming through while you time the tap: the ball leaves the hand at the middle)
+      throwPose(c, 1, Math.min(0.34, (this.cat.acc.n / 0.5) * 0.34));
+      c.group.userData.fbGrip = 'throw';
+      return true;
+    }
     if (this.mode === 'catch' && b.mode === 'flight' && b.to === 'you' && b.T - b.t < 0.6) {
       catchPose(c, b.style === 'lob' || b.p1[1] > 1.5); // (hands up for it)
       return true;
@@ -239,6 +248,8 @@ export const FieldModes = {
     for (const q of fb.players) q.fb.side = null;
     if (fb.ball) fb.ball.mesh.visible = true;
     game.hud.sportFloat?.(null);
+    this.tmeter?.hide();
+    if (game.timeScale !== 1) game.timeScale = 1;
   },
 
   // ---- QB Challenge ----
@@ -491,7 +502,13 @@ export const FieldModes = {
     const pad = inp.mode === 'pad' && !inp.touchMode;
     const held = { bullet: !!R[0] || key('KeyJ'), touch: !!R[1] || key('KeyK') || (!pad && fire), lob: !!R[3] || key('KeyL') };
     const can = b.holder === 'you' && b.mode === 'held';
-    if (can && !this.press) {
+    if (C.acc) {
+      // The accuracy tap: the same button again as the needle crosses the middle (no tap by the
+      // end: it goes anyway, way off).
+      C.acc.n += dt / ACC_T;
+      const tap = held[C.acc.kind] && !C.prevHeld[C.acc.kind];
+      if (tap || C.acc.n >= 1 || !can) this.catchRelease(tap ? C.acc.n : null, a);
+    } else if (can && !this.press) {
       for (const k of ['bullet', 'touch', 'lob']) {
         if (held[k] && !C.prevHeld[k]) {
           this.press = { kind: k, t: 0 };
@@ -500,14 +517,21 @@ export const FieldModes = {
       }
     } else if (!can) this.press = null;
     if (this.press) {
+      // Power: hold, let go in the green.
       const P = this.press;
       if (held[P.kind]) P.t += dt;
       else {
         this.press = null;
-        this.catchThrow(P.kind, P.t, a);
+        const [px, pz] = game.player.pos();
+        C.acc = { kind: P.kind, power: Math.min(1, P.t / FILL), n: 0, d: dist(px, pz, C.mate.x, C.mate.z) };
       }
     }
     C.prevHeld = held;
+    // (time slows to half while you hold and tap, and eases back after)
+    const ts = game.timeScale || 1;
+    const want = this.press || C.acc ? SLOW : 1;
+    game.timeScale = ts + (want - ts) * Math.min(1, (dt / ts) * 9);
+    if (Math.abs(game.timeScale - 1) < 0.01) game.timeScale = 1;
     if (inp.btnHit?.(12) || inp.hit?.('KeyE')) this.callMate(1);
     if (inp.btnHit?.(13) || inp.hit?.('KeyQ')) this.callMate(-1);
     if ((R[4] && !this.prevR[4]) || inp.hit?.('KeyX')) this.sendRoute();
@@ -523,7 +547,19 @@ export const FieldModes = {
 
   // Your throw: as far as the power you let go at (early: short, late: long), toward where he'll
   // be, a little off line (more the further off the green, on the run, and deep).
-  catchThrow(kind, hold, a) {
+  // The tap (n: where the needle was, or null for none): the ball's away.
+  catchRelease(n, a) {
+    const C = this.cat;
+    const A = C.acc;
+    C.acc = null;
+    const acc = n == null ? (Math.random() < 0.5 ? -0.5 : 0.5) : n - 0.5;
+    this.catchThrow(A.kind, A.power, acc, a, n);
+  },
+
+  // Your throw: as far as the power you let go at (early: short, late: long), toward where he'll
+  // be; the tap sets the line (early pulls it to your left, late pushes it right, more the
+  // further off and the deeper it goes), plus a touch of wobble (more on the run).
+  catchThrow(kind, pw, acc, a, tapN = null) {
     const game = this.game;
     const fb = this.fb;
     const b = fb.ball;
@@ -532,13 +568,12 @@ export const FieldModes = {
     const p = game.player;
     const [px, pz] = p.pos();
     const TY = CTYPES[kind];
-    const pw = Math.min(1, hold / FILL);
     // (where he'll be: standing, or running his route)
     const sp = w.speed || 0;
     const T0 = TY.T(dist(px, pz, w.x, w.z));
     let ax = w.x + Math.sin(w.heading) * sp * T0;
     let az = w.z + Math.cos(w.heading) * sp * T0;
-    // (the left stick leads him, camera-relative)
+    // (the left stick leads him on a route, camera-relative)
     const mx = a?.moveX || 0;
     const my = a?.moveY || 0;
     if (Math.hypot(mx, my) > 0.3 && sp > 1) {
@@ -552,20 +587,23 @@ export const FieldModes = {
     const L = Math.max(2, pw * TY.max);
     const ux = (ax - px) / da;
     const uz = (az - pz) / da;
-    let err = TY.err * (0.4 + da / 45) + Math.abs(off) * (Math.abs(off) > TY.win ? 6 : 2);
-    if ((p.speed || 0) > 2.5) err += 0.6;
-    const lat = rand(-1, 1) * err * 0.7;
+    let wob = TY.err * 0.3 * (0.4 + da / 45);
+    if ((p.speed || 0) > 2.5) wob += 0.6;
+    const lat = acc * 18 * (0.5 + da / 45) + rand(-1, 1) * wob; // (+: to your right)
     const F = fb.site.field;
     const tx = Math.max(F.x0 - 4, Math.min(F.x1 + 4, px + ux * L - uz * lat));
     const tz = Math.max(F.z0 - 4, Math.min(F.z1 + 4, pz + uz * L + ux * lat));
     fb.launch(tx, TY.h, tz, TY.T(dist(px, pz, tx, tz)), 'pass', w);
     b.style = kind === 'lob' ? 'lob' : 'bullet';
     b.throwKind = kind;
-    this.throwT = 0.4;
+    this.throwT = 0.26; // (the rest of the follow-through)
     this.state = 'air';
     C.throws = (C.throws || 0) + 1;
-    const a2 = Math.abs(off);
-    C.last = { v: pw, lo: need - TY.win, hi: need + TY.win, fx: a2 <= TY.win * 0.5 ? 'perfect' : a2 <= TY.win ? '' : off < 0 ? 'slight early' : 'slight late', fxKey: C.throws, until: game.time + 0.9 };
+    // (what the meter shows a moment after: where you let go and tapped, and the verdict)
+    const pwr = Math.abs(off) <= TY.win ? '' : off < 0 ? 'SHORT' : 'LONG';
+    const aim = tapN == null ? 'NO TAP' : Math.abs(acc) <= PERFECT ? 'PERFECT' : acc < 0 ? 'PULLED' : 'PUSHED';
+    const perfect = !pwr && aim === 'PERFECT';
+    C.last = { v: pw, lo: need - TY.win, hi: need + TY.win, n: null, tap: tapN ?? (acc < 0 ? 0 : 1), label: perfect ? 'PERFECT' : [pwr, aim === 'PERFECT' ? 'ON LINE' : aim].filter(Boolean).join(' · '), labelClass: perfect ? 'good' : !pwr && Math.abs(acc) <= 0.1 ? 'ok' : 'bad', until: game.time + 1.1 };
   },
 
   // D-pad ↑: go long (10 yards further out, up to the limit); ↓: come closer.
@@ -613,25 +651,31 @@ export const FieldModes = {
     const yd = Math.round(dist(px, pz, C.mate.x, C.mate.z) / YD);
     const keys = inp.touchMode ? 'BULLET · TOUCH · LOB' : kb ? 'J bullet · K touch · L lob' : '□ bullet · ✕ touch · △ lob';
     const calls = inp.touchMode ? 'LONG / CLOSER' : kb ? 'E go long · Q closer' : 'D-pad ↑ go long · ↓ closer';
-    const hint = b.holder === 'you' ? `${keys}: hold, let go in the green · ${calls}` : b.mode === 'flight' && b.to === 'you' ? 'Get under it!' : b.mode === 'loose' ? 'Loose ball: go get it' : `${C.mate.ballName} has it · ${calls}`;
+    const hint = b.holder === 'you' ? (C.acc ? 'Tap it again on the line!' : `${keys}: hold for power, let go in the green, tap again on the line · ${calls}`) : b.mode === 'flight' && b.to === 'you' ? 'Get under it!' : b.mode === 'loose' ? 'Loose ball: go get it' : `${C.mate.ballName} has it · ${calls}`;
     game.hud.sport?.(`PLAYING CATCH · ${C.mate.ballName} · ${yd} yds · ${C.streak} in a row (best ${C.best})`, null, hint);
-    let meter = null;
-    if (this.press) {
-      const need = this.needFor(this.press.kind, dist(px, pz, C.mate.x, C.mate.z));
-      const W = CTYPES[this.press.kind].win;
-      meter = { v: Math.min(1, this.press.t / FILL), lo: need - W, hi: need + W };
-    } else if (C.last && game.time < C.last.until) meter = C.last;
-    if (!meter) return game.hud.sportFloat?.(null);
-    // (beside you: half a meter to your screen-right, chest high)
+    const tm = (this.tmeter ||= new ThrowMeter());
+    let st = null;
+    const style = game.style?.meter || 'needle';
+    if (this.press || C.acc) {
+      const kind = this.press ? this.press.kind : C.acc.kind;
+      const W = CTYPES[kind].win;
+      const need = this.needFor(kind, C.acc ? C.acc.d : dist(px, pz, C.mate.x, C.mate.z));
+      st = { style, v: this.press ? Math.min(1, this.press.t / FILL) : C.acc.power, lo: need - W, hi: need + W, n: C.acc ? C.acc.n : null, tap: null, label: C.acc ? 'TAP!' : '', labelClass: 'cue' };
+    } else if (C.last && game.time < C.last.until) st = { style, ...C.last };
+    game.hud.sportFloat?.(null);
+    if (!st) return tm.hide();
+    // (beside you: to your screen-left, chest high, all of it on screen)
     const cam = game.camera;
     const v = (this._mv ||= new THREE.Vector3());
     const rx = -Math.cos(game.camYaw);
     const rz = Math.sin(game.camYaw);
-    v.set(px + rx * 0.55, 1.2 + (game.player.gy?.() || 0), pz + rz * 0.55).project(cam);
-    if (v.z > 1) return game.hud.sportFloat?.(null);
+    v.set(px - rx * 0.75, 1.3 + (game.player.gy?.() || 0), pz - rz * 0.75).project(cam);
+    if (v.z > 1) return tm.hide();
+    const W = innerWidth;
     const H = innerHeight;
-    const at = { mx: ((v.x + 1) / 2) * innerWidth, my: Math.max(52, Math.min(H - 52, ((1 - v.y) / 2) * H)) };
-    game.hud.sportFloat?.(at, meter, null);
+    const sx = Math.max(80, Math.min(W - 80, ((v.x + 1) / 2) * W));
+    const sy = Math.max(110, Math.min(H - 110, ((1 - v.y) / 2) * H));
+    tm.show({ x: sx, y: sy }, st);
   },
 
   driveMate(p, f, b, goTo, faceAt) {

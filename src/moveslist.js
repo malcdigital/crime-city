@@ -83,7 +83,7 @@ const QBC = {
 const CATCH = {
   title: 'PLAYING CATCH',
   sections: [
-    ['THROWING (hold for power, let go in the green)', [
+    ['THROWING (hold for power, let go in the green; tap the same button again on the line)', [
       ['Bullet (on a line, quick)', 'BULLET', '□', 'J'],
       ['Touch (over the top, dropped in)', 'TOUCH', '✕', 'K (or click)'],
       ['Lob (high, the deepest)', 'LOB', '△', 'L'],
@@ -102,7 +102,7 @@ const CATCH = {
       ['This list', '?', 'Create', 'Tab'],
     ]],
   ],
-  notes: 'Go anywhere on the field: stay within 50 yards of each other (past that, backing off fights you and he comes in). Early on the meter falls short, late sails long.',
+  notes: 'Go anywhere on the field: stay within 50 yards of each other (past that, backing off fights you and he comes in). Power: early on the meter falls short, late sails long. Accuracy: time slows to half while you throw; tap again as the needle crosses the line (that\'s the release): early pulls it to your left, late pushes it right. Pick the meter (bar + needle, golf swing or arc) in the pause menu.',
 };
 
 export class MovesList {
