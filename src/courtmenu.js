@@ -171,6 +171,7 @@ export class CourtMenu {
       // (only when something's changed: a click mid-redraw would miss)
       this.html = html;
       this.el.innerHTML = html;
+      this.el.querySelector('.focus')?.scrollIntoView?.({ block: 'nearest' }); // (a short screen: keep the chosen row in view)
     }
   }
 }

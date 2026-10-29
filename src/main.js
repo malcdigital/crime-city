@@ -1646,7 +1646,7 @@ class Game {
     const g = this.pickupGame();
     if (g) {
       const sb = this.sport;
-      const label = g === sb && sb.t3 ? 'quit the contest' : g === sb && sb.solo && !sb.t33 ? 'stop shooting around' : this.pickupFresh() ? 'call it off (money back)' : `forfeit${g.bet ? ` (-$${g.bet})` : ''}`;
+      const label = g === this.gridiron && g.mode === 'qbc' ? 'quit the QB Challenge' : g === this.gridiron && g.mode === 'catch' ? 'stop playing catch' : g === sb && sb.t3 ? 'quit the contest' : g === sb && sb.solo && !sb.t33 ? 'stop shooting around' : this.pickupFresh() ? 'call it off (money back)' : `forfeit${g.bet ? ` (-$${g.bet})` : ''}`;
       return { label, quit: () => this.quitPickup() };
     }
     if (this.dice.playing) return { label: 'get up from the dice game', quit: () => this.dice.leave() };

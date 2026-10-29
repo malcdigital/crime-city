@@ -603,6 +603,22 @@ body.touch #phone-body .ph-row { padding: 11px 8px; }
 #court-menu .cm-val b { font-size: 20px; color: #8a93a3; padding: 0 6px; cursor: pointer; user-select: none; }
 #court-menu .cm-val b:hover { color: #fff; }
 #court-menu .cm-start { margin: 14px auto 6px; width: max-content; padding: 10px 26px; border-radius: 10px; background: #2b303b; font-size: 16px; font-weight: 900; letter-spacing: 1px; cursor: pointer; }
+/* (short screens: phones in landscape with the browser bars: tighter, the games' second lines only on the chosen one) */
+@media (max-height: 420px) {
+  #court-menu { padding: 6px; }
+  #court-menu .cm-box { max-height: calc(100vh - 12px); padding: 8px 14px 6px; }
+  #court-menu .cm-head { margin-bottom: 2px; }
+  #court-menu .cm-title { font-size: 17px; }
+  #court-menu .cm-place { font-size: 11px; }
+  #court-menu .cm-h { margin: 5px 0 3px; font-size: 10px; }
+  #court-menu .cm-game { padding: 4px 12px; margin-bottom: 2px; }
+  #court-menu .cm-gt { font-size: 14px; }
+  #court-menu .cm-game:not(.on) .cm-gs { display: none; }
+  #court-menu .cm-rule { padding: 3px 12px; font-size: 14px; }
+  #court-menu .cm-start { margin: 6px auto 2px; padding: 7px 22px; font-size: 15px; }
+  #court-menu .cm-watch { margin: 2px auto; }
+  #court-menu .cm-help { display: none; }
+}
 #court-menu .cm-start.focus { background: #ffd23f; color: #111; box-shadow: 0 0 18px rgba(255,210,63,.45); }
 #court-menu .cm-watch { text-align: center; font-size: 13px; color: #8a93a3; padding: 6px; border-radius: 8px; cursor: pointer; }
 #court-menu .cm-watch.focus { color: #fff; background: #1d2a44; }

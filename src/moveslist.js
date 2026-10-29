@@ -66,6 +66,39 @@ const FOOTBALL = {
   notes: '',
 };
 
+const QBC = {
+  title: 'QB CHALLENGE',
+  sections: [
+    ['THROWING', [
+      ['Throw at a target (tap: bullet, hold: lob)', "the target's button", 'the button over it (□ ✕ ○ △ R1)', '1-5 (or click the one you look at)'],
+      ['Points', '1 · 2 · 2 · 3 · 5', 'deeper is worth more', 'deeper is worth more'],
+    ]],
+    ['THE GAME', [
+      ['Quit', 'QUIT, then SURE?', 'hold the touchpad', 'hold M'],
+      ['This list', '?', 'Create', 'Tab'],
+    ]],
+  ],
+  notes: 'Bullets are quick but get wild deep; lobs hang up there but stay on line. 60 seconds; a new ball a beat after each throw.',
+};
+const CATCH = {
+  title: 'PLAYING CATCH',
+  sections: [
+    ['THROWING', [
+      ['Throw it to him (tap: bullet, hold: lob)', 'any button', 'any face button (□ ✕ ○ △)', '1-4 (or click him)'],
+      ['Lead him', 'the stick', 'left stick', 'WASD'],
+      ['Send him on a route', 'ROUTE', 'R1', 'X'],
+    ]],
+    ['CATCHING', [
+      ['Catch it', 'be under it', 'be under it', 'be under it'],
+    ]],
+    ['THE GAME', [
+      ['Stop', 'QUIT, then SURE?', 'hold the touchpad', 'hold M'],
+      ['This list', '?', 'Create', 'Tab'],
+    ]],
+  ],
+  notes: '',
+};
+
 export class MovesList {
   constructor(game) {
     this.game = game;
@@ -77,7 +110,7 @@ export class MovesList {
   which() {
     const g = this.game;
     if (g.sport?.active) return BALL;
-    if (g.gridiron?.active) return FOOTBALL;
+    if (g.gridiron?.active) return g.gridiron.mode === 'qbc' ? QBC : g.gridiron.mode === 'catch' ? CATCH : FOOTBALL;
     return null;
   }
 

@@ -496,7 +496,7 @@ export class TouchControls {
       for (const id of ['reload', 'cross', 'circle', 'tri']) b[id].el.classList.toggle('hidden', running);
       for (const id of ['rjuke', 'rspin', 'rstiff']) b[id].el.classList.toggle('hidden', !running);
       b.qr1.el.classList.toggle('hidden', running);
-      b.qr1.el.querySelector('.tl').textContent = line ? 'PLAY' : 'R1';
+      b.qr1.el.querySelector('.tl').textContent = line ? 'PLAY' : M?.mode === 'catch' ? 'ROUTE' : 'R1'; // (playing catch: send him on a route)
     }
     this.dribbleGest = false;
     if (ctx === 'ball') {

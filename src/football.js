@@ -451,6 +451,8 @@ export class Football {
       return { speed: 0 };
     }
     if (!b) return { speed: 0 };
+    // (the QB Challenge or playing catch with you: fieldmodes.js says where everyone goes)
+    if (this.match?.drivePlayer && this.match.mode !== 'drive') return this.match.drivePlayer(p, f, b, faceAt);
     if (f.role === 'bench') {
       // (their quarterback, watching you from the sideline)
       const sx = this.site.field.x0 - 1.6;
@@ -647,7 +649,7 @@ export class Football {
       } else if (b.mode === 'flight' && b.to === p && b.T - b.t < 0.6) {
         if (b.kind === 'pass') catchPose(c, b.style === 'lob' || b.p1[1] > 1.5);
         else catchPose(c, false); // (a toss or a handoff: hands out at the chest)
-      } else if ((f.role === 'db' || f.role === 'lb') && (this.phase === 'play' || this.match) && b.mode === 'flight' && b.kind === 'pass') {
+      } else if ((f.role === 'db' || f.role === 'lb') && (this.phase === 'play' || this.match?.mode === 'drive') && b.mode === 'flight' && b.kind === 'pass') {
         reachBall(c); // (going up for it)
       }
     }

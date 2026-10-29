@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { dist, rand, pick } from './util.js';
 import { setShirt } from './character.js';
+import { FieldModes } from './fieldmodes.js';
 import { throwPose, layoutPose, qbStance, holdBall, tuckCarry, jukePose, spinPose, stiffArmPose, fbBallAt } from './footballpose.js';
 
 // Quarterback a drive at Harbor Field (football.js runs the passing drill there).
@@ -95,37 +96,60 @@ export class Gridiron {
     }
   }
 
-  // The menu (the shop menu: the game waits while it's up).
+  // The menu of games (courtmenu.js, like the courts': the game waits while it's up): run a
+  // drive against their squad, the QB Challenge on your own, or play catch with somebody out
+  // there; the house rules for each; START, or walk away.
   menu(qb) {
     const game = this.game;
-    const shops = game.shops;
-    const betNow = () => {
-      let bet = BETS[this.betI];
-      while (bet > game.cash && bet > 0) bet = BETS[BETS.indexOf(bet) - 1];
-      return bet;
-    };
-    const go = (from) => () => {
-      shops.onClose = null;
-      shops.close();
-      this.talk = null;
-      this.start(qb, betNow(), from);
-    };
-    shops.openCustom(`${qb.ballName}'s squad`, () => {
-      const bet = betNow();
-      const b = bet ? `$${bet}` : 'nothing';
-      return [
-        { label: `Bet: ${b}`, price: 0, priceText: 'change', detail: "What's riding on it (he matches it: score and you take his). Pick this to change it, then pick the drive.", can: true, buy: () => (this.betI = (this.betI + 1) % BETS.length) },
-        { label: 'Run a drive from the 40', price: 0, priceText: bet ? `$${bet}` : 'free', detail: 'You at quarterback, four downs to make 10 yards, until you score or lose it. They cover every receiver, plus a linebacker.', can: true, buy: go(40) },
-        { label: 'Long field: from your own 20', price: 0, priceText: bet ? `$${bet}` : 'free', detail: 'The whole field to go: 80 yards, first downs every 10.', can: true, buy: go(80) },
-        { label: 'Red zone: from the 15', price: 0, priceText: bet ? `$${bet}` : 'free', detail: 'Short field, tight windows: they don\'t have to cover as much.', can: true, buy: go(15) },
-        { label: pick(["Nah, I'm good", 'Maybe next time', 'Nah, just watching']), price: 0, priceText: '', detail: 'Walk away.', can: true, buy: () => shops.close() },
-      ];
+    const fb = this.fb;
+    const bets = BETS.filter((v) => v <= game.cash);
+    let bi = bets.indexOf(BETS[this.betI]);
+    if (bi < 0) bi = bets.length - 1;
+    const FROMS = [40, 80, 15];
+    const mates = [qb, ...fb.players.filter((q) => q !== qb && (q.fb.role === 'wr' || q.fb.role === 'db'))];
+    for (const q of mates) if (!q.ballName) q.ballName = pick(q.female ? ['Kiki', 'Nae', 'Jada', 'Shay', 'Tasha'] : NAMES.filter((n) => n !== qb.ballName));
+    let best = 0;
+    try {
+      best = Number(localStorage.getItem('crimecity.qbc.v1')) || 0;
+    } catch {
+      // (storage unavailable)
+    }
+    const fromText = (v) => (v === 80 ? 'From your own 20' : v === 15 ? 'From the 15 (red zone)' : 'From the 40');
+    game.courtMenu.show({
+      title: `${qb.ballName}'s squad`,
+      place: fb.site.name || 'Harbor Field',
+      games: [
+        { id: 'drive', title: `Run a drive vs. ${qb.ballName.toUpperCase()}'s squad`, sub: (st) => `${fromText(st.from)} · four downs to make 10 · ${st.wager ? `$${st.wager} says you score` : 'just for fun'}` },
+        { id: 'qbc', title: 'QB Challenge · solo', sub: (st) => `60 seconds · 5 targets downfield${st.targets === 'Moving' ? ', moving' : ''} · ${best ? `record ${best}` : 'set the record'}` },
+        { id: 'catch', title: 'Play catch', sub: (st) => `With ${st.mate.ballName} · ${st.dist.toLowerCase()} apart · send ${st.mate.female ? 'her' : 'him'} on routes` },
+      ],
+      rules: [
+        { id: 'wager', label: 'Wager', values: bets, i: bi, fmt: (v) => (v ? `$${v}` : 'None'), only: 'drive' },
+        { id: 'from', label: 'Start', values: FROMS, i: this.fromI || 0, fmt: (v) => (v === 80 ? 'Own 20' : v === 15 ? 'Red zone' : 'The 40'), only: 'drive' },
+        { id: 'targets', label: 'Targets', values: ['Still', 'Moving'], i: this.tgtI || 0, fmt: (v) => v, only: 'qbc' },
+        { id: 'mate', label: 'Throw with', values: mates, i: 0, fmt: (q) => `${q.ballName}${q === qb ? ' (QB)' : q.fb.role === 'db' ? ' (DB)' : ' (WR)'}`, only: 'catch' },
+        { id: 'dist', label: 'Distance', values: ['Close', 'Medium', 'Far'], i: this.distI ?? 1, fmt: (v) => v, only: 'catch' },
+      ],
+      start: (st) => (st.game === 'qbc' ? 'START THE CLOCK' : st.game === 'catch' ? 'START THROWING' : `START THE DRIVE${st.wager ? ` · $${st.wager}` : ''}`),
+      watch: pick(["Nah, I'm good", 'Maybe next time', 'Nah, just watching']),
+      onChange: (R) => {
+        // (remembered for next time)
+        if (R.id === 'wager') this.betI = BETS.indexOf(R.values[R.i]);
+        if (R.id === 'from') this.fromI = R.i;
+        if (R.id === 'targets') this.tgtI = R.i;
+        if (R.id === 'dist') this.distI = R.i;
+      },
+      onStart: (st) => {
+        this.talk = null;
+        if (st.game === 'qbc') this.startChallenge(qb, st.targets === 'Moving');
+        else if (st.game === 'catch') this.startCatch(qb, st.mate, st.dist);
+        else this.start(qb, st.wager, st.from);
+      },
+      onClose: () => {
+        this.talk = null;
+        this.again = game.time + 0.8; // (the button that closed it doesn't ask again)
+      },
     });
-    shops.el.querySelector('.shop-help').textContent = game.input.touchMode ? 'Tap to choose, tap again to pick · ○: leave' : game.input.mode === 'pad' ? 'D-pad ↑↓: choose · ✕: pick · ○: leave' : '↑↓ / W S: choose · Enter / click: pick · Esc: leave';
-    shops.onClose = () => {
-      this.talk = null;
-      this.again = game.time + 0.8; // (the button that closed it doesn't ask again)
-    };
   }
 
   start(qb, bet, from = 40) {
@@ -133,6 +157,7 @@ export class Gridiron {
     const fb = this.fb;
     const S = fb.site;
     this.active = true;
+    this.mode = 'drive';
     this.bet = bet;
     game.cash -= bet; // (held until it's over)
     this.bench = qb;
@@ -222,6 +247,7 @@ export class Gridiron {
     const fire = a.fire;
     const hike = a.dealYes;
     a.fire = a.firePressed = a.aim = a.aimPressed = a.melee = a.reload = a.dealYes = false;
+    if (this.mode && this.mode !== 'drive') return this.modeInput(dt, a, fire); // (the QB Challenge, playing catch: fieldmodes.js)
     const b = fb.ball;
     const [px, pz] = game.player.pos();
     if (this.state === 'line') {
@@ -291,6 +317,7 @@ export class Gridiron {
 
   // Who gets which button: the receivers in order (the back gets R1).
   receivers() {
+    if (this.mode && this.mode !== 'drive') return this.modeReceivers();
     const fb = this.fb;
     const r = fb.wrs.slice(0, 4);
     while (r.length < 4) r.push(null);
@@ -435,7 +462,8 @@ export class Gridiron {
     const fz = Math.cos(yaw);
     let best = null;
     let bs = -2;
-    for (const w of this.fb.wrs) {
+    const list = this.mode && this.mode !== 'drive' ? this.receivers().filter(Boolean) : this.fb.wrs;
+    for (const w of list) {
       const d = dist(px, pz, w.x, w.z) || 1;
       const s = ((w.x - px) * fx + (w.z - pz) * fz) / d;
       if (s > bs) {
@@ -495,6 +523,7 @@ export class Gridiron {
 
   // The pass gets there (football.js arrived() hands it over).
   arrived() {
+    if (this.mode === 'catch') return this.catchArrived();
     const game = this.game;
     const fb = this.fb;
     const b = fb.ball;
@@ -573,6 +602,7 @@ export class Gridiron {
 
   // ---- Every frame (football.js step) ----
   phase(dt) {
+    if (this.mode && this.mode !== 'drive') return this.modePhase(dt);
     const game = this.game;
     const fb = this.fb;
     const b = fb.ball;
@@ -759,6 +789,10 @@ export class Gridiron {
       c.group.position.y += layoutPose(c, k, false);
       return;
     }
+    if (this.mode && this.mode !== 'drive' && this.modeLate(c)) {
+      this.placeBall(c, b);
+      return;
+    }
     if (this.state === 'line' && (p.speed || 0) < 0.3 && this.ready) {
       c.group.position.y += qbStance(c);
       this.placeBall(c, b);
@@ -801,7 +835,8 @@ export class Gridiron {
     const fb = this.fb;
     const bet = this.bet;
     const name = this.bench?.ballName || 'They';
-    if (how === 'td') {
+    if (this.mode && this.mode !== 'drive') this.endMode(how);
+    else if (how === 'td') {
       game.cash += bet * 2;
       game.cred += 10;
       game.hud.toast(`You scored on ${name}'s squad${bet ? ` · +$${bet}` : ''} · +10 cred`, '#7ee081');
@@ -848,10 +883,12 @@ export class Gridiron {
       if (fb.qb) fb.hold(fb.qb);
       else fb.loose();
     }
+    this.mode = null;
     game.hud.sport?.(null);
     game.save();
   }
 }
+Object.assign(Gridiron.prototype, FieldModes); // (the QB Challenge and playing catch)
 
 // A receiver's button (a round badge with the symbol) that always faces the camera, the same
 // size on screen however far off he is.
