@@ -1093,3 +1093,21 @@ body.animview-on #pause, body.animview-on #touch, body.animview-on #hud, body.an
 #moves .mv-set span { flex: 1; font-weight: 800; }
 #moves .mv-set b { color: #ffd23f; white-space: nowrap; }
 #moves .mv-set small { display: block; font-weight: 600; color: #8a93a3; font-size: 11px; }
+
+/* Playing football (catch, the QB Challenge, a drive): the news banner shrinks to a small card,
+   out of the game's way: bottom right on a computer, beside the minimap on a phone, top middle
+   on a tablet (the throw buttons are bottom right). */
+#hud.field #phone-toast { width: 190px; padding: 5px 8px; border-radius: 9px; opacity: .92; }
+#hud.field #pt-text { font-size: 10.5px; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+#hud.field .pt-head { font-size: 8.5px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#hud.field #phone-toast .app-icon.small { transform: scale(.8); }
+body:not(.touch) #hud.field #phone-toast { left: auto; right: 14px; top: auto; bottom: 86px; }
+body.touch #hud.field #phone-toast { width: 150px; padding: 4px 6px; left: 124px; right: auto; top: 72px; bottom: auto; }
+body.touch #hud.field #pt-text { font-size: 9.5px; -webkit-line-clamp: 1; }
+body.touch #hud.field .pt-head { font-size: 8px; }
+@media (min-height: 521px) and (min-width: 701px) { body.touch #hud.field #phone-toast { width: 220px; left: 50%; margin-left: -110px; top: 58px; } }
+
+/* The throw meter popping in when you start a throw (on the box: the meter inside is redrawn
+   every frame, so its own pulses are driven from the clock in throwmeter.js). */
+#throw-meter.tm-in { animation: tm-in .28s cubic-bezier(.2,1.6,.4,1); }
+@keyframes tm-in { from { scale: .45; opacity: 0; } to { scale: 1; opacity: 1; } }

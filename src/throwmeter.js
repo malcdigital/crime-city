@@ -44,6 +44,12 @@ export class ThrowMeter {
   // n: the needle 0..1 or null (still holding), tap: where you tapped or null, label }.
   show(at, s) {
     const el = this.el;
+    if (el.classList.contains('hidden')) {
+      // (popping in: style.css tm-in, on the box itself so it isn't restarted by the redraws)
+      el.classList.remove('tm-in');
+      void el.offsetWidth;
+      el.classList.add('tm-in');
+    }
     el.classList.remove('hidden');
     if (at) {
       el.style.left = `${Math.round(at.x)}px`;
@@ -122,8 +128,11 @@ export class ThrowMeter {
 
   arc(s) {
     const cx = 70;
-    const cy = 112;
-    const r = 58;
+    const cy = 104;
+    const r = 54;
+    const now = performance.now() / 1000;
+    const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const live = !calm && (!s.fx || s.n != null); // (still holding or tapping: the pulses run; a result sits still)
     // (u along the arc: 0 at the lower left, the release point, round over the top to 1 at the
     // lower right)
     const ang = (u) => ((210 - 240 * u) * Math.PI) / 180;
@@ -134,24 +143,79 @@ export class ThrowMeter {
       const large = (u1 - u0) * 240 > 180 ? 1 : 0;
       return `M${f1(x0)} ${f1(y0)} A${rr} ${rr} 0 ${large} 1 ${f1(x1)} ${f1(y1)}`;
     };
+    const v = Math.max(0, Math.min(1, s.v));
     const inG = s.v >= s.lo && s.v <= s.hi;
-    let out = `<circle cx="${cx}" cy="${cy}" r="${r + 14}" fill="rgba(8,12,18,.6)"/>
-      <path d="${arcPath(0, 1)}" stroke="#2b303b" stroke-width="16" fill="none" stroke-linecap="round"/>
-      <path class="tm-green" d="${arcPath(Math.max(0, s.lo), Math.min(1, s.hi))}" stroke="rgba(62,220,120,.6)" stroke-width="16" fill="none"/>`;
-    if (s.v > 0.005) out += `<path class="tm-fill${inG ? ' in' : ''}" d="${arcPath(0, Math.min(1, s.v))}" stroke="${inG ? '#3ddc78' : '#ffd23f'}" stroke-width="9" fill="none" stroke-linecap="round"/>`;
-    // (the notch at the release point)
+    const over = s.v > s.hi && s.n == null && !s.fx; // (held past the green: it's getting away from you)
+    const pulse = (hz, lo, hi) => (live ? lo + (hi - lo) * (0.5 + 0.5 * Math.sin(now * hz * Math.PI * 2)) : hi);
+    // (the defs: the fill's heat gradient, the backdrop)
+    let out = `<defs>
+      <linearGradient id="tmHeat" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#ffe680"/><stop offset=".55" stop-color="#ffb347"/><stop offset="1" stop-color="#ff6a3d"/></linearGradient>
+      <radialGradient id="tmBack"><stop offset=".55" stop-color="rgba(14,18,28,.88)"/><stop offset="1" stop-color="rgba(6,8,14,.55)"/></radialGradient>
+    </defs>`;
+    // (over the top: a little shake)
+    const jx = over ? Math.sin(now * 70) * 1.3 : 0;
+    const jy = over ? Math.cos(now * 55) * 0.9 : 0;
+    out += `<g transform="translate(${f1(jx)} ${f1(jy)})">`;
+    out += `<circle cx="${cx}" cy="${cy}" r="${r + 17}" fill="url(#tmBack)" stroke="rgba(255,255,255,.14)" stroke-width="1.5"/>`;
+    // (ticks round the outside: every tenth, the half a bit longer)
+    for (let i = 0; i <= 10; i++) {
+      const u = i / 10;
+      const [x0, y0] = pt(u, r + 10);
+      const [x1, y1] = pt(u, r + (i % 5 === 0 ? 15 : 13));
+      out += `<line x1="${f1(x0)}" y1="${f1(y0)}" x2="${f1(x1)}" y2="${f1(y1)}" stroke="${u <= v ? 'rgba(255,220,120,.9)' : 'rgba(255,255,255,.3)'}" stroke-width="${i % 5 === 0 ? 2 : 1.3}" stroke-linecap="round"/>`;
+    }
+    // (the track, with a thin inner line for depth)
+    out += `<path d="${arcPath(0, 1)}" stroke="#1d222c" stroke-width="17" fill="none" stroke-linecap="round"/>
+      <path d="${arcPath(0, 1, r - 7)}" stroke="rgba(255,255,255,.07)" stroke-width="1" fill="none"/>`;
+    // (the green: breathing while you hold, bright edges)
+    const g0 = Math.max(0, s.lo);
+    const g1 = Math.min(1, s.hi);
+    const gOp = s.n == null && !s.fx ? pulse(1.6, 0.4, 0.7) : 0.6;
+    out += `<path class="tm-green" d="${arcPath(g0, g1)}" stroke="rgba(62,220,120,${gOp.toFixed(2)})" stroke-width="17" fill="none"/>`;
+    for (const u of [g0, g1]) {
+      const [x0, y0] = pt(u, r - 9);
+      const [x1, y1] = pt(u, r + 9);
+      out += `<line x1="${f1(x0)}" y1="${f1(y0)}" x2="${f1(x1)}" y2="${f1(y1)}" stroke="#7dffae" stroke-width="2"/>`;
+    }
+    // (the fill: hot gradient, green and glowing in the zone, red past it; a bright head)
+    if (v > 0.005) {
+      const col = inG ? '#3ddc78' : over ? '#ff4d4d' : 'url(#tmHeat)';
+      const glow = inG ? '#3ddc78' : over ? '#ff4d4d' : '#ffb347';
+      out += `<path d="${arcPath(0, v)}" stroke="${glow}" stroke-opacity="${(inG ? pulse(3, 0.25, 0.5) : 0.18).toFixed(2)}" stroke-width="20" fill="none" stroke-linecap="round"/>
+        <path class="tm-fill${inG ? ' in' : ''}" d="${arcPath(0, v)}" stroke="${col}" stroke-width="10" fill="none" stroke-linecap="round"/>`;
+      if (s.n == null && !s.fx) {
+        const [hx, hy] = pt(v);
+        out += `<circle cx="${f1(hx)}" cy="${f1(hy)}" r="${f1(pulse(4, 7, 10))}" fill="${glow}" opacity=".35"/><circle cx="${f1(hx)}" cy="${f1(hy)}" r="4.5" fill="#fff"/>`;
+      }
+    }
+    // (the notch at the release point: breathing while the needle comes round)
     const band = (Math.max(0.05, s.v - NOTCH) / 0.5) * PERFECT;
-    const [nx0, ny0] = pt(NOTCH - band, r + 12);
-    const [nx1, ny1] = pt(NOTCH + band, r + 12);
+    const nOut = s.n != null && !s.fx ? pulse(2.5, 12, 16) : 12;
+    const [nx0, ny0] = pt(NOTCH - band, r + nOut);
+    const [nx1, ny1] = pt(NOTCH + band, r + nOut);
     const [ix0, iy0] = pt(NOTCH, r - 12);
-    out += `<path class="tm-notch" d="M${f1(ix0)} ${f1(iy0)} L${f1(nx0)} ${f1(ny0)} L${f1(nx1)} ${f1(ny1)} Z" fill="rgba(62,220,120,.75)"/>`;
+    const nOp = s.n != null && !s.fx ? pulse(2.5, 0.6, 1) : 0.8;
+    out += `<path class="tm-notch" d="M${f1(ix0)} ${f1(iy0)} L${f1(nx0)} ${f1(ny0)} L${f1(nx1)} ${f1(ny1)} Z" fill="rgba(62,220,120,${nOp.toFixed(2)})" stroke="#b6ffd0" stroke-width="1"/>`;
+    // (the needle swinging back through the notch, with a fading trail behind it)
     if (s.n != null || s.tap != null) {
       const n = s.tap ?? s.n;
-      const u = s.v + (NOTCH - s.v) * (n / 0.5); // (swinging back from the power, through the notch)
-      const [ex, ey] = pt(u, r + 14);
+      const uAt = (nn) => s.v + (NOTCH - s.v) * (nn / 0.5);
+      const u = uAt(n);
       const c = s.tap != null ? tapColor(s.tap) : '#fff';
-      out += `<g class="tm-needle"><line x1="${cx}" y1="${cy}" x2="${f1(ex)}" y2="${f1(ey)}" stroke="${c}" stroke-width="4" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="5" fill="${c}"/></g>`;
+      if (s.tap == null) {
+        for (let k = 4; k >= 1; k--) {
+          const [tx, ty] = pt(uAt(Math.max(0, n - k * 0.025)), r + 12);
+          out += `<line x1="${cx}" y1="${cy}" x2="${f1(tx)}" y2="${f1(ty)}" stroke="#fff" stroke-opacity="${(0.32 - k * 0.07).toFixed(2)}" stroke-width="${5 - k * 0.6}" stroke-linecap="round"/>`;
+        }
+      }
+      const [ex, ey] = pt(u, r + 14);
+      out += `<g class="tm-needle"><line x1="${cx}" y1="${cy}" x2="${f1(ex)}" y2="${f1(ey)}" stroke="${c}" stroke-width="4" stroke-linecap="round"/><circle cx="${f1(ex)}" cy="${f1(ey)}" r="3.5" fill="${c}"/></g>`;
     }
+    // (the hub: the throw you're making)
+    const K = { bullet: ['□', '#ff6fb5'], touch: ['✕', '#6fa8ff'], lob: ['△', '#3ddc97'] }[s.kind];
+    out += `<circle cx="${cx}" cy="${cy}" r="14" fill="#10141c" stroke="${K ? K[1] : '#3a4150'}" stroke-width="2"/>`;
+    if (K) out += `<text x="${cx}" y="${cy + 5.5}" text-anchor="middle" font-size="15" font-weight="900" fill="${K[1]}">${K[0]}</text><text x="${cx}" y="${cy + 29}" text-anchor="middle" font-size="9" font-weight="800" letter-spacing="1.5" fill="rgba(255,255,255,.75)">${s.kind.toUpperCase()}</text>`;
+    out += '</g>';
     return out;
   }
 }

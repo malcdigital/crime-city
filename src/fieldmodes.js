@@ -633,7 +633,7 @@ export const FieldModes = {
     const perfect = pwPerfect && aim === 'PERFECT';
     const okish = !pwr && aim === 'PERFECT';
     const fx = perfect ? ['pass-perfect'] : [pwPerfect ? 'pw-perfect' : !pwr ? 'pw-ok' : 'miss', aim === 'PERFECT' ? 'acc-perfect' : Math.abs(acc) <= 0.1 ? 'acc-ok' : 'miss'];
-    S.last = { fx, fxKey: (S.fxN = (S.fxN || 0) + 1), v: pw, lo: need - TY.win, hi: need + TY.win, n: null, tap: tapN ?? (acc < 0 ? 0 : 1), label: perfect ? 'PERFECT PASS' : okish ? 'ON THE MONEY' : [pwr, aim === 'PERFECT' ? 'ON LINE' : aim].filter(Boolean).join(' · '), labelClass: perfect || okish ? 'good' : !pwr && Math.abs(acc) <= 0.1 ? 'ok' : 'bad', until: game.time + (perfect ? 1.6 : 1.1) };
+    S.last = { kind, fx, fxKey: (S.fxN = (S.fxN || 0) + 1), v: pw, lo: need - TY.win, hi: need + TY.win, n: null, tap: tapN ?? (acc < 0 ? 0 : 1), label: perfect ? 'PERFECT PASS' : okish ? 'ON THE MONEY' : [pwr, aim === 'PERFECT' ? 'ON LINE' : aim].filter(Boolean).join(' · '), labelClass: perfect || okish ? 'good' : !pwr && Math.abs(acc) <= 0.1 ? 'ok' : 'bad', until: game.time + (perfect ? 1.6 : 1.1) };
     if (perfect) {
       game.shakeCamera?.(0.03, 0.2);
       game.timeScale = 0.3; // (a beat more slow motion as it leaves the hand: it eases back)
@@ -653,7 +653,7 @@ export const FieldModes = {
       const kind = this.press ? this.press.kind : S.acc.kind;
       const W = CTYPES[kind].win;
       const need = this.needFor(kind, S.acc ? S.acc.d : dist(px, pz, T.x, T.z));
-      st = { style, v: this.press ? Math.min(1, this.press.t / FILL) : S.acc.power, lo: need - W, hi: need + W, n: S.acc ? S.acc.n : null, tap: null, label: S.acc ? 'TAP!' : '', labelClass: 'cue', fx: S.acc ? [S.acc.pwFx] : null, fxKey: S.acc?.key };
+      st = { style, kind, v: this.press ? Math.min(1, this.press.t / FILL) : S.acc.power, lo: need - W, hi: need + W, n: S.acc ? S.acc.n : null, tap: null, label: S.acc ? 'TAP!' : '', labelClass: 'cue', fx: S.acc ? [S.acc.pwFx] : null, fxKey: S.acc?.key };
     } else if (S.last && game.time < S.last.until) st = { style, ...S.last };
     game.hud.sportFloat?.(null);
     if (!st) return tm.hide();

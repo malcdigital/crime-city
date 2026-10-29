@@ -154,6 +154,12 @@ export class Hud {
     } else cm.classList.add('hidden');
 
     // Phone: clock, notification banner, and the hint with unread count.
+    // (playing football: the banner's a small one, out of the way of the game)
+    const onField = !!game.gridiron?.active;
+    if (onField !== this.onField) {
+      this.onField = onField;
+      $('hud').classList.toggle('field', onField);
+    }
     this.set('phone-clock', this.clock());
     if (this.phoneToastT > 0) {
       this.phoneToastT -= dt;
