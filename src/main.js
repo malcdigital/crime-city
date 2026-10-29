@@ -123,13 +123,13 @@ class Game {
     this.contestCine = new ContestCine(this); // (the 3-point contest's intro, record and finish)
     this.animViewer = new AnimViewer(this); // (every pose and move, one at a time: from the pause menu)
     // Your style (the pause menu): how you hold a pistol, how you stand with your fists up.
-    this.style = { grip: 'two', fight: 'orthodox', meter: 'needle' };
+    this.style = { grip: 'two', fight: 'orthodox', meter: 'arc' };
     try {
       Object.assign(this.style, JSON.parse(localStorage.getItem('crimecity.style.v1') || '{}'));
     } catch {}
     if (!PISTOL_STYLES[this.style.grip]) this.style.grip = 'two';
     if (!FIGHT_STYLES[this.style.fight]) this.style.fight = 'orthodox';
-    if (!METER_STYLES[this.style.meter]) this.style.meter = 'needle';
+    if (!METER_STYLES[this.style.meter] || this.style.meterV !== 2) Object.assign(this.style, { meter: 'arc', meterV: 2 }); // (the arc is the default now)
     this.gpsLine = new GpsLine(THREE, this.scene);
     this.aircam = new AirCam(this);
     this.clipPlayer = new ClipPlayer();
@@ -1483,9 +1483,9 @@ class Game {
   }
 
   // Your pistol grip or fight style, the next one along (saved).
-  cycleStyle(which) {
+  cycleStyle(which, step = 1) {
     const list = Object.keys(which === 'grip' ? PISTOL_STYLES : which === 'meter' ? METER_STYLES : FIGHT_STYLES);
-    this.style[which] = list[(list.indexOf(this.style[which]) + 1) % list.length];
+    this.style[which] = list[(list.indexOf(this.style[which]) + step + list.length) % list.length];
     try {
       localStorage.setItem('crimecity.style.v1', JSON.stringify(this.style));
     } catch {}
@@ -1498,8 +1498,6 @@ class Game {
     const pad = this.input.mode === 'pad';
     if (g) g.textContent = `Pistol grip: ${PISTOL_STYLES[this.style.grip]} ▸ ${pad || this.input.touchMode ? '' : '(G)'}`;
     if (f) f.textContent = `Fight style: ${FIGHT_STYLES[this.style.fight].name} ▸ ${pad || this.input.touchMode ? '' : '(B)'}`;
-    const m = document.getElementById('meter-btn');
-    if (m) m.textContent = `Throw meter: ${METER_STYLES[this.style.meter]} ▸ ${pad || this.input.touchMode ? '' : '(H)'}`;
   }
 
   punch() {
@@ -2331,8 +2329,6 @@ class Game {
       this.cycleStyle('grip'); // (G in the pause menu)
     } else if (this.paused && this.input.hit?.('KeyB')) {
       this.cycleStyle('fight'); // (B in the pause menu)
-    } else if (this.paused && this.input.hit?.('KeyH')) {
-      this.cycleStyle('meter'); // (H in the pause menu: playing catch's throw meter)
     } else if (this.paused && this.pauseNav(a)) {
       // (the controller in the pause menu: the D-pad picks a button, ✕ presses it)
     } else if (this.matchup.open) {
@@ -2344,6 +2340,11 @@ class Game {
     } else if (this.moves.open) {
       // The moves list: the game is paused underneath.
       if (a.moves || a.menuBack || a.pause || !this.pickupGame()) this.moves.hide();
+      else if (this.moves.hasSetting() && (a.phoneLeft || a.phoneRight || this.input.hit?.("KeyH"))) {
+        // (playing catch: ◀ ▶ / H picks the throw meter, right there in the list)
+        this.cycleStyle("meter", a.phoneLeft ? -1 : 1);
+        this.moves.show();
+      }
     } else if (a.moves && !this.paused && this.pickupGame()) {
       this.moves.show();
     } else if (this.mapView.open) {
@@ -2721,7 +2722,6 @@ document.getElementById('quit-game').addEventListener('click', () => game.quitPi
 document.getElementById('anim-btn').addEventListener('click', () => game.animViewer.show());
 document.getElementById('grip-btn').addEventListener('click', () => game.cycleStyle('grip'));
 document.getElementById('fight-btn').addEventListener('click', () => game.cycleStyle('fight'));
-document.getElementById('meter-btn').addEventListener('click', () => game.cycleStyle('meter'));
 game.showStyle();
 // Interchange editor (testing) in the pause menu.
 if (game.rampEditor) {

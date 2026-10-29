@@ -1034,10 +1034,54 @@ body.animview-on #pause, body.animview-on #touch, body.animview-on #hud, body.an
 #throw-meter { position: fixed; z-index: 12; pointer-events: none; transform: translate(-50%, -50%); width: 140px; text-align: center; filter: drop-shadow(0 2px 4px rgba(0,0,0,.6)); }
 #throw-meter.hidden { display: none; }
 #throw-meter svg { display: block; }
-#throw-meter .tm-label { margin-top: 2px; font-size: 13px; font-weight: 900; letter-spacing: 1px; white-space: nowrap; color: #fff; text-shadow: 0 1px 3px #000; }
+#throw-meter .tm-label { width: 320px; margin: 2px 0 0 -90px; margin-top: 2px; font-size: 13px; font-weight: 900; letter-spacing: 1px; white-space: nowrap; color: #fff; text-shadow: 0 1px 3px #000; }
 #throw-meter .tm-label.cue { color: #ffd23f; animation: tm-pulse .35s ease-in-out infinite alternate; }
 #throw-meter .tm-label.good { color: #3ddc78; }
 #throw-meter .tm-label.ok { color: #ffd23f; }
 #throw-meter .tm-label.bad { color: #ff6b6b; }
 @keyframes tm-pulse { from { transform: scale(1); } to { transform: scale(1.15); } }
 @media (max-height: 420px) { #throw-meter { transform: translate(-50%, -50%) scale(.72); } }
+/* The throw meter's animations (throwmeter.js): the power fill glows in the green; letting go in
+   it flashes the green (dead on: a white flash and a ring); the tap flashes the notch (dead on: the
+   needle lights up and a second ring); a miss shakes it; both dead on, a PERFECT PASS: the meter
+   pops, gold rays turn behind it, rings and sparks burst out, the word stamps in gold. */
+#throw-meter .tm-rays, #throw-meter .tm-ring, #throw-meter .tm-spark { position: absolute; left: 50%; top: 45%; pointer-events: none; opacity: 0; }
+#throw-meter .tm-rays { width: 260px; height: 260px; margin: -130px 0 0 -130px; border-radius: 50%; background: repeating-conic-gradient(rgba(255,214,90,.55) 0 8deg, transparent 8deg 22deg); -webkit-mask: radial-gradient(circle, #000 25%, transparent 70%); mask: radial-gradient(circle, #000 25%, transparent 70%); z-index: -1; }
+#throw-meter .tm-ring { width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; border: 4px solid #3ddc78; }
+#throw-meter .tm-ring.r2 { border-color: #fff; }
+#throw-meter .tm-spark { width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%; background: #ffd23f; box-shadow: 0 0 6px #ffd23f; }
+#throw-meter svg, #throw-meter .tm-label { position: relative; }
+#throw-meter .tm-fill.in { animation: tm-glow .45s ease-in-out infinite alternate; }
+@keyframes tm-glow { from { filter: drop-shadow(0 0 0 #3ddc78); } to { filter: drop-shadow(0 0 5px #7dffad); } }
+#throw-meter.pw-ok .tm-green { animation: tm-flash .45s ease-out 2; }
+#throw-meter.pw-perfect .tm-green { animation: tm-flash-w .4s ease-out 3; }
+#throw-meter.pw-perfect .tm-ring:not(.r2) { animation: tm-ring .6s ease-out; }
+#throw-meter.acc-ok .tm-notch { animation: tm-flash .45s ease-out 2; }
+#throw-meter.acc-perfect .tm-notch { animation: tm-flash-w .4s ease-out 3; }
+#throw-meter.acc-perfect .tm-needle { filter: drop-shadow(0 0 6px #fff); }
+#throw-meter.acc-perfect .tm-ring.r2 { animation: tm-ring .6s ease-out .05s; }
+#throw-meter.miss svg { animation: tm-shake .35s ease-in-out; }
+@keyframes tm-flash { 0% { opacity: 1; } 50% { opacity: .2; } 100% { opacity: 1; } }
+@keyframes tm-flash-w { 0% { fill: #fff; stroke: #fff; opacity: 1; } 100% { opacity: 1; } }
+@keyframes tm-ring { 0% { opacity: .95; transform: scale(.5); } 100% { opacity: 0; transform: scale(1.8); } }
+@keyframes tm-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 50% { transform: translateX(5px); } 75% { transform: translateX(-3px); } }
+#throw-meter.pass-perfect svg { animation: tm-pop .7s cubic-bezier(.2,1.6,.4,1); filter: drop-shadow(0 0 10px #ffd23f) drop-shadow(0 0 22px rgba(255,190,40,.7)); }
+#throw-meter.pass-perfect .tm-rays { animation: tm-rays 1.2s ease-out forwards; }
+#throw-meter.pass-perfect .tm-ring { border-color: #ffd23f; animation: tm-ring .7s ease-out; }
+#throw-meter.pass-perfect .tm-ring.r2 { border-color: #fff; animation: tm-ring .8s ease-out .15s; }
+#throw-meter.pass-perfect .tm-spark { animation: tm-spark .8s ease-out forwards; }
+#throw-meter.pass-perfect .tm-label { font-size: 22px; color: #ffd23f; letter-spacing: 2px; text-shadow: none; filter: drop-shadow(0 0 6px rgba(255,200,40,.9)) drop-shadow(0 2px 2px #000); animation: tm-stamp .55s cubic-bezier(.2,1.8,.4,1); background: linear-gradient(100deg, #ffd23f 40%, #fff 50%, #ffd23f 60%) 0 0 / 300% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: tm-stamp .55s cubic-bezier(.2,1.8,.4,1), tm-shine 1.1s linear .3s; }
+@keyframes tm-pop { 0% { transform: scale(1); } 35% { transform: scale(1.35); } 100% { transform: scale(1.08); } }
+@keyframes tm-rays { 0% { opacity: 0; transform: scale(.4) rotate(0); } 25% { opacity: 1; } 100% { opacity: 0; transform: scale(1.15) rotate(70deg); } }
+@keyframes tm-spark { 0% { opacity: 1; transform: rotate(var(--a)) translateY(0); } 100% { opacity: 0; transform: rotate(var(--a)) translateY(-95px); } }
+@keyframes tm-stamp { 0% { transform: scale(2.6); opacity: 0; } 60% { transform: scale(.92); opacity: 1; } 100% { transform: scale(1); } }
+@keyframes tm-shine { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) { #throw-meter *, #throw-meter svg { animation: none !important; } }
+/* The moves list's setting (playing catch): the throw meter, with a small picture of it */
+#moves .mv-set { display: flex; align-items: center; gap: 10px; margin: 6px 0 2px; padding: 6px 10px; border-radius: 10px; background: #1b2230; border: 2px solid #2d6cdf; cursor: pointer; pointer-events: auto; }
+#moves .mv-set .tm-preview { width: 44px; height: 62px; flex: none; overflow: hidden; }
+#moves .mv-set .tm-preview svg { width: 44px; height: 62px; }
+#moves .mv-set .tm-preview .tm-rays, #moves .mv-set .tm-preview .tm-ring, #moves .mv-set .tm-preview .tm-spark { display: none; }
+#moves .mv-set span { flex: 1; font-weight: 800; }
+#moves .mv-set b { color: #ffd23f; white-space: nowrap; }
+#moves .mv-set small { display: block; font-weight: 600; color: #8a93a3; font-size: 11px; }

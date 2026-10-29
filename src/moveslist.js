@@ -102,14 +102,22 @@ const CATCH = {
       ['This list', '?', 'Create', 'Tab'],
     ]],
   ],
-  notes: 'Go anywhere on the field: stay within 50 yards of each other (past that, backing off fights you and he comes in). Power: early on the meter falls short, late sails long. Accuracy: time slows to half while you throw; tap again as the needle crosses the line (that\'s the release): early pulls it to your left, late pushes it right. Pick the meter (bar + needle, golf swing or arc) in the pause menu.',
+  notes: 'Go anywhere on the field: stay within 50 yards of each other (past that, backing off fights you and he comes in). Power: early on the meter falls short, late sails long. Accuracy: time slows to half while you throw; tap again as the needle crosses the notch (that\'s the release): early pulls it to your left, late pushes it right. Both dead on: a PERFECT PASS.',
+  setting: 'meter',
 };
+
+import { ThrowMeter, METER_STYLES } from './throwmeter.js';
 
 export class MovesList {
   constructor(game) {
     this.game = game;
     this.open = false;
     this.el = null;
+  }
+
+  // Playing catch, the list has a setting at the top: the throw meter (◀ ▶ / H / a tap changes it).
+  hasSetting() {
+    return this.open && !!this.which()?.setting;
   }
 
   // Which list (the game you're in), or null.
@@ -131,6 +139,10 @@ export class MovesList {
       this.el.id = 'moves';
       this.el.addEventListener('pointerdown', (e) => {
         if (e.target === this.el || e.target.closest('.mv-x')) this.hide();
+        else if (e.target.closest('.mv-set')) {
+          this.game.cycleStyle('meter');
+          this.show();
+        }
       });
       document.body.appendChild(this.el);
     }
@@ -139,7 +151,13 @@ export class MovesList {
       .map(([h, list]) => `<div class="mv-h">${esc(h)}</div>${list.filter((r) => r[col] !== '—').map((r) => `<div class="mv-r"><span>${esc(r[0])}</span><b>${esc(r[col])}</b></div>`).join('')}`)
       .join('');
     const close = col === 1 ? 'tap ? or outside to close' : col === 2 ? 'Create or ○ to close' : 'Tab or Esc to close';
-    this.el.innerHTML = `<div class="mv-card"><div class="mv-top"><span>${L.title} · MOVES</span><em>${how}</em><button class="mv-x" aria-label="close">✕</button></div><div class="mv-list">${rows}</div>${L.notes ? `<div class="mv-note">${esc(L.notes)}</div>` : ''}<div class="mv-foot">${close} · the game's paused</div></div>`;
+    let set = '';
+    if (L.setting === 'meter') {
+      const st = g.style?.meter || 'arc';
+      const how2 = col === 1 ? 'tap to change' : col === 2 ? '◀ ▶ to change' : '← → or H to change';
+      set = `<div class="mv-set">${`<div class="tm-preview">${ThrowMeter.preview(st)}</div>`}<span>Throw meter<small>${how2}</small></span><b>‹ ${METER_STYLES[st]} ›</b></div>`;
+    }
+    this.el.innerHTML = `<div class="mv-card"><div class="mv-top"><span>${L.title} · MOVES</span><em>${how}</em><button class="mv-x" aria-label="close">✕</button></div>${set}<div class="mv-list">${rows}</div>${L.notes ? `<div class="mv-note">${esc(L.notes)}</div>` : ''}<div class="mv-foot">${close} · the game's paused</div></div>`;
     this.el.classList.remove('hidden');
     this.open = true;
     document.body.classList.add('moves-open');

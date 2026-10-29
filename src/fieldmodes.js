@@ -45,6 +45,7 @@ const RING_Y = 1.7;
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const BOTTLE = new THREE.CylinderGeometry(0.035, 0.035, 0.21, 8); // (a sports drink)
+const GOLD = new THREE.MeshLambertMaterial({ color: 0xffc83a, emissive: 0x9a6a00 }); // (a perfect pass)
 const LEASH = 50 * YD;
 const FILL = 0.6; // (game seconds to a full meter: about 1.2 s with time slowed to half)
 const ACC_T = 0.45; // (game seconds for the accuracy needle: about 0.9 s slowed; the perfect tap's halfway)
@@ -274,6 +275,7 @@ export const FieldModes = {
     if (fb.ball) fb.ball.mesh.visible = true;
     game.hud.sportFloat?.(null);
     this.tmeter?.hide();
+    if (this.cat?.gold) this.goldBall(false);
     if (game.timeScale !== 1) game.timeScale = 1;
   },
 
@@ -549,7 +551,12 @@ export const FieldModes = {
       else {
         this.press = null;
         const [px, pz] = game.player.pos();
-        C.acc = { kind: P.kind, power: Math.min(1, P.t / FILL), n: 0, d: dist(px, pz, C.mate.x, C.mate.z) };
+        const d = dist(px, pz, C.mate.x, C.mate.z);
+        const pw = Math.min(1, P.t / FILL);
+        const po = Math.abs(pw - this.needFor(P.kind, d));
+        const W = CTYPES[P.kind].win;
+        // (the power's own animation the moment you let go: dead on, in the green, or off)
+        C.acc = { kind: P.kind, power: pw, n: 0, d, pwFx: po <= W * 0.5 ? 'pw-perfect' : po <= W ? 'pw-ok' : 'miss', key: (C.fxN = (C.fxN || 0) + 1) };
       }
     }
     C.prevHeld = held;
@@ -628,8 +635,38 @@ export const FieldModes = {
     // (what the meter shows a moment after: where you let go and tapped, and the verdict)
     const pwr = Math.abs(off) <= TY.win ? '' : off < 0 ? 'SHORT' : 'LONG';
     const aim = tapN == null ? 'NO TAP' : Math.abs(acc) <= PERFECT ? 'PERFECT' : acc < 0 ? 'PULLED' : 'PUSHED';
-    const perfect = !pwr && aim === 'PERFECT';
-    C.last = { v: pw, lo: need - TY.win, hi: need + TY.win, n: null, tap: tapN ?? (acc < 0 ? 0 : 1), label: perfect ? 'PERFECT' : [pwr, aim === 'PERFECT' ? 'ON LINE' : aim].filter(Boolean).join(' · '), labelClass: perfect ? 'good' : !pwr && Math.abs(acc) <= 0.1 ? 'ok' : 'bad', until: game.time + 1.1 };
+    const pwPerfect = Math.abs(off) <= TY.win * 0.5;
+    const perfect = pwPerfect && aim === 'PERFECT';
+    const okish = !pwr && aim === 'PERFECT';
+    // (the tap's own animation, or for both dead on, the big one; the ball gets a gold trail)
+    const fx = perfect ? ['pass-perfect'] : [pwPerfect ? 'pw-perfect' : !pwr ? 'pw-ok' : 'miss', aim === 'PERFECT' ? 'acc-perfect' : Math.abs(acc) <= 0.1 ? 'acc-ok' : 'miss'];
+    if (perfect) this.goldBall(true);
+    C.last = { fx, fxKey: (C.fxN = (C.fxN || 0) + 1), v: pw, lo: need - TY.win, hi: need + TY.win, n: null, tap: tapN ?? (acc < 0 ? 0 : 1), label: perfect ? 'PERFECT PASS' : okish ? 'ON THE MONEY' : [pwr, aim === 'PERFECT' ? 'ON LINE' : aim].filter(Boolean).join(' · '), labelClass: perfect || okish ? 'good' : !pwr && Math.abs(acc) <= 0.1 ? 'ok' : 'bad', until: game.time + (perfect ? 1.6 : 1.1) };
+    if (perfect) {
+      game.shakeCamera?.(0.03, 0.2);
+      game.timeScale = 0.3; // (a beat more slow motion as it leaves the hand: it eases back)
+    }
+  },
+
+  // A perfect pass: the ball glows gold with a trail of afterimages till it gets there.
+  goldBall(on) {
+    const game = this.game;
+    const b = this.fb.ball;
+    const C = this.cat;
+    if (on && !C.gold) {
+      C.gold = { mat: b.mesh.material, ghosts: [], hist: [] };
+      b.mesh.material = GOLD;
+      for (let i = 0; i < 6; i++) {
+        const g = new THREE.Mesh(b.mesh.geometry, new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.45 * (1 - i / 6), depthWrite: false }));
+        g.visible = false;
+        game.scene.add(g);
+        C.gold.ghosts.push(g);
+      }
+    } else if (!on && C.gold) {
+      b.mesh.material = C.gold.mat;
+      for (const g of C.gold.ghosts) game.scene.remove(g);
+      C.gold = null;
+    }
   },
 
   // D-pad ↑: go long (10 yards further out, up to the limit); ↓: come closer.
@@ -686,7 +723,7 @@ export const FieldModes = {
       const kind = this.press ? this.press.kind : C.acc.kind;
       const W = CTYPES[kind].win;
       const need = this.needFor(kind, C.acc ? C.acc.d : dist(px, pz, C.mate.x, C.mate.z));
-      st = { style, v: this.press ? Math.min(1, this.press.t / FILL) : C.acc.power, lo: need - W, hi: need + W, n: C.acc ? C.acc.n : null, tap: null, label: C.acc ? 'TAP!' : '', labelClass: 'cue' };
+      st = { style, v: this.press ? Math.min(1, this.press.t / FILL) : C.acc.power, lo: need - W, hi: need + W, n: C.acc ? C.acc.n : null, tap: null, label: C.acc ? 'TAP!' : '', labelClass: 'cue', fx: C.acc ? [C.acc.pwFx] : null, fxKey: C.acc?.key };
     } else if (C.last && game.time < C.last.until) st = { style, ...C.last };
     game.hud.sportFloat?.(null);
     if (!st) return tm.hide();
@@ -803,6 +840,7 @@ export const FieldModes = {
         if (dist(o.x, o.z, S.x, S.z) < 1.2 && Math.random() < 0.93) {
           S.holder = o;
           S.holdT = 0;
+          o.fb.sideSpot = this.inRange(o, o === S.a ? S.b.fb.sideSpot : S.a.fb.sideSpot, 32);
         } else S.loose = { vx: (Fl.p1[0] - Fl.p0[0]) / Fl.T * 0.3, vz: (Fl.p1[2] - Fl.p0[2]) / Fl.T * 0.3, vy: -2 };
         S.flight = null;
       }
@@ -822,6 +860,7 @@ export const FieldModes = {
         if (dist(q.x, q.z, S.x, S.z) < 0.7 && S.y < 0.6) {
           S.holder = q;
           S.holdT = 0;
+          q.fb.sideSpot = this.inRange(q, q === S.a ? S.b.fb.sideSpot : S.a.fb.sideSpot, 32);
           S.loose = null;
           break;
         }
@@ -876,6 +915,25 @@ export const FieldModes = {
     return null;
   },
 
+  // Where he throws it back from: right where he got it, unless that's too far (then in range).
+  inRange(q, to, range) {
+    const F = this.fb.site.field;
+    let x = Math.max(F.x0 + 0.5, Math.min(F.x1 - 0.5, q.x));
+    let z = Math.max(F.z0 + 0.5, Math.min(F.z1 - 0.5, q.z));
+    const d = dist(x, z, to[0], to[1]);
+    if (d > range) {
+      x = to[0] + ((x - to[0]) / d) * (range - 2);
+      z = to[1] + ((z - to[1]) / d) * (range - 2);
+    }
+    return [x, z];
+  },
+  throwFromHere(w) {
+    const [px, pz] = this.game.player.pos();
+    this.cat.spot = this.inRange(w, [px, pz], LEASH - 6);
+    this.cat.routeOn = false;
+    w.fb.route = null;
+  },
+
   driveMate(p, f, b, goTo, faceAt) {
     const C = this.cat;
     const [px, pz] = this.game.player.pos();
@@ -898,6 +956,7 @@ export const FieldModes = {
         if (dm < 0.7 && b.y < 0.8) {
           this.fb.hold(p);
           C.holdT = 0;
+          this.throwFromHere(p);
         }
         return { tx: b.x, tz: b.z, speed: 4.5 };
       }
@@ -948,6 +1007,22 @@ export const FieldModes = {
       return this.end('off');
     }
     this.sideStep(dt);
+    // (a perfect pass's gold trail, till it lands)
+    if (C.gold) {
+      if (b.mode !== 'flight') this.goldBall(false);
+      else {
+        C.gold.hist.unshift([b.x, b.y, b.z, b.mesh.quaternion.clone()]);
+        C.gold.hist.length = Math.min(C.gold.hist.length, 13);
+        C.gold.ghosts.forEach((g, i) => {
+          const h = C.gold.hist[(i + 1) * 2];
+          g.visible = !!h;
+          if (h) {
+            g.position.set(h[0], h[1], h[2]);
+            g.quaternion.copy(h[3]);
+          }
+        });
+      }
+    }
     const p = game.player;
     let [px, pz] = p.pos();
     // The 50-yard leash: past it, backing off fights you (pulled most of the way back each step)
@@ -982,6 +1057,7 @@ export const FieldModes = {
       C.holdT += dt;
       C.routeOn = false;
       w.fb.route = null;
+      // (he throws it from wherever he got it, unless that's out of range: then he comes in first)
       const atSpot = dist(w.x, w.z, C.spot[0], C.spot[1]) < 0.9;
       if (!C.throwing && !w.fb.throwT && C.holdT > 0.9 && atSpot) {
         w.fb.throwT = 0.35;
@@ -1049,6 +1125,7 @@ export const FieldModes = {
       C.routeOn = false;
       if (Math.random() < pr) {
         fb.hold(w);
+        this.throwFromHere(w);
         C.his++;
         C.streak++;
         C.holdT = 0;

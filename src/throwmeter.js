@@ -11,7 +11,7 @@
 // The accuracy timing is the same in all three: the needle runs 0 → 1 over the window and the
 // perfect tap is at 0.5 (the moment the ball leaves the hand).
 
-export const METER_STYLES = { needle: 'Bar + needle', golf: 'Golf swing', arc: 'Arc' };
+export const METER_STYLES = { arc: 'Arc', needle: 'Bar + needle', golf: 'Golf swing' };
 export const PERFECT = 0.035; // (either side of the middle: a perfect tap)
 const GOOD = 0.1;
 const LINE = 0.12; // (golf: the accuracy line, up from the bottom of the bar)
@@ -20,12 +20,20 @@ const NOTCH = 0.06; // (arc: the release notch, along the arc)
 const f1 = (v) => v.toFixed(1);
 
 export class ThrowMeter {
-  constructor() {
+  constructor(attach = true) {
     const el = (this.el = document.createElement('div'));
-    el.id = 'throw-meter';
-    el.className = 'hidden';
-    document.body.appendChild(el);
+    el.id = attach ? 'throw-meter' : '';
+    el.className = attach ? 'hidden' : 'tm-preview';
+    if (attach) document.body.appendChild(el);
     this.html = '';
+    this.fxKey = null;
+  }
+
+  // A still picture of a meter (the moves list's setting shows the one you've picked).
+  static preview(style) {
+    const t = new ThrowMeter(false);
+    t.show(null, { style, v: 0.62, lo: 0.56, hi: 0.68, n: 0.4, tap: null, label: '' });
+    return t.el.innerHTML;
   }
 
   hide() {
@@ -37,11 +45,28 @@ export class ThrowMeter {
   show(at, s) {
     const el = this.el;
     el.classList.remove('hidden');
-    el.style.left = `${Math.round(at.x)}px`;
-    el.style.top = `${Math.round(at.y)}px`;
+    if (at) {
+      el.style.left = `${Math.round(at.x)}px`;
+      el.style.top = `${Math.round(at.y)}px`;
+    }
+    // The animations (restarted each time their key changes): fx is a list of 'pw-ok' /
+    // 'pw-perfect' (the power let go in the green / dead on it), 'acc-ok' / 'acc-perfect' (the
+    // tap), 'miss', and 'pass-perfect' (both dead on: the big one).
+    const fk = s.fx ? `${s.fx.join(' ')}@${s.fxKey}` : '';
+    if (fk !== this.fxKey) {
+      this.fxKey = fk;
+      el.classList.remove('pw-ok', 'pw-perfect', 'acc-ok', 'acc-perfect', 'miss', 'pass-perfect');
+      this.html = ''; // (fresh inner elements: their animations start over)
+      if (s.fx?.length) {
+        void el.offsetWidth;
+        el.classList.add(...s.fx);
+      }
+    }
     const svg = s.style === 'golf' ? this.golf(s) : s.style === 'arc' ? this.arc(s) : this.needle(s);
     const lab = s.label ? `<div class="tm-label ${s.labelClass || ''}">${s.label}</div>` : '';
-    const html = `<svg viewBox="0 0 140 196" width="140" height="196">${svg}</svg>${lab}`;
+    // (behind the meter: the rays and the ring for a perfect pass; the sparks)
+    const fx = '<div class="tm-rays"></div><div class="tm-ring"></div><div class="tm-ring r2"></div>' + Array.from({ length: 10 }, (_, i) => `<i class="tm-spark" style="--a:${i * 36}deg"></i>`).join('');
+    const html = `${fx}<svg viewBox="0 0 140 196" width="140" height="196">${svg}</svg>${lab}`;
     if (html !== this.html) {
       this.html = html;
       el.innerHTML = html;
@@ -53,8 +78,8 @@ export class ThrowMeter {
     const fy = (v) => y + h * (1 - Math.max(0, Math.min(1, v)));
     const inG = s.v >= s.lo && s.v <= s.hi;
     return `<rect x="${x - 3}" y="${y - 3}" width="${w + 6}" height="${h + 6}" rx="5" fill="rgba(8,12,18,.78)" stroke="#2b303b" stroke-width="2"/>
-      <rect x="${x}" y="${f1(fy(s.hi))}" width="${w}" height="${f1(Math.max(2, fy(s.lo) - fy(s.hi)))}" fill="rgba(62,220,120,.45)" stroke="#3ddc78" stroke-width="1.5"/>
-      <rect x="${x + 3}" y="${f1(fy(s.v))}" width="${w - 6}" height="${f1(y + h - fy(s.v))}" rx="2" fill="${inG ? '#3ddc78' : '#ffd23f'}"/>`;
+      <rect class="tm-green" x="${x}" y="${f1(fy(s.hi))}" width="${w}" height="${f1(Math.max(2, fy(s.lo) - fy(s.hi)))}" fill="rgba(62,220,120,.45)" stroke="#3ddc78" stroke-width="1.5"/>
+      <rect class="tm-fill${inG ? ' in' : ''}" x="${x + 3}" y="${f1(fy(s.v))}" width="${w - 6}" height="${f1(y + h - fy(s.v))}" rx="2" fill="${inG ? '#3ddc78' : '#ffd23f'}"/>`;
   }
 
   needle(s) {
@@ -66,7 +91,7 @@ export class ThrowMeter {
       const nx = (n) => x0 + W * Math.max(0, Math.min(1, n));
       out += `<rect x="${x0 - 3}" y="${y - 3}" width="${W + 6}" height="22" rx="5" fill="rgba(8,12,18,.78)" stroke="#2b303b" stroke-width="2"/>
         <rect x="${f1(nx(0.5 - GOOD))}" y="${y}" width="${f1(W * GOOD * 2)}" height="16" fill="rgba(255,210,63,.25)"/>
-        <rect x="${f1(nx(0.5 - PERFECT))}" y="${y}" width="${f1(W * PERFECT * 2)}" height="16" fill="rgba(62,220,120,.6)"/>
+        <rect class="tm-notch" x="${f1(nx(0.5 - PERFECT))}" y="${y}" width="${f1(W * PERFECT * 2)}" height="16" fill="rgba(62,220,120,.6)"/>
         <line x1="${nx(0.5)}" y1="${y - 2}" x2="${nx(0.5)}" y2="${y + 18}" stroke="#fff" stroke-width="2"/>`;
       const n = s.tap ?? s.n;
       const x = nx(n);
@@ -84,7 +109,7 @@ export class ThrowMeter {
     const fy = (v) => y + h * (1 - v);
     // (the accuracy line near the bottom, with its perfect band)
     const band = (Math.max(0.05, s.v - LINE) / 0.5) * PERFECT; // (the marker's travel in the perfect window)
-    out += `<rect x="${x - 8}" y="${f1(fy(LINE + band))}" width="${w + 16}" height="${f1(Math.max(2, h * band * 2))}" fill="rgba(62,220,120,.6)"/>
+    out += `<rect class="tm-notch" x="${x - 8}" y="${f1(fy(LINE + band))}" width="${w + 16}" height="${f1(Math.max(2, h * band * 2))}" fill="rgba(62,220,120,.6)"/>
       <line x1="${x - 10}" y1="${f1(fy(LINE))}" x2="${x + w + 10}" y2="${f1(fy(LINE))}" stroke="#fff" stroke-width="2"/>`;
     if (s.n != null || s.tap != null) {
       const n = s.tap ?? s.n;
@@ -112,20 +137,20 @@ export class ThrowMeter {
     const inG = s.v >= s.lo && s.v <= s.hi;
     let out = `<circle cx="${cx}" cy="${cy}" r="${r + 14}" fill="rgba(8,12,18,.6)"/>
       <path d="${arcPath(0, 1)}" stroke="#2b303b" stroke-width="16" fill="none" stroke-linecap="round"/>
-      <path d="${arcPath(Math.max(0, s.lo), Math.min(1, s.hi))}" stroke="rgba(62,220,120,.6)" stroke-width="16" fill="none"/>`;
-    if (s.v > 0.005) out += `<path d="${arcPath(0, Math.min(1, s.v))}" stroke="${inG ? '#3ddc78' : '#ffd23f'}" stroke-width="9" fill="none" stroke-linecap="round"/>`;
+      <path class="tm-green" d="${arcPath(Math.max(0, s.lo), Math.min(1, s.hi))}" stroke="rgba(62,220,120,.6)" stroke-width="16" fill="none"/>`;
+    if (s.v > 0.005) out += `<path class="tm-fill${inG ? ' in' : ''}" d="${arcPath(0, Math.min(1, s.v))}" stroke="${inG ? '#3ddc78' : '#ffd23f'}" stroke-width="9" fill="none" stroke-linecap="round"/>`;
     // (the notch at the release point)
     const band = (Math.max(0.05, s.v - NOTCH) / 0.5) * PERFECT;
     const [nx0, ny0] = pt(NOTCH - band, r + 12);
     const [nx1, ny1] = pt(NOTCH + band, r + 12);
     const [ix0, iy0] = pt(NOTCH, r - 12);
-    out += `<path d="M${f1(ix0)} ${f1(iy0)} L${f1(nx0)} ${f1(ny0)} L${f1(nx1)} ${f1(ny1)} Z" fill="rgba(62,220,120,.75)"/>`;
+    out += `<path class="tm-notch" d="M${f1(ix0)} ${f1(iy0)} L${f1(nx0)} ${f1(ny0)} L${f1(nx1)} ${f1(ny1)} Z" fill="rgba(62,220,120,.75)"/>`;
     if (s.n != null || s.tap != null) {
       const n = s.tap ?? s.n;
       const u = s.v + (NOTCH - s.v) * (n / 0.5); // (swinging back from the power, through the notch)
       const [ex, ey] = pt(u, r + 14);
       const c = s.tap != null ? tapColor(s.tap) : '#fff';
-      out += `<line x1="${cx}" y1="${cy}" x2="${f1(ex)}" y2="${f1(ey)}" stroke="${c}" stroke-width="4" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="5" fill="${c}"/>`;
+      out += `<g class="tm-needle"><line x1="${cx}" y1="${cy}" x2="${f1(ex)}" y2="${f1(ey)}" stroke="${c}" stroke-width="4" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="5" fill="${c}"/></g>`;
     }
     return out;
   }
