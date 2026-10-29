@@ -1868,6 +1868,7 @@ class Game {
   }
 
   updateCamera(dt, a) {
+    this.camLook = null;
     this.camYaw += a.lookX;
     this.camPitch = clamp(this.camPitch + a.lookY, this.player.vehicle ? -0.5 : -1.3, 1.0);
     if (a.looking) this.camIdle = 0;
@@ -1903,6 +1904,7 @@ class Game {
       }
       // Playing catch at Harbor Field (fieldmodes.js): in close over your throwing shoulder.
       const S = this.gridiron?.active && this.gridiron.camShot?.();
+      this.camLook = S?.look || null; // (a point to look toward as well as you: the ball coming in)
       if (S) {
         distBack = S.back;
         height = S.up;
@@ -1998,7 +2000,12 @@ class Game {
     // (never under the ground, or under the freeway deck you're up on)
     const floor = Math.max(this.city.groundY(cx, cz), this.highway.floorBelow(cx, cz, ty) ?? -1e9);
     this.camera.position.set(cx + rand(-shake, shake), Math.max(floor + 0.6, cy), cz + rand(-shake, shake));
-    this.camera.lookAt(tx + rx * shoulder, ty + 0.6, tz + rz * shoulder);
+    if (this.camLook && !v) {
+      // (between you and that point, so both stay in the picture)
+      const L = this.camLook;
+      const hx = tx + rx * shoulder, hy = ty + 0.6, hz = tz + rz * shoulder;
+      this.camera.lookAt(hx + (L.x - hx) * L.k, hy + (L.y - hy) * L.k, hz + (L.z - hz) * L.k);
+    } else this.camera.lookAt(tx + rx * shoulder, ty + 0.6, tz + rz * shoulder);
     if (Math.abs(this.camera.fov - fov) > 0.1) {
       this.camera.fov = lerp(this.camera.fov, fov, Math.min(1, dt * 10));
       this.camera.updateProjectionMatrix();

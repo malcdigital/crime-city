@@ -805,7 +805,14 @@ export const FieldModes = {
   // on him (main.js updateCamera).
   camShot() {
     if (!(this.mode === 'catch' && this.cat) && !(this.mode === 'qbc' && this.qbc)) return null;
-    return { back: 3.7, up: 0.45, shoulder: 0.85, fov: 58 };
+    // (a high ball coming to you: pulled back and wider, so it, you and the grass are all in it)
+    const b = this.fb.ball;
+    const hi = this.mode === 'catch' && b.mode === 'flight' && b.to === 'you' ? Math.max(0, Math.min(1, (b.y - 2.5) / 6)) : 0;
+    this.camHi = (this.camHi || 0) + (hi - (this.camHi || 0)) * 0.08;
+    const k = this.camHi;
+    // (and looking up toward the ball, partway between it and you)
+    const look = k > 0.02 ? { x: b.x, y: b.y, z: b.z, k: 0.4 * k } : null;
+    return { back: 3.7 + 2.6 * k, up: 0.45 + 0.9 * k, shoulder: 0.85, fov: 58 + 14 * k, look };
   },
 
   // The board up top, and the power meter beside you while you hold a throw (and its result a
@@ -1136,8 +1143,30 @@ export const FieldModes = {
     }
     // The camera locked on him; you square up to him whenever you're not on the move (or you're
     // winding up).
-    const face = Math.atan2(w.x - px, w.z - pz);
-    game.camYaw = lerpAngle(game.camYaw, face, Math.min(1, dt * 6));
+    // Thrown to you (or loose): the camera's on the ball instead, tilting up for a high one.
+    // Going over your head, it turns to where it'll come down as it comes over (looking back
+    // over your shoulder for it, like going deep). Back on him once someone has it.
+    const onBall = (b.mode === 'flight' && b.to === 'you') || b.mode === 'loose';
+    const hb = dist(px, pz, b.x, b.z);
+    let face = Math.atan2(w.x - px, w.z - pz);
+    if (onBall) {
+      const flying = b.mode === 'flight';
+      // (it's come over you: the ball's now on the same side as where it comes down, which is
+      // well off from you)
+      const past = flying && dist(px, pz, b.p1[0], b.p1[2]) > 1.5 && dist(b.p0[0], b.p0[2], b.p1[0], b.p1[2]) > dist(b.p0[0], b.p0[2], px, pz) && dist(b.p0[0], b.p0[2], b.x, b.z) > dist(b.p0[0], b.p0[2], px, pz) - 1;
+      face = past ? Math.atan2(b.p1[0] - px, b.p1[2] - pz) : hb > 1.5 ? Math.atan2(b.x - px, b.z - pz) : game.camYaw;
+    }
+    game.camYaw = lerpAngle(game.camYaw, face, Math.min(1, dt * (onBall ? 5 : 6)));
+    if (onBall && b.mode === 'flight') {
+      const cam = game.camera.position;
+      const e = Math.atan2(b.y - cam.y, Math.max(1.5, dist(cam.x, cam.z, b.x, b.z)));
+      const wantP = Math.max(-0.4, Math.min(0.3, 0.25 - e * 0.8));
+      game.camPitch += (wantP - game.camPitch) * Math.min(1, dt * 4);
+      C.pitched = true;
+    } else if (C.pitched) {
+      game.camPitch += (0.25 - game.camPitch) * Math.min(1, dt * 3);
+      if (Math.abs(game.camPitch - 0.25) < 0.01) C.pitched = false;
+    }
     if ((p.speed || 0) < 0.6 || this.press) p.heading = lerpAngle(p.heading, face, Math.min(1, dt * 10));
     // (a loose ball at your feet: yours)
     // (a loose ball at your feet: you stop and scoop it up, yours halfway through)
