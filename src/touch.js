@@ -511,7 +511,8 @@ export class TouchControls {
       this.el.root.dataset.mode = cat ? 'catch' : qbc ? 'qbc' : '';
       b.reload.hint.textContent = meter ? 'bullet' : '';
       b.tri.hint.textContent = meter ? 'lob' : '';
-      if (meter) b.cross.hint.textContent = 'touch';
+      const incoming = cat && game.football?.ball?.mode === 'flight' && game.football.ball.to === 'you';
+      if (meter) b.cross.hint.textContent = incoming || M?.cat?.late ? 'catch' : 'touch';
       b.circle.el.classList.toggle('hidden', running || meter);
       b.qr1.el.classList.toggle('hidden', running || meter);
       b.clong.el.classList.toggle('hidden', !cat);

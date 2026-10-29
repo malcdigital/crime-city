@@ -98,15 +98,15 @@ const CATCH = {
       ['Come closer', 'CLOSER', 'D-pad ↓', 'Q'],
       ['Run a route', '—', 'R1', 'X'],
     ]],
-    ['CATCHING', [
-      ['Catch it', 'be under it', 'be under it', 'be under it'],
+    ['CATCHING (get under it, press as the ring closes on the ball)', [
+      ['Catch it', 'CATCH', '✕', 'K (or click)'],
     ]],
     ['THE GAME', [
       ['Stop', 'QUIT, then SURE?', 'hold the touchpad', 'hold M'],
       ['This list', '?', 'Create', 'Tab'],
     ]],
   ],
-  notes: 'Go anywhere on the field: stay within 50 yards of each other (past that, backing off fights you and he comes in). Power: early on the meter falls short, late sails long. Accuracy: time slows to half while you throw; tap again as the needle crosses the notch (that\'s the release): early pulls it to your left, late pushes it right. Both dead on: a PERFECT PASS.',
+  notes: 'Go anywhere on the field: stay within 50 yards of each other (past that, backing off fights you and he comes in). Power: early on the meter falls short, late sails long. Accuracy: time slows to half while you throw; tap again as the needle crosses the notch (that\'s the release): early pulls it to your left, late pushes it right. Both dead on: a PERFECT PASS. Catching: press as the closing ring meets the ball (green: a perfect catch); a bit off and it bobbles (50/50 you hang on), way off and it drops.',
   setting: 'meter',
 };
 

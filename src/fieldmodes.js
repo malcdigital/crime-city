@@ -20,7 +20,7 @@ import { ThrowMeter, PERFECT } from './throwmeter.js';
 //   field within 50 yards of each other. He throws it back from wherever he got it, sometimes
 //   off to one side so you have to go get it. D-pad ↑ / ↓ calls him long or closer; R1
 //   (keyboard X) sends him on a route. A drop rolls away: whoever's nearer picks it up. It counts
-//   your catches, his, and the best run in a row.
+//   your catches, his, and the best run in a row. Your catches are timed (✕ as the ring closes: below).
 // Both quit like the drive (QUIT on a phone, hold the touchpad / M); walking off the field, a
 // car or the police end them.
 
@@ -56,6 +56,20 @@ const CTYPES = {
   lob: { max: 52, T: (L) => 0.8 + L / 15, win: 0.08, err: 0.6, h: 1.5 }, // (high, hangs, the deepest)
 };
 const ROUTES = ['go', 'post', 'out', 'slant', 'curl'];
+// Catching is timed: press ✕ (K / click; CATCH on a phone) as the ball gets to your hands. A ring
+// closes in on the ball over its last CW_RING seconds and meets it right then (green: the
+// perfect zone). Off by up to CW_PERF: a perfect catch; CW_GOOD: caught; CW_BOB: a bobble (it
+// pops up off your hands, 50/50 you hang on); more, or no press: it drops. Not pressed when it
+// gets there, it goes on through your hands and you can still snatch it within CW_BOB. Time
+// slows (CW_SLOW) for the last half second when you're under it.
+const CW_RING = 0.65;
+const CW_PERF = 0.05;
+const CW_GOOD = 0.12;
+const CW_BOB = 0.22;
+const CW_REACH = 1.15; // (how close to where it comes down you have to be)
+const CW_SLOW = 0.6;
+const RING_GEO = new THREE.RingGeometry(0.86, 1, 40);
+const DOT_GEO = new THREE.RingGeometry(0.82, 1, 40);
 
 
 export const FieldModes = {
@@ -217,6 +231,10 @@ export const FieldModes = {
       for (const f of this.qbc.flights) game.scene.remove(f.mesh);
       if (how !== 'qbc') game.hud.toast(how === 'forfeit' ? 'You walked off the QB Challenge' : 'QB Challenge stopped', '#9fc3ff');
       this.qbc = null;
+    }
+    if (this.cring) {
+      game.scene.remove(this.cring);
+      this.cring = null;
     }
     if (this.mode === 'catch' && this.cat) {
       const C = this.cat;
@@ -576,7 +594,7 @@ export const FieldModes = {
     S.prevHeld = held;
     // (time slows to half while you hold and tap, and eases back after)
     const ts = game.timeScale || 1;
-    const want = this.press || S.acc ? SLOW : 1;
+    const want = this.press || S.acc ? SLOW : this.catchSlow() ? CW_SLOW : 1;
     game.timeScale = ts + (want - ts) * Math.min(1, (dt / ts) * 9);
     if (Math.abs(game.timeScale - 1) < 0.01) game.timeScale = 1;
     if (pad) a.sprint = fire; // (R2 sprints)
@@ -643,6 +661,11 @@ export const FieldModes = {
     const inp = this.game.input;
     const R = a.qbR || [];
     if (this.pickT > 0) a.moveX = a.moveY = 0; // (stopped while you scoop it up)
+    // (the catch: ✕ / K / click as the ring meets the ball)
+    const pad = inp.mode === 'pad' && !inp.touchMode;
+    const cHeld = !!R[1] || !!inp.keys?.has('KeyK') || (!pad && !!fire);
+    if (cHeld && !this.cPrev) this.catchPress();
+    this.cPrev = cHeld;
     this.meterInput(dt, a, fire);
     if (inp.btnHit?.(12) || inp.hit?.('KeyE')) this.callMate(1);
     if (inp.btnHit?.(13) || inp.hit?.('KeyQ')) this.callMate(-1);
@@ -785,7 +808,7 @@ export const FieldModes = {
     const yd = Math.round(dist(px, pz, C.mate.x, C.mate.z) / YD);
     const keys = inp.touchMode ? 'BULLET · TOUCH · LOB' : kb ? 'J bullet · K touch · L lob' : '□ bullet · ✕ touch · △ lob';
     const calls = inp.touchMode ? 'LONG / CLOSER' : kb ? 'E go long · Q closer' : 'D-pad ↑ go long · ↓ closer';
-    const hint = b.holder === 'you' ? (C.acc ? 'Tap it again on the line!' : `${keys}: hold for power, let go in the green, tap again on the line · ${calls}`) : b.mode === 'flight' && b.to === 'you' ? 'Get under it!' : b.mode === 'loose' ? 'Loose ball: go get it' : `${C.mate.ballName} has it · ${calls}`;
+    const hint = b.holder === 'you' ? (C.acc ? 'Tap it again on the line!' : `${keys}: hold for power, let go in the green, tap again on the line · ${calls}`) : b.mode === 'flight' && b.to === 'you' ? `Get under it · ${inp.touchMode ? 'CATCH' : kb ? 'K' : '✕'} as the ring closes on the ball` : b.mode === 'loose' ? 'Loose ball: go get it' : `${C.mate.ballName} has it · ${calls}`;
     game.hud.sport?.(`PLAYING CATCH · ${C.mate.ballName} · ${yd} yds · ${C.streak} in a row (best ${C.best})`, null, hint);
     this.meterHud();
   },
@@ -1106,7 +1129,7 @@ export const FieldModes = {
     if ((p.speed || 0) < 0.6 || this.press) p.heading = lerpAngle(p.heading, face, Math.min(1, dt * 10));
     // (a loose ball at your feet: yours)
     // (a loose ball at your feet: you stop and scoop it up, yours halfway through)
-    if (b.mode === 'loose' && b.y < 0.8 && dist(px, pz, b.x, b.z) < 0.9 && !(this.pickT > 0)) {
+    if (b.mode === 'loose' && !C.late && b.y < 0.8 && dist(px, pz, b.x, b.z) < 0.9 && !(this.pickT > 0)) {
       this.pickT = PICK_T;
       b.vx = b.vz = 0;
       p.heading = Math.atan2(b.x - px, b.z - pz);
@@ -1154,6 +1177,164 @@ export const FieldModes = {
     }
     // (after a throw you're back to having it or waiting on him)
     if (this.state === 'air' && b.mode !== 'flight') this.state = 'play';
+    // (it went through your hands: a moment to snatch it, then it's on the grass)
+    if (C.late) {
+      C.late.t += dt;
+      if (C.late.t > CW_BOB || b.mode !== 'loose') {
+        if (b.mode === 'loose') this.catchMiss('Through your hands');
+        C.late = null;
+      }
+    }
+    this.catchRing(dt);
+  },
+
+  // The catch window for the throw coming at you (new each throw).
+  catchW() {
+    const C = this.cat;
+    const b = this.fb.ball;
+    if (b.mode === 'flight' && b.to === 'you' && C.cw?.p0 !== b.p0) C.cw = { p0: b.p0, press: null, bob: !!C.bob };
+    return C.cw;
+  },
+  // Under it: within reach of where it's coming down.
+  catchUnder() {
+    const b = this.fb.ball;
+    const [px, pz] = this.game.player.pos();
+    return dist(px, pz, b.p1[0], b.p1[2]) < CW_REACH;
+  },
+  catchSlow() {
+    if (this.mode !== 'catch' || !this.cat) return false;
+    const b = this.fb.ball;
+    const C = this.cat;
+    if (C.late) return true;
+    const W = b.mode === 'flight' && b.to === 'you' ? this.catchW() : null;
+    return !!W && !W.bob && W.press == null && b.T - b.t < 0.5 && this.catchUnder();
+  },
+  // You pressed catch.
+  catchPress() {
+    if (this.mode !== 'catch' || !this.cat) return;
+    const b = this.fb.ball;
+    const C = this.cat;
+    if (C.late) {
+      // (snatching it as it goes through: late by however long it's been)
+      const off = C.late.t;
+      C.late = null;
+      return this.catchResolve(off);
+    }
+    if (b.mode !== 'flight' || b.to !== 'you') return;
+    const W = this.catchW();
+    if (W.bob || W.press != null || b.T - b.t > CW_RING + 0.35) return; // (way early: nothing yet)
+    W.press = b.t - b.T; // (negative: early)
+    W.at = this.game.time;
+  },
+  // How the catch went (off: seconds from the moment it got to your hands).
+  catchResolve(off) {
+    const game = this.game;
+    const fb = this.fb;
+    const b = fb.ball;
+    const C = this.cat;
+    const o = Math.abs(off);
+    C.cres = { o, at: game.time };
+    if (o <= CW_GOOD) {
+      fb.hold('you');
+      b.holder = 'you';
+      this.t = 0;
+      this.meterS().prevHeld = { bullet: true, touch: true, lob: true }; // (the catch press isn't a throw)
+      C.mine++;
+      C.streak++;
+      if (o <= CW_PERF) {
+        C.perfect = (C.perfect || 0) + 1;
+        game.hud.toast(C.streak % 5 === 0 ? `PERFECT CATCH · ${C.streak} in a row` : 'PERFECT CATCH', '#7ee081');
+        game.shakeCamera?.(0.02, 0.15);
+      } else if (C.streak % 5 === 0) game.hud.toast(`${C.streak} in a row`, '#7ee081');
+      C.best = Math.max(C.best, C.streak);
+      return;
+    }
+    if (o <= CW_BOB) return this.bobble('you');
+    this.catchMiss(off < 0 ? 'Too early: off your hands' : 'Too late');
+  },
+  // A bobble: it pops up off the hands; 50/50 he hangs on to it when it comes down.
+  bobble(who) {
+    const game = this.game;
+    const fb = this.fb;
+    const C = this.cat;
+    const [x, z, h] = who === 'you' ? [...game.player.pos(), game.player.heading] : [who.x, who.z, who.heading];
+    fb.ball.mode = 'flight';
+    fb.launch(x + Math.sin(h) * 0.3, 1.25, z + Math.cos(h) * 0.3, 0.55, 'pass', who);
+    fb.ball.style = 'bullet';
+    C.bob = who;
+    game.hud.toast(who === 'you' ? 'Bobbled it...' : `${who.ballName} bobbled it...`, '#ffd23f');
+  },
+  catchMiss(why) {
+    const fb = this.fb;
+    const b = fb.ball;
+    const C = this.cat;
+    if (b.mode !== 'loose') {
+      b.mode = 'loose';
+      b.holder = null;
+      b.vx = b.vz = 0;
+      b.vy = -1;
+    }
+    C.streak = 0;
+    this.game.hud.toast(why, '#ff8080');
+  },
+  // The ring closing in on a ball coming to you (facing the camera).
+  catchRing(dt) {
+    const game = this.game;
+    const b = this.fb.ball;
+    const C = this.cat;
+    if (!this.cring) {
+      const g = new THREE.Group();
+      const mk = (geo, op) => {
+        const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: op, side: THREE.DoubleSide, depthTest: false }));
+        m.renderOrder = 20;
+        g.add(m);
+        return m;
+      };
+      g.userData.close = mk(RING_GEO, 0.95);
+      g.userData.tgt = mk(DOT_GEO, 0.55);
+      game.scene.add(g);
+      this.cring = g;
+    }
+    const g = this.cring;
+    const R0 = 0.24; // (the ring round the ball: where the closing one has to meet it)
+    const W = b.mode === 'flight' && b.to === 'you' ? this.catchW() : null;
+    let show = false;
+    let r = R0;
+    let col = 0xffffff;
+    let op = 1;
+    if (W && !W.bob && b.T - b.t < CW_RING) {
+      show = true;
+      const left = b.T - b.t;
+      if (W.press != null) {
+        r = R0 + Math.max(0, -W.press) * (1.1 / CW_RING); // (frozen where you pressed)
+        const o = Math.abs(W.press);
+        col = o <= CW_PERF ? 0x3ddc78 : o <= CW_GOOD ? 0xb6f070 : o <= CW_BOB ? 0xffd23f : 0xff5c5c;
+      } else {
+        r = R0 + left * (1.1 / CW_RING);
+        col = !this.catchUnder() ? 0xff5c5c : left <= CW_PERF ? 0x3ddc78 : left <= CW_GOOD ? 0xb6f070 : 0xffffff;
+      }
+    } else if (C.late && b.mode === 'loose') {
+      show = true;
+      col = 0xffd23f;
+      op = 1 - C.late.t / CW_BOB;
+    } else if (C.cres && game.time - C.cres.at < 0.35 && b.holder === 'you') {
+      // (the flash as you pull it in)
+      show = true;
+      const k = (game.time - C.cres.at) / 0.35;
+      r = R0 + k * 0.5;
+      op = 1 - k;
+      col = C.cres.o <= CW_PERF ? 0x3ddc78 : 0xb6f070;
+    }
+    g.visible = show;
+    if (!show) return;
+    g.position.set(b.x, b.y, b.z);
+    g.quaternion.copy(game.camera.quaternion);
+    g.userData.close.scale.setScalar(r);
+    g.userData.close.material.color.setHex(col);
+    g.userData.close.material.opacity = 0.95 * op;
+    g.userData.tgt.scale.setScalar(R0);
+    g.userData.tgt.material.opacity = 0.55 * op;
+    void dt;
   },
 
   // A throw gets there (football.js arrived): his catch or yours.
@@ -1177,20 +1358,37 @@ export const FieldModes = {
     if (b.to === 'you') {
       const [px, pz] = game.player.pos();
       const d = dist(px, pz, b.x, b.z);
-      if (d < 1.15 && Math.random() < 0.97) {
-        fb.hold('you');
-        b.holder = 'you';
-        this.t = 0;
-        C.mine++;
-        C.streak++;
-        if (C.streak % 5 === 0) game.hud.toast(`${C.streak} in a row`, '#7ee081');
-      } else drop(d < 2.2 ? 'Off your fingertips' : 'Missed it');
+      const W = this.catchW();
+      if (C.bob === 'you') {
+        // (the bobble coming back down: 50/50, if you're still there)
+        C.bob = null;
+        if (d < 1.4 && Math.random() < 0.5) {
+          game.hud.toast('Hung on to it!', '#7ee081');
+          return this.catchResolve(CW_GOOD);
+        }
+        return drop('Bobbled it away');
+      }
+      if (d >= CW_REACH) drop(d < 2.2 ? 'Off your fingertips' : 'Missed it');
+      else if (W.press != null) this.catchResolve(W.press);
+      else {
+        // (no press yet: it goes on through your hands, a beat to snatch it)
+        b.mode = 'loose';
+        b.holder = null;
+        const L = Math.hypot(b.p1[0] - b.p0[0], b.p1[2] - b.p0[2]) || 1;
+        b.vx = ((b.p1[0] - b.p0[0]) / L) * 1.2;
+        b.vz = ((b.p1[2] - b.p0[2]) / L) * 1.2;
+        b.vy = -0.5;
+        C.late = { t: 0 };
+      }
     } else if (b.to === C.mate) {
       const w = C.mate;
       const dW = dist(w.x, w.z, b.x, b.z);
       const dove = fb.diveFor(w, b.x, b.z);
       let pr = dW < 0.9 ? 0.95 : dW < 1.6 ? 0.7 : dW < 2.6 ? 0.35 : 0;
       if (dove) pr += 0.1;
+      if (C.bob === w) pr = dW < 1.4 ? 0.5 : 0; // (his bobble coming back down: 50/50, like yours)
+      const bobbled = C.bob === w;
+      C.bob = null;
       w.fb.route = null;
       C.routeOn = false;
       if (Math.random() < pr) {
@@ -1203,7 +1401,8 @@ export const FieldModes = {
           game.hud.toast(`${w.ballName}: DIVING CATCH!`, '#7ee081');
           for (const f of fb.fans) f.fb.cheerT = rand(1.2, 2);
         } else if (C.streak % 5 === 0) game.hud.toast(`${C.streak} in a row`, '#7ee081');
-      } else drop(dW < 2.6 ? `${w.ballName} dropped it` : 'Way off');
+      } else if (!bobbled && !dove && dW < 1.6 && Math.random() < 0.5) this.bobble(w); // (off his hands: he might hang on)
+      else drop(bobbled ? `${w.ballName} couldn't hang on` : dW < 2.6 ? `${w.ballName} dropped it` : 'Way off');
     } else drop('Incomplete');
     C.best = Math.max(C.best, C.streak);
   },
