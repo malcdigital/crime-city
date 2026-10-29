@@ -397,6 +397,10 @@ body.touch #sport .sh { display: none; }
 #touch .tb-clong, #touch .tb-cclose { right: 18px; width: 64px; height: 50px; font-size: 13px; border-radius: 12px; }
 #touch .tb-clong { bottom: 150px; color: #ffd23f; }
 #touch .tb-cclose { bottom: 90px; color: #9fc3ff; }
+#touch .tb-tprev, #touch .tb-tnext { width: 56px; height: 56px; font-size: 22px; bottom: 190px; color: #ffd23f; }
+#touch .tb-tprev { right: 168px; }
+#touch .tb-tnext { right: 24px; }
+@media (max-height: 340px) { #touch .tb-tprev, #touch .tb-tnext { width: 48px; height: 48px; bottom: 150px; } }
 #touch .tb-qr1 { right: 22px; bottom: 196px; color: #ffd23f; }
 #touch .tb-rjuke { right: 168px; bottom: 100px; width: 66px; height: 66px; }
 #touch .tb-rspin { right: 96px; bottom: 170px; width: 66px; height: 66px; }

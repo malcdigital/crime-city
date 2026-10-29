@@ -59,6 +59,9 @@ const BUTTONS = [
   // (playing catch: □ ✕ △ are bullet, touch, lob; LONG / CLOSER call him out or in)
   ['clong', 'LONG', B.UP, ['qb'], 'hold', 'sm txt'],
   ['cclose', 'CLOSER', B.DOWN, ['qb'], 'hold', 'sm txt'],
+  // (the QB Challenge: ◀ ▶ pick the ring)
+  ['tprev', '◀', B.LEFT, ['qb'], 'hold', 'sm'],
+  ['tnext', '▶', B.RIGHT, ['qb'], 'hold', 'sm'],
   ['rjuke', 'JUKE', 18, ['qb'], 'hold', 'sm txt'],
   ['rspin', 'SPIN', 21, ['qb'], 'hold', 'sm txt'],
   ['rstiff', 'STIFF', 20, ['qb'], 'hold', 'sm txt'],
@@ -501,15 +504,20 @@ export class TouchControls {
       b.qr1.el.classList.toggle('hidden', running);
       b.qr1.el.querySelector('.tl').textContent = line ? 'PLAY' : 'R1';
       // Playing catch: □ bullet, ✕ touch, △ lob, LONG / CLOSER (no ○, no R1).
+      // (the QB Challenge too: the same three throws; ◀ ▶ pick the ring)
       const cat = M?.mode === 'catch';
-      this.el.root.dataset.mode = cat ? 'catch' : '';
-      b.reload.hint.textContent = cat ? 'bullet' : '';
-      b.tri.hint.textContent = cat ? 'lob' : '';
-      if (cat) b.cross.hint.textContent = 'touch';
-      b.circle.el.classList.toggle('hidden', running || cat);
-      b.qr1.el.classList.toggle('hidden', running || cat);
+      const qbc = M?.mode === 'qbc';
+      const meter = cat || qbc;
+      this.el.root.dataset.mode = cat ? 'catch' : qbc ? 'qbc' : '';
+      b.reload.hint.textContent = meter ? 'bullet' : '';
+      b.tri.hint.textContent = meter ? 'lob' : '';
+      if (meter) b.cross.hint.textContent = 'touch';
+      b.circle.el.classList.toggle('hidden', running || meter);
+      b.qr1.el.classList.toggle('hidden', running || meter);
       b.clong.el.classList.toggle('hidden', !cat);
       b.cclose.el.classList.toggle('hidden', !cat);
+      b.tprev.el.classList.toggle('hidden', !qbc);
+      b.tnext.el.classList.toggle('hidden', !qbc);
     }
     this.dribbleGest = false;
     if (ctx === 'ball') {

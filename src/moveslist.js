@@ -69,8 +69,11 @@ const FOOTBALL = {
 const QBC = {
   title: 'QB CHALLENGE',
   sections: [
-    ['THROWING', [
-      ['Throw at a target (tap: bullet, hold: lob)', "the target's button", 'the button over it (□ ✕ ○ △ R1)', '1-5 (or click the one you look at)'],
+    ['THROWING (hold for power, let go in the green; tap the same button again on the line)', [
+      ['Bullet (on a line, quick)', 'BULLET', '□', 'J'],
+      ['Touch (over the top, dropped in)', 'TOUCH', '✕', 'K (or click)'],
+      ['Lob (high, the deepest)', 'LOB', '△', 'L'],
+      ['Pick the ring', '◀ ▶', 'D-pad ◀ ▶', 'Z / X'],
       ['Points', '1 · 2 · 2 · 3 · 5', 'deeper is worth more', 'deeper is worth more'],
     ]],
     ['THE GAME', [
@@ -78,7 +81,8 @@ const QBC = {
       ['This list', '?', 'Create', 'Tab'],
     ]],
   ],
-  notes: 'Bullets are quick but get wild deep; lobs hang up there but stay on line. 60 seconds; a new ball a beat after each throw.',
+  notes: '60 seconds; a new ball a beat after each throw. It scores if it\'s through the ring as it gets there: short falls short, off line goes wide, close hits the ring. Time slows to half while you throw; both dead on is a PERFECT PASS.',
+  setting: 'meter',
 };
 const CATCH = {
   title: 'PLAYING CATCH',
