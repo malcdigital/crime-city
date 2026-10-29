@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { dist, rand, pick } from './util.js';
 import { setShirt } from './character.js';
 import { FieldModes } from './fieldmodes.js';
+import { QBChallenge, QBC_KEY } from './qbchallenge.js';
 import { CFG } from './config.js';
 import { throwPose, layoutPose, qbStance, holdBall, tuckCarry, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat } from './footballpose.js';
 
@@ -130,7 +131,7 @@ export class Gridiron {
     for (const q of mates) if (!q.ballName) q.ballName = pick(q.female ? ['Kiki', 'Nae', 'Jada', 'Shay', 'Tasha'] : NAMES.filter((n) => n !== qb.ballName));
     let best = 0;
     try {
-      best = Number(localStorage.getItem('crimecity.qbc.v1')) || 0;
+      best = Number(localStorage.getItem(QBC_KEY)) || 0;
     } catch {
       // (storage unavailable)
     }
@@ -140,7 +141,7 @@ export class Gridiron {
       place: fb.site.name || 'Harbor Field',
       games: [
         { id: 'drive', title: `Run a drive vs. ${qb.ballName.toUpperCase()}'s squad`, sub: (st) => `${fromText(st.from)} · four downs to make 10 · ${st.wager ? `$${st.wager} says you score` : 'just for fun'}` },
-        { id: 'qbc', title: 'QB Challenge · solo', sub: (st) => `60 seconds · 5 targets downfield${st.targets === 'Moving' ? ', moving' : ''} · ${best ? `record ${best}` : 'set the record'}` },
+        { id: 'qbc', title: 'QB Challenge · solo', sub: (st) => `3 stages: accuracy${st.targets === 'Moving' ? ' (moving rings)' : ''}, timing, pocket · 40 s each · ${best ? `record ${best}` : 'set the record'}` },
         { id: 'catch', title: 'Play catch', sub: (st) => `With ${st.mate.ballName} · anywhere on the field, within 50 yards · bullet, touch or lob` },
       ],
       rules: [
@@ -906,7 +907,8 @@ export class Gridiron {
     game.save();
   }
 }
-Object.assign(Gridiron.prototype, FieldModes); // (the QB Challenge and playing catch)
+Object.assign(Gridiron.prototype, FieldModes); // (playing catch, the throw meter)
+Object.assign(Gridiron.prototype, QBChallenge); // (the QB Challenge)
 
 // A receiver's button (a round badge with the symbol) that always faces the camera, the same
 // size on screen however far off he is.

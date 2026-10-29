@@ -185,6 +185,15 @@ export class Scoreboard {
   // The 3-point contest: the clock, the score, a row of dots per station (green made, red
   // missed, the money balls blue-ringed, the deep balls gold), the ball you're on outlined.
   showContest(v) {
+    this.contestEl();
+    const el = this.elC;
+    el.classList.remove('qbc');
+    el.querySelector('.c3-t').textContent = '3-POINT CONTEST';
+    this.contestBody(v);
+  }
+
+  // (the board and its 3-2-1, made once; shared by the 3-point contest and the QB Challenge)
+  contestEl() {
     if (!this.elC) {
       const el = document.createElement('div');
       el.id = 'board3pt';
@@ -196,6 +205,9 @@ export class Scoreboard {
       this.elC = el;
       this.elCount = cn;
     }
+  }
+
+  contestBody(v) {
     const el = this.elC;
     el.classList.remove('hidden');
     this.elCount.classList.remove('hidden');
@@ -223,6 +235,51 @@ export class Scoreboard {
       cn.innerHTML = ctext ? `${ctext}<small></small>` : '';
       if (ctext) {
         cn.querySelector('small').textContent = `MONEY RACK: ${String(v.moneyName || '').toUpperCase()}`;
+        this.restart(cn, 'pop');
+      }
+    }
+  }
+
+  // The QB Challenge on the same board: the clock, the three stages (each one's score, the one
+  // you're on lit, the ones done ticked), the multiplier when you're on a streak, the score and
+  // the record; the 3-2-1 before each stage with its name under it.
+  showQbc(v) {
+    this.contestEl();
+    const el = this.elC;
+    el.classList.remove('hidden');
+    el.classList.add('qbc');
+    this.elCount.classList.remove('hidden');
+    document.body.classList.add('scoreboard-on', 'board3pt-on');
+    const t = el.querySelector('.c3-t');
+    if (t.textContent !== 'QB CHALLENGE') t.textContent = 'QB CHALLENGE';
+    this.fitContest();
+    const sec = Math.ceil(v.left);
+    const ck = el.querySelector('.c3-clock');
+    ck.textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    ck.classList.toggle('low', v.left <= 10 && v.phase !== 'count');
+    const sc = el.querySelector('.c3-sc');
+    if (sc.textContent !== String(v.score)) {
+      sc.textContent = String(v.score);
+      this.restart(sc, 'bump');
+    }
+    el.querySelector('.c3-best').textContent = String(Math.max(v.best || 0, 0));
+    const html =
+      v.stages.map((S, i) => `<div class="c3-st qs${i === v.stage ? ' cur' : ''}${S.done ? ' done' : ''}"><span>${S.name}</span><b>${S.score}</b></div>`).join('') +
+      `<div class="c3-st qm${v.mult > 1 ? ` on m${v.mult}` : ''}"><span>STREAK ${v.streak}</span><b>x${v.mult}</b></div>`;
+    const racks = el.querySelector('.c3-racks');
+    if (racks.innerHTML !== html) {
+      const bumped = racks.querySelector('.qm b')?.textContent !== `x${v.mult}` && v.mult > 1;
+      racks.innerHTML = html;
+      if (bumped) this.restart(racks.querySelector('.qm'), 'bump');
+    }
+    const cn = this.elCount;
+    const ctext = v.phase === 'count' && v.count > 0 ? String(v.count) : '';
+    const key = `${ctext}:${v.stage}`;
+    if (cn.dataset.n !== key) {
+      cn.dataset.n = key;
+      cn.innerHTML = ctext ? `${ctext}<small></small>` : '';
+      if (ctext) {
+        cn.querySelector('small').textContent = `STAGE ${v.stage + 1} · ${v.stages[v.stage].name}: ${String(v.sub || '').toUpperCase()}`;
         this.restart(cn, 'pop');
       }
     }

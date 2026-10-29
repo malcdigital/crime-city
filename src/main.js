@@ -48,6 +48,7 @@ import { MapView } from './mapview.js';
 import { MovesList } from './moveslist.js';
 import { Matchup } from './matchup.js';
 import { ContestCine } from './contestcine.js';
+import { QbcCine } from './qbccine.js';
 import { AnimViewer } from './animviewer.js';
 import { markRecoil, markFlinch, PUNCH_T, FIGHT_STYLES, PISTOL_STYLES } from './combatpose.js';
 import { stepFalls } from './character.js';
@@ -121,6 +122,7 @@ class Game {
     this.moves = new MovesList(this); // (how to play the pickup game you're in: pauses it)
     this.matchup = new Matchup(this); // (the cinematic before a one-on-one)
     this.contestCine = new ContestCine(this); // (the 3-point contest's intro, record and finish)
+    this.qbcCine = new QbcCine(this); // (the QB Challenge's intro and finish)
     this.animViewer = new AnimViewer(this); // (every pose and move, one at a time: from the pause menu)
     // Your style (the pause menu): how you hold a pistol, how you stand with your fists up.
     this.style = { grip: 'two', fight: 'orthodox', meter: 'arc' };
@@ -2006,6 +2008,12 @@ class Game {
       const hx = tx + rx * shoulder, hy = ty + 0.6, hz = tz + rz * shoulder;
       this.camera.lookAt(hx + (L.x - hx) * L.k, hy + (L.y - hy) * L.k, hz + (L.z - hz) * L.k);
     } else this.camera.lookAt(tx + rx * shoulder, ty + 0.6, tz + rz * shoulder);
+    // (the QB Challenge's hit cam riding a deep ball in)
+    const O = this.gridiron?.active && this.gridiron.camOverride?.();
+    if (O) {
+      this.camera.position.copy(O.pos);
+      this.camera.lookAt(O.look);
+    }
     if (Math.abs(this.camera.fov - fov) > 0.1) {
       this.camera.fov = lerp(this.camera.fov, fov, Math.min(1, dt * 10));
       this.camera.updateProjectionMatrix();
@@ -2344,6 +2352,9 @@ class Game {
     } else if (this.contestCine.open) {
       // The 3-point contest's intro or finish: the game waits.
       this.contestCine.update(dt, a);
+    } else if (this.qbcCine.open) {
+      // The QB Challenge's intro or finish: the game waits.
+      this.qbcCine.update(dt, a);
     } else if (this.moves.open) {
       // The moves list: the game is paused underneath.
       if (a.moves || a.menuBack || a.pause || !this.pickupGame()) this.moves.hide();

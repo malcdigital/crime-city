@@ -73,15 +73,20 @@ const QBC = {
       ['Bullet (on a line, quick)', 'BULLET', '□', 'J'],
       ['Touch (over the top, dropped in)', 'TOUCH', '✕', 'K (or click)'],
       ['Lob (high, the deepest)', 'LOB', '△', 'L'],
-      ['Pick the ring', '◀ ▶', 'D-pad ◀ ▶', 'Z / X'],
-      ['Points', '1 · 2 · 2 · 3 · 5', 'deeper is worth more', 'deeper is worth more'],
+      ['Pick the ring / the receiver', '◀ ▶', 'D-pad ◀ ▶', 'Z / X'],
+      ['Step up / slide in the pocket', 'the stick', 'left stick', 'WASD'],
+    ]],
+    ['THE STAGES (40 seconds each)', [
+      ['1 Accuracy: rings downfield', '1 · 2 · 2 · 3 · 5', 'deeper is worth more', 'deeper is worth more'],
+      ['2 Timing: lead the receivers', 'by depth', '1 · 2 · 3 · 5 points', 'in stride: bullseye'],
+      ['3 Pocket: rings with a rush', 'get it out', 'or get sacked', 'sacks end the streak'],
     ]],
     ['THE GAME', [
       ['Quit', 'QUIT, then SURE?', 'hold the touchpad', 'hold M'],
       ['This list', '?', 'Create', 'Tab'],
     ]],
   ],
-  notes: '60 seconds; a new ball a beat after each throw. It scores if it\'s through the ring as it gets there: short falls short, off line goes wide, close hits the ring. Time slows to half while you throw; both dead on is a PERFECT PASS.',
+  notes: 'Through the middle of a ring (or in stride to a receiver) is a BULLSEYE: double points. Three hits in a row: x2, six: x3 (a miss, a drop or a sack resets it). A gold ring or a gold arrow over a receiver: the MONEY target, double again. Deep balls that are going in get the hit cam (the clock waits). Time slows to half while you throw; both dead on is a PERFECT PASS.',
   setting: 'meter',
 };
 const CATCH = {

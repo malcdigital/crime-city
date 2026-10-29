@@ -10,12 +10,7 @@ import { ThrowMeter, PERFECT } from './throwmeter.js';
 // Both throw with the same meter (throwmeter.js): □ bullet, ✕ touch, △ lob (keyboard J / K / L);
 // hold for power, let go in the green, tap the same button again on the line for accuracy, time
 // at half speed while you do (both dead on: a PERFECT PASS).
-// QB Challenge (solo, like the 3-point contest): 60 seconds from the spot to put as many balls
-//   as you can through five rings on posts downfield (10, 16, 22, 30 and 40 yards, worth 1, 2,
-//   2, 3 and 5). D-pad ◀ ▶ (keyboard Z / X, ◀ ▶ on a phone) picks the ring (the camera locks on
-//   it); the ball scores if it's through the ring as it crosses it (short falls short, off line
-//   misses wide, close hits the ring). A rack: another ball in your hands a beat after each
-//   throw. "Moving" slides the rings side to side. The best score is saved (a new record: +3 cred).
+// QB Challenge (solo, like the 3-point contest): three stages from the spot (qbchallenge.js).
 // Play catch: with anyone out there (their quarterback, a receiver, a back), anywhere on the
 //   field within 50 yards of each other. He throws it back from wherever he got it, sometimes
 //   off to one side so you have to go get it. D-pad ↑ / ↓ calls him long or closer; R1
@@ -24,33 +19,21 @@ import { ThrowMeter, PERFECT } from './throwmeter.js';
 // Both quit like the drive (QUIT on a phone, hold the touchpad / M); walking off the field, a
 // car or the police end them.
 
-const YD = 0.9144;
-const G = 9.8;
-const QBC_T = 60;
-const QBC_KEY = 'crimecity.qbc.v1';
-// The targets: [yards downfield, meters across, points]
-const QBC_TARGETS = [
-  [10, -6, 1],
-  [16, 6.5, 2],
-  [22, 0, 2],
-  [30, -7.5, 3],
-  [40, 5, 5],
-];
-const TARGET_COLORS = [0x6fa8ff, 0x3ddc97, 0xffd23f, 0xff9f43, 0xff4d6d];
-const RING_R = 0.8;
-const RING_Y = 1.7;
+export const YD = 0.9144;
+export const G = 9.8;
 // Playing catch: you can go anywhere on the field as long as you stay within 50 yards of each
 // other (past it, backing off fights you and he comes in). Three throws, each held for power:
 // the green zone on the meter is the power his distance needs (early: short, late: long).
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const BOTTLE = new THREE.CylinderGeometry(0.035, 0.035, 0.21, 8); // (a sports drink)
-const GOLD = new THREE.MeshLambertMaterial({ color: 0xffc83a, emissive: 0x9a6a00 }); // (a perfect pass)
+export const GOLD = new THREE.MeshLambertMaterial({ color: 0xffc83a, emissive: 0x9a6a00 }); // (a perfect pass)
 const LEASH = 50 * YD;
 const FILL = 0.6; // (game seconds to a full meter: about 1.2 s with time slowed to half)
 const ACC_T = 0.45; // (game seconds for the accuracy needle: about 0.9 s slowed; the perfect tap's halfway)
 const SLOW = 0.5; // (time while you hold and tap)
-const CTYPES = {
+const HITCAM_SLOW = 0.65; // (the QB Challenge's hit cam following a deep ball)
+export const CTYPES = {
   bullet: { max: 40, T: (L) => 0.25 + L / 26, win: 0.05, err: 0.35, h: 1.3 }, // (on a line: quick, the least forgiving)
   touch: { max: 46, T: (L) => 0.5 + L / 19, win: 0.065, err: 0.45, h: 1.35 }, // (over the top of somebody, dropped in)
   lob: { max: 52, T: (L) => 0.8 + L / 15, win: 0.08, err: 0.6, h: 1.5 }, // (high, hangs, the deepest)
@@ -141,6 +124,7 @@ export const FieldModes = {
   drivePlayer(p, f, b, faceAt) {
     const goTo = (x, z, speed) => (dist(p.x, p.z, x, z) > 0.45 ? { tx: x, tz: z, speed } : null);
     if (this.mode === 'catch' && p === this.cat?.mate) return this.driveMate(p, f, b, goTo, faceAt);
+    if (this.mode === 'qbc' && f.qbcRole) return this.driveQbc(p, f, b, goTo, faceAt); // (its receivers and rushers: qbchallenge.js)
     if (f.seat) {
       // (to the bench, then sat facing the field)
       const g = goTo(f.seat[0], f.seat[1], 2.8);
@@ -161,7 +145,7 @@ export const FieldModes = {
   // Can you throw right now?
   canThrowMode() {
     const b = this.fb.ball;
-    if (this.mode === 'qbc') return !!this.qbc && this.qbc.t >= 0 && !this.qbc.over && this.qbc.ready;
+    if (this.mode === 'qbc') return this.qbcCanThrow();
     return b.holder === 'you' && b.mode === 'held';
   },
 
@@ -191,21 +175,7 @@ export const FieldModes = {
     else this.catchStep(dt);
     if (!this.active) return;
     if (this.mode === 'catch') return this.catchHud();
-    // The QB Challenge: the arrow over the ring you've picked, the board and the meter.
-    const Q = this.qbc;
-    const S = Q.targets[Q.sel];
-    this.arrow.visible = !!S && !Q.over;
-    if (S) this.arrow.position.set(S.x, S.gy + RING_Y + RING_R + 0.7 + Math.sin(game.time * 6) * 0.08, S.z);
-    this.updateIcons();
-    const inp = game.input;
-    const kb = inp.mode === 'kb' && !inp.touchMode;
-    const left = Math.max(0, Math.ceil(QBC_T - Q.t));
-    const clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
-    const keys = inp.touchMode ? 'BULLET · TOUCH · LOB' : kb ? 'J bullet · K touch · L lob' : '□ bullet · ✕ touch · △ lob';
-    const pickK = inp.touchMode ? '◀ ▶' : kb ? 'Z / X' : 'D-pad ◀ ▶';
-    const hint = Q.t < 0 ? `Get set... ${Math.ceil(-Q.t)}` : Q.over ? 'Time!' : Q.acc ? 'Tap it again on the line!' : `${pickK}: pick a ring (${S?.pts} pt${S?.pts > 1 ? 's' : ''}) · ${keys}: hold for power, let go in the green, tap again on the line`;
-    game.hud.sport?.(`QB CHALLENGE · ${clock} · ${Q.score} pts · ${Q.hits}/${Q.throws}${Q.best ? ` · record ${Q.best}` : ''}`, null, hint);
-    this.meterHud();
+    this.qbcHud(); // (the QB Challenge's board, arrow and meter: qbchallenge.js)
     void b;
   },
 
@@ -237,12 +207,7 @@ export const FieldModes = {
   endMode(how) {
     const game = this.game;
     const fb = this.fb;
-    if (this.mode === 'qbc' && this.qbc) {
-      for (const T of this.qbc.targets) game.scene.remove(T.grp);
-      for (const f of this.qbc.flights) game.scene.remove(f.mesh);
-      if (how !== 'qbc') game.hud.toast(how === 'forfeit' ? 'You walked off the QB Challenge' : 'QB Challenge stopped', '#9fc3ff');
-      this.qbc = null;
-    }
+    if (this.mode === 'qbc' && this.qbc) this.qbcEnd(how); // (qbchallenge.js)
     if (this.cring) {
       game.scene.remove(this.cring);
       this.cring = null;
@@ -277,256 +242,6 @@ export const FieldModes = {
     if (game.timeScale !== 1) game.timeScale = 1;
   },
 
-  // ---- QB Challenge ----
-  startChallenge(qb, moving) {
-    const game = this.game;
-    const fb = this.fb;
-    this.startMode(qb, 'qbc');
-    const F = fb.site.field;
-    const sz = Math.min(F.z1 - 12, Math.max(F.z0 + 47, fb.los + 5));
-    const p = game.player;
-    p.x = F.cx;
-    p.z = sz;
-    p.heading = Math.PI; // (facing downfield)
-    game.camYaw = Math.PI;
-    let best = 0;
-    try {
-      best = Number(localStorage.getItem(QBC_KEY)) || 0;
-    } catch {
-      // (storage unavailable)
-    }
-    const Q = (this.qbc = { spot: [F.cx, sz], moving, t: -3, score: 0, throws: 0, hits: 0, best, targets: [], flights: [], ready: true, rackAt: 0, over: false, overT: 0, sel: 2 });
-    const gy = game.city.groundY?.(F.cx, sz) || 0;
-    QBC_TARGETS.forEach(([yd, across, pts], i) => {
-      const z = sz - yd * YD;
-      const x0 = F.cx + across;
-      const grp = new THREE.Group();
-      const col = TARGET_COLORS[i];
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, RING_Y - RING_R + 0.05, 6), new THREE.MeshLambertMaterial({ color: 0x2a2f38 }));
-      post.position.y = (RING_Y - RING_R) / 2;
-      grp.add(post);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(RING_R, 0.08, 8, 28), new THREE.MeshLambertMaterial({ color: col }));
-      ring.position.y = RING_Y;
-      grp.add(ring);
-      // (a see-through face with its points on it)
-      const cv = document.createElement('canvas');
-      cv.width = cv.height = 128;
-      const g = cv.getContext('2d');
-      g.fillStyle = `#${col.toString(16).padStart(6, '0')}`;
-      g.globalAlpha = 0.25;
-      g.beginPath();
-      g.arc(64, 64, 62, 0, Math.PI * 2);
-      g.fill();
-      g.globalAlpha = 0.95;
-      g.fillStyle = '#ffffff';
-      g.font = 'bold 56px sans-serif';
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      g.fillText(`+${pts}`, 64, 58); // (its points: "+3", not to be mixed up with its button)
-      g.font = 'bold 20px sans-serif';
-      g.fillText(pts > 1 ? 'PTS' : 'PT', 64, 98);
-      const disc = new THREE.Mesh(new THREE.CircleGeometry(RING_R * 0.92, 28), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, side: THREE.DoubleSide, depthWrite: false }));
-      disc.position.y = RING_Y;
-      grp.add(disc);
-      grp.position.set(x0, gy, z);
-      grp.rotation.y = Math.atan2(F.cx - x0, sz - z); // (facing the spot)
-      game.scene.add(grp);
-      Q.targets.push({ grp, ring, col, x: x0, z, x0, gy, pts, ph: rand(0, Math.PI * 2), amp: moving ? rand(2.5, 4) : 0, per: rand(2.6, 4.2), flash: 0, fb: {}, heading: 0, speed: 0 });
-    });
-    // (left to right as you look downfield: ◀ ▶ steps through them in that order; the middle
-    // one's picked to start)
-    Q.targets.sort((a, b) => a.x0 - b.x0);
-    this.toSideline(sz - 4);
-    game.hud.toast(`QB Challenge${moving ? ' (moving targets)' : ''}: 60 seconds. Put it through the rings: the deeper, the more it's worth`, '#ffd23f');
-  },
-
-  // A throw at a target: its own ball (the next one's already in your hands), led to where a
-  // moving target will be, a little off by how deep it is and how you threw it.
-  qbcThrow(T, kind, pw, acc, tapN) {
-    const game = this.game;
-    const p = game.player;
-    const Q = this.qbc;
-    const fb = this.fb;
-    const b = fb.ball;
-    const [px, pz] = p.pos();
-    const TY = CTYPES[kind];
-    // (aimed at where the ring will be when it gets there)
-    const d0 = dist(px, pz, T.x, T.z);
-    const ft = TY.T(d0);
-    const tx = T.amp ? T.x0 + T.amp * Math.sin(T.ph + ((Q.t + ft) * Math.PI * 2) / T.per) : T.x;
-    const d = dist(px, pz, tx, T.z) || 1;
-    const ux = (tx - px) / d;
-    const uz = (T.z - pz) / d;
-    // (the power sets how far it carries; the tap, how far off line: early left, late right)
-    // (dead on the green carries right to the ring; anywhere in the green, close; off it, as far
-    // as the power you let go at)
-    const off = pw - this.needFor(kind, d);
-    const k = Math.abs(off) <= TY.win * 0.5 ? 0.04 : Math.abs(off) <= TY.win ? 0.5 : 1;
-    const L = Math.max(2, d + off * TY.max * k);
-    let wob = TY.err * 0.25 * (0.4 + d / 45);
-    if ((p.speed || 0) > 2.5) wob += 0.5;
-    const lat = acc * 10 * (0.5 + d / 45) + rand(-1, 1) * wob;
-    const p1 = [px + ux * L - uz * lat, T.gy + RING_Y, pz + uz * L + ux * lat];
-    const FT = TY.T(L);
-    const perfect = this.meterResult(Q, kind, pw, this.needFor(kind, d), acc, tapN);
-    const mesh = new THREE.Mesh(b.mesh.geometry, perfect ? GOLD : b.mesh.material);
-    mesh.castShadow = true;
-    game.scene.add(mesh);
-    const p0 = [b.x, b.y, b.z];
-    Q.flights.push({ mesh, p0, p1, T: FT, t: 0, vy0: (p1[1] - p0[1] + 0.5 * G * FT * FT) / FT, tgt: T, ux, uz, ringD: d, crossed: false, mode: 'flight', x: p0[0], y: p0[1], z: p0[2], vx: 0, vy: 0, vz: 0, life: 0 });
-    b.mesh.visible = false;
-    Q.ready = false;
-    Q.rackAt = Q.t + 0.7;
-    Q.throws++;
-    this.throwT = 0.26;
-  },
-
-  qbcStep(dt) {
-    const game = this.game;
-    const Q = this.qbc;
-    const p = game.player;
-    Q.t += dt;
-    // (the clock starts after the count)
-    if (!Q.ready && Q.t >= Q.rackAt && !Q.over) {
-      Q.ready = true;
-      this.fb.ball.mesh.visible = true;
-    }
-    // (you throw from the spot: a few steps of room)
-    const [sx, sz] = Q.spot;
-    p.x = Math.max(sx - 4, Math.min(sx + 4, p.x));
-    p.z = Math.max(sz - 0.5, Math.min(sz + 4, p.z));
-    // The camera locked on the ring you've picked, you squared up to it.
-    const S = Q.targets[Q.sel];
-    if (S) {
-      const face = Math.atan2(S.x - p.x, S.z - p.z);
-      game.camYaw = lerpAngle(game.camYaw, face, Math.min(1, dt * 6));
-      if ((p.speed || 0) < 0.6 || this.press || Q.acc) p.heading = lerpAngle(p.heading, face, Math.min(1, dt * 10));
-    }
-    // The targets (sliding, when they move); the picked one pulsing.
-    for (const T of Q.targets) {
-      const on = T === S;
-      T.ring.scale.setScalar(on ? 1 + 0.06 * Math.sin(game.time * 8) : 1);
-      if (T.amp) T.x = T.x0 + T.amp * Math.sin(T.ph + (Math.max(0, Q.t) * Math.PI * 2) / T.per);
-      T.grp.position.x = T.x;
-      T.grp.rotation.y = Math.atan2(p.x - T.x, p.z - T.z);
-      if (T.flash > 0) {
-        T.flash -= dt;
-        T.ring.material.color.setHex(T.flash > 0 && Math.floor(T.flash * 12) % 2 === 0 ? 0xffffff : T.col);
-      }
-    }
-    // The balls in the air.
-    for (const f of [...Q.flights]) {
-      if (f.mode === 'flight') {
-        f.t += dt;
-        const k = Math.min(1, f.t / f.T);
-        const ox = f.x;
-        const oy = f.y;
-        const oz = f.z;
-        f.x = f.p0[0] + (f.p1[0] - f.p0[0]) * k;
-        f.z = f.p0[2] + (f.p1[2] - f.p0[2]) * k;
-        const t = Math.min(f.t, f.T);
-        f.y = f.p0[1] + f.vy0 * t - 0.5 * G * t * t;
-        f.mesh.position.set(f.x, f.y, f.z);
-        f.mesh.lookAt(f.x + (f.x - ox) * 10, f.y + (f.y - oy) * 10, f.z + (f.z - oz) * 10);
-        f.mesh.rotateZ(f.t * 25);
-        // (through the ring's plane: through it, off it, or past it)
-        if (!f.crossed && (f.x - f.p0[0]) * f.ux + (f.z - f.p0[2]) * f.uz >= f.ringD) {
-          f.crossed = true;
-          this.qbcCross(f, (f.y - oy) / dt);
-        }
-        if (f.mode === 'flight' && f.t >= f.T) this.qbcLand(f, (f.y - oy) / dt);
-      } else {
-        f.life += dt;
-        f.vy -= G * dt;
-        f.x += f.vx * dt;
-        f.y += f.vy * dt;
-        f.z += f.vz * dt;
-        if (f.y < 0.12) {
-          f.y = 0.12;
-          f.vy = Math.abs(f.vy) > 1.2 ? -f.vy * 0.4 : 0;
-          f.vx *= 0.8;
-          f.vz *= 0.8;
-        }
-        // (still on its way to the ring's plane: through it, or short if it hits the grass first)
-        if (!f.crossed) {
-          if ((f.x - f.p0[0]) * f.ux + (f.z - f.p0[2]) * f.uz >= f.ringD) {
-            f.crossed = true;
-            this.qbcCross(f, f.vy);
-          } else if (f.y <= 0.13) {
-            f.crossed = true;
-            game.hud.toast('Short', '#ff8080');
-          }
-        }
-        if (f.y <= 0.13) {
-          f.vx *= 0.97;
-          f.vz *= 0.97;
-        }
-        f.mesh.position.set(f.x, f.y, f.z);
-        if (f.life > 2.5) {
-          game.scene.remove(f.mesh);
-          Q.flights.splice(Q.flights.indexOf(f), 1);
-        }
-      }
-    }
-    if (!Q.over && Q.t >= QBC_T) {
-      Q.over = true;
-      Q.overT = Q.t;
-      this.press = null;
-      game.hud.toast('Time!', '#ffd23f');
-    }
-    if (Q.over && (!Q.flights.some((f) => f.mode === 'flight') || Q.t > Q.overT + 4) && Q.t > Q.overT + 1.2) this.qbcFinish();
-  },
-
-  // A ball crossing a ring's plane: through it (it scores, and flies on), off it (knocked back),
-  // or past it.
-  qbcCross(f, vy) {
-    const game = this.game;
-    const Q = this.qbc;
-    const T = f.tgt;
-    const lat = Math.abs((f.x - T.x) * -f.uz + (f.z - T.z) * f.ux);
-    const off = Math.hypot(lat, f.y - (T.gy + RING_Y));
-    if (off < RING_R - 0.11) {
-      Q.score += T.pts;
-      Q.hits++;
-      T.flash = 0.6;
-      game.hud.toast(off < 0.25 ? `Dead center! +${T.pts}` : `+${T.pts}`, '#7ee081');
-      if (T.pts >= 3) for (const q of this.fb.fans) q.fb.cheerT = rand(1, 1.6);
-    } else if (off < RING_R + 0.2) {
-      const sp = Math.hypot(f.p1[0] - f.p0[0], f.p1[2] - f.p0[2]) / f.T;
-      f.mode = 'loose';
-      f.vx = -f.ux * sp * 0.25 + rand(-1, 1);
-      f.vz = -f.uz * sp * 0.25;
-      f.vy = Math.abs(vy) * 0.3 + 1;
-      game.hud.toast('Off the ring', '#ff8080');
-    }
-  },
-  // The end of its flight (short of the ring, or past it): on as a loose ball.
-  qbcLand(f, vy) {
-    // (it carries on at the same pace, still falling: a touch short can still drop through)
-    const sp = Math.hypot(f.p1[0] - f.p0[0], f.p1[2] - f.p0[2]) / f.T;
-    f.mode = 'loose';
-    f.vx = f.ux * sp;
-    f.vz = f.uz * sp;
-    f.vy = vy;
-  },
-
-  qbcFinish() {
-    const game = this.game;
-    const Q = this.qbc;
-    const rec = Q.score > Q.best && Q.score > 0;
-    if (rec) {
-      try {
-        localStorage.setItem(QBC_KEY, String(Q.score));
-      } catch {
-        // (storage unavailable)
-      }
-      game.cred += 3;
-      for (const q of this.fb.fans) q.fb.cheerT = 2.5;
-    }
-    game.hud.toast(`QB Challenge: ${Q.score} points · ${Q.hits} of ${Q.throws} through${rec ? ' · NEW RECORD! +3 cred' : Q.best ? ` · record ${Q.best}` : ''}`, rec ? '#7ee081' : '#ffd23f');
-    this.end('qbc');
-  },
-
   // ---- Play catch ----
   startCatch(qb, mate) {
     const game = this.game;
@@ -558,7 +273,7 @@ export const FieldModes = {
     return this.mode === 'qbc' ? this.qbc : this.cat;
   },
   meterTarget() {
-    if (this.mode === 'qbc') return this.qbc.targets[this.qbc.sel] || null;
+    if (this.mode === 'qbc') return this.qbcTarget();
     return this.cat.mate;
   },
   meterCan() {
@@ -609,7 +324,7 @@ export const FieldModes = {
     S.prevHeld = held;
     // (time slows to half while you hold and tap, and eases back after)
     const ts = game.timeScale || 1;
-    const want = this.press || S.acc ? SLOW : this.catchSlow() ? CW_SLOW : 1;
+    const want = this.press || S.acc ? SLOW : this.catchSlow() ? CW_SLOW : this.mode === 'qbc' && this.qbc?.cam ? HITCAM_SLOW : 1;
     game.timeScale = ts + (want - ts) * Math.min(1, (dt / ts) * 9);
     if (Math.abs(game.timeScale - 1) < 0.01) game.timeScale = 1;
     if (pad) a.sprint = fire; // (R2 sprints)
@@ -687,21 +402,6 @@ export const FieldModes = {
     if (inp.btnHit?.(12) || inp.hit?.('KeyE')) this.callMate(1);
     if (inp.btnHit?.(13) || inp.hit?.('KeyQ')) this.callMate(-1);
     if ((R[4] && !this.prevR[4]) || inp.hit?.('KeyX')) this.sendRoute();
-    this.prevR = R.slice();
-    this.prevFire = fire;
-  },
-
-  // The QB Challenge: the same meter; D-pad ◀ ▶ (keyboard Z / X, ◀ ▶ on a phone) picks the ring
-  // you're throwing at (the camera locks on to it).
-  qbcInput(dt, a, fire) {
-    const inp = this.game.input;
-    const Q = this.qbc;
-    const R = a.qbR || [];
-    if (!this.press && !Q.acc) {
-      const step = (inp.btnHit?.(14) || inp.hit?.('KeyZ') ? -1 : 0) + (inp.btnHit?.(15) || inp.hit?.('KeyX') ? 1 : 0);
-      if (step) Q.sel = (Q.sel + step + Q.targets.length) % Q.targets.length;
-    }
-    this.meterInput(dt, a, fire);
     this.prevR = R.slice();
     this.prevFire = fire;
   },
