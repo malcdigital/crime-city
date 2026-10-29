@@ -83,10 +83,16 @@ const QBC = {
 const CATCH = {
   title: 'PLAYING CATCH',
   sections: [
-    ['THROWING', [
-      ['Throw it to him (tap: bullet, hold: lob)', 'any button', 'any face button (□ ✕ ○ △)', '1-4 (or click him)'],
-      ['Lead him', 'the stick', 'left stick', 'WASD'],
-      ['Send him on a route', 'ROUTE', 'R1', 'X'],
+    ['THROWING (hold for power, let go in the green)', [
+      ['Bullet (on a line, quick)', 'BULLET', '□', 'J'],
+      ['Touch (over the top, dropped in)', 'TOUCH', '✕', 'K (or click)'],
+      ['Lob (high, the deepest)', 'LOB', '△', 'L'],
+      ['Lead him on a route', 'the stick', 'left stick', 'WASD'],
+    ]],
+    ['CALLING HIM', [
+      ['Go long (10 yards out)', 'LONG', 'D-pad ↑', 'E'],
+      ['Come closer', 'CLOSER', 'D-pad ↓', 'Q'],
+      ['Run a route', '—', 'R1', 'X'],
     ]],
     ['CATCHING', [
       ['Catch it', 'be under it', 'be under it', 'be under it'],
@@ -96,7 +102,7 @@ const CATCH = {
       ['This list', '?', 'Create', 'Tab'],
     ]],
   ],
-  notes: '',
+  notes: 'Go anywhere on the field: stay within 50 yards of each other (past that, backing off fights you and he comes in). Early on the meter falls short, late sails long.',
 };
 
 export class MovesList {

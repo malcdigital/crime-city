@@ -78,7 +78,7 @@ export class Gridiron {
       if (!w.ballName) w.ballName = pick(w.female ? ['Kiki', 'Nae', 'Jada', 'Shay'] : NAMES.filter((n) => n !== qb.ballName));
       if (CFG.START_FIELD_GAME === 'qbc') this.startChallenge(qb, false);
       else if (CFG.START_FIELD_GAME === 'drive') this.start(qb, 0, 40);
-      else this.startCatch(qb, w, 'Medium');
+      else this.startCatch(qb, w);
       return;
     }
     if (this.active || game.player.vehicle || game.stars > 0 || game.stop || !fb?.ball || fb.match || game.time < (this.again || 0)) return;
@@ -134,14 +134,13 @@ export class Gridiron {
       games: [
         { id: 'drive', title: `Run a drive vs. ${qb.ballName.toUpperCase()}'s squad`, sub: (st) => `${fromText(st.from)} · four downs to make 10 · ${st.wager ? `$${st.wager} says you score` : 'just for fun'}` },
         { id: 'qbc', title: 'QB Challenge · solo', sub: (st) => `60 seconds · 5 targets downfield${st.targets === 'Moving' ? ', moving' : ''} · ${best ? `record ${best}` : 'set the record'}` },
-        { id: 'catch', title: 'Play catch', sub: (st) => `With ${st.mate.ballName} · ${st.dist.toLowerCase()} apart · send ${st.mate.female ? 'her' : 'him'} on routes` },
+        { id: 'catch', title: 'Play catch', sub: (st) => `With ${st.mate.ballName} · anywhere on the field, within 50 yards · bullet, touch or lob` },
       ],
       rules: [
         { id: 'wager', label: 'Wager', values: bets, i: bi, fmt: (v) => (v ? `$${v}` : 'None'), only: 'drive' },
         { id: 'from', label: 'Start', values: FROMS, i: this.fromI || 0, fmt: (v) => (v === 80 ? 'Own 20' : v === 15 ? 'Red zone' : 'The 40'), only: 'drive' },
         { id: 'targets', label: 'Targets', values: ['Still', 'Moving'], i: this.tgtI || 0, fmt: (v) => v, only: 'qbc' },
         { id: 'mate', label: 'Throw with', values: mates, i: 0, fmt: (q) => `${q.ballName}${q === qb ? ' (QB)' : q.fb.role === 'db' ? ' (DB)' : ' (WR)'}`, only: 'catch' },
-        { id: 'dist', label: 'Distance', values: ['Close', 'Medium', 'Far'], i: this.distI ?? 1, fmt: (v) => v, only: 'catch' },
       ],
       start: (st) => (st.game === 'qbc' ? 'START THE CLOCK' : st.game === 'catch' ? 'START THROWING' : `START THE DRIVE${st.wager ? ` · $${st.wager}` : ''}`),
       watch: pick(["Nah, I'm good", 'Maybe next time', 'Nah, just watching']),
@@ -150,12 +149,11 @@ export class Gridiron {
         if (R.id === 'wager') this.betI = BETS.indexOf(R.values[R.i]);
         if (R.id === 'from') this.fromI = R.i;
         if (R.id === 'targets') this.tgtI = R.i;
-        if (R.id === 'dist') this.distI = R.i;
       },
       onStart: (st) => {
         this.talk = null;
         if (st.game === 'qbc') this.startChallenge(qb, st.targets === 'Moving');
-        else if (st.game === 'catch') this.startCatch(qb, st.mate, st.dist);
+        else if (st.game === 'catch') this.startCatch(qb, st.mate);
         else this.start(qb, st.wager, st.from);
       },
       onClose: () => {

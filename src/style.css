@@ -394,6 +394,9 @@ body.touch #sport .sh { display: none; }
 #touch[data-ctx="qb"] .tb-reload { right: 168px; bottom: 100px; color: #ff79c6; }
 #touch[data-ctx="qb"] .tb-circle { right: 24px; bottom: 100px; color: #ff6b6b; }
 #touch[data-ctx="qb"] .tb-cross { right: 96px; bottom: 30px; color: #6fa8ff; }
+#touch .tb-clong, #touch .tb-cclose { right: 18px; width: 64px; height: 50px; font-size: 13px; border-radius: 12px; }
+#touch .tb-clong { bottom: 150px; color: #ffd23f; }
+#touch .tb-cclose { bottom: 90px; color: #9fc3ff; }
 #touch .tb-qr1 { right: 22px; bottom: 196px; color: #ffd23f; }
 #touch .tb-rjuke { right: 168px; bottom: 100px; width: 66px; height: 66px; }
 #touch .tb-rspin { right: 96px; bottom: 170px; width: 66px; height: 66px; }

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { dist, rand } from './util.js';
+import { dist, rand, pick, lerpAngle } from './util.js';
 import { throwPose, catchPose } from './footballpose.js';
 
 // The other games at Harbor Field (mixed into Gridiron: gridiron.js), picked from the field's
@@ -37,7 +37,16 @@ const QBC_TARGETS = [
 const TARGET_COLORS = [0x6fa8ff, 0x3ddc97, 0xffd23f, 0xff9f43, 0xff4d6d];
 const RING_R = 0.8;
 const RING_Y = 1.7;
-const GAPS = { Close: 9, Medium: 15, Far: 24 };
+// Playing catch: you can go anywhere on the field as long as you stay within 50 yards of each
+// other (past it, backing off fights you and he comes in). Three throws, each held for power:
+// the green zone on the meter is the power his distance needs (early: short, late: long).
+const LEASH = 50 * YD;
+const FILL = 1.1; // (seconds to a full meter)
+const CTYPES = {
+  bullet: { max: 40, T: (L) => 0.25 + L / 26, win: 0.05, err: 0.35, h: 1.3 }, // (on a line: quick, the least forgiving)
+  touch: { max: 46, T: (L) => 0.5 + L / 19, win: 0.065, err: 0.45, h: 1.35 }, // (over the top of somebody, dropped in)
+  lob: { max: 52, T: (L) => 0.8 + L / 15, win: 0.08, err: 0.6, h: 1.5 }, // (high, hangs, the deepest)
+};
 const ROUTES = ['go', 'post', 'out', 'slant', 'curl'];
 
 // The lob's touch: how long to hold it for a throw d meters (0.3 s short to ~0.75 s at 40 yards),
@@ -121,11 +130,12 @@ export const FieldModes = {
 
   modeReceivers() {
     if (this.mode === 'qbc') return this.qbc ? this.qbc.targets : [null, null, null, null, null];
-    return [this.cat?.mate || null, null, null, null, null];
+    return [null, null, null, null, null]; // (catch: no buttons over him; the button is the throw)
   },
 
   // Your buttons.
   modeInput(dt, a, fire) {
+    if (this.mode === 'catch') return this.catchInput(dt, a, fire);
     const game = this.game;
     const R = a.qbR || [];
     const pad = game.input.mode === 'pad' && !game.input.touchMode;
@@ -173,6 +183,7 @@ export const FieldModes = {
     if (this.mode === 'qbc') this.qbcStep(dt);
     else this.catchStep(dt);
     if (!this.active) return;
+    if (this.mode === 'catch') return this.catchHud();
     this.target = this.canThrowMode() ? this.pickTarget() : null;
     const kb = game.input.mode === 'kb' && !game.input.touchMode;
     this.arrow.visible = !!this.target && kb;
@@ -192,13 +203,8 @@ export const FieldModes = {
       const keys = kb ? '1-5' : game.input.touchMode ? 'the target\'s button' : '□ ✕ ○ △ R1';
       const hint = Q.t < 0 ? `Get set... ${Math.ceil(-Q.t)}` : Q.over ? 'Time!' : `${keys}: tap a bullet, or hold and let go in the green for a lob · deeper is worth more${kb ? ' · or click the target you look at' : ''}`;
       game.hud.sport?.(`QB CHALLENGE · ${clock} · ${Q.score} pts · ${Q.hits}/${Q.throws}${Q.best ? ` · record ${Q.best}` : ''}`, meter, hint);
-    } else {
-      const C = this.cat;
-      const keys = kb ? '1-4' : game.input.touchMode ? 'any button' : '□ ✕ ○ △';
-      const rk = kb ? 'X' : game.input.touchMode ? 'ROUTE' : 'R1';
-      const hint = b.holder === 'you' ? `${keys}: throw it (tap: bullet, hold: lob) · ${rk}: send him on a route` : b.mode === 'flight' && b.to === 'you' ? 'Get under it!' : b.mode === 'loose' ? 'Loose ball: go get it' : `${C.mate.ballName} has it`;
-      game.hud.sport?.(`PLAYING CATCH · ${C.mate.ballName} · ${C.streak} in a row (best ${C.best})`, meter, hint);
     }
+    void b;
   },
 
   // Your follow-through and catches (gridiron late()); true if it posed you.
@@ -232,6 +238,7 @@ export const FieldModes = {
     }
     for (const q of fb.players) q.fb.side = null;
     if (fb.ball) fb.ball.mesh.visible = true;
+    game.hud.sportFloat?.(null);
   },
 
   // ---- QB Challenge ----
@@ -452,29 +459,192 @@ export const FieldModes = {
   },
 
   // ---- Play catch ----
-  startCatch(qb, mate, gapName) {
+  startCatch(qb, mate) {
     const game = this.game;
     const fb = this.fb;
     this.startMode(qb, 'catch');
     const F = fb.site.field;
     const [px, pz] = game.player.pos();
-    const gap = GAPS[gapName] || 15;
-    // (he goes out downfield from you, or upfield if there's no room)
-    let mz = pz - gap;
-    if (mz < F.z0 + 3) mz = pz + gap;
-    const mx = Math.max(F.x0 + 3, Math.min(F.x1 - 3, px));
-    this.cat = { mate, gap, spot: [mx, mz], streak: 0, best: 0, mine: 0, his: 0, holdT: 0, throwing: false, routeOn: false };
+    // (no set distance: he stays where he is if that's a fair throw, or jogs out about 15 yards)
+    let spot = [mate.x, mate.z];
+    const d0 = dist(px, pz, mate.x, mate.z);
+    if (d0 < 6 || d0 > 30) {
+      const dir = pz - 14 > F.z0 + 3 ? -1 : 1;
+      spot = [Math.max(F.x0 + 3, Math.min(F.x1 - 3, px)), pz + dir * 13.7];
+    }
+    this.cat = { mate, spot, streak: 0, best: 0, mine: 0, his: 0, holdT: 0, throwing: false, routeOn: false, prevHeld: { bullet: true, touch: true, lob: true }, last: null };
     mate.fb.route = null;
-    this.toSideline((pz + mz) / 2, mate);
-    const btn = game.input.touchMode ? 'any button' : game.input.mode === 'pad' ? 'any face button' : '1-4 or a click';
-    game.hud.toast(`Playing catch with ${mate.ballName}. Throw it: ${btn} (tap: bullet, hold: lob)`, '#ffd23f');
+    this.toSideline((pz + spot[1]) / 2, mate);
+    game.hud.toast(`Playing catch with ${mate.ballName}. Go anywhere on the field: stay within 50 yards of each other`, '#ffd23f');
+  },
+
+  // Your buttons, playing catch: □ bullet, ✕ touch, △ lob (keyboard J / K / L, or a click for
+  // touch): hold for power, let go in the green. D-pad ↑ / ↓ (keyboard E / Q, LONG / CLOSER on a
+  // phone): tell him to go long or come closer. R1 (keyboard X): send him on a route.
+  catchInput(dt, a, fire) {
+    const game = this.game;
+    const inp = game.input;
+    const C = this.cat;
+    const b = this.fb.ball;
+    const R = a.qbR || [];
+    const key = (c) => !!inp.keys?.has(c);
+    const pad = inp.mode === 'pad' && !inp.touchMode;
+    const held = { bullet: !!R[0] || key('KeyJ'), touch: !!R[1] || key('KeyK') || (!pad && fire), lob: !!R[3] || key('KeyL') };
+    const can = b.holder === 'you' && b.mode === 'held';
+    if (can && !this.press) {
+      for (const k of ['bullet', 'touch', 'lob']) {
+        if (held[k] && !C.prevHeld[k]) {
+          this.press = { kind: k, t: 0 };
+          break;
+        }
+      }
+    } else if (!can) this.press = null;
+    if (this.press) {
+      const P = this.press;
+      if (held[P.kind]) P.t += dt;
+      else {
+        this.press = null;
+        this.catchThrow(P.kind, P.t, a);
+      }
+    }
+    C.prevHeld = held;
+    if (inp.btnHit?.(12) || inp.hit?.('KeyE')) this.callMate(1);
+    if (inp.btnHit?.(13) || inp.hit?.('KeyQ')) this.callMate(-1);
+    if ((R[4] && !this.prevR[4]) || inp.hit?.('KeyX')) this.sendRoute();
+    if (pad) a.sprint = fire; // (R2 sprints)
+    this.prevR = R.slice();
+    this.prevFire = fire;
+  },
+
+  // The power a throw of d meters needs (0..1 on the meter).
+  needFor(kind, d) {
+    return Math.max(0.08, Math.min(1, d / CTYPES[kind].max));
+  },
+
+  // Your throw: as far as the power you let go at (early: short, late: long), toward where he'll
+  // be, a little off line (more the further off the green, on the run, and deep).
+  catchThrow(kind, hold, a) {
+    const game = this.game;
+    const fb = this.fb;
+    const b = fb.ball;
+    const C = this.cat;
+    const w = C.mate;
+    const p = game.player;
+    const [px, pz] = p.pos();
+    const TY = CTYPES[kind];
+    const pw = Math.min(1, hold / FILL);
+    // (where he'll be: standing, or running his route)
+    const sp = w.speed || 0;
+    const T0 = TY.T(dist(px, pz, w.x, w.z));
+    let ax = w.x + Math.sin(w.heading) * sp * T0;
+    let az = w.z + Math.cos(w.heading) * sp * T0;
+    // (the left stick leads him, camera-relative)
+    const mx = a?.moveX || 0;
+    const my = a?.moveY || 0;
+    if (Math.hypot(mx, my) > 0.3 && sp > 1) {
+      const yaw = game.camYaw;
+      ax += (Math.sin(yaw) * my - Math.cos(yaw) * mx) * 2.5;
+      az += (Math.cos(yaw) * my + Math.sin(yaw) * mx) * 2.5;
+    }
+    const da = dist(px, pz, ax, az) || 1;
+    const need = this.needFor(kind, da);
+    const off = pw - need;
+    const L = Math.max(2, pw * TY.max);
+    const ux = (ax - px) / da;
+    const uz = (az - pz) / da;
+    let err = TY.err * (0.4 + da / 45) + Math.abs(off) * (Math.abs(off) > TY.win ? 6 : 2);
+    if ((p.speed || 0) > 2.5) err += 0.6;
+    const lat = rand(-1, 1) * err * 0.7;
+    const F = fb.site.field;
+    const tx = Math.max(F.x0 - 4, Math.min(F.x1 + 4, px + ux * L - uz * lat));
+    const tz = Math.max(F.z0 - 4, Math.min(F.z1 + 4, pz + uz * L + ux * lat));
+    fb.launch(tx, TY.h, tz, TY.T(dist(px, pz, tx, tz)), 'pass', w);
+    b.style = kind === 'lob' ? 'lob' : 'bullet';
+    b.throwKind = kind;
+    this.throwT = 0.4;
+    this.state = 'air';
+    C.throws = (C.throws || 0) + 1;
+    const a2 = Math.abs(off);
+    C.last = { v: pw, lo: need - TY.win, hi: need + TY.win, fx: a2 <= TY.win * 0.5 ? 'perfect' : a2 <= TY.win ? '' : off < 0 ? 'slight early' : 'slight late', fxKey: C.throws, until: game.time + 0.9 };
+  },
+
+  // D-pad ↑: go long (10 yards further out, up to the limit); ↓: come closer.
+  callMate(dir) {
+    const game = this.game;
+    const C = this.cat;
+    const w = C.mate;
+    const F = this.fb.site.field;
+    const [px, pz] = game.player.pos();
+    let ux = C.spot[0] - px;
+    let uz = C.spot[1] - pz;
+    const cur = Math.hypot(ux, uz);
+    if (cur < 0.5) {
+      ux = Math.sin(game.player.heading);
+      uz = Math.cos(game.player.heading);
+    } else {
+      ux /= cur;
+      uz /= cur;
+    }
+    const nd = Math.max(5, Math.min(LEASH - 3, cur + dir * 10 * YD));
+    C.spot = [Math.max(F.x0 + 1, Math.min(F.x1 - 1, px + ux * nd)), Math.max(F.z0 + 1, Math.min(F.z1 - 1, pz + uz * nd))];
+    C.routeOn = false;
+    w.fb.route = null;
+    const yd = Math.round(dist(px, pz, C.spot[0], C.spot[1]) / YD);
+    const line = dir > 0 ? pick(['Going long!', 'Aight, deep!', "Let's see that arm", 'Bet, way back']) : pick(['Coming in', 'Aight, closer', 'Bet', 'Say less']);
+    game.hud.toast(`${w.ballName}: "${line}" · ${yd} yds`, '#ffd23f');
+  },
+
+  // Your camera playing catch: in close behind you over your throwing (right) shoulder, locked
+  // on him (main.js updateCamera).
+  camShot() {
+    if (this.mode !== 'catch' || !this.cat) return null;
+    return { back: 3.7, up: 0.45, shoulder: 0.85, fov: 58 };
+  },
+
+  // The board up top, and the power meter beside you while you hold a throw (and its result a
+  // moment after).
+  catchHud() {
+    const game = this.game;
+    const C = this.cat;
+    const b = this.fb.ball;
+    const inp = game.input;
+    const kb = inp.mode === 'kb' && !inp.touchMode;
+    const [px, pz] = game.player.pos();
+    const yd = Math.round(dist(px, pz, C.mate.x, C.mate.z) / YD);
+    const keys = inp.touchMode ? 'BULLET · TOUCH · LOB' : kb ? 'J bullet · K touch · L lob' : '□ bullet · ✕ touch · △ lob';
+    const calls = inp.touchMode ? 'LONG / CLOSER' : kb ? 'E go long · Q closer' : 'D-pad ↑ go long · ↓ closer';
+    const hint = b.holder === 'you' ? `${keys}: hold, let go in the green · ${calls}` : b.mode === 'flight' && b.to === 'you' ? 'Get under it!' : b.mode === 'loose' ? 'Loose ball: go get it' : `${C.mate.ballName} has it · ${calls}`;
+    game.hud.sport?.(`PLAYING CATCH · ${C.mate.ballName} · ${yd} yds · ${C.streak} in a row (best ${C.best})`, null, hint);
+    let meter = null;
+    if (this.press) {
+      const need = this.needFor(this.press.kind, dist(px, pz, C.mate.x, C.mate.z));
+      const W = CTYPES[this.press.kind].win;
+      meter = { v: Math.min(1, this.press.t / FILL), lo: need - W, hi: need + W };
+    } else if (C.last && game.time < C.last.until) meter = C.last;
+    if (!meter) return game.hud.sportFloat?.(null);
+    // (beside you: half a meter to your screen-right, chest high)
+    const cam = game.camera;
+    const v = (this._mv ||= new THREE.Vector3());
+    const rx = -Math.cos(game.camYaw);
+    const rz = Math.sin(game.camYaw);
+    v.set(px + rx * 0.55, 1.2 + (game.player.gy?.() || 0), pz + rz * 0.55).project(cam);
+    if (v.z > 1) return game.hud.sportFloat?.(null);
+    const H = innerHeight;
+    const at = { mx: ((v.x + 1) / 2) * innerWidth, my: Math.max(52, Math.min(H - 52, ((1 - v.y) / 2) * H)) };
+    game.hud.sportFloat?.(at, meter, null);
   },
 
   driveMate(p, f, b, goTo, faceAt) {
     const C = this.cat;
     const [px, pz] = this.game.player.pos();
     if (b.mode === 'flight' && b.to === p) {
-      const g = goTo(b.p1[0], b.p1[2], 6);
+      // (reading it a beat, then adjusting to where it's coming down: a few steps, not a
+      // sprint, unless he's already running a route; a bad throw stays a bad throw)
+      if (b.t < 0.4 && !C.routeOn) {
+        faceAt(b.x, b.z);
+        return { speed: 0 };
+      }
+      const g = goTo(b.p1[0], b.p1[2], C.routeOn ? 5.2 : 3.3);
       if (g) return g;
       faceAt(b.x, b.z);
       return { speed: 0 };
@@ -535,7 +705,27 @@ export const FieldModes = {
       game.hud.toast(`${w.ballName} took off`, '#9fc3ff');
       return this.end('off');
     }
-    const [px, pz] = game.player.pos();
+    const p = game.player;
+    let [px, pz] = p.pos();
+    // The 50-yard leash: past it, backing off fights you (pulled most of the way back each step)
+    // and he comes in toward you.
+    const dm = dist(px, pz, w.x, w.z);
+    if (dm > LEASH && !p.vehicle) {
+      const k = (LEASH + (dm - LEASH) * 0.6) / dm;
+      p.x = w.x + (px - w.x) * k;
+      p.z = w.z + (pz - w.z) * k;
+      [px, pz] = p.pos();
+    }
+    if (dist(px, pz, C.spot[0], C.spot[1]) > LEASH - 4 && !C.routeOn) {
+      const ds = dist(px, pz, C.spot[0], C.spot[1]);
+      const k = (LEASH - 8) / ds;
+      C.spot = [px + (C.spot[0] - px) * k, pz + (C.spot[1] - pz) * k];
+    }
+    // The camera locked on him; you square up to him whenever you're not on the move (or you're
+    // winding up).
+    const face = Math.atan2(w.x - px, w.z - pz);
+    game.camYaw = lerpAngle(game.camYaw, face, Math.min(1, dt * 6));
+    if ((p.speed || 0) < 0.6 || this.press) p.heading = lerpAngle(p.heading, face, Math.min(1, dt * 10));
     // (a loose ball at your feet: yours)
     if (b.mode === 'loose' && b.y < 0.8 && dist(px, pz, b.x, b.z) < 0.9) {
       fb.hold('you');
@@ -562,10 +752,11 @@ export const FieldModes = {
         const tx = px + Math.cos(a) * r;
         const tz = pz + Math.sin(a) * r;
         const d = dist(w.x, w.z, tx, tz);
-        const lob = d > 20 || far || Math.random() < 0.25;
-        const T = (lob ? 0.85 + d / 15 : 0.35 + d / 22) + (far ? 0.25 : 0);
-        fb.launch(tx, lob ? 1.7 : 1.35, tz, T, 'pass', 'you');
-        b.style = lob ? 'lob' : 'bullet';
+        // (his pick: on a line close, dropped in from further, put up high deep)
+        const kind = d < 14 ? (Math.random() < 0.7 ? 'bullet' : 'touch') : d < 30 ? pick(['bullet', 'touch', 'touch']) : pick(['touch', 'lob', 'lob']);
+        const TY = CTYPES[kind];
+        fb.launch(tx, TY.h, tz, TY.T(d) + (far ? 0.2 : 0), 'pass', 'you');
+        b.style = kind === 'lob' ? 'lob' : 'bullet';
         w.fb.relT = 0.4;
       }
     } else {

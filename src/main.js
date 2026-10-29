@@ -1899,6 +1899,14 @@ class Game {
         distBack += F.back;
         height += F.up;
       }
+      // Playing catch at Harbor Field (fieldmodes.js): in close over your throwing shoulder.
+      const S = this.gridiron?.active && this.gridiron.camShot?.();
+      if (S) {
+        distBack = S.back;
+        height = S.up;
+        shoulder = S.shoulder;
+        fov = S.fov;
+      }
       // In cover: a wider view so you can see around you.
       if (this.player.cover) {
         fov = 82;

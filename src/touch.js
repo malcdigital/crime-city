@@ -56,6 +56,9 @@ const BUTTONS = [
   ['qfire', 'FIRE', B.R2, [], 'hold', 'big red'],
   // (PLAY at the line picks the play; after the snap it's R1: the back. Running with it: moves.)
   ['qr1', 'PLAY', B.R1, ['qb'], 'hold', 'mid txt'],
+  // (playing catch: □ ✕ △ are bullet, touch, lob; LONG / CLOSER call him out or in)
+  ['clong', 'LONG', B.UP, ['qb'], 'hold', 'sm txt'],
+  ['cclose', 'CLOSER', B.DOWN, ['qb'], 'hold', 'sm txt'],
   ['rjuke', 'JUKE', 18, ['qb'], 'hold', 'sm txt'],
   ['rspin', 'SPIN', 21, ['qb'], 'hold', 'sm txt'],
   ['rstiff', 'STIFF', 20, ['qb'], 'hold', 'sm txt'],
@@ -496,7 +499,17 @@ export class TouchControls {
       for (const id of ['reload', 'cross', 'circle', 'tri']) b[id].el.classList.toggle('hidden', running);
       for (const id of ['rjuke', 'rspin', 'rstiff']) b[id].el.classList.toggle('hidden', !running);
       b.qr1.el.classList.toggle('hidden', running);
-      b.qr1.el.querySelector('.tl').textContent = line ? 'PLAY' : M?.mode === 'catch' ? 'ROUTE' : 'R1'; // (playing catch: send him on a route)
+      b.qr1.el.querySelector('.tl').textContent = line ? 'PLAY' : 'R1';
+      // Playing catch: □ bullet, ✕ touch, △ lob, LONG / CLOSER (no ○, no R1).
+      const cat = M?.mode === 'catch';
+      this.el.root.dataset.mode = cat ? 'catch' : '';
+      b.reload.hint.textContent = cat ? 'bullet' : '';
+      b.tri.hint.textContent = cat ? 'lob' : '';
+      if (cat) b.cross.hint.textContent = 'touch';
+      b.circle.el.classList.toggle('hidden', running || cat);
+      b.qr1.el.classList.toggle('hidden', running || cat);
+      b.clong.el.classList.toggle('hidden', !cat);
+      b.cclose.el.classList.toggle('hidden', !cat);
     }
     this.dribbleGest = false;
     if (ctx === 'ball') {
