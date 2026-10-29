@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { dist, rand, pick, lerpAngle } from './util.js';
-import { throwPose, catchPose } from './footballpose.js';
+import { throwPose, catchPose, holdBall, tuckCarry, fbBallAt } from './footballpose.js';
+import { bendLeg, bendSpine, reachArm } from './character.js';
 import { ThrowMeter, PERFECT } from './throwmeter.js';
 
 // The other games at Harbor Field (mixed into Gridiron: gridiron.js), picked from the field's
@@ -41,6 +42,9 @@ const RING_Y = 1.7;
 // Playing catch: you can go anywhere on the field as long as you stay within 50 yards of each
 // other (past it, backing off fights you and he comes in). Three throws, each held for power:
 // the green zone on the meter is the power his distance needs (early: short, late: long).
+const _v = new THREE.Vector3();
+const _w = new THREE.Vector3();
+const BOTTLE = new THREE.CylinderGeometry(0.035, 0.035, 0.21, 8); // (a sports drink)
 const LEASH = 50 * YD;
 const FILL = 0.6; // (game seconds to a full meter: about 1.2 s with time slowed to half)
 const ACC_T = 0.45; // (game seconds for the accuracy needle: about 0.9 s slowed; the perfect tap's halfway)
@@ -116,6 +120,15 @@ export const FieldModes = {
   drivePlayer(p, f, b, faceAt) {
     const goTo = (x, z, speed) => (dist(p.x, p.z, x, z) > 0.45 ? { tx: x, tz: z, speed } : null);
     if (this.mode === 'catch' && p === this.cat?.mate) return this.driveMate(p, f, b, goTo, faceAt);
+    if (f.seat) {
+      // (to the bench, then sat facing the field)
+      const g = goTo(f.seat[0], f.seat[1], 2.8);
+      f.seated = !g;
+      if (g) return g;
+      p.heading = -Math.PI / 2;
+      return { speed: 0 };
+    }
+    if (f.sideSpot && this.side) return this.driveSide(p, f, goTo, faceAt);
     const g = f.side && goTo(f.side[0], f.side[1], 3.4);
     if (g) return g;
     const [px, pz] = this.game.player.pos();
@@ -245,7 +258,19 @@ export const FieldModes = {
       if (C.mate.fb) C.mate.fb.route = null;
       this.cat = null;
     }
-    for (const q of fb.players) q.fb.side = null;
+    for (const q of fb.players) {
+      q.fb.side = q.fb.seat = q.fb.sideSpot = null;
+      q.fb.seated = false;
+      const bt = q.char.group.userData.bottle;
+      if (bt) {
+        bt.parent?.remove(bt);
+        q.char.group.userData.bottle = null;
+      }
+    }
+    if (this.side) {
+      game.scene.remove(this.side.mesh);
+      this.side = null;
+    }
     if (fb.ball) fb.ball.mesh.visible = true;
     game.hud.sportFloat?.(null);
     this.tmeter?.hide();
@@ -477,15 +502,16 @@ export const FieldModes = {
     const F = fb.site.field;
     const [px, pz] = game.player.pos();
     // (no set distance: he stays where he is if that's a fair throw, or jogs out about 15 yards)
+    // (out in the middle of the field, about 15 yards off, not over by the sideline)
     let spot = [mate.x, mate.z];
     const d0 = dist(px, pz, mate.x, mate.z);
-    if (d0 < 6 || d0 > 30) {
+    if (d0 < 6 || d0 > 30 || Math.abs(mate.x - F.cx) > 5) {
       const dir = pz - 14 > F.z0 + 3 ? -1 : 1;
-      spot = [Math.max(F.x0 + 3, Math.min(F.x1 - 3, px)), pz + dir * 13.7];
+      spot = [F.cx + rand(-2.5, 2.5), pz + dir * 13.7];
     }
     this.cat = { mate, spot, streak: 0, best: 0, mine: 0, his: 0, holdT: 0, throwing: false, routeOn: false, prevHeld: { bullet: true, touch: true, lob: true }, last: null };
     mate.fb.route = null;
-    this.toSideline((pz + spot[1]) / 2, mate);
+    this.setupOthers(mate, (pz + spot[1]) / 2);
     game.hud.toast(`Playing catch with ${mate.ballName}. Go anywhere on the field: stay within 50 yards of each other`, '#ffd23f');
   },
 
@@ -678,6 +704,178 @@ export const FieldModes = {
     tm.show({ x: sx, y: sy }, st);
   },
 
+  // Everyone else while you play catch: two of them have their own game of catch down the other
+  // half of the field; the rest sit on the bench drinking Gatorade.
+  setupOthers(mate, zMid) {
+    const game = this.game;
+    const fb = this.fb;
+    const F = fb.site.field;
+    const B = fb.site.bench;
+    const others = fb.players.filter((q) => q !== mate).sort(() => Math.random() - 0.5);
+    const center = (F.z0 + F.z1) / 2;
+    const zo = zMid > center ? Math.max(F.z0 + 16, zMid - 45) : Math.min(F.z1 - 16, zMid + 45);
+    const pair = others.length >= 2 ? others.slice(0, 2) : [];
+    const sit = others.slice(pair.length);
+    this.side = null;
+    if (pair.length === 2) {
+      const [a, c] = pair;
+      a.fb.sideSpot = [F.cx - 1 + rand(-2, 2), zo - 8];
+      c.fb.sideSpot = [F.cx + 1 + rand(-2, 2), zo + 8];
+      const mesh = new THREE.Mesh(fb.ball.mesh.geometry, fb.ball.mesh.material);
+      mesh.castShadow = true;
+      game.scene.add(mesh);
+      this.side = { a, b: c, mesh, holder: a, holdT: 0, winding: false, flight: null, loose: null, x: a.x, y: 1, z: a.z };
+    }
+    sit.forEach((q, k) => {
+      q.fb.seat = B ? B.seats[k % B.seats.length] : [F.x1 + 1, center + k];
+      q.fb.sipPh = rand(0, 7);
+    });
+  },
+
+  // The pair down the other end: to their spots, facing each other, going after it.
+  driveSide(p, f, goTo, faceAt) {
+    const S = this.side;
+    const o = p === S.a ? S.b : S.a;
+    if (S.flight && S.flight.to === p) {
+      if (S.flight.t < 0.35) {
+        faceAt(S.x, S.z);
+        return { speed: 0 };
+      }
+      return goTo(S.flight.p1[0], S.flight.p1[2], 3.6) || (faceAt(S.x, S.z), { speed: 0 });
+    }
+    if (S.loose && dist(p.x, p.z, S.x, S.z) <= dist(o.x, o.z, S.x, S.z)) return goTo(S.x, S.z, 3.8) || { speed: 0 };
+    const g = goTo(f.sideSpot[0], f.sideSpot[1], 3.4);
+    if (g) return g;
+    faceAt(o.x, o.z);
+    return { speed: 0 };
+  },
+
+  // Their ball: held a beat, thrown (a bullet, now and then a lob), caught mostly, a drop picked
+  // up by whoever's nearer.
+  sideStep(dt) {
+    const game = this.game;
+    const fb = this.fb;
+    const S = this.side;
+    if (!S) return;
+    if (!fb.players.includes(S.a) || !fb.players.includes(S.b)) {
+      game.scene.remove(S.mesh);
+      this.side = null;
+      return;
+    }
+    if (S.holder) {
+      const h = S.holder;
+      const o = h === S.a ? S.b : S.a;
+      S.holdT += dt;
+      if (!S.winding && S.holdT > 1.3 && dist(h.x, h.z, h.fb.sideSpot[0], h.fb.sideSpot[1]) < 0.9 && !h.fb.throwT) {
+        h.fb.throwT = 0.35;
+        S.winding = true;
+      }
+      if (fbBallAt(h.char, _v)) [S.x, S.y, S.z] = [_v.x, _v.y, _v.z];
+      else [S.x, S.y, S.z] = [h.x, 1.15, h.z];
+      if (S.winding && h.fb.throwT <= 0.12) {
+        S.winding = false;
+        const off = Math.random() < 0.15 ? rand(1.2, 2.2) : rand(0, 0.6);
+        const an = rand(0, Math.PI * 2);
+        const tx = o.fb.sideSpot[0] + Math.cos(an) * off;
+        const tz = o.fb.sideSpot[1] + Math.sin(an) * off;
+        const d = dist(S.x, S.z, tx, tz);
+        const lob = Math.random() < 0.3;
+        const T = lob ? 0.85 + d / 15 : 0.35 + d / 22;
+        S.flight = { p0: [S.x, S.y, S.z], p1: [tx, 1.3, tz], T, t: 0, vy0: (1.3 - S.y + 0.5 * G * T * T) / T, to: o, lob };
+        S.holder = null;
+        h.fb.relT = 0.4;
+      }
+    } else if (S.flight) {
+      const Fl = S.flight;
+      Fl.t += dt;
+      const k = Math.min(1, Fl.t / Fl.T);
+      const ox = S.x;
+      const oy = S.y;
+      const oz = S.z;
+      S.x = Fl.p0[0] + (Fl.p1[0] - Fl.p0[0]) * k;
+      S.z = Fl.p0[2] + (Fl.p1[2] - Fl.p0[2]) * k;
+      const t = Math.min(Fl.t, Fl.T);
+      S.y = Fl.p0[1] + Fl.vy0 * t - 0.5 * G * t * t;
+      S.mesh.lookAt(S.x + (S.x - ox) * 10, S.y + (S.y - oy) * 10, S.z + (S.z - oz) * 10);
+      S.mesh.rotateZ(Fl.t * 25);
+      if (Fl.t >= Fl.T) {
+        const o = Fl.to;
+        if (dist(o.x, o.z, S.x, S.z) < 1.2 && Math.random() < 0.93) {
+          S.holder = o;
+          S.holdT = 0;
+        } else S.loose = { vx: (Fl.p1[0] - Fl.p0[0]) / Fl.T * 0.3, vz: (Fl.p1[2] - Fl.p0[2]) / Fl.T * 0.3, vy: -2 };
+        S.flight = null;
+      }
+    } else if (S.loose) {
+      const L = S.loose;
+      L.vy -= G * dt;
+      S.x += L.vx * dt;
+      S.y += L.vy * dt;
+      S.z += L.vz * dt;
+      if (S.y < 0.12) {
+        S.y = 0.12;
+        L.vy = Math.abs(L.vy) > 1.2 ? -L.vy * 0.4 : 0;
+        L.vx *= 0.9;
+        L.vz *= 0.9;
+      }
+      for (const q of [S.a, S.b]) {
+        if (dist(q.x, q.z, S.x, S.z) < 0.7 && S.y < 0.6) {
+          S.holder = q;
+          S.holdT = 0;
+          S.loose = null;
+          break;
+        }
+      }
+    }
+    if (!S.flight) S.mesh.rotation.set(0, S.holder ? S.holder.heading : 0, 0);
+    S.mesh.position.set(S.x, S.y, S.z);
+  },
+
+  // football.js pose(): the bench (sat, sipping now and then) and the other pair's arms; null for
+  // everyone else (the usual).
+  posePlayer(p, c) {
+    const f = p.fb;
+    if (this.mode !== 'catch') return null;
+    if (f.seat && f.seated) {
+      const B = this.fb.site.bench;
+      bendLeg(c.legL, c.kneeL, 1.5, 1.5);
+      bendLeg(c.legR, c.kneeR, 1.5, 1.5);
+      c.legL.rotation.z = 0.12;
+      c.legR.rotation.z = -0.12;
+      // (a sip every seven seconds or so: the bottle up to the mouth, the head back)
+      const k = (this.game.time + f.sipPh) % 7;
+      const sip = k < 1.8 ? Math.sin((Math.PI * k) / 1.8) : 0;
+      bendSpine(c, 0.28 * (1 - sip) - 0.06 * sip, 0, 0);
+      c.neck.rotation.set(-0.08 - 0.5 * sip, 0, 0);
+      _v.set(-0.2 + 0.16 * sip, 0.98 + 0.62 * sip, 0.42 - 0.24 * sip);
+      reachArm(c, 'R', _v, _w.set(-1, -0.6, -0.2), null, null, 'body');
+      c.armL.rotation.set(-0.95, 0, 0.12);
+      c.elbowL.rotation.set(-1.1, 0, 0);
+      let bt = c.group.userData.bottle;
+      if (!bt) {
+        bt = c.group.userData.bottle = new THREE.Mesh(BOTTLE, new THREE.MeshLambertMaterial({ color: Math.random() < 0.5 ? 0xff8a1f : 0x8be33a }));
+        bt.position.set(0, -0.09, -0.05);
+        bt.rotation.z = Math.PI / 2;
+        c.wristR.add(bt);
+      }
+      bt.visible = true;
+      return (B?.seatY ?? 0.46) - 0.9;
+    }
+    const S = this.side;
+    if (S && (p === S.a || p === S.b)) {
+      c.group.userData.fbGrip = null;
+      let y = 0.04;
+      if (S.holder === p) {
+        if (f.throwT > 0) throwPose(c, 1 - Math.max(0, f.throwT - 0.12) / 0.23, 0);
+        else if (p.speed > 0.5) tuckCarry(c, p.speed);
+        else y = holdBall(c, 0, true, this.game.time) + 0.04;
+      } else if (f.relT > 0) throwPose(c, 1, 1 - f.relT / 0.4);
+      else if (S.flight && S.flight.to === p && S.flight.T - S.flight.t < 0.6) catchPose(c, S.flight.lob);
+      return y;
+    }
+    return null;
+  },
+
   driveMate(p, f, b, goTo, faceAt) {
     const C = this.cat;
     const [px, pz] = this.game.player.pos();
@@ -749,6 +947,7 @@ export const FieldModes = {
       game.hud.toast(`${w.ballName} took off`, '#9fc3ff');
       return this.end('off');
     }
+    this.sideStep(dt);
     const p = game.player;
     let [px, pz] = p.pos();
     // The 50-yard leash: past it, backing off fights you (pulled most of the way back each step)

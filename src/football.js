@@ -625,6 +625,9 @@ export class Football {
       }
       return f.seatY - 0.9;
     }
+    // (playing catch with you: the bench and the pair down the other end, fieldmodes.js)
+    const mp = this.match?.posePlayer?.(p, c);
+    if (mp != null) return mp;
     let y = 0.04;
     c.group.rotation.x = 0;
     c.armL.rotation.z = c.armR.rotation.z = 0;

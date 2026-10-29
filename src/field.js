@@ -18,6 +18,11 @@ const GOAL0 = F.z0 + EZ; // north goal line
 const GOAL1 = F.z1 - EZ;
 const BLEACH = { x0: 1206, x1: 1229, z0: F.z1 + 5, rows: 5, depth: 0.85, rise: 0.45 };
 const BOARD = { x: 1212, z: F.z0 - 6 };
+// The team bench on the east sideline at midfield (facing the field), a cooler of Gatorade at its
+// end: where the players sit out when they're not in it (fieldmodes.js).
+const BENCH = { x: F.x1 + 1.25, z0: F.z0 + 60 * YD - 3, z1: F.z0 + 60 * YD + 3, seatY: 0.46 };
+BENCH.seats = [0, 1, 2, 3, 4].map((k) => [BENCH.x - 0.32, BENCH.z0 + 0.7 + k * 1.15]);
+BENCH.cooler = [BENCH.x - 0.1, BENCH.z1 + 0.7];
 // The fence (west side about 4 m back from the street; east side clear of the on-ramp).
 const FENCE = { x0: 1202, x1: 1233, z0: 931, z1: 1060, h: 2.4 };
 const GATE_S = [1213, 1217]; // onto the path from the lot (x)
@@ -161,6 +166,8 @@ export function buildField(city, scene) {
   const alu = [];
   const yellow = [];
   const dark = [];
+  const orange = [];
+  const lids = [];
   // ---- The field ----
   const { tex, M } = fieldTexture();
   const turf = new THREE.Mesh(flat(F.x0 - M, F.z0 - M, F.x1 + M, F.z1 + M, 0.04), new THREE.MeshLambertMaterial({ map: tex }));
@@ -198,6 +205,21 @@ export function buildField(city, scene) {
   steel.push(box(B.x1 - B.x0, 0.06, 0.06, (B.x0 + B.x1) / 2, topY + 1, back)); // back rail
   for (let x = B.x0; x <= B.x1 + 0.01; x += (B.x1 - B.x0) / 5) steel.push(box(0.06, 1, 0.06, x, topY + 0.5, back));
   city.colliders.push({ minX: B.x0, maxX: B.x1, minZ: B.z0 + 0.2, maxZ: back, h: topY + 1 });
+
+  // The team bench: a long aluminum seat on legs, a back rail; an orange cooler with a white lid
+  // on a stand at the end, a sleeve of cups beside it.
+  {
+    const L = BENCH.z1 - BENCH.z0;
+    const zc = (BENCH.z0 + BENCH.z1) / 2;
+    alu.push(box(0.42, 0.06, L, BENCH.x, BENCH.seatY - 0.03, zc));
+    alu.push(box(0.06, 0.32, L, BENCH.x + 0.22, BENCH.seatY + 0.28, zc)); // (the back)
+    for (const z of [BENCH.z0 + 0.2, zc, BENCH.z1 - 0.2]) steel.push(box(0.36, BENCH.seatY - 0.06, 0.06, BENCH.x, (BENCH.seatY - 0.06) / 2, z));
+    const [cx, cz] = BENCH.cooler;
+    steel.push(box(0.5, 0.45, 0.5, cx, 0.225, cz)); // (the stand)
+    orange.push(new THREE.CylinderGeometry(0.2, 0.18, 0.42, 14).translate(cx, 0.66, cz));
+    lids.push(new THREE.CylinderGeometry(0.21, 0.21, 0.06, 14).translate(cx, 0.9, cz));
+    lids.push(new THREE.CylinderGeometry(0.04, 0.035, 0.22, 8).translate(cx + 0.02, 0.56, cz - 0.3)); // (cups)
+  }
 
   // Scoreboard behind the north end zone (facing south, over the field).
   const sb = new THREE.Mesh(new THREE.PlaneGeometry(6, 2.6), new THREE.MeshBasicMaterial({ map: scoreTexture() }));
@@ -286,6 +308,8 @@ export function buildField(city, scene) {
   add(steel, lam(0x4a5560));
   add(alu, lam(0xb9c0c6));
   add(yellow, lam(0xf2c418));
+  add(orange, lam(0xff7a1a));
+  add(lids, lam(0xf4f4f0));
   add(dark, lam(0x22272d));
   add(asphalt, lam(0x3a3d42), false);
   add(paint, new THREE.MeshBasicMaterial({ color: 0xe8e8e0 }), false);
@@ -302,7 +326,7 @@ export function buildField(city, scene) {
     glowMat.opacity = 0.13 * k;
     glow.visible = k > 0.02;
   });
-  return { field: F, spots, bleachers: BLEACH, goal0: GOAL0, goal1: GOAL1 };
+  return { field: F, spots, bleachers: BLEACH, bench: BENCH, goal0: GOAL0, goal1: GOAL1 };
 }
 
 // On the 2D maps.

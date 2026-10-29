@@ -78,7 +78,14 @@ export class Gridiron {
       if (!w.ballName) w.ballName = pick(w.female ? ['Kiki', 'Nae', 'Jada', 'Shay'] : NAMES.filter((n) => n !== qb.ballName));
       if (CFG.START_FIELD_GAME === 'qbc') this.startChallenge(qb, false);
       else if (CFG.START_FIELD_GAME === 'drive') this.start(qb, 0, 40);
-      else this.startCatch(qb, w);
+      else {
+        // (out in the middle of the field, a little toward the south end)
+        const F = fb.site.field;
+        game.player.x = F.cx;
+        game.player.z = (F.z0 + F.z1) / 2 + 10;
+        game.player.heading = Math.PI;
+        this.startCatch(qb, w);
+      }
       return;
     }
     if (this.active || game.player.vehicle || game.stars > 0 || game.stop || !fb?.ball || fb.match || game.time < (this.again || 0)) return;
