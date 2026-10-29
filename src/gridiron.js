@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { dist, rand, pick } from './util.js';
 import { setShirt } from './character.js';
 import { FieldModes } from './fieldmodes.js';
+import { CFG } from './config.js';
 import { throwPose, layoutPose, qbStance, holdBall, tuckCarry, jukePose, spinPose, stiffArmPose, fbBallAt } from './footballpose.js';
 
 // Quarterback a drive at Harbor Field (football.js runs the passing drill there).
@@ -68,6 +69,18 @@ export class Gridiron {
   offer(a) {
     const game = this.game;
     const fb = this.fb;
+    // (testing switch: straight into one of the field's games once they're out there)
+    if (CFG.START_FIELD_GAME && !this.startDone && !this.active && game.started && game.time > 1.5 && fb?.qb?.fb && fb.wrs.length && !game.player.vehicle && this.onField(...game.player.pos(), 6)) {
+      this.startDone = true;
+      const qb = fb.qb;
+      if (!qb.ballName) qb.ballName = pick(qb.female ? ['Kiki', 'Nae', 'Jada', 'Shay'] : NAMES);
+      const w = fb.wrs[0];
+      if (!w.ballName) w.ballName = pick(w.female ? ['Kiki', 'Nae', 'Jada', 'Shay'] : NAMES.filter((n) => n !== qb.ballName));
+      if (CFG.START_FIELD_GAME === 'qbc') this.startChallenge(qb, false);
+      else if (CFG.START_FIELD_GAME === 'drive') this.start(qb, 0, 40);
+      else this.startCatch(qb, w, 'Medium');
+      return;
+    }
     if (this.active || game.player.vehicle || game.stars > 0 || game.stop || !fb?.ball || fb.match || game.time < (this.again || 0)) return;
     const qb = fb.qb;
     const [px, pz] = game.player.pos();

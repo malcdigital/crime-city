@@ -19,6 +19,10 @@ export const CFG = {
   // START_IN_CAR and your safehouse). Right now: Harbor Field, on the field facing downfield
   // next to the quarterback. (The Ledger Ave courts: [1210, 733, 90].)
   START_ON_FOOT: [1214, 1013, 180],
+  // Testing switch: a moment after you start at Harbor Field, you're in one of its games:
+  // 'catch' (playing catch with a receiver, medium apart), 'qbc' (the QB Challenge), 'drive', or
+  // null (off: ask their quarterback like normal).
+  START_FIELD_GAME: 'catch',
   // Testing switch: a few seconds in, a dice game on a corner in a rival gang's turf near the
   // start, and you put a few steps from it (dice.js).
   START_NEAR_DICE: false,
