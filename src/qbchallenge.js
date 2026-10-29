@@ -133,8 +133,10 @@ export const QBChallenge = {
       q.fb.qbcRole = null;
     }
     Q.wrs = pool.slice(0, 3);
-    Q.rush = pool.slice(3, 5);
+    Q.rush = pool.length >= 5 ? pool.slice(3, 5) : pool.slice(-2); // (not enough out there: two of the receivers rush too)
     this.toSideline(sz - 4);
+    this.qbcPlace(); // (already off the field when the intro starts)
+    fb.ball.mesh.visible = false; // (in your hands from stage one: not left hanging where it was under the intro)
     // The intro, then stage one (the game waits under the intro).
     game.qbcCine?.intro({ spot: Q.spot, gy, rings: Q.targets.map((T) => [T.x, T.z]), best }, () => this.qbcStage(0));
     if (!game.qbcCine) this.qbcStage(0);
@@ -200,6 +202,29 @@ export const QBChallenge = {
       T.x = T.x0;
       T.ring.material.color.setHex(T.col);
       T.ring.material.emissive.setHex(0);
+    }
+    this.qbcPlace();
+  },
+
+  // Everyone straight to their place, not walking there: the ones watching on the sideline,
+  // the receivers on their line, the rushers on their marks.
+  qbcPlace() {
+    const Q = this.qbc;
+    const [sx, sz] = Q.spot;
+    for (const q of this.fb.players) {
+      const f = q.fb;
+      const at = f.qbcRole === 'wr' ? f.line : f.qbcRole === 'rush' ? f.mark : f.side;
+      if (!at) continue;
+      q.x = at[0];
+      q.z = at[1];
+      q.speed = 0;
+      f.downT = f.pickT = 0;
+      f.dive = false;
+      q.heading = f.qbcRole ? Math.atan2(sx - q.x, sz - q.z) : Math.atan2(sx - q.x, sz - 8 - q.z); // (facing you, or the field)
+      // (the body too, right now: under the intro the game's not running to move it)
+      q.char.group.position.x = q.x;
+      q.char.group.position.z = q.z;
+      q.char.group.rotation.y = q.heading;
     }
   },
 
