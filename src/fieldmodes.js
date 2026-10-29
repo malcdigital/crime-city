@@ -68,6 +68,14 @@ const CW_GOOD = 0.12;
 const CW_BOB = 0.22;
 const CW_REACH = 1.15; // (how close to where it comes down you have to be)
 const CW_SLOW = 0.6;
+// Where it's coming down: a ring on the grass (the size of your reach: white, green once you're
+// in it) with a disc shrinking to its middle as it comes in. Getting there you get a hand: a
+// pull toward the spot while you head for it (ASSIST m/s, within ASSIST_R) and running away from it drags (DRAG of
+// the away part of your step taken back).
+const ASSIST = 1.6;
+const ASSIST_IDLE = 0.4; // (standing still: a small drift, you still have to go get it)
+const ASSIST_R = 9;
+const DRAG = 0.55;
 const RING_GEO = new THREE.RingGeometry(0.86, 1, 40);
 const DOT_GEO = new THREE.RingGeometry(0.82, 1, 40);
 
@@ -235,6 +243,10 @@ export const FieldModes = {
     if (this.cring) {
       game.scene.remove(this.cring);
       this.cring = null;
+    }
+    if (this.cmark) {
+      game.scene.remove(this.cmark);
+      this.cmark = null;
     }
     if (this.mode === 'catch' && this.cat) {
       const C = this.cat;
@@ -1185,7 +1197,71 @@ export const FieldModes = {
         C.late = null;
       }
     }
+    this.catchAssist(dt);
     this.catchRing(dt);
+  },
+
+  // The spot it's coming down on, and a hand getting there.
+  catchAssist(dt) {
+    const game = this.game;
+    const b = this.fb.ball;
+    const C = this.cat;
+    const p = game.player;
+    const W = b.mode === 'flight' && b.to === 'you' ? this.catchW() : null;
+    const on = !!W && !W.bob && !p.vehicle && !(this.pickT > 0);
+    const [px, pz] = p.pos();
+    const last = this._lastP;
+    this._lastP = [px, pz];
+    if (!this.cmark) {
+      const g = new THREE.Group();
+      const mat = (op) => new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: op, depthWrite: false, side: THREE.DoubleSide });
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 48), mat(0.85));
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 40), mat(0.3));
+      for (const m of [ring, disc]) {
+        m.rotation.x = -Math.PI / 2;
+        m.renderOrder = 5;
+        g.add(m);
+      }
+      g.userData = { ring, disc };
+      game.scene.add(g);
+      this.cmark = g;
+    }
+    const g = this.cmark;
+    g.visible = on;
+    if (!on) return;
+    const [sx, sz] = [b.p1[0], b.p1[2]];
+    const d = dist(px, pz, sx, sz);
+    const inR = d < CW_REACH;
+    const left = Math.max(0, b.T - b.t);
+    g.position.set(sx, 0.04, sz);
+    g.userData.ring.scale.setScalar(CW_REACH);
+    g.userData.ring.material.color.setHex(inR ? 0x3ddc78 : 0xffffff);
+    g.userData.disc.scale.setScalar(Math.max(0.05, CW_REACH * Math.min(1, left / Math.max(0.6, b.T))));
+    g.userData.disc.material.color.setHex(inR ? 0x3ddc78 : 0xffd23f);
+    // (the hand: drag on running away from it, a pull toward it; none once you're on it)
+    if (d < 0.25 || d > ASSIST_R) return;
+    const ux = (sx - px) / d;
+    const uz = (sz - pz) / d;
+    let nx = px;
+    let nz = pz;
+    let toward = false;
+    if (last) {
+      const mx = px - last[0];
+      const mz = pz - last[1];
+      const along = mx * ux + mz * uz;
+      toward = along > 0.3 * dt; // (heading for it: the full pull)
+      if (along < 0 && Math.hypot(mx, mz) < 1) {
+        nx -= along * ux * DRAG;
+        nz -= along * uz * DRAG;
+      }
+    }
+    const pull = Math.min(d - 0.2, (toward ? ASSIST : ASSIST_IDLE) * dt);
+    nx += ux * pull;
+    nz += uz * pull;
+    p.x = nx;
+    p.z = nz;
+    this._lastP = [nx, nz];
+    void C;
   },
 
   // The catch window for the throw coming at you (new each throw).
