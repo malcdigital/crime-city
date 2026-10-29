@@ -96,12 +96,34 @@ export function holdBall(c, look = 0, still = true, now = 0) {
 
 // Running with it: high and tight (the ball against the ribs, the hand over its front tip, the
 // elbow clamped on it), leaning into the run (speed m/s), the head up.
+// (the five points of a good carry: the nose in the palm, fingers over the front tip, the ball
+// along the forearm, the back tip pinned in the crook of the elbow against the ribs, carried high
+// on the outside of the body; the elbow tucked back and down)
 export function tuckCarry(c, speed = 0) {
   const lean = 0.08 + 0.2 * clamp01(speed / 7);
   bendSpine(c, lean, 0, 0);
   c.neck.rotation.set(-lean * 0.9, 0, 0);
-  reachArm(c, 'R', _a.set(-0.21, 1.13, 0.37), _b.set(-1, -0.5, -0.6), _c.set(0.1, 0.2, 1), _d.set(-1, 0, 0), 'body');
+  reachArm(c, 'R', _a.set(-0.29, 1.27, 0.3), _b.set(-0.3, -0.75, -1), _c.set(0.35, 0.05, 1), _d.set(-0.6, 1, 0), 'body');
   grip(c, 'tuck');
+}
+
+// Picking the ball up off the grass (yours and theirs), k 0..1 over about 0.6 s: down into a
+// crouch over it, the head down on it, both hands scooping it (the ball's still on the ground
+// till halfway), then up and out of it with the ball at the chest. Returns the height change.
+export const PICK_T = 0.6;
+export function pickupPose(c, k) {
+  const e = Math.sin(Math.PI * clamp01(k));
+  bendLeg(c.legL, c.kneeL, 0.35 + 0.95 * e, 0.35 + 1.45 * e); // (the left foot a half step up)
+  bendLeg(c.legR, c.kneeR, 0.1 + 0.85 * e, 0.3 + 1.6 * e);
+  c.legL.rotation.z = 0.1 * e;
+  c.legR.rotation.z = -0.12 * e;
+  bendSpine(c, 0.2 + 0.85 * e, 0, 0);
+  c.neck.rotation.set(0.25 * e, 0, 0); // (eyes down on it)
+  const y = 0.98 - 0.62 * e;
+  reachArm(c, 'R', _a.set(-0.1, y, 0.42 + 0.08 * e), _b.set(-1, -0.4, -0.3), _c.set(0.1, -1, 0.4), null, 'group');
+  reachArm(c, 'L', _a.set(0.1, y, 0.42 + 0.08 * e), _b.set(1, -0.4, -0.3), _c.set(-0.1, -1, 0.4), null, 'group');
+  grip(c, k < 0.5 ? null : 'two');
+  return -lowestPoint(c);
 }
 
 // The quarterback's throw. cock (0-1): the shoulders turning side-on, the ball coming back by
@@ -209,9 +231,32 @@ export function fbBallAt(c, out) {
   if (!g) return null;
   c.group.updateMatrixWorld(true);
   if (g === 'throw') return c.wristR.localToWorld(out.set(0, -0.12, 0.04));
-  if (g === 'tuck') return c.chest.localToWorld(out.set(-0.22, -0.1, 0.23));
+  if (g === 'tuck') {
+    // (cradled along the forearm, just inside it, between it and the ribs)
+    c.elbowR.getWorldPosition(_e1);
+    c.wristR.getWorldPosition(_e2);
+    // (resting on top of the forearm, the front of it in the hand, against the front of the ribs)
+    const sc = c.group.scale.y || 1;
+    out.lerpVectors(_e1, _e2, 0.62);
+    _e3.set(0, 0.11 * sc, 0.04 * sc).applyQuaternion(c.chest.getWorldQuaternion(_q1));
+    return out.add(_e3);
+  }
   return twoHandBall(c, out);
 }
+// The ball's lie for the grip: tucked, along the forearm (its long axis is z); otherwise null
+// (the caller keeps it square to the carrier).
+export function fbBallQuat(c, q) {
+  if (c.group.userData.fbGrip !== 'tuck') return null;
+  c.elbowR.getWorldPosition(_e1);
+  c.wristR.getWorldPosition(_e2);
+  return q.setFromUnitVectors(_e5.set(0, 0, 1), _e2.sub(_e1).normalize());
+}
+const _e1 = new THREE.Vector3();
+const _e2 = new THREE.Vector3();
+const _e3 = new THREE.Vector3();
+const _e4 = new THREE.Vector3();
+const _e5 = new THREE.Vector3();
+const _q1 = new THREE.Quaternion();
 
 // Running moves with the ball tucked (yours; k 0..1 through the move):
 // a juke: the plant, the hips and shoulders thrown toward the cut (side +1 his right), the head

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { dist, rand, pick, lerpAngle } from './util.js';
-import { throwPose, catchPose, holdBall, tuckCarry, fbBallAt } from './footballpose.js';
+import { throwPose, catchPose, holdBall, tuckCarry, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
 import { bendLeg, bendSpine, reachArm } from './character.js';
 import { ThrowMeter, PERFECT } from './throwmeter.js';
 
@@ -192,6 +192,10 @@ export const FieldModes = {
       // (the arm coming through while you time the tap: the ball leaves the hand at the middle)
       throwPose(c, 1, Math.min(0.34, (MS.acc.n / 0.5) * 0.34));
       c.group.userData.fbGrip = 'throw';
+      return true;
+    }
+    if (this.mode === 'catch' && this.pickT > 0) {
+      c.group.position.y += pickupPose(c, 1 - this.pickT / PICK_T); // (scooping it up)
       return true;
     }
     if (this.mode === 'catch' && b.mode === 'flight' && b.to === 'you' && b.T - b.t < 0.6) {
@@ -638,6 +642,7 @@ export const FieldModes = {
   catchInput(dt, a, fire) {
     const inp = this.game.input;
     const R = a.qbR || [];
+    if (this.pickT > 0) a.moveX = a.moveY = 0; // (stopped while you scoop it up)
     this.meterInput(dt, a, fire);
     if (inp.btnHit?.(12) || inp.hit?.('KeyE')) this.callMate(1);
     if (inp.btnHit?.(13) || inp.hit?.('KeyQ')) this.callMate(-1);
@@ -901,16 +906,22 @@ export const FieldModes = {
         L.vz *= 0.9;
       }
       for (const q of [S.a, S.b]) {
-        if (dist(q.x, q.z, S.x, S.z) < 0.7 && S.y < 0.6) {
-          S.holder = q;
-          S.holdT = 0;
-          q.fb.sideSpot = this.inRange(q, q === S.a ? S.b.fb.sideSpot : S.a.fb.sideSpot, 32);
-          S.loose = null;
+        if (dist(q.x, q.z, S.x, S.z) < 0.7 && S.y < 0.6 && !(q.fb.pickT > 0)) {
+          // (down to scoop it up: his halfway through)
+          L.vx = L.vz = 0;
+          q.fb.pickT = PICK_T;
+          q.fb.onPick = () => {
+            if (!S.loose) return;
+            S.holder = q;
+            S.holdT = 0;
+            S.loose = null;
+            q.fb.sideSpot = this.inRange(q, q === S.a ? S.b.fb.sideSpot : S.a.fb.sideSpot, 32);
+          };
           break;
         }
       }
     }
-    if (!S.flight) S.mesh.rotation.set(0, S.holder ? S.holder.heading : 0, 0);
+    if (!S.flight && !(S.holder && fbBallQuat(S.holder.char, S.mesh.quaternion))) S.mesh.rotation.set(0, S.holder ? S.holder.heading : 0, 0);
     S.mesh.position.set(S.x, S.y, S.z);
   },
 
@@ -998,9 +1009,14 @@ export const FieldModes = {
       const dm = dist(p.x, p.z, b.x, b.z);
       if (dm < dist(px, pz, b.x, b.z) + 1) {
         if (dm < 0.7 && b.y < 0.8) {
-          this.fb.hold(p);
-          C.holdT = 0;
-          this.throwFromHere(p);
+          // (down to scoop it up: his halfway through, then he throws it from right there)
+          this.fb.startPick(p, () => {
+            if (b.mode !== 'loose') return;
+            this.fb.hold(p);
+            C.holdT = 0;
+            this.throwFromHere(p);
+          });
+          return { speed: 0 };
         }
         return { tx: b.x, tz: b.z, speed: 4.5 };
       }
@@ -1089,10 +1105,20 @@ export const FieldModes = {
     game.camYaw = lerpAngle(game.camYaw, face, Math.min(1, dt * 6));
     if ((p.speed || 0) < 0.6 || this.press) p.heading = lerpAngle(p.heading, face, Math.min(1, dt * 10));
     // (a loose ball at your feet: yours)
-    if (b.mode === 'loose' && b.y < 0.8 && dist(px, pz, b.x, b.z) < 0.9) {
-      fb.hold('you');
-      b.holder = 'you';
-      this.t = 0;
+    // (a loose ball at your feet: you stop and scoop it up, yours halfway through)
+    if (b.mode === 'loose' && b.y < 0.8 && dist(px, pz, b.x, b.z) < 0.9 && !(this.pickT > 0)) {
+      this.pickT = PICK_T;
+      b.vx = b.vz = 0;
+      p.heading = Math.atan2(b.x - px, b.z - pz);
+    }
+    if (this.pickT > 0) {
+      const was = this.pickT;
+      this.pickT -= dt;
+      if (was > PICK_T / 2 && this.pickT <= PICK_T / 2 && b.mode === 'loose') {
+        fb.hold('you');
+        b.holder = 'you';
+        this.t = 0;
+      }
     }
     if (b.holder === 'you') this.t = Math.min(this.t, 1); // (no pocket closing in: no extra wobble)
     // He throws it back: at his spot, a beat after he's got it, at you (now and then off to one

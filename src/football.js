@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { lam, setShirt, bendLeg, bendSpine } from './character.js';
-import { qbStance, wrStance, dbStance, holdBall, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt } from './footballpose.js';
+import { qbStance, wrStance, dbStance, holdBall, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
 import { rand, dist, lerpAngle, pick } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
 
@@ -229,7 +229,7 @@ export class Football {
         b.z = p.z + fz * 0.3;
         b.y = 1.15;
       }
-      b.mesh.rotation.set(0, p.heading, 0);
+      if (!fbBallQuat(p.char, b.mesh.quaternion)) b.mesh.rotation.set(0, p.heading, 0); // (tucked: along the forearm)
     }
     b.mesh.position.set(b.x, b.y, b.z);
   }
@@ -366,6 +366,17 @@ export class Football {
     if (tackler && runner && runner.x != null) tackler.heading = Math.atan2(runner.x - tackler.x, runner.z - tackler.z);
   }
 
+  // Start scooping a loose ball up (onPick: when it's in his hands, halfway through).
+  startPick(p, onPick) {
+    const f = p.fb;
+    if (f.pickT > 0) return;
+    f.pickT = PICK_T;
+    f.onPick = onPick;
+    const b = this.ball;
+    b.vx = b.vz = 0;
+    if (b.y < 0.2) b.vy = 0;
+  }
+
   hold(p) {
     const b = this.ball;
     b.mode = 'held';
@@ -436,6 +447,14 @@ export class Football {
     f.relT = Math.max(0, (f.relT || 0) - dt);
     f.beatT = Math.max(0, (f.beatT || 0) - dt);
     f.cheerT = Math.max(0, (f.cheerT || 0) - dt);
+    // Picking the ball up off the grass (pickupPose): stopped over it; his halfway through.
+    if (f.pickT > 0) {
+      const was = f.pickT;
+      f.pickT -= dt;
+      if (was > PICK_T / 2 && f.pickT <= PICK_T / 2) f.onPick?.();
+      if (f.pickT <= 0) f.onPick = null;
+      return { speed: 0 };
+    }
     // Down on the turf (a dive or a tackle): lunging forward a moment, then getting up.
     if (f.downT > 0) {
       f.downT -= dt;
@@ -470,8 +489,13 @@ export class Football {
       for (const q of off) if (!best || dist(q.x, q.z, b.x, b.z) < dist(best.x, best.z, b.x, b.z)) best = q;
       if (best === p) {
         if (dist(p.x, p.z, b.x, b.z) < 0.7 && b.y < 0.8) {
-          this.hold(p);
-          if (this.phase === 'play' || this.phase === 'run') this.phase = 'dead';
+          // (down to scoop it up: it's his halfway through)
+          this.startPick(p, () => {
+            if (b.mode !== 'loose') return;
+            this.hold(p);
+            if (this.phase === 'play' || this.phase === 'run') this.phase = 'dead';
+          });
+          return { speed: 0 };
         }
         return { tx: b.x, tz: b.z, speed: 4.2 };
       }
@@ -624,6 +648,11 @@ export class Football {
         c.neck.rotation.set(-0.25, 0, 0);
       }
       return f.seatY - 0.9;
+    }
+    // (scooping a loose ball up off the grass)
+    if (f.pickT > 0) {
+      c.group.rotation.x = 0;
+      return 0.04 + pickupPose(c, 1 - f.pickT / PICK_T);
     }
     // (playing catch with you: the bench and the pair down the other end, fieldmodes.js)
     const mp = this.match?.posePlayer?.(p, c);

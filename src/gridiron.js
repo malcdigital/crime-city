@@ -3,7 +3,7 @@ import { dist, rand, pick } from './util.js';
 import { setShirt } from './character.js';
 import { FieldModes } from './fieldmodes.js';
 import { CFG } from './config.js';
-import { throwPose, layoutPose, qbStance, holdBall, tuckCarry, jukePose, spinPose, stiffArmPose, fbBallAt } from './footballpose.js';
+import { throwPose, layoutPose, qbStance, holdBall, tuckCarry, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat } from './footballpose.js';
 
 // Quarterback a drive at Harbor Field (football.js runs the passing drill there).
 // - Join: walk onto the field while they're lining up; their quarterback offers you the ball.
@@ -748,7 +748,7 @@ export class Gridiron {
       b.z = pz + fz * 0.15 + fx * 0.3;
       b.y = 1.15;
     }
-    b.mesh.rotation.set(0, p.heading, 0);
+    if (!fbBallQuat(p.char, b.mesh.quaternion)) b.mesh.rotation.set(0, p.heading, 0); // (tucked: along the forearm)
   }
 
   // The play's over: spot it (null: incomplete, back where it was) and count the down.

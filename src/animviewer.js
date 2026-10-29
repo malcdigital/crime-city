@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeCharacter, animateWalk, crouchPose, crouchWalk, restPose, fallPose, lam } from './character.js';
 import { aimPose, lowReady, fightStance, markPunch, punchPose, markFlinch, flinchPose, markRecoil, reloadPose, kneelPose, FIGHT_STYLES, PUNCH_T } from './combatpose.js';
-import { qbStance, wrStance, dbStance, holdBall, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, jukePose, spinPose, stiffArmPose, fbBallAt } from './footballpose.js';
+import { qbStance, wrStance, dbStance, holdBall, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
 import { shotForm, dribbleArm, hesiPush, handoff, dribbleFrom, HO_TOP, SPIN_REL, dribbleArms, pivotPose, fadePose, triplePose, anklePose } from './streetball.js';
 import { dunkPose, dunkPhase } from './dunkpose.js';
 import { markJump, jumpPose } from './blockpose.js';
@@ -73,6 +73,13 @@ function list(game) {
     ['Football', 'Catch: high (a lob)', 1.4, (c) => { catchPose(c, true); return { fball: 'hands' }; }],
     ['Football', 'Catch: at the chest (a bullet)', 1.4, (c) => { catchPose(c, false); return { fball: 'hands' }; }],
     ['Football', 'Running with it (tucked)', 0.8, (c, t) => { animateWalk(c, t * 7.85, 1); tuckCarry(c, 7); return { y: Math.abs(Math.sin(t * 7.85)) * 0.05, fball: 1 }; }],
+    ['Football', 'Picking it up off the grass', 1.4, (c, t) => {
+      // (walking up to it, the scoop, up with it)
+      const k = (t - 0.2) / PICK_T;
+      if (k < 0) { animateWalk(c, t * 5.2, 0.6); return { fwd: -0.5 + t * 2.5, fball: 'ground' }; }
+      if (k < 1) { const y = pickupPose(c, k); return { y, fball: k < 0.5 ? 'ground' : 1 }; }
+      return { y: holdBall(c, 0, true, t), fball: 1 };
+    }],
     ['Football', 'Juke', 1, (c, t) => { animateWalk(c, t * 7.85, 1); if (t > 0.3 && t < 0.58) jukePose(c, 1, (t - 0.3) / 0.28, 6); else tuckCarry(c, 6); return { slide: t > 0.3 ? -Math.min(1, (t - 0.3) / 0.28) * 0.8 : 0, fball: 1 }; }],
     ['Football', 'Spin', 1.2, (c, t) => { animateWalk(c, t * 7.85, 1); const k = Math.max(0, Math.min(1, (t - 0.3) / 0.45)); if (k > 0 && k < 1) spinPose(c, k); else tuckCarry(c, 6); return { turn: -Math.PI * 2 * k * k * (3 - 2 * k), fball: 1 }; }],
     ['Football', 'Stiff-arm', 1.2, (c, t) => { animateWalk(c, t * 7.85, 1); if (t > 0.2 && t < 0.8) stiffArmPose(c, (t - 0.2) / 0.6, 6); else tuckCarry(c, 6); return { fball: 1 }; }],
@@ -424,11 +431,11 @@ export class AnimViewer {
     this.fball.visible = false;
     if (r.fball) {
       c.group.updateMatrixWorld(true);
-      const at = r.fball === 'hands' ? c.group.localToWorld(handsAt(c, _v) && c.group.worldToLocal(_v).add(_v2.set(0, 0, 0.12))) : fbBallAt(c, _v);
+      const at = r.fball === 'ground' ? _v.set(0, 0.12, 0.62) : r.fball === 'hands' ? c.group.localToWorld(handsAt(c, _v) && c.group.worldToLocal(_v).add(_v2.set(0, 0, 0.12))) : fbBallAt(c, _v);
       if (at) {
         this.fball.visible = true;
         this.fball.position.copy(at);
-        this.fball.rotation.set(0, c.group.rotation.y, 0);
+        if (!fbBallQuat(c, this.fball.quaternion)) this.fball.rotation.set(0, c.group.rotation.y, 0); // (tucked: along the forearm)
       }
     }
     // The ball: in the hands, set to shoot, at a spot (character space), or put away.
