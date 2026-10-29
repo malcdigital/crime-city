@@ -80,6 +80,7 @@ const ASSIST_R = 9;
 const DRAG = 0.55;
 const RING_GEO = new THREE.RingGeometry(0.86, 1, 40);
 const DOT_GEO = new THREE.RingGeometry(0.82, 1, 40);
+const SPARK_GEO = new THREE.PlaneGeometry(0.11, 0.035); // (a catch burst's spark, along its way out)
 
 
 export const FieldModes = {
@@ -1385,6 +1386,7 @@ export const FieldModes = {
       this.meterS().prevHeld = { bullet: true, touch: true, lob: true }; // (the catch press isn't a throw)
       C.mine++;
       C.streak++;
+      this.catchBurst(o <= CW_PERF ? 'perfect' : 'good');
       if (o <= CW_PERF) {
         C.perfect = (C.perfect || 0) + 1;
         game.hud.toast(C.streak % 5 === 0 ? `PERFECT CATCH · ${C.streak} in a row` : 'PERFECT CATCH', '#7ee081');
@@ -1393,7 +1395,10 @@ export const FieldModes = {
       C.best = Math.max(C.best, C.streak);
       return;
     }
-    if (o <= CW_BOB) return this.bobble('you');
+    if (o <= CW_BOB) {
+      this.catchBurst('bob');
+      return this.bobble('you');
+    }
     this.catchMiss(off < 0 ? 'Too early: off your hands' : 'Too late');
   },
   // A bobble: it pops up off the hands; 50/50 he hangs on to it when it comes down.
@@ -1419,66 +1424,185 @@ export const FieldModes = {
       b.vy = -1;
     }
     C.streak = 0;
+    this.catchBurst('miss');
     this.game.hud.toast(why, '#ff8080');
   },
-  // The ring closing in on a ball coming to you (facing the camera).
+  // The ring closing in on a ball coming to you (facing the camera): a glowing closing ring with
+  // four marks spinning round it (faster as it closes, brighter while you hold), the target ring
+  // round the ball with its perfect band (green) and good band (yellow) breathing in time, and a
+  // burst when it's settled (catchBurst).
   catchRing(dt) {
     const game = this.game;
     const b = this.fb.ball;
     const C = this.cat;
     if (!this.cring) {
       const g = new THREE.Group();
-      const mk = (geo, op) => {
-        const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: op, side: THREE.DoubleSide, depthTest: false }));
-        m.renderOrder = 20;
+      const mat = (op, add) => new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: op, side: THREE.DoubleSide, depthTest: false, depthWrite: false, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending });
+      const mk = (geo, op, add, order = 20) => {
+        const m = new THREE.Mesh(geo, mat(op, add));
+        m.renderOrder = order;
         g.add(m);
         return m;
       };
-      g.userData.close = mk(RING_GEO, 0.95);
-      g.userData.tgt = mk(DOT_GEO, 0.55);
+      const U = g.userData;
+      U.glow = mk(new THREE.RingGeometry(0.72, 1.18, 48), 0.3, true, 19);
+      U.close = mk(RING_GEO, 0.95);
+      U.ticks = new THREE.Group();
+      for (let i = 0; i < 4; i++) {
+        const t = new THREE.Mesh(new THREE.PlaneGeometry(0.07, 0.2), mat(0.95));
+        t.renderOrder = 21;
+        const a = (i / 4) * Math.PI * 2;
+        t.position.set(Math.cos(a) * 1.2, Math.sin(a) * 1.2, 0); // (just outside the ring)
+        t.rotation.z = a;
+        U.ticks.add(t);
+      }
+      g.add(U.ticks);
+      // (the bands round the ball: where the closing ring has to be when you let go)
+      const R0 = 0.24;
+      const k = 1.1 / CW_RING; // (ring radius per second left)
+      U.good = mk(new THREE.RingGeometry(R0, R0 + CW_GOOD * k, 40), 0.28);
+      U.good.material.color.setHex(0xffd23f);
+      U.perf = mk(new THREE.RingGeometry(R0, R0 + CW_PERF * k, 40), 0.55);
+      U.perf.material.color.setHex(0x3ddc78);
+      U.tgt = mk(DOT_GEO, 0.7);
+      U.tgt.scale.setScalar(R0);
+      U.R0 = R0;
       game.scene.add(g);
       this.cring = g;
+      this.cbursts = [];
     }
     const g = this.cring;
-    const R0 = 0.24; // (the ring round the ball: where the closing one has to meet it)
+    const U = g.userData;
+    const R0 = U.R0;
+    const now = game.time;
     const W = b.mode === 'flight' && b.to === 'you' ? this.catchW() : null;
     let show = false;
     let r = R0;
     let col = 0xffffff;
     let op = 1;
+    let held = false;
     if (W && !W.bob && b.T - b.t < CW_RING) {
       show = true;
       const left = b.T - b.t;
+      held = !!W.held;
       if (W.press != null) {
-        r = R0 + Math.max(0, -W.press) * (1.1 / CW_RING); // (frozen where you pressed)
+        r = R0 + Math.max(0, -W.press) * (1.1 / CW_RING); // (frozen where you let go)
         const o = Math.abs(W.press);
         col = o <= CW_PERF ? 0x3ddc78 : o <= CW_GOOD ? 0xb6f070 : o <= CW_BOB ? 0xffd23f : 0xff5c5c;
       } else {
         r = R0 + left * (1.1 / CW_RING);
-        col = !this.catchUnder() ? 0xff5c5c : left <= CW_PERF ? 0x3ddc78 : left <= CW_GOOD ? 0xb6f070 : 0xffffff;
+        col = !this.catchUnder() ? 0xff5c5c : left <= CW_PERF ? 0x3ddc78 : left <= CW_GOOD ? 0xffd23f : 0xffffff;
       }
+      // (it fades in as it starts closing)
+      op = Math.min(1, (CW_RING - left) / 0.12);
     } else if (C.late && b.mode === 'loose') {
       show = true;
       col = 0xffd23f;
       op = 1 - C.late.t / CW_BOB;
-    } else if (C.cres && game.time - C.cres.at < 0.35 && b.holder === 'you') {
-      // (the flash as you pull it in)
-      show = true;
-      const k = (game.time - C.cres.at) / 0.35;
-      r = R0 + k * 0.5;
-      op = 1 - k;
-      col = C.cres.o <= CW_PERF ? 0x3ddc78 : 0xb6f070;
     }
-    g.visible = show;
-    if (!show) return;
-    g.position.set(b.x, b.y, b.z);
-    g.quaternion.copy(game.camera.quaternion);
-    g.userData.close.scale.setScalar(r);
-    g.userData.close.material.color.setHex(col);
-    g.userData.close.material.opacity = 0.95 * op;
-    g.userData.tgt.scale.setScalar(R0);
-    g.userData.tgt.material.opacity = 0.55 * op;
-    void dt;
+    g.visible = show || this.cbursts.length > 0;
+    if (g.visible) {
+      g.position.set(b.x, b.y, b.z);
+      g.quaternion.copy(game.camera.quaternion);
+    }
+    for (const m of [U.glow, U.close, U.ticks, U.good, U.perf, U.tgt]) m.visible = show;
+    if (show) {
+      const pulse = 0.5 + 0.5 * Math.sin(now * (held ? 14 : 8));
+      U.close.scale.setScalar(r);
+      U.close.material.color.setHex(col);
+      U.close.material.opacity = 0.95 * op;
+      U.glow.scale.setScalar(r);
+      U.glow.material.color.setHex(col);
+      U.glow.material.opacity = (held ? 0.32 + 0.2 * pulse : 0.16 + 0.1 * pulse) * op;
+      // (the marks spin faster the closer it gets)
+      U.ticks.scale.setScalar(r);
+      U.ticks.rotation.z -= dt * (2 + 9 * (1 - Math.min(1, (r - R0) / 1.1)));
+      for (const t of U.ticks.children) {
+        t.material.color.setHex(col);
+        t.material.opacity = 0.9 * op;
+        t.scale.setScalar(1 / Math.max(0.3, r)); // (the same size on screen whatever the ring's size)
+      }
+      // (the target and its bands breathe; brighter as it comes in)
+      const near = 1 - Math.min(1, (r - R0) / 1.1);
+      const br = 1 + 0.06 * pulse * near;
+      for (const m of [U.good, U.perf]) m.scale.setScalar(br);
+      U.tgt.scale.setScalar(R0 * br);
+      U.perf.material.opacity = (0.35 + 0.35 * near) * op;
+      U.good.material.opacity = (0.15 + 0.2 * near) * op;
+      U.tgt.material.opacity = (0.5 + 0.4 * near) * op;
+    }
+    // (the bursts)
+    for (let i = this.cbursts.length - 1; i >= 0; i--) {
+      const B = this.cbursts[i];
+      B.t += dt;
+      const k = B.t / B.life;
+      if (k >= 1) {
+        for (const m of B.meshes) {
+          g.remove(m);
+          m.material.dispose();
+        }
+        this.cbursts.splice(i, 1);
+        continue;
+      }
+      for (const m of B.meshes) m.userData.step(k, B);
+    }
+  },
+  // A burst on the catch ring as it's settled: a perfect catch is the big one (two shockwaves and
+  // a spray of sparks), a catch one ring and a few sparks, a bobble a wobbling yellow ring, a
+  // drop a red ring that shakes and breaks up.
+  catchBurst(kind) {
+    if (!this.cring) return;
+    const g = this.cring;
+    const B = { t: 0, life: kind === 'perfect' ? 0.75 : 0.5, meshes: [] };
+    const col = { perfect: 0x3ddc78, good: 0xb6f070, bob: 0xffd23f, miss: 0xff5c5c }[kind];
+    const mat = (c, op) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: op, side: THREE.DoubleSide, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending });
+    const ring = (c, r0, r1, delay = 0, w = 0.1) => {
+      const m = new THREE.Mesh(RING_GEO, mat(c, 0));
+      m.renderOrder = 22;
+      m.userData.step = (k) => {
+        const kk = Math.max(0, (k - delay) / (1 - delay));
+        const e = 1 - (1 - kk) ** 3;
+        m.scale.setScalar(r0 + (r1 - r0) * e);
+        m.material.opacity = kk > 0 ? (1 - kk) * 0.9 : 0;
+        if (kind === 'miss') m.position.x = Math.sin(kk * 60) * 0.03 * (1 - kk);
+        if (kind === 'bob') m.scale.y *= 1 + Math.sin(kk * 30) * 0.15 * (1 - kk);
+      };
+      void w;
+      g.add(m);
+      B.meshes.push(m);
+    };
+    const sparks = (c, n, dist) => {
+      for (let i = 0; i < n; i++) {
+        const m = new THREE.Mesh(SPARK_GEO, mat(c, 1));
+        m.renderOrder = 23;
+        const a = (i / n) * Math.PI * 2 + Math.random() * 0.4;
+        const d = dist * (0.7 + Math.random() * 0.5);
+        m.rotation.z = a;
+        m.userData.step = (k) => {
+          const e = 1 - (1 - k) ** 2;
+          m.position.set(Math.cos(a) * (0.25 + d * e), Math.sin(a) * (0.25 + d * e) - (kind === 'miss' ? k * k * 0.5 : 0), 0);
+          m.scale.setScalar(1 - k * 0.7);
+          m.material.opacity = 1 - k;
+        };
+        g.add(m);
+        B.meshes.push(m);
+      }
+    };
+    if (kind === 'perfect') {
+      ring(0xffffff, 0.24, 1.3);
+      ring(col, 0.24, 1.0, 0.12);
+      ring(0xffd23f, 0.24, 0.7, 0.25);
+      sparks(0xffe68a, 14, 0.9);
+    } else if (kind === 'good') {
+      ring(col, 0.24, 0.8);
+      sparks(col, 6, 0.5);
+    } else if (kind === 'bob') ring(col, 0.3, 0.75);
+    else {
+      ring(col, 0.35, 0.6);
+      sparks(col, 6, 0.35);
+    }
+    this.cring.visible = true;
+    this.cbursts.push(B);
   },
 
   // A throw gets there (football.js arrived): his catch or yours.
