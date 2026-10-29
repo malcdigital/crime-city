@@ -56,12 +56,14 @@ const CTYPES = {
   lob: { max: 52, T: (L) => 0.8 + L / 15, win: 0.08, err: 0.6, h: 1.5 }, // (high, hangs, the deepest)
 };
 const ROUTES = ['go', 'post', 'out', 'slant', 'curl'];
-// Catching is timed: press ✕ (K / click; CATCH on a phone) as the ball gets to your hands. A ring
-// closes in on the ball over its last CW_RING seconds and meets it right then (green: the
-// perfect zone). Off by up to CW_PERF: a perfect catch; CW_GOOD: caught; CW_BOB: a bobble (it
-// pops up off your hands, 50/50 you hang on); more, or no press: it drops. Not pressed when it
-// gets there, it goes on through your hands and you can still snatch it within CW_BOB. Time
-// slows (CW_SLOW) for the last half second when you're under it.
+// Catching is timed on the release: hold ✕ (K / click; CATCH on a phone) and you run to where
+// it's coming down; let go as the ball gets to your hands. A ring closes in on the ball over its
+// last CW_RING seconds and meets it right then (green: the perfect zone). Off by up to CW_PERF:
+// a perfect catch; CW_GOOD: caught; CW_BOB: a bobble (it pops up off your hands, 50/50 you hang
+// on); more: it drops. Let go way early and you just stop running for it (hold it again). Still
+// holding (or never pressed) when it gets there, it goes on through your hands and you can
+// still snatch it, letting go within CW_BOB. Time slows (CW_SLOW) for the last half second
+// when you're under it.
 const CW_RING = 0.65;
 const CW_PERF = 0.05;
 const CW_GOOD = 0.12;
@@ -673,12 +675,14 @@ export const FieldModes = {
     const inp = this.game.input;
     const R = a.qbR || [];
     if (this.pickT > 0) a.moveX = a.moveY = 0; // (stopped while you scoop it up)
-    // (the catch: ✕ / K / click as the ring meets the ball)
+    // (the catch: hold ✕ / K / click and you run to the spot; let go as the ring meets the ball)
     const pad = inp.mode === 'pad' && !inp.touchMode;
     const cHeld = !!R[1] || !!inp.keys?.has('KeyK') || (!pad && !!fire);
     if (cHeld && !this.cPrev) this.catchPress();
+    if (!cHeld && this.cPrev) this.catchRelease();
     this.cPrev = cHeld;
     this.meterInput(dt, a, fire);
+    this.catchRun(a);
     if (inp.btnHit?.(12) || inp.hit?.('KeyE')) this.callMate(1);
     if (inp.btnHit?.(13) || inp.hit?.('KeyQ')) this.callMate(-1);
     if ((R[4] && !this.prevR[4]) || inp.hit?.('KeyX')) this.sendRoute();
@@ -827,7 +831,7 @@ export const FieldModes = {
     const yd = Math.round(dist(px, pz, C.mate.x, C.mate.z) / YD);
     const keys = inp.touchMode ? 'BULLET · TOUCH · LOB' : kb ? 'J bullet · K touch · L lob' : '□ bullet · ✕ touch · △ lob';
     const calls = inp.touchMode ? 'LONG / CLOSER' : kb ? 'E go long · Q closer' : 'D-pad ↑ go long · ↓ closer';
-    const hint = b.holder === 'you' ? (C.acc ? 'Tap it again on the line!' : `${keys}: hold for power, let go in the green, tap again on the line · ${calls}`) : b.mode === 'flight' && b.to === 'you' ? `Get under it · ${inp.touchMode ? 'CATCH' : kb ? 'K' : '✕'} as the ring closes on the ball` : b.mode === 'loose' ? 'Loose ball: go get it' : `${C.mate.ballName} has it · ${calls}`;
+    const hint = b.holder === 'you' ? (C.acc ? 'Tap it again on the line!' : `${keys}: hold for power, let go in the green, tap again on the line · ${calls}`) : b.mode === 'flight' && b.to === 'you' ? `Hold ${inp.touchMode ? 'CATCH' : kb ? 'K' : '✕'} to run to it · let go as the ring closes on the ball` : b.mode === 'loose' ? 'Loose ball: go get it' : `${C.mate.ballName} has it · ${calls}`;
     game.hud.sport?.(`PLAYING CATCH · ${C.mate.ballName} · ${yd} yds · ${C.streak} in a row (best ${C.best})`, null, hint);
     this.meterHud();
   },
@@ -1314,8 +1318,18 @@ export const FieldModes = {
     const W = b.mode === 'flight' && b.to === 'you' ? this.catchW() : null;
     return !!W && !W.bob && W.press == null && b.T - b.t < 0.5 && this.catchUnder();
   },
-  // You pressed catch.
+  // You pressed catch: holding it runs you to the spot.
   catchPress() {
+    if (this.mode !== 'catch' || !this.cat) return;
+    const b = this.fb.ball;
+    if (this.cat.late) return void (this.cat.late.held = true);
+    if (b.mode !== 'flight' || b.to !== 'you') return;
+    const W = this.catchW();
+    if (!W.bob && W.press == null) W.held = true;
+  },
+  // You let go: that's the catch, timed against the ball getting to your hands (let go way
+  // early and you've just stopped running for it: hold it again).
+  catchRelease() {
     if (this.mode !== 'catch' || !this.cat) return;
     const b = this.fb.ball;
     const C = this.cat;
@@ -1327,9 +1341,34 @@ export const FieldModes = {
     }
     if (b.mode !== 'flight' || b.to !== 'you') return;
     const W = this.catchW();
-    if (W.bob || W.press != null || b.T - b.t > CW_RING + 0.35) return; // (way early: nothing yet)
+    if (!W.held || W.bob || W.press != null) return;
+    W.held = false;
+    if (b.T - b.t > CW_RING + 0.1) return; // (way early: not a catch yet)
     W.press = b.t - b.T; // (negative: early)
     W.at = this.game.time;
+  },
+  // Holding catch: you run for the spot (the stick's yours again once you're on it or let go).
+  catchRun(a) {
+    if (this.mode !== 'catch' || !this.cat || this.pickT > 0) return;
+    const game = this.game;
+    const b = this.fb.ball;
+    const W = b.mode === 'flight' && b.to === 'you' ? this.catchW() : null;
+    if (!W?.held || W.bob) return;
+    const [px, pz] = game.player.pos();
+    const dx = b.p1[0] - px;
+    const dz = b.p1[2] - pz;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.2) {
+      a.moveX = a.moveY = 0;
+      return;
+    }
+    // (the world direction back into the stick, against the camera)
+    const fx = Math.sin(game.camYaw);
+    const fz = Math.cos(game.camYaw);
+    const k = Math.min(1, d / 1.2) / d;
+    a.moveY = (dx * fx + dz * fz) * k;
+    a.moveX = (dx * -fz + dz * fx) * k;
+    a.sprint = d > 2.5;
   },
   // How the catch went (off: seconds from the moment it got to your hands).
   catchResolve(off) {

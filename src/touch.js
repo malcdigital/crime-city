@@ -511,12 +511,15 @@ export class TouchControls {
       this.el.root.dataset.mode = cat ? 'catch' : qbc ? 'qbc' : '';
       b.reload.hint.textContent = meter ? 'bullet' : '';
       b.tri.hint.textContent = meter ? 'lob' : '';
-      const incoming = cat && game.football?.ball?.mode === 'flight' && game.football.ball.to === 'you';
-      if (meter) b.cross.hint.textContent = incoming || M?.cat?.late ? 'catch' : 'touch';
+      // (a ball coming to you: CATCH is the only button)
+      const incoming = cat && ((game.football?.ball?.mode === 'flight' && game.football.ball.to === 'you') || !!M?.cat?.late);
+      if (meter) b.cross.hint.textContent = incoming ? 'catch' : 'touch';
       b.circle.el.classList.toggle('hidden', running || meter);
       b.qr1.el.classList.toggle('hidden', running || meter);
-      b.clong.el.classList.toggle('hidden', !cat);
-      b.cclose.el.classList.toggle('hidden', !cat);
+      b.clong.el.classList.toggle('hidden', !cat || incoming);
+      b.cclose.el.classList.toggle('hidden', !cat || incoming);
+      b.reload.el.classList.toggle('hidden', running || incoming);
+      b.tri.el.classList.toggle('hidden', running || incoming);
       b.tprev.el.classList.toggle('hidden', !qbc);
       b.tnext.el.classList.toggle('hidden', !qbc);
     }

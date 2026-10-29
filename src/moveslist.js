@@ -98,15 +98,15 @@ const CATCH = {
       ['Come closer', 'CLOSER', 'D-pad ↓', 'Q'],
       ['Run a route', '—', 'R1', 'X'],
     ]],
-    ['CATCHING (get under it, press as the ring closes on the ball)', [
-      ['Catch it', 'CATCH', '✕', 'K (or click)'],
+    ['CATCHING (hold: you run to it; let go as the ring closes on the ball)', [
+      ['Run to it, then catch it', 'hold CATCH, let go', 'hold ✕, let go', 'hold K (or click), let go'],
     ]],
     ['THE GAME', [
       ['Stop', 'QUIT, then SURE?', 'hold the touchpad', 'hold M'],
       ['This list', '?', 'Create', 'Tab'],
     ]],
   ],
-  notes: 'Go anywhere on the field: stay within 50 yards of each other (past that, backing off fights you and he comes in). Power: early on the meter falls short, late sails long. Accuracy: time slows to half while you throw; tap again as the needle crosses the notch (that\'s the release): early pulls it to your left, late pushes it right. Both dead on: a PERFECT PASS. Catching: press as the closing ring meets the ball (green: a perfect catch); a bit off and it bobbles (50/50 you hang on), way off and it drops.',
+  notes: 'Go anywhere on the field: stay within 50 yards of each other (past that, backing off fights you and he comes in). Power: early on the meter falls short, late sails long. Accuracy: time slows to half while you throw; tap again as the needle crosses the notch (that\'s the release): early pulls it to your left, late pushes it right. Both dead on: a PERFECT PASS. Catching: hold to run to the spot, let go as the closing ring meets the ball (green: a perfect catch); a bit off and it bobbles (50/50 you hang on), way off and it drops.',
   setting: 'meter',
 };
 
