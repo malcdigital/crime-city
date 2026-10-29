@@ -73,12 +73,13 @@ const QBC = {
       ['Bullet (on a line, quick)', 'BULLET', '□', 'J'],
       ['Touch (over the top, dropped in)', 'TOUCH', '✕', 'K (or click)'],
       ['Lob (high, the deepest)', 'LOB', '△', 'L'],
-      ['Pick the ring / the receiver', '◀ ▶', 'D-pad ◀ ▶', 'Z / X'],
+      ['Pick the ring', '◀ ▶', 'D-pad ◀ ▶', 'Z / X'],
       ['Step up / slide in the pocket', 'the stick', 'left stick', 'WASD'],
     ]],
     ['THE STAGES (40 seconds each)', [
-      ['1 Accuracy: rings downfield', '1 · 2 · 2 · 3 · 5', 'deeper is worth more', 'deeper is worth more'],
-      ['2 Timing: lead the receivers', 'by depth', '1 · 2 · 3 · 5 points', 'in stride: bullseye'],
+      ['Rings worth', '1 · 2 · 2 · 3 · 5', 'deeper is worth more', 'deeper is worth more'],
+      ['1 Accuracy: the rings still', '—', '—', '—'],
+      ['2 Moving: rings sliding', 'smaller green', 'smaller green', 'smaller green'],
       ['3 Pocket: rings with a rush', 'get it out', 'or get sacked', 'sacks end the streak'],
     ]],
     ['THE GAME', [
@@ -86,7 +87,7 @@ const QBC = {
       ['This list', '?', 'Create', 'Tab'],
     ]],
   ],
-  notes: 'Through the middle of a ring (or in stride to a receiver) is a BULLSEYE: double points. Three hits in a row: x2, six: x3 (a miss, a drop or a sack resets it). A gold ring or a gold arrow over a receiver: the MONEY target, double again. Deep balls that are going in get the hit cam (the clock waits). Time slows to half while you throw; both dead on is a PERFECT PASS.',
+  notes: 'Through the middle of a ring is a BULLSEYE: double points. Three hits in a row: x2, six: x3 (a miss or a sack resets it). A gold ring: the MONEY ring, double again. Moving rings: the throw\'s aimed where the ring will be, and the green on the meter is smaller. Deep balls that are going in get the hit cam (the clock waits). Time slows to half while you throw; both dead on is a PERFECT PASS.',
   setting: 'meter',
 };
 const CATCH = {

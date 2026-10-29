@@ -316,7 +316,7 @@ export const FieldModes = {
         const d = T ? dist(px, pz, T.x, T.z) : 10;
         const pw = Math.min(1, P.t / FILL);
         const po = Math.abs(pw - this.needFor(P.kind, d));
-        const W = CTYPES[P.kind].win;
+        const W = this.winFor(P.kind);
         // (the power's own animation the moment you let go: dead on, in the green, or off)
         S.acc = { kind: P.kind, power: pw, n: 0, d, tgt: T, pwFx: po <= W * 0.5 ? 'pw-perfect' : po <= W ? 'pw-ok' : 'miss', key: (S.fxN = (S.fxN || 0) + 1) };
       }
@@ -343,13 +343,14 @@ export const FieldModes = {
     const game = this.game;
     const TY = CTYPES[kind];
     const off = pw - need;
-    const pwr = Math.abs(off) <= TY.win ? '' : off < 0 ? 'SHORT' : 'LONG';
+    const win = this.winFor(kind);
+    const pwr = Math.abs(off) <= win ? '' : off < 0 ? 'SHORT' : 'LONG';
     const aim = tapN == null ? 'NO TAP' : Math.abs(acc) <= PERFECT ? 'PERFECT' : acc < 0 ? 'PULLED' : 'PUSHED';
-    const pwPerfect = Math.abs(off) <= TY.win * 0.5;
+    const pwPerfect = Math.abs(off) <= win * 0.5;
     const perfect = pwPerfect && aim === 'PERFECT';
     const okish = !pwr && aim === 'PERFECT';
     const fx = perfect ? ['pass-perfect'] : [pwPerfect ? 'pw-perfect' : !pwr ? 'pw-ok' : 'miss', aim === 'PERFECT' ? 'acc-perfect' : Math.abs(acc) <= 0.1 ? 'acc-ok' : 'miss'];
-    S.last = { kind, fx, fxKey: (S.fxN = (S.fxN || 0) + 1), v: pw, lo: need - TY.win, hi: need + TY.win, n: null, tap: tapN ?? (acc < 0 ? 0 : 1), label: perfect ? 'PERFECT PASS' : okish ? 'ON THE MONEY' : [pwr, aim === 'PERFECT' ? 'ON LINE' : aim].filter(Boolean).join(' · '), labelClass: perfect || okish ? 'good' : !pwr && Math.abs(acc) <= 0.1 ? 'ok' : 'bad', until: game.time + (perfect ? 1.6 : 1.1) };
+    S.last = { kind, fx, fxKey: (S.fxN = (S.fxN || 0) + 1), v: pw, lo: need - win, hi: need + win, n: null, tap: tapN ?? (acc < 0 ? 0 : 1), label: perfect ? 'PERFECT PASS' : okish ? 'ON THE MONEY' : [pwr, aim === 'PERFECT' ? 'ON LINE' : aim].filter(Boolean).join(' · '), labelClass: perfect || okish ? 'good' : !pwr && Math.abs(acc) <= 0.1 ? 'ok' : 'bad', until: game.time + (perfect ? 1.6 : 1.1) };
     if (perfect) {
       game.shakeCamera?.(0.03, 0.2);
       game.timeScale = 0.3; // (a beat more slow motion as it leaves the hand: it eases back)
@@ -367,7 +368,7 @@ export const FieldModes = {
     const T = this.meterTarget();
     if ((this.press || S.acc) && T) {
       const kind = this.press ? this.press.kind : S.acc.kind;
-      const W = CTYPES[kind].win;
+      const W = this.winFor(kind);
       const need = this.needFor(kind, S.acc ? S.acc.d : dist(px, pz, T.x, T.z));
       st = { style, kind, v: this.press ? Math.min(1, this.press.t / FILL) : S.acc.power, lo: need - W, hi: need + W, n: S.acc ? S.acc.n : null, tap: null, label: S.acc ? 'TAP!' : '', labelClass: 'cue', fx: S.acc ? [S.acc.pwFx] : null, fxKey: S.acc?.key };
     } else if (S.last && game.time < S.last.until) st = { style, ...S.last };
@@ -404,6 +405,12 @@ export const FieldModes = {
     if ((R[4] && !this.prevR[4]) || inp.hit?.('KeyX')) this.sendRoute();
     this.prevR = R.slice();
     this.prevFire = fire;
+  },
+
+  // The green on the power meter either side of what's needed (the QB Challenge's moving stage
+  // narrows it: qbchallenge.js).
+  winFor(kind) {
+    return CTYPES[kind].win * (this.mode === 'qbc' ? this.qbcWinK() : 1);
   },
 
   // The power a throw of d meters needs (0..1 on the meter).
