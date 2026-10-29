@@ -2441,7 +2441,8 @@ class Game {
       a.nextWeapon = a.prevWeapon = false;
       a.interactHeld = a.interactKey; // the D-pad is for the phone right now
       a.sprint = a.melee = a.reload = a.dealYes = a.dealNo = a.stripHeld = false;
-    } else if (a.phone) this.phone.show();
+    } else if (a.phone && !this.pickupGame()) this.phone.show(); // (not in a pickup game: ◀ ▶ are the game's there)
+    if (this.pickupGame() && this.phone.isOpen) this.phone.close(); // (a game started with it open: put away)
     if (this.clipPlayer.open && a.closeClip) this.clipPlayer.close();
     // In a pickup game the sticks are for playing: no crouching (L3) or test car (R3).
     if (this.pickupGame()) {
