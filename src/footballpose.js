@@ -203,6 +203,20 @@ export function catchPose(c, high) {
   reachArm(c, 'L', _a.set(0.08, y, z), _b.set(1, -0.4, -0.2), _c.set(0, 1, high ? 0.15 : 0.6), _d.set(0, 0, 1), 'group');
 }
 
+// Reaching back for a ball thrown behind him, still running: twisted toward it (side +1: his
+// left, -1: his right), the near hand back and up behind the shoulder, the other across for it,
+// head turned back after it.
+export function reachBackPose(c, side) {
+  bendSpine(c, 0.1, 1.0 * side, 0.12 * side);
+  c.neck.rotation.set(-0.3, 0.9 * side, 0);
+  const near = side > 0 ? 'L' : 'R';
+  const far = side > 0 ? 'R' : 'L';
+  // (the near hand out and back behind the shoulder, palm toward the ball; the far one across
+  // the chest after it)
+  reachArm(c, near, _a.set(0.55 * side, 1.5, -0.55), _b.set(side, -0.6, 0.3), _c.set(0.4 * side, 0.3, -1), _d.set(0, 1, 0), 'group');
+  reachArm(c, far, _a.set(0.32 * side, 1.38, -0.12), _b.set(-side, -0.6, 0.4), _c.set(0.5 * side, 0.2, -0.8), _d.set(0, 1, 0), 'group');
+}
+
 // Laid out (a diving catch) or going down in a tackle: k 0..1 tipped forward onto the stomach.
 // A dive stretches out, arms ahead, the back arched and the head up after the ball; a tackle
 // curls round the ball. Returns the height change.

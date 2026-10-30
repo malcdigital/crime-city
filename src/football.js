@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { lam, setShirt, bendLeg, bendSpine } from './character.js';
-import { qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
+import { reachBackPose, qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
 import { rand, dist, lerpAngle, pick } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
 
@@ -509,24 +509,68 @@ export class Football {
       const [lx, lz] = [b.p1[0], b.p1[2]];
       const left = Math.max(0.02, b.T - b.t);
       const sat = !f.route || f.leg >= f.route.length;
-      const P = sat ? [p.x, p.z] : routeAt(p, RUN * left);
-      const onRoute = !sat && dist(P[0], P[1], lx, lz) < 2.2;
+      // (he reads it a beat after it's out, like a receiver does: running his route till then;
+      // then he decides once, on his line or not, and sticks to it)
+      if (f.adjFor !== b.p1) {
+        f.adjFor = b.p1;
+        f.adjMode = null;
+        f.adjV = p.speed || 0;
+      }
+      if (!f.adjMode && (sat || b.t >= Math.min(0.6, 0.35 * b.T))) {
+        const P = sat ? [p.x, p.z] : routeAt(p, RUN * left);
+        f.adjMode = !sat && dist(P[0], P[1], lx, lz) < 1.2 ? 'route' : 'adjust';
+      }
+      const onRoute = !sat && f.adjMode !== 'adjust';
       if (onRoute && left > 0.3) {
         let pt = f.route[f.leg];
         if (dist(p.x, p.z, pt[0], pt[1]) < 0.6) f.leg++;
         pt = f.route[f.leg] || pt;
+        f.adjV = RUN;
+        f.reachBack = 0;
         return { tx: pt[0], tz: pt[1], speed: RUN };
       }
+      // Off his line he adjusts the way a receiver does, his speed changing as a body's does
+      // (no instant stops or turns): overthrown, he kicks it up and runs under it; underthrown,
+      // he throttles down, plants and comes back for it; thrown just behind him with no time to
+      // turn, he slows and reaches back for it.
       const d = dist(p.x, p.z, lx, lz);
-      if (d < 0.35) {
-        // (a hair early, still running: on through the catch; well early on a throw off his
-        // route: wait on it)
-        if (left < 0.25 && !sat && (p.speed || 0) > 2) return { tx: p.x + Math.sin(p.heading) * 2, tz: p.z + Math.cos(p.heading) * 2, speed: p.speed };
+      const fx = Math.sin(p.heading);
+      const fz = Math.cos(p.heading);
+      const ahead = (lx - p.x) * fx + (lz - p.z) * fz; // (+: in front of him)
+      const sideX = (lx - p.x) * Math.cos(p.heading) - (lz - p.z) * Math.sin(p.heading); // (his own left +, right -)
+      const cur = f.adjV ?? (p.speed || 0);
+      let want;
+      let tx = lx;
+      let tz = lz;
+      f.reachBack = 0;
+      if (ahead < -0.4 && ahead > -3 && left < 0.8 && cur > 2) {
+        // (just behind him, no time to turn: ease off on his line and reach back for it)
+        want = 1.6;
+        tx = p.x + fx * 2;
+        tz = p.z + fz * 2;
+        f.reachBack = sideX >= 0 ? 1 : -1;
+      } else if (ahead < -0.4 && cur > 2.2) {
+        // (underthrown, well back: throttle down and plant before coming back to it)
+        want = 0;
+        tx = p.x + fx * 2;
+        tz = p.z + fz * 2;
+      } else if (d < 0.35) {
+        // (there: on through it if he's running and it's on him now; early, he waits on it)
+        if (left < 0.25 && !sat && cur > 2) {
+          want = cur;
+          tx = p.x + fx * 2;
+          tz = p.z + fz * 2;
+        } else want = 0;
+      } else want = onRoute ? Math.max(RUN * 0.9, Math.min(RUN * 1.3, d / left)) : Math.max(1.5, Math.min(RUN * 1.3, d / left));
+      // (it's getting to him behind his body while he's still going: he reaches back for it)
+      if (left < 0.6 && ahead < -0.2 && cur > 1.5) f.reachBack = sideX >= 0 ? 1 : -1;
+      const acc = want < cur ? 11 : 8; // (m/s² slowing, speeding up)
+      f.adjV = Math.max(0, cur + Math.max(-acc * dt, Math.min(acc * dt, want - cur)));
+      if (f.adjV < 0.15 && want === 0) {
         faceAt(b.x, b.z);
         return { speed: 0 };
       }
-      const speed = onRoute ? Math.max(RUN * 0.9, Math.min(RUN * 1.3, d / left)) : Math.max(1.5, Math.min(RUN * 1.2, d / left));
-      return { tx: lx, tz: lz, speed };
+      return { tx, tz, speed: Math.max(0.2, f.adjV) };
     }
     if (b.mode === 'flight' && b.to === p) {
       const [tx, tz] = [b.p1[0], b.p1[2]];
@@ -724,7 +768,8 @@ export class Football {
       } else if (f.relT > 0) {
         throwPose(c, 1, 1 - f.relT / 0.4); // (the throw and the follow-through)
       } else if (b.mode === 'flight' && b.to === p && b.T - b.t < 0.6) {
-        if (b.kind === 'pass') catchPose(c, b.style === 'lob' || b.p1[1] > 1.5);
+        if (b.kind === 'pass' && f.reachBack) reachBackPose(c, f.reachBack); // (thrown behind him: twisting back for it)
+        else if (b.kind === 'pass') catchPose(c, b.style === 'lob' || b.p1[1] > 1.5);
         else catchPose(c, false); // (a toss or a handoff: hands out at the chest)
       } else if ((f.role === 'db' || f.role === 'lb') && (this.phase === 'play' || this.match?.mode === 'drive') && b.mode === 'flight' && b.kind === 'pass') {
         reachBall(c); // (going up for it)

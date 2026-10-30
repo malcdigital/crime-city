@@ -476,7 +476,7 @@ export const DriveReads = {
     const D = this.dr;
     const w = b.to;
     const here = w && fb.players.includes(w);
-    const dW = here ? dist(w.x, w.z, b.x, b.z) : 99;
+    let dW = here ? dist(w.x, w.z, b.x, b.z) : 99;
     const db = fb.dbs.find((q) => q.fb.mark === w);
     const dD = db ? dist(db.x, db.z, b.x, b.z) : 99;
     const L = D.lock;
@@ -506,6 +506,7 @@ export const DriveReads = {
       }
       return fail(dW < 2.6 ? `Incomplete. ${why}` : 'Incomplete');
     }
+    if (w?.fb?.reachBack) dW = Math.max(0, dW - 0.5); // (reaching back: a longer grab, an arm's length behind him)
     const dove = dW >= 0.95 && dW < 2.6 && fb.diveFor(w, b.x, b.z);
     const pr = dW < 1.0 ? 0.97 : dW < 1.8 ? 0.82 : dW < 2.6 ? 0.5 : 0;
     if (Math.random() < (D.perfect && dW < 2.6 ? 1 : pr)) return this.drCaught(w, dove, dove ? 'DIVING CATCH!' : D.perfect ? 'Dropped in the bucket!' : 'Caught!');
@@ -630,7 +631,7 @@ export const DriveReads = {
     for (const q of [...fb.wrs.slice(0, 3), ...fb.dbs.slice(0, 3)]) {
       [q.x, q.z] = q.fb.home;
       q.heading = q.fb.role === 'db' ? 0 : Math.PI;
-      Object.assign(q.fb, { route: null, runTo: null, downT: 0, pickT: 0, dive: false, beatT: 0, relT: 0, throwT: 0, hurry: false, huddle: null });
+      Object.assign(q.fb, { adjV: null, reachBack: 0, route: null, runTo: null, downT: 0, pickT: 0, dive: false, beatT: 0, relT: 0, throwT: 0, hurry: false, huddle: null });
     }
     fb.phase = 'set';
     fb.t = 0;
