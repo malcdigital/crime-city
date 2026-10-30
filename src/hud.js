@@ -5,6 +5,7 @@ import { drawHeli, drawSearchlight } from './heliicon.js';
 import { CFG, CRED_TIERS } from './config.js';
 import { GANGS } from './turf.js';
 import { WAR_LEVELS } from './market.js';
+import { setRich, iconize } from './icons.js';
 
 const esc = (t) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
 
@@ -53,7 +54,7 @@ export class Hud {
   set(id, value) {
     if (this.last[id] === value) return;
     this.last[id] = value;
-    $(id).textContent = value;
+    setRich($(id), value); // (arrows as our own icons: icons.js)
   }
 
   update(game, dt) {
@@ -204,7 +205,7 @@ export class Hud {
       sw.style.width = `${((M.hi - M.lo) * 100).toFixed(1)}%`;
       f.classList.toggle('good', M.v >= M.lo && M.v <= M.hi);
     }
-    el.querySelector('.sh').textContent = hint || '';
+    setRich(el.querySelector('.sh'), hint || '');
     const e = el.querySelector('.se');
     e.classList.toggle('hidden', energy == null);
     if (energy != null) {
@@ -265,7 +266,7 @@ export class Hud {
 
   toast(text, color = '#8ff08f') {
     const el = $('toast');
-    el.textContent = text;
+    setRich(el, text);
     el.style.color = color;
     el.classList.add('show');
     this.toastT = 2.2;
@@ -330,7 +331,7 @@ export class Hud {
     btn.textContent = '● Recording footage…';
     item.appendChild(btn);
     clip.onReady = () => {
-      btn.textContent = '▶ Watch helicopter footage';
+      btn.innerHTML = iconize('▶ Watch helicopter footage');
       item.classList.add('ready');
     };
     item.addEventListener('click', play);

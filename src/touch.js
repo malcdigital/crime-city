@@ -1,3 +1,4 @@
+import { dirIcon } from './icons.js';
 // Touch controls for phones and tablets. They work like a virtual PS5 controller: every button
 // here presses the same controller button the game already understands (input.js), so all the
 // prompts, menus and the phone work the same as with a real controller.
@@ -116,6 +117,9 @@ const ICONS = {
   map: svg('<path d="M3 6.5l5.5-2 7 2 5.5-2v13l-5.5 2-7-2-5.5 2z"/><path d="M8.5 4.5v13M15.5 6.5v13"/>'),
   phone: svg('<rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/>'),
   spawn: svg('<path d="M2.5 15.5v-3l2.5-1 2.5-4h8l3 4 3 1v3h-2"/><path d="M7.5 15.5h8"/><circle cx="6" cy="16" r="2"/><circle cx="17.5" cy="16" r="2"/>'),
+  // (our own arrows, not the ◀ ▶ characters: an iPhone draws those as emoji; icons.js)
+  dleft: dirIcon('left', 20), dright: dirIcon('right', 20), tprev: dirIcon('left', 22), tnext: dirIcon('right', 22),
+  up: dirIcon('up', 18), down: dirIcon('down', 18), left: dirIcon('left', 18), right: dirIcon('right', 18),
 };
 // The GUN button shows what's in your hands.
 const WEAPON_ICONS = {

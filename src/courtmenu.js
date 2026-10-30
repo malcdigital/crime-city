@@ -1,3 +1,4 @@
+import { iconizeHTML } from './icons.js';
 // The "what we playing?" menu at a court (or a field): who's run it is, your cash, the games
 // to choose from, the house rules (the wager, how long), START, or watch from the side.
 //
@@ -164,7 +165,7 @@ export class CourtMenu {
       <div class="cm-rules">${rules}</div>
       <div class="cm-start${this.focus === startRow ? ' focus' : ''}" data-row="${startRow}">${o.start(s)}</div>
       <div class="cm-watch${this.focus === watchRow ? ' focus' : ''}" data-row="${watchRow}">${o.watch || 'Watch courtside'}</div>
-      <div class="cm-help">${help}</div>
+      <div class="cm-help">${iconizeHTML(help)}</div>
     </div>`;
     void rows;
     if (html !== this.html) {

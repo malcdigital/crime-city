@@ -118,6 +118,7 @@ const CATCH = {
 };
 
 import { ThrowMeter, METER_STYLES } from './throwmeter.js';
+import { iconizeHTML } from './icons.js';
 
 export class MovesList {
   constructor(game) {
@@ -159,7 +160,7 @@ export class MovesList {
     }
     const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
     const rows = L.sections
-      .map(([h, list]) => `<div class="mv-h">${esc(h)}</div>${list.filter((r) => r[col] !== '—').map((r) => `<div class="mv-r"><span>${esc(r[0])}</span><b>${esc(r[col])}</b></div>`).join('')}`)
+      .map(([h, list]) => `<div class="mv-h">${esc(h)}</div>${list.filter((r) => r[col] !== '—').map((r) => `<div class="mv-r"><span>${esc(r[0])}</span><b>${iconizeHTML(esc(r[col]))}</b></div>`).join('')}`)
       .join('');
     const close = col === 1 ? 'tap ? or outside to close' : col === 2 ? 'Create or ○ to close' : 'Tab or Esc to close';
     let set = '';
@@ -168,7 +169,7 @@ export class MovesList {
       const how2 = col === 1 ? 'tap to change' : col === 2 ? '◀ ▶ to change' : '← → or H to change';
       set = `<div class="mv-set">${`<div class="tm-preview">${ThrowMeter.preview(st)}</div>`}<span>Throw meter<small>${how2}</small></span><b>‹ ${METER_STYLES[st]} ›</b></div>`;
     }
-    this.el.innerHTML = `<div class="mv-card"><div class="mv-top"><span>${L.title} · MOVES</span><em>${how}</em><button class="mv-x" aria-label="close">✕</button></div>${set}<div class="mv-list">${rows}</div>${L.notes ? `<div class="mv-note">${esc(L.notes)}</div>` : ''}<div class="mv-foot">${close} · the game's paused</div></div>`;
+    this.el.innerHTML = `<div class="mv-card"><div class="mv-top"><span>${L.title} · MOVES</span><em>${iconizeHTML(how)}</em><button class="mv-x" aria-label="close">✕</button></div>${iconizeHTML(set)}<div class="mv-list">${rows}</div>${L.notes ? `<div class="mv-note">${iconizeHTML(esc(L.notes))}</div>` : ''}<div class="mv-foot">${close} · the game's paused</div></div>`;
     this.el.classList.remove('hidden');
     this.open = true;
     document.body.classList.add('moves-open');

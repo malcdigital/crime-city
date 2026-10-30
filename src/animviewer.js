@@ -9,6 +9,7 @@ import { readyPose, boxOutPose, markGrab, grabPose } from './reboundpose.js';
 import { markReach, reachPose } from './reachpose.js';
 import { markPass, markCatch, passPose, handsAt, holdPose, palmBall, twoHandBall } from './passpose.js';
 import { ballMesh } from './court.js';
+import { dirIcon, setRich } from './icons.js';
 
 // The animation viewer: every pose and move in the game, one at a time, on a character in an
 // empty little set (the game's paused under it). Open it from the pause menu (or V / □ while
@@ -269,7 +270,7 @@ export class AnimViewer {
     const el = (this.el = document.createElement('div'));
     el.id = 'animview';
     el.innerHTML = `<div class="av-top"><b>ANIMATIONS</b><span class="av-n"></span><button class="av-x" aria-label="close">✕</button></div>
-      <div class="av-bar"><button class="av-prev" aria-label="previous">◀</button><div class="av-name"><small></small><span></span></div><button class="av-next" aria-label="next">▶</button></div>
+      <div class="av-bar"><button class="av-prev" aria-label="previous">${dirIcon('left')}</button><div class="av-name"><small></small><span></span></div><button class="av-next" aria-label="next">${dirIcon('right')}</button></div>
       <div class="av-tools"><button class="av-play">❚❚ PAUSE</button><button class="av-slow">½ SLOW</button><button class="av-body">♂ MAN</button></div>
       <div class="av-hint"></div>`;
     document.body.appendChild(el);
@@ -359,14 +360,14 @@ export class AnimViewer {
     this.el.querySelector('.av-n').textContent = `${i + 1} / ${this.list.length}`;
     const g = this.game;
     const how = g.input.touchMode ? 'swipe or ◀ ▶ · drag to turn it round' : g.input.mode === 'pad' ? 'D-pad ◀ ▶ · ✕ pause · □ slow · △ man / woman · right stick turns it · ○ close' : '← → · Space pause · S slow · B man / woman · drag to turn it round · Esc close';
-    this.el.querySelector('.av-hint').textContent = how;
+    setRich(this.el.querySelector('.av-hint'), how);
     const u = this.c.group.userData;
     for (const k of Object.keys(u)) delete u[k];
   }
 
   togglePlay() {
     this.playing = !this.playing;
-    this.el.querySelector('.av-play').textContent = this.playing ? '❚❚ PAUSE' : '▶ PLAY';
+    this.el.querySelector('.av-play').innerHTML = this.playing ? '❚❚ PAUSE' : `${dirIcon('right')} PLAY`;
   }
 
   toggleSlow() {

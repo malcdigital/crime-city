@@ -1143,3 +1143,7 @@ body.touch #board3pt.qbc .c3-st span { font-size: 6.5px; letter-spacing: .8px; }
 body.touch #board3pt.qbc .c3-st b { font-size: 12px; }
 /* (the contest board's up: the sport board's title would only repeat it; its hint stays) */
 body.board3pt-on #sport .sb { display: none; }
+
+/* Our own direction icons (icons.js): in the text's color, sat on its baseline like a letter. */
+.dir-ic { display: inline-block; vertical-align: -0.12em; flex: none; }
+#touch .tb .dir-ic { vertical-align: middle; }

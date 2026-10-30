@@ -4,6 +4,7 @@ import { crouchPose, setShirt } from './character.js';
 import { pushCircle } from './collision.js';
 import { GANGS, Soldier } from './turf.js';
 import { CFG } from './config.js';
+import { iconizeHTML } from './icons.js';
 
 // Street dice around the city: a few people crouched in a circle on a corner, money down, dice
 // against the curb. Mostly in gang turf (and more at night), now and then on a neutral corner.
@@ -929,7 +930,7 @@ export class DiceManager {
       <div class="dp-head"><span class="dp-t">${V.head}</span>${V.pot != null ? `<span class="dp-pot">POT $${V.pot}</span>` : ''}</div>
       <div class="dp-rows">${rows}</div>
       <div class="dp-lines">${V.lines.map(() => '<div class="dp-line"></div>').join('')}</div>
-      <div class="dp-foot"><span class="dp-net ${V.net >= 0 ? 'up' : 'down'}">${V.net >= 0 ? '+' : '-'}$${Math.abs(V.net)}</span><span class="dp-hint">${hint}</span></div>
+      <div class="dp-foot"><span class="dp-net ${V.net >= 0 ? 'up' : 'down'}">${V.net >= 0 ? '+' : '-'}$${Math.abs(V.net)}</span><span class="dp-hint">${iconizeHTML(hint)}</span></div>
     </div>`;
     const key = html + JSON.stringify(V.rows) + V.lines.join('|');
     if (this.lastKey !== key) {

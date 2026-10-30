@@ -11,6 +11,7 @@ import { districtAt, streetAt } from './city.js';
 import { clamp, dist } from './util.js';
 import { tierOf } from './claim.js';
 import { gpsRoute, routeLength } from './gps.js';
+import { setRich } from './icons.js';
 
 // Full-screen city map (touchpad / M). The game pauses while it's open.
 // Left stick / WASD / mouse drag pans the cursor, R2 / L2 / wheel zoom, ✕ / click sets or
@@ -191,16 +192,16 @@ export class MapView {
   setHelp() {
     const pad = this.game.input.mode === 'pad';
     if (this.picker) {
-      this.el.querySelector('.bm-help').textContent = pad
+      setRich(this.el.querySelector('.bm-help'), pad
         ? 'Pick a bus stop · Left stick: move · D-pad ↑↓: next stop · ✕: ride there · ○: cancel'
         : this.game.input.touchMode ? 'Pick a bus stop · Tap a stop to ride there · ▲▼: next stop · Drag: move · Pinch: zoom · ○: cancel'
-          : 'Pick a bus stop · Click a stop to ride there · ↑↓: next stop · Drag / WASD: move · Wheel: zoom · Esc: cancel';
+          : 'Pick a bus stop · Click a stop to ride there · ↑↓: next stop · Drag / WASD: move · Wheel: zoom · Esc: cancel');
       return;
     }
     const heat = this.heat ? `${this.heat} prices` : 'prices';
-    this.el.querySelector('.bm-help').textContent = pad
+    setRich(this.el.querySelector('.bm-help'), pad
       ? `Left stick: move · D-pad ↑↓: go to a place · △: ${this.legendOpen ? 'hide' : 'show'} legend · □: ${heat} · R2 / L2: zoom · ✕: waypoint · ○: close`
-      : `WASD / drag: move · ↑↓ / legend: go to a place · L: ${this.legendOpen ? 'hide' : 'show'} legend · H: ${heat} · Wheel: zoom · Enter / click: waypoint · M / Esc: close`;
+      : `WASD / drag: move · ↑↓ / legend: go to a place · L: ${this.legendOpen ? 'hide' : 'show'} legend · H: ${heat} · Wheel: zoom · Enter / click: waypoint · M / Esc: close`);
   }
 
   hide() {

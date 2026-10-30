@@ -1,3 +1,4 @@
+import { iconizeHTML } from './icons.js';
 import { CRED_TIERS } from './config.js';
 import { tierOf } from './claim.js';
 import { GANGS } from './turf.js';
@@ -275,7 +276,7 @@ export class Phone {
     if (this.app === 'messages') game.hud.unreadTexts = 0;
     const rows = this.rows();
     this.rowSel = Math.min(this.rowSel, Math.max(0, rows.length - 1));
-    body.innerHTML = rows.map((r, i) => `<div class="ph-row${i === this.rowSel ? ' sel' : ''}${r.off ? ' off' : ''}${r.head ? ' head' : ''}" data-i="${i}"><span>${esc(r.label)}</span><b>${esc(r.right || '')}</b></div>`).join('');
+    body.innerHTML = rows.map((r, i) => `<div class="ph-row${i === this.rowSel ? ' sel' : ''}${r.off ? ' off' : ''}${r.head ? ' head' : ''}" data-i="${i}"><span>${iconizeHTML(esc(r.label))}</span><b>${esc(r.right || '')}</b></div>`).join('');
     detail.textContent = rows[this.rowSel] ? rows[this.rowSel].detail || '' : '';
     body.querySelector('.ph-row.sel')?.scrollIntoView({ block: 'nearest' });
   }

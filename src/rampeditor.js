@@ -14,6 +14,7 @@
 //   interchange. COPY gives the edits as text (send them over to make them permanent).
 import { EDITS, EDIT_KEY, HALVES, RAMPS, RAMP_HW, editPts, handlesOf, lockEnd, splinePts } from './fwyplan.js';
 import { closestOnSeg } from './geom.js';
+import { dirIcon } from './icons.js';
 
 const KINDS = [
   ['off', '#ff5a4f', 'exit'],
@@ -45,7 +46,7 @@ export class RampEditor {
     el.innerHTML = `
       <canvas></canvas>
       <div class="re-bar">
-        <button data-a="prev">◀</button><div class="re-name"></div><button data-a="next">▶</button>
+        <button data-a="prev">${dirIcon('left')}</button><div class="re-name"></div><button data-a="next">${dirIcon('right')}</button>
         <button data-a="scope" class="re-scope"></button>
       </div>
       <div class="re-tools">
