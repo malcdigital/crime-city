@@ -32,6 +32,7 @@ const LEASH = 50 * YD;
 const FILL = 0.6; // (game seconds to a full meter: about 1.2 s with time slowed to half)
 const ACC_T = 0.45; // (game seconds for the accuracy needle: about 0.9 s slowed; the perfect tap's halfway)
 const SLOW = 0.5; // (time while you hold and tap)
+const SHORT_WIN = 2; // (the green on the shortest throws: this many times as wide)
 const HITCAM_SLOW = 0.65; // (the QB Challenge's hit cam following a deep ball)
 export const CTYPES = {
   bullet: { max: 40, T: (L) => 0.25 + L / 26, win: 0.05, err: 0.35, h: 1.3 }, // (on a line: quick, the least forgiving)
@@ -315,8 +316,9 @@ export const FieldModes = {
         const [px, pz] = game.player.pos();
         const d = T ? dist(px, pz, T.x, T.z) : 10;
         const pw = Math.min(1, P.t / FILL);
-        const po = Math.abs(pw - this.needFor(P.kind, d));
-        const W = this.winFor(P.kind);
+        const need = this.needFor(P.kind, d);
+        const po = Math.abs(pw - need);
+        const W = this.winFor(P.kind, need);
         // (the power's own animation the moment you let go: dead on, in the green, or off)
         S.acc = { kind: P.kind, power: pw, n: 0, d, tgt: T, pwFx: po <= W * 0.5 ? 'pw-perfect' : po <= W ? 'pw-ok' : 'miss', key: (S.fxN = (S.fxN || 0) + 1) };
       }
@@ -343,7 +345,7 @@ export const FieldModes = {
     const game = this.game;
     const TY = CTYPES[kind];
     const off = pw - need;
-    const win = this.winFor(kind);
+    const win = this.winFor(kind, need);
     const pwr = Math.abs(off) <= win ? '' : off < 0 ? 'SHORT' : 'LONG';
     const aim = tapN == null ? 'NO TAP' : Math.abs(acc) <= PERFECT ? 'PERFECT' : acc < 0 ? 'PULLED' : 'PUSHED';
     const pwPerfect = Math.abs(off) <= win * 0.5;
@@ -368,8 +370,8 @@ export const FieldModes = {
     const T = this.meterTarget();
     if ((this.press || S.acc) && T) {
       const kind = this.press ? this.press.kind : S.acc.kind;
-      const W = this.winFor(kind);
       const need = this.needFor(kind, S.acc ? S.acc.d : dist(px, pz, T.x, T.z));
+      const W = this.winFor(kind, need);
       st = { style, kind, v: this.press ? Math.min(1, this.press.t / FILL) : S.acc.power, lo: need - W, hi: need + W, n: S.acc ? S.acc.n : null, tap: null, label: S.acc ? 'TAP!' : '', labelClass: 'cue', fx: S.acc ? [S.acc.pwFx] : null, fxKey: S.acc?.key };
     } else if (S.last && game.time < S.last.until) st = { style, ...S.last };
     game.hud.sportFloat?.(null);
@@ -407,10 +409,12 @@ export const FieldModes = {
     this.prevFire = fire;
   },
 
-  // The green on the power meter either side of what's needed (the QB Challenge's moving stage
-  // narrows it: qbchallenge.js).
-  winFor(kind) {
-    return CTYPES[kind].win * (this.mode === 'qbc' ? this.qbcWinK() : 1);
+  // The green on the power meter either side of what's needed (need: that power). Wider for a
+  // short throw (up to SHORT_WIN times, at the shortest), where you'd have to let go almost as
+  // soon as you'd pressed; the QB Challenge's moving stage narrows it (qbchallenge.js).
+  winFor(kind, need = 0.5) {
+    const short = Math.max(0, Math.min(1, (0.5 - need) / 0.35));
+    return CTYPES[kind].win * (1 + (SHORT_WIN - 1) * short) * (this.mode === 'qbc' ? this.qbcWinK() : 1);
   },
 
   // The power a throw of d meters needs (0..1 on the meter).

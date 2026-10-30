@@ -17,8 +17,8 @@ import { Scoreboard } from './scoreboard.js';
 //   MOVING    each ring comes up near one sideline and heads across for the other (MOVE_SPEED, no
 //             turning back; the throw's aimed where the ring will be), and the green on the power
 //             meter narrower (MOVE_WIN of its width).
-//   PRESSURE  rushers line up downfield; one at a time they step up and come at you from 9 m off,
-//             fast, from one side or the other (the last one jogs to the back of the line). When he's close
+//   PRESSURE  one rusher at a time appears on a mark 6 m in front of you (a puff of dust) and comes
+//             at you fast, from one side or the other (the last one's gone the same way). When he's close
 //             (JUKE! comes up), juke the other way, away from him (◀ ▶: D-pad, Z / X, the JUKE
 //             buttons on a phone): too early and he reads it, the wrong way or not at all and
 //             you're sacked. Beat him and he dives past (+1), and a moving ring pops up: hit it.
@@ -50,9 +50,9 @@ const BULL = 0.25; // (through the middle of a ring: a bullseye)
 const SHOT_T = 6; // (seconds to get the throw off once a target's up)
 const POP_T = 0.45; // (a target rising out of the grass)
 const MOVE_WIN = 0.6; // (MOVING: the green window on the power meter, this much of its usual width)
-const DEF_START = 9; // (the rusher's mark, meters in front of the spot; the next ones lined up behind him)
+const DEF_START = 6; // (the rusher's mark, meters in front of the spot: each one appears there)
 const DEF_SPEED = 6.4; // (flying in: about a second and a quarter to get to you)
-const DEF_SET = 0.55; // (set on his mark before he comes)
+const DEF_SET = 0.7; // (set on his mark a moment after he appears, before he comes)
 const JUKE_D = 3.3; // (he's this close: juke now)
 const MOVE_SPEED = 4.5; // (a moving ring's pace across the field: the same for everyone)
 const SACK_R = 0.85;
@@ -244,23 +244,49 @@ export const QBChallenge = {
         q.fb.qbcRole = 'rush';
         q.fb.side = null;
       }
-      this.qbcLine(0);
+      for (const q of Q.defs) q.fb.qbcRole = null; // (they come on one at a time: qbcSpawn)
+      this.toSideline(sz - 4);
     }
     this.qbcPlace();
   },
 
-  // The rushers' line: rush r's man on the mark, the rest lined up behind him downfield in the
-  // order they'll come (the one who just went at the back).
-  qbcLine(r) {
+  // The next rusher appears on the mark (a puff of dust where he lands), and the last one's gone
+  // the same way, back to the sideline.
+  qbcSpawn(r) {
     const Q = this.qbc;
     const n = Q.defs.length;
     if (!n) return;
     const [sx, sz] = Q.spot;
-    Q.def = Q.defs[r % n];
-    for (let k = 0; k < n; k++) {
-      const q = Q.defs[(r + k) % n];
-      q.fb.mark = [sx + (k ? (k % 2 ? 0.9 : -0.9) : 0), sz - DEF_START - 1.8 * k];
+    const prev = Q.def;
+    const next = Q.defs[r % n];
+    const gy = Q.gy;
+    if (prev && prev !== next && prev.fb.qbcRole) {
+      this.qbcBurst(prev.x, gy + 0.6, prev.z, { n: 12, colors: [0xd8d8d8, 0xb8b0a0, 0xffffff], speed: [0.8, 2], up: [0.5, 1.6], size: [0.25, 0.45], life: 0.6, grav: 0 });
+      prev.fb.qbcRole = null;
+      prev.fb.downT = 0;
+      prev.fb.dive = false;
+      const side = prev.fb.side || [this.fb.site.field.x0 - 1.4, sz - 4];
+      prev.x = side[0];
+      prev.z = side[1];
+      prev.char.group.position.x = prev.x;
+      prev.char.group.position.z = prev.z;
     }
+    Q.def = next;
+    const f = next.fb;
+    f.qbcRole = 'rush';
+    f.side = null;
+    f.mark = [sx, sz - DEF_START];
+    f.downT = f.pickT = 0;
+    f.dive = false;
+    next.x = f.mark[0];
+    next.z = f.mark[1];
+    next.speed = 0;
+    next.heading = 0; // (facing you: you're up the field, +z)
+    next.char.group.position.x = next.x;
+    next.char.group.position.z = next.z;
+    next.char.group.rotation.y = next.heading;
+    this.qbcBurst(next.x, gy + 0.15, next.z, { n: 16, colors: [0xd8d8d8, 0xb8b0a0, 0x7a6a4a], speed: [1.5, 3.2], up: [0.6, 2], size: [0.25, 0.45], life: 0.6, grav: 2 });
+    this.qbcWave(next.x, gy + 0.05, next.z, 0xffffff, 2.2, 0.4);
   },
 
   // Everyone straight to their place, not walking there: the ones watching on the sideline, the
@@ -321,8 +347,8 @@ export const QBChallenge = {
     T.flash = T.punch = T.shake = 0;
     this.qbcSkin(T);
     if (st === 'juke') {
-      // (the rush first: the next man steps up to the mark, sets, then comes from one side)
-      this.qbcLine(Q.idx);
+      // (the rush first: the next man appears on the mark, sets, then comes from one side)
+      this.qbcSpawn(Q.idx);
       Q.jk = { phase: 'reset', t: 0, side: Math.random() < 0.5 ? -1 : 1, juked: false, fail: null, move: null };
       Q.tp = 'wait';
       Q.tT = 0;
@@ -447,8 +473,9 @@ export const QBChallenge = {
     const ux = (tx - px) / d;
     const uz = (tz - pz) / d;
     // (the power sets how far it carries; the tap, how far off line: early left, late right)
-    const off = pw - this.needFor(kind, d);
-    const win = this.winFor(kind);
+    const need = this.needFor(kind, d);
+    const off = pw - need;
+    const win = this.winFor(kind, need);
     const k = Math.abs(off) <= win * 0.5 ? 0.04 : Math.abs(off) <= win ? 0.5 : 1;
     const L = Math.max(2, d + off * TY.max * k);
     let wob = TY.err * 0.25 * (0.4 + d / 45);
@@ -671,7 +698,7 @@ export const QBChallenge = {
     const [px, pz] = this.game.player.pos();
     if (f.qbcRole === 'rush') {
       const J = Q.jk;
-      const on = p === Q.def; // (the man on the mark; the rest wait their turn in the line)
+      const on = p === Q.def; // (the man on the mark)
       if (on && J?.phase === 'rush' && !J.juked) {
         // (at the side he's attacking: your right (+1) or left, on the camera; wide of you,
         // closing in)
