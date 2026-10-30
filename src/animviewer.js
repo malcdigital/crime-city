@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeCharacter, animateWalk, crouchPose, crouchWalk, restPose, fallPose, lam } from './character.js';
 import { aimPose, lowReady, fightStance, markPunch, punchPose, markFlinch, flinchPose, markRecoil, reloadPose, kneelPose, FIGHT_STYLES, PUNCH_T } from './combatpose.js';
-import { qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, reachBackPose, layoutPose, jukedPose, reachBall, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
+import { qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, reachBackPose, griddyPose, upsetPose, layoutPose, jukedPose, reachBall, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
 import { shotForm, dribbleArm, hesiPush, handoff, dribbleFrom, HO_TOP, SPIN_REL, dribbleArms, pivotPose, fadePose, triplePose, anklePose } from './streetball.js';
 import { dunkPose, dunkPhase } from './dunkpose.js';
 import { markJump, jumpPose } from './blockpose.js';
@@ -82,6 +82,8 @@ function list(game) {
     ['Football', 'Catch: high (a lob)', 1.4, (c) => { catchPose(c, true); return { fball: 'hands' }; }],
     ['Football', 'Catch: at the chest (a bullet)', 1.4, (c) => { catchPose(c, false); return { fball: 'hands' }; }],
     ['Football', 'Catch: reaching back (thrown behind him)', 1.4, (c) => { reachBackPose(c, 1); return {}; }],
+    ['Football', 'Touchdown dance: the Griddy', 3.2, (c, t) => ({ y: griddyPose(c, t) })],
+    ['Football', 'Turnover: gutted (the quarterback)', 5.0, (c, t) => ({ y: upsetPose(c, t) })],
     ['Football', 'Running with it (tucked)', 0.8, (c, t) => { animateWalk(c, t * 7.85, 1); tuckCarry(c, 7); return { y: Math.abs(Math.sin(t * 7.85)) * 0.05, fball: 1 }; }],
     ['Football', 'Picking it up off the grass', 1.4, (c, t) => {
       // (walking up to it, the scoop, up with it)

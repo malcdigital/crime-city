@@ -203,6 +203,72 @@ export function catchPose(c, high) {
   reachArm(c, 'L', _a.set(0.08, y, z), _b.set(1, -0.4, -0.2), _c.set(0, 1, high ? 0.15 : 0.6), _d.set(0, 0, 1), 'group');
 }
 
+// ---- Celebrations (the drive's end: drivecine.js; yours and theirs, the same) ----
+// The Griddy (t: seconds into it): a hop and a heel tap out in front on alternate feet each beat,
+// the arms pumping opposite at the sides, elbows bent, a little sway; every eighth and seventh
+// beat of eight, both hands up to the eyes for the goggles. Returns the height.
+export const GRIDDY_BEAT = 0.4;
+export function griddyPose(c, t) {
+  const beat = t / GRIDDY_BEAT;
+  const i = Math.floor(beat);
+  const f = beat - i;
+  const side = i % 2 ? 1 : -1; // (the tapping foot: +1 his left)
+  const goggles = i % 8 >= 6;
+  const tap = Math.sin(f * Math.PI); // (out and back within the beat)
+  const tapHip = 0.15 + 0.75 * tap; // (kicked out in front, the leg near straight, the heel down)
+  const tapKnee = 0.6 - 0.55 * tap;
+  const [hl, kl, hr, kr] = side > 0 ? [tapHip, tapKnee, 0.3, 0.6] : [0.3, 0.6, tapHip, tapKnee];
+  bendLeg(c.legL, c.kneeL, hl, kl);
+  bendLeg(c.legR, c.kneeR, hr, kr);
+  bendSpine(c, 0.18, 0.28 * side * tap, -0.08 * side * tap);
+  c.neck.rotation.set(goggles ? -0.15 : -0.05, -0.25 * side * tap, 0);
+  if (goggles) {
+    // (the goggles: fingers ringed round the eyes, elbows out)
+    reachArm(c, 'L', _a.set(0.09, 1.8, 0.24), _b.set(1, 0.1, -0.3), null, null, 'group');
+    reachArm(c, 'R', _a.set(-0.09, 1.8, 0.24), _b.set(-1, 0.1, -0.3), null, null, 'group');
+  } else {
+    const sw = Math.sin(beat * Math.PI);
+    c.armL.rotation.set(-0.45 - 0.75 * sw, 0, -0.18);
+    c.armR.rotation.set(-0.45 + 0.75 * sw, 0, 0.18);
+    c.elbowL.rotation.set(-1.65, 0, 0);
+    c.elbowR.rotation.set(-1.65, 0, 0);
+  }
+  return -lowestPoint(c) + Math.abs(Math.sin(f * Math.PI)) * 0.09;
+}
+
+// A quarterback after a turnover (t: seconds in, it loops): hands up on top of the head looking
+// at the sky, then bent over with the hands on the knees, then back up shaking his head, arms
+// hanging. Eased from one to the next. Returns the height.
+const UPSET = [
+  // [time, armX, armZ, elbowX, hip, knee, spineX, neckX, shake]
+  [0, -2.6, 0.55, -2.35, 0.05, 0.08, -0.12, -0.45, 0],
+  [1.3, -2.6, 0.55, -2.35, 0.05, 0.08, -0.12, -0.45, 0],
+  [1.8, -0.55, 0.12, -0.25, 0.55, 0.9, 0.75, 0.15, 0],
+  [3.0, -0.55, 0.12, -0.25, 0.55, 0.9, 0.75, 0.15, 0],
+  [3.5, 0.05, 0.08, -0.25, 0.05, 0.08, 0.1, 0.25, 1],
+  [4.6, 0.05, 0.08, -0.25, 0.05, 0.08, 0.1, 0.25, 1],
+  [5.0, -2.6, 0.55, -2.35, 0.05, 0.08, -0.12, -0.45, 0],
+];
+export function upsetPose(c, t) {
+  const T = UPSET[UPSET.length - 1][0];
+  const u = t % T;
+  let k = 0;
+  while (k < UPSET.length - 2 && u > UPSET[k + 1][0]) k++;
+  const A = UPSET[k];
+  const B = UPSET[k + 1];
+  const e = ease(Math.min(1, (u - A[0]) / Math.max(0.01, B[0] - A[0])));
+  const v = (j) => A[j] + (B[j] - A[j]) * e;
+  bendLeg(c.legL, c.kneeL, v(4), v(5));
+  bendLeg(c.legR, c.kneeR, v(4), v(5));
+  bendSpine(c, v(6), 0, 0);
+  c.neck.rotation.set(v(7), Math.sin(t * 9) * 0.45 * v(8), 0);
+  c.armL.rotation.set(v(1), 0, -v(2));
+  c.armR.rotation.set(v(1), 0, v(2));
+  c.elbowL.rotation.set(v(3), 0, 0);
+  c.elbowR.rotation.set(v(3), 0, 0);
+  return -lowestPoint(c);
+}
+
 // Reaching back for a ball thrown behind him, still running: twisted toward it (side +1: his
 // left, -1: his right), the near hand back and up behind the shoulder, the other across for it,
 // head turned back after it.

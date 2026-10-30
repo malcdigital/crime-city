@@ -755,12 +755,19 @@ export const DriveReads = {
         // (storage unavailable)
       }
     }
-    const info = { score: D.score, best, newBest, how, plays, bonus, passes: D.passes || 0, caught: D.caught || 0, bestThrow: D.bestThrow || 0 };
+    // (who the final screen's on: whoever scored, doing the Griddy; after a turnover, you, gutted)
+    const dancer = how === 'td' && this.tdBy && this.tdBy !== 'you' ? this.tdBy : 'you';
+    const info = { score: D.score, best, newBest, how, plays, bonus, passes: D.passes || 0, caught: D.caught || 0, bestThrow: D.bestThrow || 0, dancer, emote: how === 'td' ? 'griddy' : 'upset' };
     this.again = game.time + 9; // (no asking for another game till the final screen's been and gone)
     setTimeout(() => {
       if (game.courtMenu?.open || this.active || game.driveCine?.open) return; // (something else up already: no final screen over it)
+      if (dancer !== 'you') {
+        if (!this.fb.players.includes(dancer)) info.dancer = 'you';
+        else dancer.fb.dance = { t0: game.time };
+      }
       game.driveCine?.outro(info, () => {
         this.again = game.time + 0.8;
+        if (dancer !== 'you' && dancer.fb) dancer.fb.dance = null;
       });
     }, 2300);
   },

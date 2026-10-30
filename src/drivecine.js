@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { QbcCine } from './qbccine.js';
+import { griddyPose, upsetPose } from './footballpose.js';
+import { restPose } from './character.js';
 
 // The drive's intro (gridiron.js / drivereads.js), on the QB Challenge's and the 3-point
 // contest's (the same letterboxed panel, any tap / ✕ / Space skips it): everyone's already
@@ -50,11 +52,83 @@ export class DriveCine extends QbcCine {
       ${line}
       <div class="c3-skip">${this.skipText()}</div>`;
     this.happy = info.how === 'td' || info.newBest;
+    this.clearAng = null;
     this.show();
     this.camera(0);
   }
 
+  // (the 3-point contest's celebration is posed in the frame the game waits; here the game runs
+  // on under it, so you're posed after it's moved you: afterUpdate)
+  pose() {}
+
+  // You, after the game's frame: the Griddy if you ran it in, or a turnover's emote.
+  afterUpdate() {
+    if (!this.open || this.mode !== 'outro' || !this.info?.emote) return;
+    // (everyone else gives him room: eased out to 3 m round him)
+    const game = this.game;
+    const who = this.info.dancer === 'you' ? game.player : this.info.dancer;
+    const [wx, wz] = who === game.player ? game.player.pos() : [who.x, who.z];
+    for (const q of game.football?.players || []) {
+      if (q === who || q.fb?.role === 'fan') continue;
+      const d = Math.hypot(q.x - wx, q.z - wz);
+      if (d < 3 && d > 0.01) {
+        const k = Math.min(1, 0.06 * (3 - d));
+        q.x += ((q.x - wx) / d) * k;
+        q.z += ((q.z - wz) / d) * k;
+      }
+    }
+    if (this.info.dancer !== 'you') return;
+    const p = this.game.player;
+    const c = p.char;
+    restPose(c);
+    c.group.rotation.x = 0;
+    const y = this.info.emote === 'griddy' ? griddyPose(c, this.t) : upsetPose(c, this.t);
+    c.group.position.y = (p.gy?.() || 0) + y;
+  }
+
   camera(t) {
+    if (this.mode === 'outro' && this.info?.emote) {
+      // (round whoever it's on, low, slowly; him in the lower middle, the score above)
+      const game = this.game;
+      const cam = game.camera;
+      const who = this.info.dancer === 'you' ? game.player : this.info.dancer;
+      const [px, pz] = who === game.player ? game.player.pos() : [who.x, who.z];
+      const k = ease(clamp01(t / this.T));
+      // (the start of the swing round him picked once, where nobody stands between)
+      if (this.clearAng == null) {
+        let best = -1;
+        for (let i = 0; i < 16; i++) {
+          const a0 = (i / 16) * Math.PI * 2;
+          let worst = 9;
+          for (const q of game.football?.players || []) {
+            if (q === who || q.fb?.role === 'fan') continue;
+            for (const u of [0, 0.5, 1]) {
+              const a = a0 + Math.PI * 0.6 * u;
+              const cx = px + Math.sin(a) * 3.6;
+              const cz = pz + Math.cos(a) * 3.6;
+              // (how far he is from the line from the camera to the dancer)
+              const lx = px - cx;
+              const lz = pz - cz;
+              const L2 = lx * lx + lz * lz;
+              const s = Math.max(0, Math.min(1, ((q.x - cx) * lx + (q.z - cz) * lz) / L2));
+              worst = Math.min(worst, Math.hypot(q.x - (cx + lx * s), q.z - (cz + lz * s)) + (s > 0.95 ? 1 : 0));
+            }
+          }
+          const facing = Math.cos(a0 + Math.PI * 0.3 - (who.heading || 0)); // (a little credit for seeing his front)
+          const score = Math.min(worst, 2.5) + facing * 0.3;
+          if (score > best) {
+            best = score;
+            this.clearAng = a0;
+          }
+        }
+      }
+      const ang = this.clearAng + Math.PI * 0.6 * k; // (round him, from where it's clear)
+      const r = 3.8 - 0.5 * k;
+      cam.position.set(px + Math.sin(ang) * r, 1.15 + 0.3 * k, pz + Math.cos(ang) * r);
+      _a.set(px, 1.35, pz);
+      cam.lookAt(_a);
+      return;
+    }
     if (this.mode !== 'intro' || !this.info?.los) return super.camera(t);
     const cam = this.game.camera;
     const I = this.info;

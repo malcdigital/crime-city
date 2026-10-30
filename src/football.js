@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { lam, setShirt, bendLeg, bendSpine } from './character.js';
-import { reachBackPose, qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
+import { griddyPose, reachBackPose, qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
 import { rand, dist, lerpAngle, pick } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
 
@@ -463,6 +463,7 @@ export class Football {
       if (f.downT <= 0) f.dive = false;
       return { speed: 0 };
     }
+    if (f.dance) return { speed: 0 }; // (the drive's over: celebrating where he is: drivecine.js)
     if (f.role === 'fan') {
       // Watching the ball.
       if (b) faceAt(b.x, b.z);
@@ -734,6 +735,10 @@ export class Football {
       return 0.04 + pickupPose(c, 1 - f.pickT / PICK_T);
     }
     // (playing catch with you: the bench and the pair down the other end, fieldmodes.js)
+    if (f.dance) {
+      c.group.rotation.x = 0;
+      return 0.04 + griddyPose(c, this.game.time - f.dance.t0); // (a touchdown: the Griddy)
+    }
     const mp = this.match?.posePlayer?.(p, c);
     if (mp != null) return mp;
     let y = 0.04;

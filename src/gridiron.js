@@ -533,6 +533,7 @@ export class Gridiron {
 
   touchdown(who) {
     const game = this.game;
+    this.tdBy = who; // (who dances in the final screen)
     for (const f of this.fb.fans) f.fb.cheerT = 2.5;
     for (const q of this.fb.wrs) q.fb.cheerT = 2;
     if (this.dr) {

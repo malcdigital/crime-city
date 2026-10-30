@@ -2382,6 +2382,7 @@ class Game {
         q.slot = -1;
         this.update(dt, q);
         this.driveCine.camera(this.driveCine.t);
+        this.driveCine.afterUpdate(); // (you dancing or gutted: posed after the game's frame)
       }
     } else if (this.moves.open) {
       // The moves list: the game is paused underneath.
