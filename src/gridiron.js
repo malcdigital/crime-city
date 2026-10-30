@@ -223,6 +223,7 @@ export class Gridiron {
       if (step) {
         this.playI = (this.playI + step + DPLAYS.length) % DPLAYS.length;
         this.drLineUp(false);
+        this.drSetAll(); // (they shift straight into the new formation: ✕ still hikes it right away)
         game.hud.toast(`Play: ${this.drPlayName()}`, '#ffd23f');
       }
       this.drScan(a); // (◀ ▶ / the stick: scanning the field, before the walk takes the stick)
