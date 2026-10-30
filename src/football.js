@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { lam, setShirt, bendLeg, bendSpine } from './character.js';
-import { pickPose, swatPose, deniedPose, tackledPose, tacklerPose, griddyPose, reachBackPose, qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
+import { pickUndercutPose, pickShoulderPose, pickScoopPose, pickPose, swatPose, deniedPose, tackledPose, tacklerPose, griddyPose, reachBackPose, qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
 import { rand, dist, lerpAngle, pick } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
 
@@ -209,7 +209,7 @@ export class Football {
       const p = b.holder;
       const fx = Math.sin(p.heading);
       const fz = Math.cos(p.heading);
-      if (p.fb.downT > 0 && p.fb.fall) {
+      if (p.fb.downT > 0 && (p.fb.fall || p.fb.dive)) {
         // (down with it: on the grass at his chest, wherever he's lying)
         p.char.group.updateMatrixWorld(true);
         p.char.chest.getWorldPosition(_fv);
@@ -527,7 +527,7 @@ export class Football {
     const goTo = (x, z, speed) => (dist(p.x, p.z, x, z) > 0.45 ? { tx: x, tz: z, speed } : null);
     const ph = this.phase;
     // The ball's loose: the nearest offensive player goes and gets it.
-    if (b.mode === 'loose' && f.role !== 'db') {
+    if (b.mode === 'loose' && f.role !== 'db' && !this.match?.tip) { // (not a tipped ball in the air, the back's)
       const off = this.players.filter((q) => q.fb.role !== 'db' && q.fb.role !== 'bench');
       let best = null;
       for (const q of off) if (!best || dist(q.x, q.z, b.x, b.z) < dist(best.x, best.z, b.x, b.z)) best = q;
@@ -688,7 +688,12 @@ export class Football {
     }
     if (M?.mode === 'drive' && M.state === 'pick') {
       // (the pick: he runs it back the other way, the rest of his side with him)
-      if (b.holder === p) return goTo(...(f.runTo || [p.x, p.z + 10]), RUN) || { speed: 0 };
+      if (b.holder === p) {
+        const still = f.act && (f.act.kind === 'pick' || f.act.kind === 'pickScoop') && this.game.time - f.act.t0 < f.act.T;
+        if (still || f.downT > 0) return { speed: 0 };
+        return goTo(...(f.runTo || [p.x, p.z + 10]), RUN) || { speed: 0 };
+      }
+      if (M.tip && M.tip.db === p) return goTo(b.x, b.z, RUN * 1.1) || { speed: 0 }; // (the tip: under it)
       if (f.act) return { speed: 0 };
       return goTo(b.x + rand(-0.1, 0.1), b.z + 3, RUN * 0.9) || { speed: 0 };
     }
@@ -797,6 +802,21 @@ export class Football {
       if (act.kind === 'pick') {
         c.group.userData.fbGrip = 'hands'; // (the ball in both hands, up at the top of the leap)
         return 0.04 + pickPose(c, k);
+      }
+      if (act.kind === 'pickRun') {
+        // (jumping the route: the legs run on, the hands take it out front)
+        c.group.userData.fbGrip = 'hands';
+        pickUndercutPose(c, k);
+        return 0.04 + Math.abs(Math.sin(p.phase || 0)) * 0.03;
+      }
+      if (act.kind === 'pickShoulder') {
+        c.group.userData.fbGrip = 'hands';
+        pickShoulderPose(c, k, act.side);
+        return 0.04 + Math.abs(Math.sin(p.phase || 0)) * 0.03;
+      }
+      if (act.kind === 'pickScoop') {
+        c.group.userData.fbGrip = 'hands';
+        return 0.04 + pickScoopPose(c, k);
       }
       if (act.kind === 'swat') return 0.04 + swatPose(c, k, act.side);
       if (act.kind === 'denied') return 0.04 + deniedPose(c, k);

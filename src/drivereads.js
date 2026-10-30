@@ -284,6 +284,7 @@ export const DriveReads = {
     D.openAt = D.closeAt = null;
     D.lock = null;
     D.camT = 0; // (the camera's move in starts now: drStep)
+    this.tip = null;
     const scanned = D.scanList?.[D.scanI];
     D.sel = scanned != null ? scanned : D.play.read[0]; // (the read starts on whoever you were looking at)
     // (the ✕ that hiked it is also TOUCH: it's not a throw till it's let go and pressed again)
@@ -550,14 +551,39 @@ export const DriveReads = {
     if (!open) {
       const why = L?.why === 'early' ? "Too early: he hadn't come open yet" : L?.why === 'late' ? 'Too late: his man closed' : 'Into coverage';
       if (dD < 2.2 && Math.random() < (b.throwKind === 'bullet' ? 0.4 : b.throwKind === 'lob' ? 0.38 : 0.32)) {
-        // (picked: he goes up and takes it, then runs it back; the drive ends when he's done)
-        fb.hold(db);
+        // (picked: how depends on the ball and him (drPickKind), then he runs it back; the drive
+        // ends when he's done)
         this.heatMiss();
         const t0 = game.time;
-        db.fb.act = { kind: 'pick', t0, T: 0.9 };
-        db.heading = Math.atan2(b.x - db.x, b.z - db.z);
+        const kind = this.drPickKind(db, w, b, dW, dD);
         db.fb.runTo = [clamp(db.x + rand(-3, 3), fb.site.field.x0 + 1, fb.site.field.x1 - 1), Math.min(fb.site.field.z1 - 2, db.z + 16)];
-        if (here) w.fb.act = { kind: 'denied', t0, T: 0.7 };
+        if (kind === 'tip') {
+          // (off your man's hands: it pops up, he's under it and takes it out of the air)
+          b.mode = 'loose';
+          b.holder = null;
+          b.vx = (db.x - b.x) * 1.2;
+          b.vz = (db.z - b.z) * 1.2;
+          b.vy = 3.4;
+          b.y = Math.max(b.y, 1.6);
+          this.tip = { db, at: t0 + 0.55 };
+          if (here) w.fb.act = { kind: 'denied', t0, T: 0.7 };
+        } else {
+          fb.hold(db);
+          if (kind === 'dive') {
+            // (laid out for it: down where he lands, no return)
+            db.heading = Math.atan2(b.x - db.x, b.z - db.z);
+            Object.assign(db.fb, { dive: true, diveTo: [b.x, b.z], downT: 1.3, downLen: 1.3, fall: null, runTo: null });
+          } else {
+            if (kind !== 'pickRun' && kind !== 'pickShoulder') db.heading = Math.atan2(b.x - db.x, b.z - db.z);
+            const lx = Math.cos(db.heading);
+            const lz = -Math.sin(db.heading);
+            const T = { pick: 0.9, pickRun: 0.7, pickShoulder: 0.9, pickScoop: 0.8 }[kind];
+            db.fb.act = { kind, t0, T, side: (b.p0[0] - db.x) * lx + (b.p0[2] - db.z) * lz >= 0 ? 1 : -1 };
+            if (kind === 'pickRun' || kind === 'pickShoulder') db.fb.runTo = [db.x + Math.sin(db.heading) * 14, db.z + Math.cos(db.heading) * 14]; // (on the way he was going)
+          }
+          if (here) w.fb.act = { kind: 'denied', t0, T: 0.7 };
+        }
+        this.drPickKindNow = kind;
         fb.phase = 'run';
         this.state = 'pick';
         this.t = 0;
@@ -739,12 +765,37 @@ export const DriveReads = {
       fx.spawn('smoke', x + Math.cos(a) * 0.2, 0.15, z + Math.sin(a) * 0.2, { T: 0.6 + Math.random() * 0.4, vx: Math.cos(a) * 1.6, vy: 0.5 + Math.random() * 0.6, vz: Math.sin(a) * 1.6, s0: 0.25, s1: 0.8, a0: 0.55, color: 0xb9a77f });
     }
   },
+  // Which interception (drArrived): a tip off your man's hands; a diving one for a ball just out of
+  // reach; a scoop for a low one; over the shoulder for a deep ball he's running under the same way;
+  // jumping the route for a flat one he's in front of and moving on; else high-pointing it.
+  drPickKind(db, w, b, dW, dD) {
+    const L = Math.hypot(b.p1[0] - b.p0[0], b.p1[2] - b.p0[2]) || 1;
+    const ux = (b.p1[0] - b.p0[0]) / L;
+    const uz = (b.p1[2] - b.p0[2]) / L;
+    const dir = Math.sin(db.heading) * ux + Math.cos(db.heading) * uz; // (+: he's running the ball's way)
+    const moving = (db.speed || 0) > 2.5;
+    if (w && dW < 0.9 && Math.random() < 0.45) return 'tip';
+    if (dD > 1.1 && dD < 2.4) return 'dive';
+    if (b.y < 0.8) return 'pickScoop';
+    if (moving && dir > 0.55 && L > 14) return 'pickShoulder';
+    if (moving && b.style !== 'lob' && b.y < 1.7) return 'pickRun';
+    return 'pick';
+  },
   // The pick run back (gridiron phase): done when he's there or down, then the card and the end.
   drPickStep() {
     const fb = this.fb;
     const b = fb.ball;
+    const T = this.tip;
+    if (T && this.game.time >= T.at) {
+      // (the tip comes down to him: a quick grab up high)
+      this.tip = null;
+      fb.hold(T.db);
+      T.db.fb.act = { kind: 'pick', t0: this.game.time - 0.35, T: 0.9 };
+    }
+    if (this.tip) return;
     const h = b.holder;
-    const done = this.t > 2.4 || !h || h === 'you' || (h.fb?.runTo && dist(h.x, h.z, ...h.fb.runTo) < 0.8);
+    const dove = this.drPickKindNow === 'dive';
+    const done = dove ? this.t > 1.6 : this.t > 2.6 || !h || h === 'you' || (h.fb?.runTo && dist(h.x, h.z, ...h.fb.runTo) < 0.8);
     if (!done) return;
     const card = this.drCardFor({ kind: 'pick', why: this.drPickWhy || '' }, 0, false, true);
     this.drScorePlay('pick', 0, false, card, true);

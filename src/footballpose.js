@@ -400,6 +400,49 @@ export function pickPose(c, k) {
   return -lowestPoint(c) + 0.55 * up;
 }
 
+// Jumping the route (k 0..1 over about 0.7 s): running, he drives his hands out in front at chest
+// height, takes it on the run and pulls it straight into the tuck. Upper body only: the legs run.
+export function pickUndercutPose(c, k) {
+  const e = ease(Math.min(1, k / 0.45));
+  const g = ease(Math.max(0, (k - 0.45) / 0.55));
+  bendSpine(c, 0.32 - 0.1 * g, 0, 0);
+  c.neck.rotation.set(-0.35 + 0.2 * g, 0, 0);
+  const z = 0.55 * e - 0.3 * g;
+  const y = 1.32 - 0.15 * g;
+  reachArm(c, 'L', _a.set(0.1, y, 0.15 + z), _b.set(1, -0.4, -0.2), null, null, 'group');
+  reachArm(c, 'R', _a.set(-0.1, y, 0.15 + z), _b.set(-1, -0.4, -0.2), null, null, 'group');
+}
+
+// Over the shoulder (k 0..1 over about 0.9 s; side +1: it's coming over his left): still running,
+// shoulders turned back toward it, head round looking for it, both hands up and back on that
+// side, then brought down into the tuck. Upper body only.
+export function pickShoulderPose(c, k, side = 1) {
+  const e = ease(Math.min(1, k / 0.55));
+  const g = ease(Math.max(0, (k - 0.55) / 0.45));
+  const tw = (1 - g) * e;
+  bendSpine(c, 0.05, 0.65 * side * tw, 0.08 * side * tw);
+  c.neck.rotation.set(-0.45 * tw, 0.9 * side * tw, 0);
+  const x = 0.32 * side * (1 - g) + 0.06 * side;
+  const y = 1.95 - 0.7 * g;
+  const z = -0.15 * (1 - g) + 0.28 * g;
+  reachArm(c, 'L', _a.set(x + 0.09, y, z), _b.set(1, 0, 0.2), null, null, 'group');
+  reachArm(c, 'R', _a.set(x - 0.09, y, z), _b.set(-1, 0, 0.2), null, null, 'group');
+}
+
+// Scooping a low one (k 0..1 over about 0.8 s): sinks at the knees and the waist, both hands down
+// under it just off the turf, then comes back up with it to the chest. Returns the height.
+export function pickScoopPose(c, k) {
+  const d = Math.sin(Math.min(1, k / 0.8) * Math.PI); // (down and back up)
+  bendLeg(c.legL, c.kneeL, 0.2 + 0.9 * d, 0.3 + 1.3 * d);
+  bendLeg(c.legR, c.kneeR, 0.1 + 0.5 * d, 0.2 + 0.8 * d);
+  bendSpine(c, 0.15 + 0.85 * d, 0, 0);
+  c.neck.rotation.set(-0.5 * d, 0, 0);
+  const y = 1.25 - 0.95 * d;
+  reachArm(c, 'L', _a.set(0.1, y, 0.35 + 0.15 * d), _b.set(1, -0.3, -0.3), null, null, 'group');
+  reachArm(c, 'R', _a.set(-0.1, y, 0.35 + 0.15 * d), _b.set(-1, -0.3, -0.3), null, null, 'group');
+  return -lowestPoint(c);
+}
+
 // A defender breaking it up (k 0..1 over about 0.7 s): a jump with the near arm (side +1: his
 // left) cocked high, swatting down and across through the ball, the other arm out for balance.
 export function swatPose(c, k, side = 1) {
