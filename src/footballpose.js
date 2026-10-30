@@ -344,14 +344,14 @@ export function tackledPose(c, k, from, side = 1) {
   }
   // (the side: rolled away from the hit)
   c.group.rotation.x = 0.15 * e;
-  c.group.rotation.z = -side * (Math.PI / 2) * 0.92 * e;
+  c.group.rotation.z = side * (Math.PI / 2) * 0.92 * e; // (+z rolls him onto his right: away from a hit on his left)
   bendSpine(c, 0.25 * e, 0, 0.2 * side * e);
   c.neck.rotation.set(-0.2 * e, 0, 0.3 * side * e);
   const near = side > 0 ? 'L' : 'R';
   const far = side > 0 ? 'R' : 'L';
   c['arm' + near].rotation.set(-0.9, 0, side * 0.2);
   c['elbow' + near].rotation.set(-1.6, 0, 0);
-  c['arm' + far].rotation.set(-1.0, 0, side * 1.25 * e); // (out for the ground)
+  c['arm' + far].rotation.set(-1.0, 0, -side * 1.25 * e); // (out for the ground)
   c['elbow' + far].rotation.set(-0.3, 0, 0);
   bendLeg(c.legL, c.kneeL, 0.45 * e, 0.8 * e);
   bendLeg(c.legR, c.kneeR, 0.2 * e, 0.5 * e);
