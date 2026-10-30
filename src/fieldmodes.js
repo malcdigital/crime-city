@@ -273,7 +273,7 @@ export const FieldModes = {
     return this.mode === 'qbc' ? this.qbc : this.cat;
   },
   meterTarget() {
-    if (this.mode === 'qbc') return this.qbcTarget();
+    if (this.mode === 'qbc') return this.qbcAim(); // (a moving ring: where it'll be)
     return this.cat.mate;
   },
   meterCan() {

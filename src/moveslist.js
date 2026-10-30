@@ -78,7 +78,7 @@ const QBC = {
     ]],
     ['THE STAGES (one throw at each target as it pops up, 6 seconds to get it off)', [
       ['1 Accuracy: 8 rings, still', '10-45 yds', '1 to 5 points', 'deeper is worth more'],
-      ['2 Moving: 8 rings, sliding', 'smaller green', 'smaller green', 'smaller green'],
+      ['2 Moving: 8 rings, crossing the field', 'smaller green', 'smaller green', 'smaller green'],
       ['3 Pressure: 5 rushes', 'juke away from him', 'then hit the ring', 'too early: sacked'],
     ]],
     ['THE GAME', [
@@ -86,7 +86,7 @@ const QBC = {
       ['This list', '?', 'Create', 'Tab'],
     ]],
   ],
-  notes: 'Everyone gets the same targets (the same distances, in a different order), so the same points are there to be had. Through the middle of a ring is a BULLSEYE: double points. Three hits in a row: x2, six: x3 (a miss, too slow or a sack resets it). The last target of each stage is the gold MONEY ring: double again. In stage 3 the rusher comes at one side: when JUKE! comes up, juke the other way (too early he reads it, the wrong way or not at all and you\'re sacked); beat him (+1) and the ring pops up. Time slows to half while you throw; both dead on is a PERFECT PASS.',
+  notes: 'Everyone gets the same targets (the same distances, in a different order), so the same points are there to be had. Through the middle of a ring is a BULLSEYE: double points. Three hits in a row: x2, six: x3 (a miss, too slow or a sack resets it). The last target of each stage is the gold MONEY ring: double again. In stage 3 the rushers come one at a time, fast, at one side: when JUKE! comes up, juke the other way (too early he reads it, the wrong way or not at all and you\'re sacked); beat him (+1) and the ring pops up. Time slows to half while you throw; both dead on is a PERFECT PASS.',
   setting: 'meter',
 };
 const CATCH = {
