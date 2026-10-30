@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { dist, rand, pick } from './util.js';
-import { setShirt } from './character.js';
 import { FieldModes } from './fieldmodes.js';
 import { QBChallenge, QBC_KEY } from './qbchallenge.js';
+import { DriveReads, DPLAYS, SACK_READ } from './drivereads.js';
 import { CFG } from './config.js';
 import { throwPose, layoutPose, qbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat } from './footballpose.js';
 
@@ -10,45 +10,24 @@ import { throwPose, layoutPose, qbStance, holdBall, pocketStance, POCKET_CLOSE, 
 // - Join: walk onto the field while they're lining up; their quarterback offers you the ball.
 //   E / D-pad ↑ / USE plays; Q / ○ changes the bet ($0-$500: score on the drive and you take
 //   his money too). He steps off to the sideline and watches.
-// - The drive: from the 40, four downs to make 10 yards, until you score or lose it.
-//   Get behind the line and ✕ / E hikes it. The receivers run their routes with the backs on
-//   them. Madden's way: each receiver has a button over his head (□ ✕ ○ △; keyboard 1-4; the
-//   same buttons on a phone). Tap it for a bullet (fast and flat: a back near the line of it can
-//   jump it), hold it for a lob (high and slower: over the top, he runs under it). The left stick
-//   at the release leads him that way. With a mouse you can also look at a man and click (tap /
-//   hold the same way). On the controller R2 sprints.
-//   Caught: he runs till he's brought down. Dropped or batted away: incomplete. Thrown into
-//   coverage: it can be picked off (the drive's over).
-//   Hold it too long and you're sacked (5 seconds); run past the line and you're a runner
-//   (no throwing from there) till a back brings you down.
+// - The drive: from the 40, four downs to make 10 yards, until you score or lose it. Three
+//   receivers against three defensive backs: call a play at the line (L1 / R1, keyboard Z / X,
+//   PLAY on a phone; its routes are drawn on the turf), read the coverage, get behind the line
+//   and ✕ / E hikes it. After the drop-back time slows: ◀ ▶ moves you from man to man and the
+//   throw meter throws to him (drivereads.js has it all: one man always comes open, for a moment).
+//   Caught: he runs till he's brought down. Thrown into coverage: broken up or picked off (the
+//   drive's over).
+//   Hold it too long and you're sacked; run past the line and you're a runner (no throwing from
+//   there) till a back brings you down.
 // - Walk off the field, get in a car or have the police after you and you forfeit. If they
 //   scatter (trouble nearby), it's called off and the bet comes back.
 const YD = 0.9144;
 const BETS = [0, 50, 100, 250, 500];
 const NAMES = ['Coach', 'Big Lou', 'Tre', 'Marcus', 'Deebo', 'Junior', 'Bam'];
-const SACK = 4.5;
 const DOWNS = ['1st', '2nd', '3rd', '4th'];
 // Asking to play, and their quarterback's answers (one of each, at random).
 const ASKS = ["Y'all need a QB?", 'Can I throw some?', "Y'all need one more?", 'Let me run one', "What's up, y'all playing?", 'I got an arm, let me in'];
 const REPLIES = ['Bet. You got an arm?', 'Yeah, what you wanna run?', "Aight, let's see it. Pick it.", "Say less. What we doing?", "We need a QB anyway. What's it gon' be?", 'Pull up. How you want it?'];
-// The receivers' buttons (in the order they line up), their colors, and the keyboard keys.
-const ICONS = ['□', '✕', '○', '△', 'R1'];
-const ICON_COLORS = ['#ff79c6', '#6fa8ff', '#ff6b6b', '#3ddc97', '#ffd23f'];
-const BULLET = 0.22; // (held longer than this it's a lob)
-// The playbook (pick one at the line: L1 / R1, keyboard Z / X, PLAY on a phone).
-// routes: one per receiver in order (null: he picks); run: a handoff to the back (dive: up the
-// middle, toss: outside); pa: play action (a fake handoff first, the defense bites).
-const PLAYS = [ // (L1 / R1 on the controller)
-  { name: 'Freelance', routes: [null, null, null] },
-  { name: 'Slants', routes: ['slant', 'slant', 'slant'] },
-  { name: 'Four Verticals', routes: ['go', 'go', 'go'] },
-  { name: 'Curls', routes: ['curl', 'curl', 'curl'] },
-  { name: 'Smash', routes: ['curl', 'post', 'out'] },
-  { name: 'HB Dive', routes: ['go', 'go', 'go'], run: 'dive' },
-  { name: 'HB Toss', routes: ['out', 'out', 'out'], run: 'toss' },
-  { name: 'PA Deep', routes: ['go', 'post', 'go'], pa: true },
-];
-
 export class Gridiron {
   constructor(game) {
     this.game = game;
@@ -194,56 +173,22 @@ export class Gridiron {
     this.meter = null;
     this.state = 'line';
     this.t = 0;
-    // Somebody comes off the sideline so every receiver's covered.
-    this.extra = [];
-    for (const w of fb.wrs) {
-      if (fb.dbs.some((d) => d.fb.mark === w)) continue;
-      const d = game.peds.addAt(w.x, w.z - 6, Math.random() < 0.2);
-      d.state = 'play';
-      d.act = fb;
-      d.keep = true;
-      d.sidewalk = false;
-      setShirt(d.char, 0x22416e);
-      d.fb = { role: 'db', home: [w.x, w.z - 6], t: 0, mark: w };
-      d.heading = 0;
-      fb.players.push(d);
-      fb.dbs.push(d);
-      this.extra.push(d);
-    }
-    // A running back on your side and a linebacker on theirs.
-    const add = (role, x, z, shirt) => {
-      const q = game.peds.addAt(x, z, Math.random() < 0.2);
-      q.state = 'play';
-      q.act = fb;
-      q.keep = true;
-      q.sidewalk = false;
-      setShirt(q.char, shirt);
-      q.fb = { role, home: [x, z], t: 0 };
-      q.heading = role === 'lb' ? 0 : Math.PI;
-      fb.players.push(q);
-      this.extra.push(q);
-      return q;
-    };
-    const F = fb.site.field;
-    fb.rb = add('rb', F.cx - 1.6, this.los + 7, 0x2e7d32);
-    fb.lb = add('lb', F.cx + 0.5, this.los - 4.5, 0x22416e);
-    this.playI = this.playI || 0;
     fb.los = this.los;
-    fb.setHomes();
+    this.extra = [];
+    fb.rb = fb.lb = null;
+    // The arrow over the man you're reading.
+    const m = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.4, 4), new THREE.MeshBasicMaterial({ color: 0xffd23f }));
+    m.rotation.x = Math.PI;
+    m.visible = false;
+    game.scene.add(m);
+    this.arrow = m;
+    this.drStart(); // (three on three, the play, the lines on the turf: drivereads.js)
     // The ball's yours.
     fb.ball.mode = 'held';
     fb.ball.holder = 'you';
     fb.phase = 'reset';
     fb.t = 0;
     for (const f of fb.fans) f.fb.cheerT = 1;
-    // The arrow over your target.
-    const m = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.4, 4), new THREE.MeshBasicMaterial({ color: 0xffd23f }));
-    m.rotation.x = Math.PI;
-    m.visible = false;
-    game.scene.add(m);
-    this.arrow = m;
-    this.icons = [];
-    this.iconMode = null;
     this.prevR = [true, true, true, true, true]; // (nothing counts till it's let go and pressed again)
     this.press = null;
     game.hud.toast(`${qb.ballName}'s squad · from the ${from > 50 ? `own ${100 - from}` : from} · ${bet ? `$${bet} says you score` : 'just for fun'}. Get behind the line`, '#ffd23f');
@@ -270,14 +215,14 @@ export class Gridiron {
     const b = fb.ball;
     const [px, pz] = game.player.pos();
     if (this.state === 'line') {
-      // The play: D-pad ← / → (Z / X, or PLAY on a phone) before the snap.
-      // (L1 / R1 on the controller: the D-pad's the phone)
+      // The play: L1 / R1 (Z / X, or PLAY on a phone) before the snap.
       const R0 = a.qbR || [];
       const step = (game.input.btnHit?.(4) || game.input.hit?.('KeyZ') ? -1 : 0) + ((R0[4] && !this.prevR[4]) || game.input.hit?.('KeyX') ? 1 : 0);
       this.prevR = R0.slice();
       if (step) {
-        this.playI = (this.playI + step + PLAYS.length) % PLAYS.length;
-        game.hud.toast(`Play: ${PLAYS[this.playI].name}`, '#ffd23f');
+        this.playI = (this.playI + step + DPLAYS.length) % DPLAYS.length;
+        this.drLineUp(false);
+        game.hud.toast(`Play: ${this.drPlayName()}`, '#ffd23f');
       }
       // Behind the line, near the middle, everyone set: ✕ hikes it.
       const ready = fb.phase === 'set' || (fb.phase === 'reset' && fb.players.every((q) => q.fb.role === 'bench' || q.fb.role === 'fan' || dist(q.x, q.z, ...q.fb.home) < 1.5));
@@ -288,60 +233,40 @@ export class Gridiron {
     }
     const R = a.qbR || [];
     const pad = game.input.mode === 'pad' && !game.input.touchMode;
-    // Running with it (after a handoff, or scrambling): juke, spin, stiff-arm.
+    // Running with it (scrambling past the line): juke, spin, stiff-arm.
     if (this.state === 'play' && b.holder === 'you' && this.scramble) {
       this.runMoves(dt, a, pad);
       this.prevR = R.slice();
       this.prevFire = fire;
       return;
     }
-    if (this.state === 'play' && b.holder === 'you' && !this.scramble) {
-      // A receiver's button (or, with a mouse, a click on the player you're looking at): tap for a
-      // bullet, hold for a lob; it goes when you let go.
-      const recv = this.receivers();
-      if (!this.press) {
-        for (let i = 0; i < R.length; i++) {
-          if (R[i] && !this.prevR[i] && recv[i]) {
-            this.press = { i, t: 0, w: recv[i] };
-            break;
-          }
-        }
-        if (!this.press && fire && !pad && !this.prevFire && this.target) this.press = { i: -1, t: 0, w: this.target };
-      }
-      if (this.press) {
-        const P = this.press;
-        const down = P.i >= 0 ? R[P.i] : fire;
-        if (down) P.t += dt;
-        else {
-          this.press = null;
-          if (pz < this.los) game.hud.toast("Past the line: you can't throw now", '#ff8080');
-          else if (P.w && fb.players.includes(P.w)) this.throwIt(P.w, P.t < BULLET ? 'bullet' : 'lob', a);
-        }
-      }
-      if (pad) a.sprint = fire; // (R2 sprints on the controller; ✕ is a receiver)
-      else a.sprint = a.sprint && !R[1];
-      // The drop-back: three quick steps back off the snap, facing downfield (the stick takes
-      // over whenever you push it).
-      if (this.t < (this.play?.run ? 0.25 : 0.7) && Math.hypot(a.moveX, a.moveY) < 0.2) {
+    if (this.state === 'play' && b.holder === 'you') {
+      // The read: ◀ ▶ from man to man; the throw meter throws to him (fieldmodes.js).
+      this.drSelect(a);
+      this.meterInput(dt, a, fire);
+      // The drop-back: quick steps back off the snap, facing downfield (the stick takes over
+      // whenever you push it); then the pocket, time slowed while you read.
+      if (this.t < this.dr.play.drop && Math.hypot(a.moveX, a.moveY) < 0.2 && !this.press && !this.dr.acc) {
         const yaw = game.camYaw;
         a.moveY = Math.cos(yaw) * 0.75; // (world +z: back from the line)
         a.moveX = Math.sin(yaw) * 0.75;
         a.sprint = false;
         this.dropping = true;
       } else this.dropping = false;
-    } else this.press = null;
+      if (this.press || this.dr.acc) a.moveX = a.moveY = 0; // (set your feet to throw)
+    } else {
+      this.press = null;
+      this.meterInput(dt, a, fire); // (the meter's verdict, and time coming back to normal)
+    }
     this.prevR = R.slice();
     this.prevFire = fire;
   }
 
-  // Who gets which button: the receivers in order (the back gets R1).
+  // Who gets a button over his head (playing catch, the QB Challenge: none; the drive shows the
+  // read numbers instead: drivereads.js).
   receivers() {
     if (this.mode && this.mode !== 'drive') return this.modeReceivers();
-    const fb = this.fb;
-    const r = fb.wrs.slice(0, 4);
-    while (r.length < 4) r.push(null);
-    r.push(fb.rb && fb.players.includes(fb.rb) ? fb.rb : null);
-    return r;
+    return [null, null, null, null, null];
   }
 
   snap() {
@@ -352,22 +277,12 @@ export class Gridiron {
     this.sacked = false;
     fb.phase = 'play';
     fb.t = 0;
-    for (const w of fb.wrs) w.fb.leg = 0;
     fb.target = null;
     this.prevR = [true, true, true, true, true]; // (the ✕ that hiked it isn't a throw)
     this.press = null;
-    // The play: the routes it calls, the back's job, the fake.
-    const P = (this.play = PLAYS[this.playI || 0]);
-    fb.wrs.forEach((w, k) => (w.fb.route = fb.route(w, P.routes[k] || null)));
-    this.handed = false;
     this.runMove = null;
-    if (fb.rb && fb.players.includes(fb.rb)) {
-      fb.rb.fb.leg = 0;
-      fb.rb.fb.route = P.run ? null : P.pa ? fb.route(fb.rb, 'flat').map(([x, z]) => [x, z - 2]) : fb.route(fb.rb, 'flat');
-    }
-    this.biteT = P.pa ? 0.9 : 0; // (play action: they bite on the fake)
-    fb.biteT = this.biteT;
-    this.game.hud.toast(P.run ? `Hike! ${P.name}` : 'Hike!', '#ffd23f');
+    this.drSnap(); // (the routes the play calls: drivereads.js)
+    this.game.hud.toast('Hike!', '#ffd23f');
   }
 
   // Everyone on defense (the backs and the linebacker), still on the field.
@@ -376,27 +291,6 @@ export class Gridiron {
     const d = fb.dbs.slice();
     if (fb.lb && fb.players.includes(fb.lb)) d.push(fb.lb);
     return d;
-  }
-
-  // The handoff: the back meets you and takes it, and from here you're him (you swap places:
-  // you run with it, he carries on as the quarterback after the fake).
-  handoff() {
-    const game = this.game;
-    const fb = this.fb;
-    const rb = fb.rb;
-    const p = game.player;
-    const [px, pz] = p.pos();
-    const rx = rb.x;
-    const rz = rb.z;
-    rb.x = px;
-    rb.z = pz;
-    p.x = rx;
-    p.z = rz;
-    p.heading = Math.PI;
-    this.handed = true;
-    this.scramble = true; // (a runner now: no throwing)
-    this.carrier = true;
-    game.hud.toast(`Handoff · ${game.input.mode === 'kb' && !game.input.touchMode ? 'J / L juke · U spin · K stiff-arm' : game.input.touchMode ? 'JUKE · SPIN · STIFF' : 'right stick ← → juke · ↓ spin · □ stiff-arm'}`, '#ffd23f');
   }
 
   // Your moves with the ball: a juke (a quick cut to one side: whoever's closing in front grabs
@@ -472,151 +366,10 @@ export class Gridiron {
     a.sprint = true; // (running with it: full speed)
   }
 
-  // Who you're looking toward.
-  pickTarget() {
-    const game = this.game;
-    const [px, pz] = game.player.pos();
-    const yaw = game.camYaw;
-    const fx = Math.sin(yaw);
-    const fz = Math.cos(yaw);
-    let best = null;
-    let bs = -2;
-    const list = this.mode && this.mode !== 'drive' ? this.receivers().filter(Boolean) : this.fb.wrs;
-    for (const w of list) {
-      const d = dist(px, pz, w.x, w.z) || 1;
-      const s = ((w.x - px) * fx + (w.z - pz) * fz) / d;
-      if (s > bs) {
-        bs = s;
-        best = w;
-      }
-    }
-    return best;
-  }
-
-  // The throw: a bullet (fast, flat) or a lob (high, slower), led where he'll be, plus the
-  // left stick at the release, with a little error (more on the run or with the pocket closing).
-  throwIt(w, kind, a) {
-    const game = this.game;
-    const fb = this.fb;
-    const [px, pz] = game.player.pos();
-    const p = game.player;
-    const b = fb.ball;
-    const lob = kind === 'lob';
-    const d0 = dist(px, pz, w.x, w.z);
-    let T = lob ? 0.75 + d0 / 15 : 0.3 + d0 / 24;
-    const sp = w.speed || 0;
-    let tx = w.x + Math.sin(w.heading) * sp * T;
-    let tz = w.z + Math.cos(w.heading) * sp * T;
-    // A route's end: he stops there.
-    const end = w.fb.route?.[w.fb.route.length - 1];
-    if (end && dist(w.x, w.z, end[0], end[1]) < sp * T) [tx, tz] = end;
-    // The left stick leads him (camera-relative).
-    const mx = a?.moveX || 0;
-    const my = a?.moveY || 0;
-    if (Math.hypot(mx, my) > 0.3) {
-      const yaw = game.camYaw;
-      const lead = lob ? 3.2 : 2;
-      tx += (Math.sin(yaw) * my - Math.cos(yaw) * mx) * lead;
-      tz += (Math.cos(yaw) * my + Math.sin(yaw) * mx) * lead;
-    }
-    let err = lob ? 0.8 : 0.45;
-    if (this.t > SACK - 1.5) err += 0.5; // (the pocket closing in)
-    if ((p.speed || 0) > 2.5) err += 0.5; // (throwing on the run)
-    const ea = rand(0, Math.PI * 2);
-    const er = err * rand(0, 1);
-    tx += Math.cos(ea) * er;
-    tz += Math.sin(ea) * er;
-    const F = fb.site.field;
-    tx = Math.max(F.x0 - 1, Math.min(F.x1 + 1, tx));
-    tz = Math.max(F.z0 - 2, tz);
-    T = lob ? 0.75 + dist(px, pz, tx, tz) / 15 : 0.3 + dist(px, pz, tx, tz) / 24;
-    b.x = px + Math.sin(p.heading) * 0.2;
-    b.z = pz + Math.cos(p.heading) * 0.2;
-    b.y = 2.0;
-    fb.launch(tx, lob ? 1.6 : 1.3, tz, T, 'pass', w);
-    b.style = kind;
-    this.state = 'air';
-    this.throwT = 0.4;
-    game.hud.toast(lob ? 'Lob' : 'Bullet', '#ffd23f');
-  }
-
   // The pass gets there (football.js arrived() hands it over).
   arrived() {
     if (this.mode === 'catch') return this.catchArrived();
-    const game = this.game;
-    const fb = this.fb;
-    const b = fb.ball;
-    const w = b.to;
-    const dW = w && fb.players.includes(w) ? dist(w.x, w.z, b.x, b.z) : 99;
-    let db = null;
-    for (const q of this.defenders()) if (!db || dist(q.x, q.z, b.x, b.z) < dist(db.x, db.z, b.x, b.z)) db = q;
-    const dD = db ? dist(db.x, db.z, b.x, b.z) : 99;
-    // A bullet: a back sitting on the line of it (the last two thirds) can jump it.
-    if (b.style === 'bullet') {
-      for (const q of this.defenders()) {
-        const [x0, , z0] = b.p0;
-        const [x1, , z1] = b.p1;
-        const L2 = (x1 - x0) ** 2 + (z1 - z0) ** 2 || 1;
-        const k = Math.max(0.33, Math.min(0.95, ((q.x - x0) * (x1 - x0) + (q.z - z0) * (z1 - z0)) / L2));
-        const off = dist(q.x, q.z, x0 + (x1 - x0) * k, z0 + (z1 - z0) * k);
-        // (only one in front of your man, undercutting it: trailing him he can't get there)
-        const kw = w ? ((w.x - x0) * (x1 - x0) + (w.z - z0) * (z1 - z0)) / L2 : 1;
-        if (off < 0.8 && k < kw - 0.04 && off < dW) {
-          const r = Math.random();
-          if (r < 0.3) {
-            fb.hold(q);
-            game.hud.toast('Jumped the route: INTERCEPTED', '#ff8080');
-            return this.end('pick');
-          }
-          if (r < 0.6) {
-            b.mode = 'loose';
-            b.vx = rand(-2, 2);
-            b.vz = rand(-2, 2);
-            b.vy = 1;
-            game.hud.toast('Knocked down. Incomplete', '#ff8080');
-            return this.over(null);
-          }
-        }
-      }
-    }
-    // Picked off: a back closer to it than your man (less often on a lob he had to run under).
-    if (db && dD < 1.6 && dD < dW && Math.random() < (b.style === 'lob' ? 0.45 : 0.55)) {
-      fb.hold(db);
-      game.hud.toast('INTERCEPTED', '#ff8080');
-      return this.end('pick');
-    }
-    const dove = w && fb.players.includes(w) && fb.diveFor(w, b.x, b.z); // (just out of reach: he lays out)
-    let pr = dW < 0.8 ? 0.9 : dW < 1.6 ? 0.65 : dW < 2.5 ? 0.3 : 0;
-    if (dove) pr += 0.1;
-    const cover = db && w ? dist(db.x, db.z, w.x, w.z) : 99;
-    if (cover < 1.5) pr -= 0.3;
-    else if (cover < 2.5) pr -= 0.15;
-    if (Math.random() < pr) {
-      fb.hold(w);
-      if (dove) {
-        // (a diving catch: down where he caught it)
-        for (const f of fb.fans) f.fb.cheerT = rand(1.5, 2.2);
-        game.hud.toast('DIVING CATCH!', '#7ee081');
-        if (b.z <= this.goal) return this.touchdown(w);
-        return this.over(w.z);
-      }
-      fb.phase = 'run';
-      fb.t = 0;
-      fb.runFor = 99;
-      w.fb.runTo = [w.x, this.goal - 3];
-      this.state = 'run';
-      this.t = 0;
-      for (const f of fb.fans) f.fb.cheerT = rand(1, 1.8);
-      game.hud.toast('Caught!', '#7ee081');
-      return;
-    }
-    // Incomplete: it bounces away.
-    b.mode = 'loose';
-    b.vx = rand(-1.5, 1.5);
-    b.vz = rand(-1.5, 1.5);
-    b.vy = -2;
-    game.hud.toast(dD < 2 ? 'Batted away. Incomplete' : 'Incomplete', '#ff8080');
-    this.over(null);
+    return this.drArrived(); // (the drive: open or covered, drivereads.js)
   }
 
   // ---- Every frame (football.js step) ----
@@ -631,15 +384,11 @@ export class Gridiron {
     if (!this.onField(px, pz, 2)) this.outT = (this.outT || 0) + dt;
     else this.outT = 0;
     if (this.outT > 2.5 || game.player.vehicle || game.stars > 0 || game.wastedT > 0 || game.bustedT > 0) return this.end('forfeit');
-    if (!fb.wrs.length) return this.end('off');
+    if (fb.wrs.length < 3 || fb.dbs.length < 3) return this.end('off'); // (somebody ran off)
     if (this.state === 'line') {
       // Lining up (football.js 'reset': everyone walks to their spot).
       if (fb.phase === 'reset' && fb.players.every((q) => q.fb.role === 'bench' || dist(q.x, q.z, ...q.fb.home) < 0.7)) fb.phase = 'set';
     } else if (this.state === 'play') {
-      if (this.biteT > 0) this.biteT -= dt;
-      fb.biteT = this.biteT;
-      // The handoff: the back gets to you.
-      if (this.play?.run && !this.handed && b.holder === 'you' && fb.rb && fb.players.includes(fb.rb) && this.t > 0.25 && dist(fb.rb.x, fb.rb.z, px, pz) < 1.3) this.handoff();
       if (b.holder === 'you') {
         // Scrambling past the line.
         if (pz < this.los) this.scramble = true;
@@ -651,8 +400,8 @@ export class Gridiron {
           this.downT = 1.1; // (you hit the turf too)
           return this.over(pz);
         }
-        if (!this.scramble && this.t > SACK) {
-          game.hud.toast('SACKED', '#ff8080');
+        if (!this.scramble && !this.dr.acc && this.t > SACK_READ) {
+          game.hud.toast(`SACKED · ${this.drTold()}`, '#ff8080');
           this.downT = 1.1;
           return this.over(Math.min(this.los + 4 * YD, fb.site.field.z1 - 1));
         }
@@ -668,13 +417,12 @@ export class Gridiron {
         return this.over(h.z);
       }
     } else if (this.state === 'dead') {
-      // The ball comes back to you; everyone lines up again.
+      // The ball comes back to you; everyone lines up again (the defense in a new coverage).
       if (this.t > 1.6) {
         b.mode = 'held';
         b.holder = 'you';
         fb.los = this.los;
-        fb.setHomes();
-        for (const w of fb.wrs) w.fb.route = null;
+        this.drLineUp(true);
         fb.phase = 'reset';
         fb.t = 0;
         this.state = 'line';
@@ -683,47 +431,19 @@ export class Gridiron {
     }
     if (this.throwT > 0) this.throwT -= dt;
     if (this.downT > 0) this.downT -= dt;
-    // The arrow over who you'd throw to.
-    this.target = this.state === 'play' && b.holder === 'you' && !this.scramble ? this.pickTarget() : null;
-    const kb = game.input.mode === 'kb';
-    this.arrow.visible = !!this.target && kb; // (with a mouse: the man a click goes to)
-    if (this.target) this.arrow.position.set(this.target.x, 3.1 + Math.sin(game.time * 6) * 0.08, this.target.z);
-    this.updateIcons();
+    this.drStep(dt); // (the open man's window, the lines, the read numbers: drivereads.js)
+    this.meterHud();
+    const inp = game.input;
+    const kb = inp.mode === 'kb' && !inp.touchMode;
     let hint = '';
-    const keys = kb ? '1-4' : '□ ✕ ○ △';
-    const pk = game.input.touchMode ? 'PLAY' : kb ? 'Z / X' : 'L1 / R1';
-    const playName = PLAYS[this.playI || 0].name;
-    if (this.state === 'line') hint = `Play: ${playName} (${pk} to change) · ${this.ready ? `${kb ? 'E' : '✕'} hike` : 'get behind the line, in the middle'}`;
-    else if (this.state === 'play' && this.carrier && b.holder === 'you') hint = kb && !game.input.touchMode ? 'Run! J / L juke · U spin · K stiff-arm' : game.input.touchMode ? 'Run! JUKE · SPIN · STIFF' : 'Run! right stick ← → juke · ↓ spin · □ stiff-arm';
-    else if (this.state === 'play' && b.holder === 'you') hint = this.scramble ? (kb && !game.input.touchMode ? 'Run it in! J / L juke · U spin · K stiff-arm' : 'Run it in! juke · spin · stiff-arm') : this.t > SACK - 1.5 ? 'Pocket collapsing: throw it!' : `${keys}: tap a bullet, hold a lob · left stick leads him${kb ? ' · or click the player you look at' : ''}`;
-    // (holding a button: how far toward a lob)
-    const meter = this.press ? Math.min(1, this.press.t / 0.5) : null;
-    game.hud.sport?.(this.board(), meter, hint);
-  }
-
-  // The button over each receiver's head (lined up, and while you've got it to throw).
-  updateIcons() {
-    const game = this.game;
-    const kb = game.input.mode === 'kb' && !game.input.touchMode;
-    const mode = kb ? 'kb' : 'pad';
-    const recv = this.receivers();
-    const show = (this.state === 'line' || (this.state === 'play' && this.fb.ball.holder === 'you' && !this.scramble));
-    for (let i = 0; i < recv.length; i++) {
-      let s = this.icons[i];
-      if (!s || this.iconMode !== mode) {
-        if (s) game.scene.remove(s);
-        s = this.icons[i] = iconSprite(kb ? String(i + 1) : ICONS[i], ICON_COLORS[i]);
-        game.scene.add(s);
-      }
-      const w = recv[i];
-      s.visible = !!w && show;
-      if (w) {
-        const pressed = this.press && this.press.w === w;
-        s.position.set(w.x, 2.75, w.z);
-        s.scale.setScalar(pressed ? 0.1 : this.state === 'line' ? 0.06 : 0.078); // (a fixed size on screen)
-      }
-    }
-    this.iconMode = mode;
+    const pk = inp.touchMode ? 'PLAY' : kb ? 'Z / X' : 'L1 / R1';
+    const sk = inp.touchMode ? '◀ ▶' : kb ? 'Z / X' : 'D-pad ◀ ▶';
+    const tk = inp.touchMode ? 'BULLET · TOUCH · LOB' : kb ? 'J · K · L' : '□ · ✕ · △';
+    if (this.state === 'line') hint = `${this.drPlayName()} (${pk} to change) · ${this.ready ? `${kb ? 'E' : '✕'} hike` : 'get behind the line, in the middle'}`;
+    else if (this.state === 'play' && b.holder === 'you') hint = this.scramble ? (kb ? 'Run it in! J / L juke · U spin · K stiff-arm' : 'Run it in! juke · spin · stiff-arm') : this.t > SACK_READ - 0.9 ? 'Pocket collapsing: throw it!' : `${sk} find the open man · ${tk} throw`;
+    // (the pocket clock, while you've got it in there)
+    const clock = this.state === 'play' && b.holder === 'you' && !this.scramble ? { v: Math.max(0, 1 - this.t / SACK_READ), lo: 2, hi: 2 } : null;
+    game.hud.sport?.(this.board(), clock, hint);
   }
 
   // The ball in your hands (football.js step).
@@ -762,11 +482,8 @@ export class Gridiron {
     this.meter = null;
     this.press = null;
     this.dropping = false;
-    this.carrier = false;
-    this.handed = false;
     this.runMove = null;
-    this.biteT = 0;
-    fb.biteT = 0;
+    if (this.dr) this.dr.acc = null;
     fb.phase = 'dead';
     fb.t = 0;
     if (z != null) this.los = Math.max(this.goal + YD, Math.min(fb.site.field.z1 - 1, z));
@@ -787,7 +504,7 @@ export class Gridiron {
     const game = this.game;
     for (const f of this.fb.fans) f.fb.cheerT = 2.5;
     for (const q of this.fb.wrs) q.fb.cheerT = 2;
-    game.hud.toast(who === 'you' ? (this.carrier ? 'TOUCHDOWN! Took the handoff to the house' : 'TOUCHDOWN! You took it in yourself') : 'TOUCHDOWN!', '#7ee081');
+    game.hud.toast(who === 'you' ? 'TOUCHDOWN! You took it in yourself' : 'TOUCHDOWN!', '#7ee081');
     this.end('td');
   }
 
@@ -806,6 +523,13 @@ export class Gridiron {
       const t = 1.1 - this.downT;
       const k = t < 0.25 ? t / 0.25 : this.downT < 0.35 ? this.downT / 0.35 : 1;
       c.group.position.y += layoutPose(c, k, false);
+      return;
+    }
+    if (this.mode === 'drive' && this.dr?.acc) {
+      // (the arm coming through while you time the tap: the ball leaves the hand at the middle)
+      throwPose(c, 1, Math.min(0.34, (this.dr.acc.n / 0.5) * 0.34));
+      c.group.userData.fbGrip = 'throw';
+      this.placeBall(c, b);
       return;
     }
     if (this.mode && this.mode !== 'drive' && this.modeLate(c)) {
@@ -837,7 +561,7 @@ export class Gridiron {
       else if (this.mode === 'qbc' && this.qbc?.jk?.move) {
         const J = this.qbc.jk.move; // (the juke past the rusher: thrown toward the side you went)
         jukePose(c, J.dir, J.t / 0.45, 4);
-      } else c.group.position.y += this.pocketPose(c, this.mode === 'qbc' ? this.qbcFace() : this.target ? Math.atan2(this.target.x - p.x, this.target.z - p.z) : Math.PI); // (set in the pocket: side-on, shuffling)
+      } else c.group.position.y += this.pocketPose(c, this.mode === 'qbc' ? this.qbcFace() : this.drFace()); // (set in the pocket: side-on, shuffling)
       this.placeBall(c, b);
     } else if (this.throwT > 0) throwPose(c, 1, 1 - this.throwT / 0.4); // (the follow-through)
   }
@@ -896,10 +620,12 @@ export class Gridiron {
     for (const s of this.icons || []) if (s) game.scene.remove(s);
     this.icons = [];
     this.press = null;
-    // (the extra back goes home)
+    if (this.dr) this.drEnd();
+    // (whoever came off the sideline to make it three on three goes home)
     for (const d of this.extra || []) {
       if (fb.players.includes(d)) fb.players.splice(fb.players.indexOf(d), 1);
       if (fb.dbs.includes(d)) fb.dbs.splice(fb.dbs.indexOf(d), 1);
+      if (fb.wrs.includes(d)) fb.wrs.splice(fb.wrs.indexOf(d), 1);
       if (fb.ball?.holder === d) fb.loose();
       d.keep = false;
       d.sidewalk = true;
@@ -931,28 +657,6 @@ export class Gridiron {
 }
 Object.assign(Gridiron.prototype, FieldModes); // (playing catch, the throw meter)
 Object.assign(Gridiron.prototype, QBChallenge); // (the QB Challenge)
+Object.assign(Gridiron.prototype, DriveReads); // (the drive's three on three: formations, concepts, the read)
 
-// A receiver's button (a round badge with the symbol) that always faces the camera, the same
-// size on screen however far off he is.
 const _gb = new THREE.Vector3();
-function iconSprite(text, color) {
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = 64;
-  const g = cv.getContext('2d');
-  g.fillStyle = 'rgba(10,14,20,.8)';
-  g.beginPath();
-  g.arc(32, 32, 29, 0, Math.PI * 2);
-  g.fill();
-  g.lineWidth = 4;
-  g.strokeStyle = color;
-  g.stroke();
-  g.fillStyle = color;
-  g.font = `bold ${text.length > 1 ? 30 : 46}px sans-serif`;
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(text, 32, 34);
-  const tex = new THREE.CanvasTexture(cv);
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, sizeAttenuation: false }));
-  s.renderOrder = 10;
-  return s;
-}

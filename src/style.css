@@ -405,7 +405,12 @@ body.touch #sport .sh { display: none; }
 #touch .tb-tprev { right: 168px; }
 #touch .tb-tnext { right: 24px; }
 @media (max-height: 340px) { #touch .tb-tprev, #touch .tb-tnext { width: 48px; height: 48px; bottom: 150px; } }
+/* (the drive's read: ◀ ▶ bottom left, under your left thumb, off the field the receivers are on) */
+#touch[data-mode="drive"] .tb-tprev, #touch[data-mode="drive"] .tb-tnext { right: auto; bottom: 26px; width: 62px; height: 62px; }
+#touch[data-mode="drive"] .tb-tprev { left: 22px; }
+#touch[data-mode="drive"] .tb-tnext { left: 96px; }
 #touch .tb-qr1 { right: 22px; bottom: 196px; color: #ffd23f; }
+@media (max-height: 340px) { #touch .tb-qr1 { bottom: 124px; } } /* (clear of the cash and clock up top) */
 #touch .tb-rjuke { right: 168px; bottom: 100px; width: 66px; height: 66px; }
 #touch .tb-rspin { right: 96px; bottom: 170px; width: 66px; height: 66px; }
 #touch .tb-rstiff { right: 24px; bottom: 100px; width: 66px; height: 66px; }

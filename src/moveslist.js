@@ -49,9 +49,11 @@ const FOOTBALL = {
       ['Pick a play', 'PLAY', 'L1 / R1', 'Z / X'],
       ['Hike', '✕', '✕', 'E'],
     ]],
-    ['THROWING', [
-      ['Throw (tap: bullet, hold: lob)', 'the receiver\'s button', 'the button over his head (□ ✕ ○ △; R1 the back)', '1-5'],
-      ['Lead the throw', 'the stick', 'left stick', 'WASD'],
+    ['THE READ (time slows after the drop)', [
+      ['Next receiver', '◀ ▶', 'D-pad ◀ ▶ (or L1 / R1)', 'Z / X (or Q / E)'],
+      ['Bullet (hold, let go in the green, tap again)', 'BULLET', '□', 'J'],
+      ['Touch', 'TOUCH', '✕', 'K / click'],
+      ['Lob', 'LOB', '△', 'L'],
     ]],
     ['RUNNING WITH IT', [
       ['Juke', 'JUKE', 'right stick ← / →', 'J / L'],
@@ -63,7 +65,7 @@ const FOOTBALL = {
       ['This list', '?', 'Create', 'Tab'],
     ]],
   ],
-  notes: '',
+  notes: 'Every play one receiver comes open for a moment (the play beats the coverage there): find him, start the throw before his man closes. After each play you\'re told the coverage and who was open.',
 };
 
 const QBC = {

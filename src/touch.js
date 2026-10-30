@@ -507,25 +507,32 @@ export class TouchControls {
       // (the QB Challenge too: the same three throws; ◀ ▶ pick the ring)
       const cat = M?.mode === 'catch';
       const qbc = M?.mode === 'qbc';
-      const meter = cat || qbc;
-      this.el.root.dataset.mode = cat ? 'catch' : qbc ? 'qbc' : '';
+      // (the drive: at the line ✕ hikes and PLAY calls it; with the ball, ◀ ▶ read and the meter
+      // throws, □ bullet ✕ touch △ lob)
+      const drive = M?.mode === 'drive';
+      const dline = drive && line;
+      const dread = drive && M?.state === 'play' && !running && game.football?.ball?.holder === 'you';
+      const meter = cat || qbc || dread;
+      this.el.root.dataset.mode = cat ? 'catch' : qbc ? 'qbc' : drive ? 'drive' : '';
+      
       b.reload.hint.textContent = meter ? 'bullet' : '';
       b.tri.hint.textContent = meter ? 'lob' : '';
       // (a ball coming to you: CATCH is the only button)
       const incoming = cat && ((game.football?.ball?.mode === 'flight' && game.football.ball.to === 'you') || !!M?.cat?.late);
       this.el.root.classList.toggle('catching', incoming); // (CATCH alone, and big: style.css)
       if (meter) b.cross.hint.textContent = incoming ? 'catch' : 'touch';
-      b.circle.el.classList.toggle('hidden', running || meter);
-      b.qr1.el.classList.toggle('hidden', running || meter);
+      b.circle.el.classList.toggle('hidden', running || meter || drive);
+      b.qr1.el.classList.toggle('hidden', running || meter || (drive && !dline));
       b.clong.el.classList.toggle('hidden', !cat || incoming);
       b.cclose.el.classList.toggle('hidden', !cat || incoming);
-      b.reload.el.classList.toggle('hidden', running || incoming);
-      b.tri.el.classList.toggle('hidden', running || incoming);
+      b.reload.el.classList.toggle('hidden', running || incoming || (drive && !dread));
+      b.tri.el.classList.toggle('hidden', running || incoming || (drive && !dread));
+      if (drive) b.cross.el.classList.toggle('hidden', !dline && !dread);
       // (the QB Challenge's last stage: ◀ ▶ are the juke)
       const juke = qbc && !!M.qbcJukeOn?.();
-      b.tprev.el.classList.toggle('hidden', !juke);
-      b.tnext.el.classList.toggle('hidden', !juke);
-      b.tprev.hint.textContent = b.tnext.hint.textContent = juke ? 'juke' : '';
+      b.tprev.el.classList.toggle('hidden', !juke && !dread);
+      b.tnext.el.classList.toggle('hidden', !juke && !dread);
+      b.tprev.hint.textContent = b.tnext.hint.textContent = juke ? 'juke' : dread ? 'read' : '';
       if (juke) for (const id of ['reload', 'cross', 'tri']) b[id].el.classList.add('hidden'); // (no throwing till you've beaten him: just the juke)
     }
     if (ctx !== 'qb') this.el.root.classList.remove('catching');

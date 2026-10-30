@@ -558,10 +558,10 @@ export class Football {
       if (f.beatT > 0) return { speed: 0 }; // (juked: caught flat-footed)
       return { tx: px, tz: pz, speed: 6.4 };
     }
-    if (M && M.biteT > 0) {
-      // (play action: biting on the fake, a step up)
-      faceAt(this.game.player.pos()[0], this.game.player.pos()[1]);
-      return { speed: 0 };
+    if (M?.mode === 'drive' && M.dr) {
+      // (in your drive: on his man, or beaten for a moment: drivereads.js)
+      const r = M.drDB(p, f, b, faceAt);
+      if (r) return r;
     }
     // (after a catch every back goes for the ball carrier)
     const m = ph === 'run' && b.holder && b.holder !== 'you' && (b.holder.fb?.role === 'wr' || b.holder.fb?.role === 'rb') ? b.holder : f.mark;

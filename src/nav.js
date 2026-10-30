@@ -145,6 +145,7 @@ export function navStep(e, finalX, finalZ, speed, dt, game, radius = 0.4) {
   let blockAhead = 9;
   for (const o of crowd) {
     if (o === pl || Math.hypot(finalX - o.x, finalZ - o.z) < 1.2) continue; // not the person they're going to
+    if (e.fb && o.fb) continue; // (football players run their routes through each other's space)
     const rx = o.x - e.x;
     const rz = o.z - e.z;
     const ahead = rx * ux + rz * uz;

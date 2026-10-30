@@ -22,7 +22,7 @@ export const CFG = {
   // Testing switch: a moment after you start at Harbor Field, you're in one of its games:
   // 'catch' (playing catch with a receiver, medium apart), 'qbc' (the QB Challenge), 'drive', or
   // null (off: ask their quarterback like normal).
-  START_FIELD_GAME: 'qbc',
+  START_FIELD_GAME: 'drive',
   // Testing switch: a few seconds in, a dice game on a corner in a rival gang's turf near the
   // start, and you put a few steps from it (dice.js).
   START_NEAR_DICE: false,

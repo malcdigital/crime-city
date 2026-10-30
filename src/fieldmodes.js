@@ -33,6 +33,7 @@ const FILL = 0.6; // (game seconds to a full meter: about 1.2 s with time slowed
 const ACC_T = 0.45; // (game seconds for the accuracy needle: about 0.9 s slowed; the perfect tap's halfway)
 const SLOW = 0.5; // (time while you hold and tap)
 const SHORT_WIN = 2.37; // (the green at 8 yards and in: this many times as wide)
+const READ_SLOW = 0.5; // (the drive, reading the field after the drop: drivereads.js)
 const HITCAM_SLOW = 0.65; // (the QB Challenge's hit cam following a deep ball)
 export const CTYPES = {
   bullet: { max: 40, T: (L) => 0.25 + L / 26, win: 0.05, err: 0.35, h: 1.3 }, // (on a line: quick, the least forgiving)
@@ -271,15 +272,17 @@ export const FieldModes = {
   // (keyboard J / K / L, or a click for touch). Hold for power, let go in the green, tap the same
   // button again as the arm comes through; time slows to half while you do.
   meterS() {
-    return this.mode === 'qbc' ? this.qbc : this.cat;
+    return this.mode === 'qbc' ? this.qbc : this.mode === 'drive' ? this.dr : this.cat;
   },
   meterTarget() {
     if (this.mode === 'qbc') return this.qbcAim(); // (a moving ring: where it'll be)
+    if (this.mode === 'drive') return this.drAim(); // (the man you're reading, along his route: drivereads.js)
     return this.cat.mate;
   },
   meterCan() {
     const b = this.fb.ball;
     if (this.mode === 'qbc') return this.canThrowMode();
+    if (this.mode === 'drive') return this.drCanThrow();
     return b.holder === 'you' && b.mode === 'held';
   },
   meterInput(dt, a, fire) {
@@ -302,6 +305,7 @@ export const FieldModes = {
       for (const k of ['bullet', 'touch', 'lob']) {
         if (held[k] && !S.prevHeld[k]) {
           this.press = { kind: k, t: 0 };
+          if (this.mode === 'drive') this.drPress(); // (the drive: who you went to, and when)
           break;
         }
       }
@@ -326,7 +330,7 @@ export const FieldModes = {
     S.prevHeld = held;
     // (time slows to half while you hold and tap, and eases back after)
     const ts = game.timeScale || 1;
-    const want = this.press || S.acc ? SLOW : this.catchSlow() ? CW_SLOW : this.mode === 'qbc' && this.qbc?.cam?.slowNow ? HITCAM_SLOW : 1;
+    const want = this.press || S.acc ? SLOW : this.mode === 'drive' ? (this.drReading() ? READ_SLOW : 1) : this.catchSlow() ? CW_SLOW : this.mode === 'qbc' && this.qbc?.cam?.slowNow ? HITCAM_SLOW : 1;
     game.timeScale = ts + (want - ts) * Math.min(1, (dt / ts) * 9);
     if (Math.abs(game.timeScale - 1) < 0.01) game.timeScale = 1;
     if (pad) a.sprint = fire; // (R2 sprints)
@@ -337,6 +341,7 @@ export const FieldModes = {
     S.acc = null;
     const acc = n == null ? (Math.random() < 0.5 ? -0.5 : 0.5) : n - 0.5;
     if (this.mode === 'qbc') this.qbcThrow(A.tgt || this.meterTarget(), A.kind, A.power, acc, n);
+    else if (this.mode === 'drive') this.drThrow(A.kind, A.power, acc, n);
     else this.catchThrow(A.kind, A.power, acc, a, n);
   },
   // What the meter shows a moment after a throw (S.last): where you let go and tapped, the
@@ -476,7 +481,7 @@ export const FieldModes = {
   goldBall(on) {
     const game = this.game;
     const b = this.fb.ball;
-    const C = this.cat;
+    const C = this.meterS();
     if (on && !C.gold) {
       C.gold = { mat: b.mesh.material, ghosts: [], hist: [] };
       b.mesh.material = GOLD;
@@ -491,6 +496,23 @@ export const FieldModes = {
       for (const g of C.gold.ghosts) game.scene.remove(g);
       C.gold = null;
     }
+  },
+
+  // A perfect pass's gold trail of afterimages, till it lands (S: whose meter it was).
+  goldStep(S) {
+    const b = this.fb.ball;
+    if (!S?.gold) return;
+    if (b.mode !== 'flight') return this.goldBall(false);
+    S.gold.hist.unshift([b.x, b.y, b.z, b.mesh.quaternion.clone()]);
+    S.gold.hist.length = Math.min(S.gold.hist.length, 13);
+    S.gold.ghosts.forEach((g, i) => {
+      const h = S.gold.hist[(i + 1) * 2];
+      g.visible = !!h;
+      if (h) {
+        g.position.set(h[0], h[1], h[2]);
+        g.quaternion.copy(h[3]);
+      }
+    });
   },
 
   // D-pad ↑: go long (10 yards further out, up to the limit); ↓: come closer.
@@ -827,22 +849,7 @@ export const FieldModes = {
       return this.end('off');
     }
     this.sideStep(dt);
-    // (a perfect pass's gold trail, till it lands)
-    if (C.gold) {
-      if (b.mode !== 'flight') this.goldBall(false);
-      else {
-        C.gold.hist.unshift([b.x, b.y, b.z, b.mesh.quaternion.clone()]);
-        C.gold.hist.length = Math.min(C.gold.hist.length, 13);
-        C.gold.ghosts.forEach((g, i) => {
-          const h = C.gold.hist[(i + 1) * 2];
-          g.visible = !!h;
-          if (h) {
-            g.position.set(h[0], h[1], h[2]);
-            g.quaternion.copy(h[3]);
-          }
-        });
-      }
-    }
+    this.goldStep(C); // (a perfect pass's gold trail, till it lands)
     const p = game.player;
     let [px, pz] = p.pos();
     // The 50-yard leash: past it, backing off fights you (pulled most of the way back each step)
