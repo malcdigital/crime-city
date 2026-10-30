@@ -279,6 +279,7 @@ export const DriveReads = {
     });
     D.openAt = D.closeAt = null;
     D.lock = null;
+    D.camT = 0; // (the camera's move in starts now: drStep)
     const scanned = D.scanList?.[D.scanI];
     D.sel = scanned != null ? scanned : D.play.read[0]; // (the read starts on whoever you were looking at)
     // (the ✕ that hiked it is also TOUCH: it's not a throw till it's let go and pressed again)
@@ -423,6 +424,7 @@ export const DriveReads = {
     const D = this.dr;
     if (!D) return;
     if (D.introAt != null && this.game.time >= D.introAt) this.drIntro();
+    if (this.state !== 'line') D.camT = (D.camT || 0) + dt / (this.game.timeScale || 1); // (real seconds: the slow motion doesn't stretch the camera's move)
     // The huddle breaks on the intro's cut in behind you (or straight away if it's skipped):
     // the cut lands on everyone lined up, you behind the center.
     if (D.huddle) {
@@ -779,12 +781,10 @@ export const DriveReads = {
     if (this.dr) this.dr.wipe = null;
   },
   // The drive's camera shot (fieldmodes.js camShot → main.js): wide at the line, easing back in
-  // over your shoulder through the drop-back on the drive curve; the near shot after.
+  // over your shoulder on the drive curve over CAM_MOVE real seconds from the snap.
   drCamShot() {
     const D = this.dr;
-    let k = 1;
-    if (this.state === 'line') k = 0;
-    else if (this.state === 'play') k = driveCurve(this.t / Math.max(0.2, D?.play?.drop ?? 0.6));
+    const k = this.state === 'line' ? 0 : driveCurve((D?.camT || 0) / CAM_MOVE);
     const sh = {};
     for (const key of Object.keys(SHOT_NEAR)) sh[key] = SHOT_WIDE[key] + (SHOT_NEAR[key] - SHOT_WIDE[key]) * k;
     sh.look = null;
@@ -817,25 +817,28 @@ export const DriveReads = {
   },
 };
 
-// The camera's ease from the wide pre-snap shot back in over your shoulder (a cubic Bezier from
-// (0,0) to (1,1), handles (0, 0.449) and (0, 0.993): it gets most of the way there fast and
-// settles in; x: how far through the move, 0..1 → y: how far the camera's come).
-const CB = [0, 0.4491228, 0.9932236, 1]; // (y control points; x's are 0, 0, 0, 1)
+// The camera's ease from the wide pre-snap shot back in over your shoulder, over CAM_MOVE real
+// seconds from the snap: a cubic Bezier from (0,0) to (1,1), the first handle straight up to
+// (0, 0.646), the second back to (0.638, 0.996) (x: how far through the move, 0..1 → y: how far
+// the camera's come). Quick off the snap, then a long settle.
+export const CAM_MOVE = 2.0;
+const CBX = [0, 0, 0.6379928, 1];
+const CBY = [0, 0.645614, 0.9964912, 1];
 export function driveCurve(x) {
   if (x <= 0) return 0;
   if (x >= 1) return 1;
-  const bz = (a, b, c, d, t) => {
+  const bz = (p, t) => {
     const u = 1 - t;
-    return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
+    return u * u * u * p[0] + 3 * u * u * t * p[1] + 3 * u * t * t * p[2] + t * t * t * p[3];
   };
   let lo = 0;
   let hi = 1;
   for (let i = 0; i < 30; i++) {
     const m = (lo + hi) / 2;
-    if (bz(0, 0, 0, 1, m) < x) lo = m;
+    if (bz(CBX, m) < x) lo = m;
     else hi = m;
   }
-  return bz(CB[0], CB[1], CB[2], CB[3], (lo + hi) / 2);
+  return bz(CBY, (lo + hi) / 2);
 }
 const SHOT_NEAR = { back: 3.7, up: 0.45, shoulder: 0.85, fov: 58 }; // (the QB Challenge's, over your shoulder)
 const SHOT_WIDE = { back: 8.7, up: 1.5, shoulder: 0.4, fov: 67 }; // (pre-snap: 5 m further back, up a bit, wider: half way to the old wide shot)
