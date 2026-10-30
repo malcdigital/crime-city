@@ -371,13 +371,14 @@ export const DriveReads = {
     const D = this.dr;
     if (!D) return;
     if (D.introAt != null && this.game.time >= D.introAt) this.drIntro();
-    // The huddle breaks as the intro cuts in behind you (or straight away if it's skipped):
-    // everyone runs to his spot.
+    // The huddle breaks on the intro's cut in behind you (or straight away if it's skipped):
+    // the cut lands on everyone lined up, you behind the center.
     if (D.huddle) {
       D.huddle.t += dt;
-      if (D.huddle.t >= 3.0 || (D.introAt == null && !this.game.driveCine?.open)) {
+      const C = this.game.driveCine;
+      if ((C?.open && C.t >= C.T * 0.6) || (D.introAt == null && !C?.open)) {
         D.huddle = null;
-        for (const w of this.fb.wrs) Object.assign(w.fb, { huddle: null, hurry: true });
+        this.drSetAll();
       }
     }
     if (D.wipe) {

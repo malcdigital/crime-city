@@ -47,14 +47,16 @@ export function qbStance(c) {
 // A receiver's two-point stance: the outside foot up, leaning over it, head up, arms cocked to
 // drive off the line.
 export function wrStance(c) {
-  bendLeg(c.legL, c.kneeL, 0.6, 0.75);
-  bendLeg(c.legR, c.kneeR, -0.2, 0.6);
-  bendSpine(c, 0.55, 0, 0);
-  c.neck.rotation.set(-0.65, 0, 0);
-  c.armR.rotation.set(-0.8, 0, 0);
-  c.elbowR.rotation.set(-1.3, 0, 0);
-  c.armL.rotation.set(0.45, 0, 0);
-  c.elbowL.rotation.set(-0.9, 0, 0);
+  // (set, not running: the feet a short stagger apart, knees bent, bent at the waist, both hands
+  // hanging low in front, still; head up)
+  bendLeg(c.legL, c.kneeL, 0.55, 0.8);
+  bendLeg(c.legR, c.kneeR, 0.15, 0.55);
+  bendSpine(c, 0.6, 0, 0);
+  c.neck.rotation.set(-0.7, 0, 0);
+  c.armL.rotation.set(-0.45, 0, 0.08);
+  c.armR.rotation.set(-0.5, 0, -0.08);
+  c.elbowL.rotation.set(-0.55, 0, 0);
+  c.elbowR.rotation.set(-0.55, 0, 0);
   return -lowestPoint(c);
 }
 
