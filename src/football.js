@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { lam, setShirt, bendLeg, bendSpine } from './character.js';
-import { tackledPose, tacklerPose, griddyPose, reachBackPose, qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
+import { pickPose, swatPose, deniedPose, tackledPose, tacklerPose, griddyPose, reachBackPose, qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
 import { rand, dist, lerpAngle, pick } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
 
@@ -384,6 +384,12 @@ export class Football {
       Object.assign(tackler.fb, { dive: true, diveTo: [rx + Math.sin(tackler.heading) * 0.6, rz + Math.cos(tackler.heading) * 0.6], downT: 1.3, downLen: 1.3, fall: { kind: 'tackler' } });
     }
     const fall = { kind: 'tackled', from, side };
+    // (the hit: a puff of turf and a jolt)
+    const M = this.match;
+    if (M?.mode === 'drive') {
+      this.game.shakeCamera?.(0.05, 0.22);
+      M.tackleDust?.(rx, rz);
+    }
     if (R?.fb) Object.assign(R.fb, { dive: false, downT: 1.3, downLen: 1.3, fall });
     else this.game.gridiron && (this.game.gridiron.youFall = fall); // (you: gridiron late())
     return fall;
@@ -500,10 +506,21 @@ export class Football {
     // (the QB Challenge or playing catch with you: fieldmodes.js says where everyone goes)
     if (this.match?.drivePlayer && this.match.mode !== 'drive') return this.match.drivePlayer(p, f, b, faceAt);
     if (f.role === 'bench') {
-      // (their quarterback, watching you from the sideline)
-      const sx = this.site.field.x0 - 1.6;
-      const sz = this.los + 2;
-      if (dist(p.x, p.z, sx, sz) > 0.6) return { tx: sx, tz: sz, speed: JOG };
+      // (their quarterback, watching you from the east sideline, by the team bench: the west one
+      // has the fence and the gate right on it)
+      const F = this.site.field;
+      const sx = F.x1 + 0.9;
+      const sz = Math.max(F.z0 + 4, Math.min(F.z1 - 4, this.los + 2));
+      const d = dist(p.x, p.z, sx, sz);
+      // (not getting there, caught on something: he's there)
+      f.benchT = d > 0.6 && p.speed > 0 && Math.abs(d - (f.benchD ?? 99)) < 0.02 ? (f.benchT || 0) + dt : 0;
+      f.benchD = d;
+      if (f.benchT > 1.5) {
+        p.x = sx;
+        p.z = sz;
+        f.benchT = 0;
+      }
+      if (d > 0.6) return { tx: sx, tz: sz, speed: JOG };
       faceAt(b.x, b.z);
       return { speed: 0 };
     }
@@ -624,6 +641,11 @@ export class Football {
       const r = this.driveRB(p, f, b, goTo, faceAt, face);
       if (r) return r;
     }
+    if ((f.role === 'wr' || f.role === 'rb') && this.match?.state === 'pick') {
+      // (picked off: after the man with it)
+      if (f.act) return { speed: 0 };
+      if (b.holder && b.holder !== p) return { tx: b.holder.x, tz: b.holder.z, speed: RUN * 0.95 };
+    }
     if (f.role === 'wr' || f.role === 'rb') {
       if (f.huddle) {
         // (the drive's huddle: in a ring, leaning in: drivereads.js)
@@ -663,6 +685,12 @@ export class Football {
       const [px, pz] = this.game.player.pos();
       if (f.beatT > 0) return { speed: 0 }; // (juked: caught flat-footed)
       return { tx: px, tz: pz, speed: 6.4 };
+    }
+    if (M?.mode === 'drive' && M.state === 'pick') {
+      // (the pick: he runs it back the other way, the rest of his side with him)
+      if (b.holder === p) return goTo(...(f.runTo || [p.x, p.z + 10]), RUN) || { speed: 0 };
+      if (f.act) return { speed: 0 };
+      return goTo(b.x + rand(-0.1, 0.1), b.z + 3, RUN * 0.9) || { speed: 0 };
     }
     if (M?.mode === 'drive' && M.dr) {
       // (in your drive: on his man, or beaten for a moment: drivereads.js)
@@ -761,6 +789,24 @@ export class Football {
       return 0.04 + pickupPose(c, 1 - f.pickT / PICK_T);
     }
     // (playing catch with you: the bench and the pair down the other end, fieldmodes.js)
+    // (a moment in the air with the ball: a pick, a swat, beaten to it, securing a catch)
+    const act = f.act && this.game.time - f.act.t0 < f.act.T ? f.act : null;
+    if (act) {
+      c.group.rotation.x = c.group.rotation.z = 0;
+      const k = (this.game.time - act.t0) / act.T;
+      if (act.kind === 'pick') {
+        c.group.userData.fbGrip = 'hands'; // (the ball in both hands, up at the top of the leap)
+        return 0.04 + pickPose(c, k);
+      }
+      if (act.kind === 'swat') return 0.04 + swatPose(c, k, act.side);
+      if (act.kind === 'denied') return 0.04 + deniedPose(c, k);
+      if (act.kind === 'secure') {
+        // (the ball pulled in to the chest in both hands, then on into the tuck)
+        const y = holdBall(c, 0, false, this.t);
+        c.group.userData.fbGrip = 'hands';
+        return 0.04 + y;
+      }
+    } else if (f.act) f.act = null;
     if (f.dance) {
       c.group.rotation.x = 0;
       return 0.04 + griddyPose(c, this.game.time - f.dance.t0); // (a touchdown: the Griddy)

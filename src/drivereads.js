@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { dist, rand, pick, clamp, lerpAngle } from './util.js';
 import { setShirt } from './character.js';
 import { CTYPES } from './fieldmodes.js';
+import { HeatFx } from './heatfx.js';
 import { PERFECT } from './throwmeter.js';
 
 // The drive's passing game (mixed into Gridiron: gridiron.js): three receivers against three
@@ -549,17 +550,39 @@ export const DriveReads = {
     if (!open) {
       const why = L?.why === 'early' ? "Too early: he hadn't come open yet" : L?.why === 'late' ? 'Too late: his man closed' : 'Into coverage';
       if (dD < 2.2 && Math.random() < (b.throwKind === 'bullet' ? 0.4 : b.throwKind === 'lob' ? 0.38 : 0.32)) {
+        // (picked: he goes up and takes it, then runs it back; the drive ends when he's done)
         fb.hold(db);
         this.heatMiss();
-        const card = this.drCardFor({ kind: 'pick', why: `${why} · ${told}` }, 0, false, true);
-        this.drScorePlay('pick', 0, false, card, true);
-        this.drWipeIn(card, true);
-        return this.end('pick');
+        const t0 = game.time;
+        db.fb.act = { kind: 'pick', t0, T: 0.9 };
+        db.heading = Math.atan2(b.x - db.x, b.z - db.z);
+        db.fb.runTo = [clamp(db.x + rand(-3, 3), fb.site.field.x0 + 1, fb.site.field.x1 - 1), Math.min(fb.site.field.z1 - 2, db.z + 16)];
+        if (here) w.fb.act = { kind: 'denied', t0, T: 0.7 };
+        fb.phase = 'run';
+        this.state = 'pick';
+        this.t = 0;
+        this.drPickWhy = `${why} · ${told}`;
+        game.hud.toast('INTERCEPTED!', '#ff8080');
+        return;
       }
       if (dW < 1.2 && Math.random() < (D.perfect ? 0.35 : 0.15)) return this.drCaught(w, false, 'Contested catch!');
       if (db && dD < 2.5) {
+        // (broken up: he goes up and swats it, it pops away off his hand; your man's left reaching)
         db.fb.relT = 0;
-        return fail(`Broken up. ${why}`);
+        const t0 = game.time;
+        const lx = Math.cos(db.heading);
+        const lz = -Math.sin(db.heading);
+        db.fb.act = { kind: 'swat', t0, T: 0.7, side: (b.x - db.x) * lx + (b.z - db.z) * lz >= 0 ? 1 : -1 };
+        if (here) w.fb.act = { kind: 'denied', t0, T: 0.7 };
+        fail(`Broken up. ${why}`);
+        const ux = b.x - db.x;
+        const uz = b.z - db.z;
+        const L = Math.hypot(ux, uz) || 1;
+        b.vx = (ux / L) * 3.5 + rand(-1, 1);
+        b.vz = (uz / L) * 3.5 + rand(-1, 1);
+        b.vy = 3.2;
+        b.y = Math.max(b.y, 2.0);
+        return;
       }
       return fail(dW < 2.6 ? `Incomplete. ${why}` : 'Incomplete');
     }
@@ -569,6 +592,10 @@ export const DriveReads = {
     if (Math.random() < (D.perfect && dW < 2.6 ? 1 : pr)) return this.drCaught(w, dove, dove ? 'DIVING CATCH!' : D.perfect ? 'Dropped in the bucket!' : 'Caught!');
     const off = b.p1 ? (this.los - b.p1[2]) - (this.los - w.z) : 0;
     fail(dW < 2.6 ? 'Off his hands. Incomplete' : off > 1.5 ? 'Overthrown' : off < -1.5 ? 'Underthrown' : 'Off target');
+    if (dW < 1.4) {
+      b.vy = 2.4; // (off his hands: it pops up off them)
+      if (here) w.fb.act = { kind: 'denied', t0: game.time, T: 0.6 };
+    }
   },
   drCaught(w, dove, text) {
     const game = this.game;
@@ -577,6 +604,7 @@ export const DriveReads = {
     fb.hold(w);
     this.drRes = { kind: 'complete', why: this.drTold() };
     this.dr.caught = (this.dr.caught || 0) + 1;
+    if (!dove) w.fb.act = { kind: 'secure', t0: game.time, T: 0.3 }; // (into the chest first, then the tuck)
     for (const f of fb.fans) f.fb.cheerT = rand(1, 2);
     game.hud.toast(text, '#7ee081');
     this.heatHit(b.x, Math.max(1, b.y), b.z); // (in rhythm, on fire: fieldmodes.js)
@@ -646,9 +674,12 @@ export const DriveReads = {
       s.visible = show && !!w;
       if (!w) continue;
       const sel = !on && k === D.sel;
-      s.position.set(w.x, sel ? 2.85 : 2.6, w.z);
-      s.scale.setScalar(sel ? 0.085 : on ? 0.055 : 0.06);
-      s.material.opacity = on || sel ? 1 : 0.7;
+      // (the man you're on: bigger, bobbing, a beat of pulse; the rest smaller and dimmer)
+      const bob = sel ? Math.sin(game.time * 5) * 0.06 : 0;
+      s.position.set(w.x, 2.15 + bob, w.z);
+      const base = sel ? 0.11 : on ? 0.08 : 0.07;
+      s.scale.set(base * (1 + (sel ? Math.sin(game.time * 9) * 0.04 : 0)), base * (152 / 128) * (1 + (sel ? Math.sin(game.time * 9) * 0.04 : 0)), 1);
+      s.material.opacity = on || sel ? 1 : 0.55;
     }
     const sk = on ? D.scanList?.[D.scanI] : null;
     const sw = !on && reading ? this.drSelW() : sk != null ? fb.wrs[sk] : null;
@@ -657,7 +688,7 @@ export const DriveReads = {
       this.drRing.position.set(sw.x, 0.075, sw.z);
       this.drRing.scale.setScalar(1 + Math.sin(game.time * 7) * 0.07);
     }
-    this.arrow.visible = !!sw && !cine;
+    this.arrow.visible = false; // (the badge's own pointer marks him now)
     if (sw) this.arrow.position.set(sw.x, 3.35 + Math.sin(game.time * 6) * 0.08, sw.z);
   },
   // The camera (the QB Challenge's, over your shoulder: fieldmodes.js camShot) turned to where
@@ -700,6 +731,27 @@ export const DriveReads = {
     p.heading = game.camYaw = Math.PI;
     this.pkYaw = null;
   },
+  // A tackle's puff of turf (football.js tackle): a few clods and a little dust out of the hit.
+  tackleDust(x, z) {
+    const fx = (this.hfx ||= new HeatFx(this.game.scene));
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2;
+      fx.spawn('smoke', x + Math.cos(a) * 0.2, 0.15, z + Math.sin(a) * 0.2, { T: 0.6 + Math.random() * 0.4, vx: Math.cos(a) * 1.6, vy: 0.5 + Math.random() * 0.6, vz: Math.sin(a) * 1.6, s0: 0.25, s1: 0.8, a0: 0.55, color: 0xb9a77f });
+    }
+  },
+  // The pick run back (gridiron phase): done when he's there or down, then the card and the end.
+  drPickStep() {
+    const fb = this.fb;
+    const b = fb.ball;
+    const h = b.holder;
+    const done = this.t > 2.4 || !h || h === 'you' || (h.fb?.runTo && dist(h.x, h.z, ...h.fb.runTo) < 0.8);
+    if (!done) return;
+    const card = this.drCardFor({ kind: 'pick', why: this.drPickWhy || '' }, 0, false, true);
+    this.drScorePlay('pick', 0, false, card, true);
+    this.drWipeIn(card, true);
+    this.end('pick');
+  },
+
   // ---- The transition between plays ----
   // What it says: the result (big), the yards, the down and distance next (or how the drive
   // ended), and why (who was open, what went wrong).
@@ -981,22 +1033,70 @@ function ribbon(pts, w) {
 
 // A read number over a receiver's head: always facing you, the same size on screen.
 function badge(text, color) {
+  // (a glossy disc in the read color, a bold white number with a dark edge, a ring of light
+  // round it and a little pointer down to his head; drawn at 2x so it stays crisp)
   const cv = document.createElement('canvas');
-  cv.width = cv.height = 64;
+  cv.width = 128;
+  cv.height = 152;
   const g = cv.getContext('2d');
-  g.fillStyle = 'rgba(10,14,20,.82)';
+  const cx = 64;
+  const cy = 62;
+  // (the glow)
+  const glow = g.createRadialGradient(cx, cy, 30, cx, cy, 62);
+  glow.addColorStop(0, color);
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  g.globalAlpha = 0.45;
+  g.fillStyle = glow;
   g.beginPath();
-  g.arc(32, 32, 29, 0, Math.PI * 2);
+  g.arc(cx, cy, 62, 0, Math.PI * 2);
   g.fill();
-  g.lineWidth = 5;
-  g.strokeStyle = color;
-  g.stroke();
+  g.globalAlpha = 1;
+  // (the pointer)
   g.fillStyle = color;
-  g.font = 'bold 42px sans-serif';
+  g.beginPath();
+  g.moveTo(cx - 13, cy + 40);
+  g.lineTo(cx + 13, cy + 40);
+  g.lineTo(cx, cy + 62);
+  g.closePath();
+  g.fill();
+  // (the disc: dark rim, then the color with a highlight across the top)
+  g.fillStyle = '#0b1018';
+  g.beginPath();
+  g.arc(cx, cy, 47, 0, Math.PI * 2);
+  g.fill();
+  const body = g.createLinearGradient(0, cy - 42, 0, cy + 42);
+  body.addColorStop(0, '#ffffff');
+  body.addColorStop(0.18, color);
+  body.addColorStop(1, shade(color, 0.55));
+  g.fillStyle = body;
+  g.beginPath();
+  g.arc(cx, cy, 41, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = 'rgba(255,255,255,.22)';
+  g.beginPath();
+  g.ellipse(cx, cy - 20, 30, 15, 0, 0, Math.PI * 2);
+  g.fill();
+  // (the number)
+  g.font = '900 64px "Arial Black", Impact, sans-serif';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillText(text, 32, 34);
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), depthTest: false, transparent: true, sizeAttenuation: false }));
+  g.lineWidth = 9;
+  g.strokeStyle = 'rgba(8,12,20,.9)';
+  g.strokeText(text, cx, cy + 3);
+  g.fillStyle = '#ffffff';
+  g.fillText(text, cx, cy + 3);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, sizeAttenuation: false }));
+  s.center.set(0.5, 0.1); // (anchored at the pointer's tip, just over his head)
   s.renderOrder = 10;
   return s;
+}
+// A color darkened (k 0..1 of it kept).
+function shade(hex, k) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.round(((n >> 16) & 255) * k);
+  const gg = Math.round(((n >> 8) & 255) * k);
+  const b = Math.round((n & 255) * k);
+  return `rgb(${r},${gg},${b})`;
 }

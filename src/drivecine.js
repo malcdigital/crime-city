@@ -24,11 +24,13 @@ export class DriveCine extends QbcCine {
     this.T = 5.0;
     this.open = true;
     const el = this.panel();
-    const stake = info.bet ? `<b>$${info.bet}</b> SAYS YOU SCORE` : 'JUST FOR FUN';
+    // (three short things, each in its own corner: the title, the record, and the play call as
+    // the camera cuts in behind you)
+    const chip = [info.best > 0 ? `RECORD <b>${info.best}</b>` : 'SET THE RECORD', info.bet ? `<b>$${info.bet}</b> ON IT` : ''].filter(Boolean).join(' · ');
     el.innerHTML = `<div class="c3-lb top"></div><div class="c3-lb bot"></div>
-      <div class="c3-title"><small>THE</small><b>DRIVE</b><span>VS ${esc(info.squad.toUpperCase())}'S SQUAD</span></div>
-      <div class="c3-rules">${esc(info.from)} · FOUR DOWNS TO MAKE 10 · EVERY THROW SCORED<br>FIND THE OPEN MAN EARLY · HIT THE GREEN · TAP IT PERFECT · SCORE FAST</div>
-      <div class="c3-best">${info.best > 0 ? `RECORD TO BEAT <b>${info.best}</b>` : 'NO RECORD YET'} · ${stake} · PLAY CALL <b>${esc(info.play.toUpperCase())}</b></div>
+      <div class="c3-title"><small>THE</small><b>DRIVE</b><span>VS ${esc(info.squad.toUpperCase())}</span></div>
+      <div class="dc-chip">${chip}</div>
+      <div class="dc-play"><small>PLAY CALL</small><b>${esc(info.play.toUpperCase())}</b></div>
       <div class="c3-skip">${this.skipText()}</div>`;
     this.show();
     this.camera(0);

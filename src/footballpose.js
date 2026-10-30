@@ -376,6 +376,61 @@ export function tacklerPose(c, k) {
   return 0.24 * e;
 }
 
+// ---- The ball in the air, contested (the drive: drivereads.js) ----
+// A defender's interception (k 0..1 over about 0.9 s): gathers, leaps with both hands high to
+// snatch it at the top, then brings it down and tucks it as he lands. Returns the height.
+export function pickPose(c, k) {
+  const up = Math.sin(Math.min(1, k / 0.75) * Math.PI); // (the leap: off the ground and back)
+  const hi = k < 0.5;
+  bendLeg(c.legL, c.kneeL, 0.35 + 0.3 * (1 - up), 0.4 + 0.5 * (1 - up));
+  bendLeg(c.legR, c.kneeR, 0.1 + 0.5 * up, 0.9 * up);
+  if (hi) {
+    bendSpine(c, -0.2, 0, 0);
+    c.neck.rotation.set(-0.7, 0, 0);
+    reachArm(c, 'L', _a.set(0.1, 2.25, 0.25), _b.set(1, 0, -0.2), null, null, 'group');
+    reachArm(c, 'R', _a.set(-0.1, 2.25, 0.25), _b.set(-1, 0, -0.2), null, null, 'group');
+  } else {
+    // (brought down into the body, both hands over it)
+    const e = ease((k - 0.5) / 0.5);
+    bendSpine(c, 0.3 * e, 0, 0);
+    c.neck.rotation.set(-0.2, 0, 0);
+    reachArm(c, 'L', _a.set(0.06, 2.1 - 0.85 * e, 0.3 - 0.05 * e), _b.set(1, -0.3, -0.2), null, null, 'group');
+    reachArm(c, 'R', _a.set(-0.06, 2.1 - 0.85 * e, 0.3 - 0.05 * e), _b.set(-1, -0.3, -0.2), null, null, 'group');
+  }
+  return -lowestPoint(c) + 0.55 * up;
+}
+
+// A defender breaking it up (k 0..1 over about 0.7 s): a jump with the near arm (side +1: his
+// left) cocked high, swatting down and across through the ball, the other arm out for balance.
+export function swatPose(c, k, side = 1) {
+  const up = Math.sin(Math.min(1, k / 0.8) * Math.PI);
+  const sw = ease(Math.min(1, Math.max(0, (k - 0.25) / 0.35))); // (the swat itself)
+  bendLeg(c.legL, c.kneeL, 0.2 + 0.4 * up, 0.3 + 0.6 * up);
+  bendLeg(c.legR, c.kneeR, 0.4 * (1 - up), 0.5 * (1 - up));
+  bendSpine(c, -0.1 + 0.35 * sw, 0.3 * side * sw, 0);
+  c.neck.rotation.set(-0.55 + 0.3 * sw, 0, 0);
+  const n = side > 0 ? 'L' : 'R';
+  const o = side > 0 ? 'R' : 'L';
+  reachArm(c, n, _a.set(0.25 * side - 0.4 * side * sw, 2.3 - 0.9 * sw, 0.15 + 0.35 * sw), _b.set(side, 0, -0.3), null, null, 'group');
+  c['arm' + o].rotation.set(-0.8, 0, -side * 0.7);
+  c['elbow' + o].rotation.set(-0.5, 0, 0);
+  return -lowestPoint(c) + 0.4 * up;
+}
+
+// A receiver beaten to it (k 0..1 over about 0.7 s): both hands up for it, then they drop and
+// open out as it's gone, head going back. (Caught, he secures it into his chest: holdBall.)
+export function deniedPose(c, k) {
+  const e = ease(Math.min(1, k / 0.45));
+  const g = ease(Math.max(0, (k - 0.45) / 0.55));
+  bendSpine(c, -0.15 + 0.1 * g, 0, 0);
+  c.neck.rotation.set(-0.6 + 0.2 * g, 0, 0);
+  const y = 2.0 - 0.7 * g;
+  reachArm(c, 'L', _a.set(0.12 + 0.35 * g, y, 0.3), _b.set(1, -0.2, -0.2), null, null, 'group');
+  reachArm(c, 'R', _a.set(-0.12 - 0.35 * g, y, 0.3), _b.set(-1, -0.2, -0.2), null, null, 'group');
+  void e;
+  return -lowestPoint(c);
+}
+
 // Juked: caught leaning the wrong way, twisted, the arms out for balance.
 export function jukedPose(c, side = 1) {
   bendSpine(c, -0.2, 0.4 * side, 0.3 * side);

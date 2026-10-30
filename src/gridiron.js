@@ -424,6 +424,9 @@ export class Gridiron {
           return this.over(Math.min(this.los + 4 * YD, fb.site.field.z1 - 1));
         }
       }
+    } else if (this.state === 'pick') {
+      this.drPickStep(); // (picked off: he runs it back, then the drive's over: drivereads.js)
+      if (!this.active) return;
     } else if (this.state === 'run') {
       const h = b.holder;
       if (!h || h === 'you') return this.over(this.los);
