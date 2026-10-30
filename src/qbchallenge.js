@@ -58,6 +58,8 @@ const MOVE_SPEED = 4.5; // (a moving ring's pace across the field: the same for 
 const SACK_R = 0.85;
 const HITCAM_PTS = 5; // (the hit cam: the deep ring (or the money one) going through)
 const HITCAM_GAP = 6; // (seconds, at least, between hit cams)
+const CAM_BACK = 0.5; // (seconds gliding back behind you)
+const FOLLOW_D = 10 * 0.9144; // (throws past 10 yards: the camera follows the ball out)
 
 const ease = (k) => k * k * (3 - 2 * k);
 // (a soft round glow, made once)
@@ -542,10 +544,12 @@ export const QBChallenge = {
     Q.tT = 0;
     Q.throws++;
     this.throwT = 0.26;
-    // (a deep one that's going in: the hit cam rides it for the last second; not too often)
-    if (Q.t - Q.lastCam > HITCAM_GAP && this.qbcGoingIn(f, T, L, lat, FT)) {
-      Q.camNext = { f, at: Math.max(0, (f.ringD / L) * FT - 1.0) };
-      Q.lastCam = Q.t;
+    // (past 10 yards the camera follows the ball out to the target; a deep one that's going in
+    // gets the slow motion for its last second too, not too often)
+    if (d > FOLLOW_D) {
+      const slow = Q.t - Q.lastCam > HITCAM_GAP && this.qbcGoingIn(f, T, L, lat, FT);
+      if (slow) Q.lastCam = Q.t;
+      Q.cam = { f, endAt: null, pos: null, look: null, slowAt: slow ? Math.max(0, (f.ringD / L) * FT - 1.0) : null, slowNow: false };
     }
   },
   // (a moving ring's place at time t: on across from where it came up, stopping at the far side)
@@ -629,7 +633,7 @@ export const QBChallenge = {
           this.qbcDone();
         }
       } else if (Q.tp === 'flight') {
-        if (!Q.flights.some((f) => !f.done) && !Q.cam && !Q.camNext) this.qbcDone();
+        if (!Q.flights.some((f) => !f.done) && !Q.cam) this.qbcDone();
       } else if (Q.tp === 'done' && Q.tT > 0.9) {
         Q.tp = T.grp.visible ? 'sink' : 'next';
         Q.tT = 0;
@@ -655,7 +659,7 @@ export const QBChallenge = {
       T.grp.rotation.z = Math.sin(game.time * 40) * 0.12 * T.shake;
       T.spin.rotation.z -= dt * (T.money ? 4 : 1.6);
       T.halo.material.opacity = (0.35 + 0.2 * Math.sin(game.time * 5)) * (live || Q.tp === 'pop' ? 1 : 0.6) + 0.5 * T.punch;
-      const lf = Math.max(1, dist(T.x, T.z, p.x, p.z) / 16); // (the points: readable from the pocket)
+      const lf = Math.max(1, Math.hypot(T.x - game.camera.position.x, T.z - game.camera.position.z) / 16); // (the points: readable from the pocket, not huge up close)
       T.label.scale.set(1.5 * lf, 0.75 * lf, 1);
       T.label.position.y = RING_Y + RING_R + 0.35 + 0.4 * lf + Math.sin(game.time * 3) * 0.08 + 0.4 * T.punch;
       T.label.material.opacity = Q.tp === 'sink' ? 0 : Q.tp === 'pop' ? Math.max(0, Q.tT / POP_T - 0.5) * 2 : 1; // (once it's up out of the grass)
@@ -674,17 +678,23 @@ export const QBChallenge = {
     this.qbcFxStep(dt);
     this.qbcFadeStep(dt);
     // The hit cam: on for the last second of the flight, done a beat after the ball's settled.
-    if (Q.camNext && (Q.camNext.f.t >= Q.camNext.at || Q.camNext.f.done)) {
-      if (!Q.camNext.f.done) Q.cam = { f: Q.camNext.f, endAt: null, pos: null };
-      Q.camNext = null;
-    }
     if (Q.cam) {
-      const f = Q.cam.f;
-      if (f.done && Q.cam.endAt == null) Q.cam.endAt = Q.t + 0.55;
-      if ((Q.cam.endAt != null && Q.t >= Q.cam.endAt) || f.life > 2 || !Q.flights.includes(f)) Q.cam = null;
+      const C = Q.cam;
+      const f = C.f;
+      C.slowNow = C.slowAt != null && !f.done && f.t >= C.slowAt;
+      if (f.done && C.endAt == null) C.endAt = Q.t + 0.7; // (a beat on how it went)
+      if ((C.endAt != null && Q.t >= C.endAt) || f.life > 2 || !Q.flights.includes(f)) {
+        // (then back behind you, smoothly)
+        if (C.pos) Q.camBack = { pos: C.pos.clone(), look: C.look.clone(), t: 0 };
+        Q.cam = null;
+      }
+    }
+    if (Q.camBack) {
+      Q.camBack.t += dt;
+      if (Q.camBack.t > CAM_BACK) Q.camBack = null;
     }
     // Every target's had its throw: the next stage (or the finish).
-    if (Q.stageOver && !Q.cam && !Q.camNext && Q.t > Q.overT + 1.6) {
+    if (Q.stageOver && !Q.cam && Q.t > Q.overT + 1.6) {
       if (Q.stage < QBC_STAGES.length - 1) this.qbcStage(Q.stage + 1);
       else this.qbcFinish();
     }
@@ -873,19 +883,44 @@ export const QBChallenge = {
 
   // The hit cam: riding behind the ball, looking on to the ring (main.js updateCamera asks; null
   // when it's not on).
-  camOverride() {
+  // The follow cam (throws past 10 yards): easing off your shoulder to ride behind and above the
+  // ball, looking on ahead of it to the ring; after the result, gliding back behind you.
+  camOverride(dt = 1 / 60) {
     const Q = this.mode === 'qbc' ? this.qbc : null;
+    const game = this.game;
+    if (Q?.camBack && !Q.cam) {
+      // (from where it was back to your usual camera, which main.js has just put in place)
+      const B = Q.camBack;
+      const k = ease(Math.min(1, B.t / CAM_BACK));
+      const pos = B.pos.clone().lerp(game.camera.position, k);
+      const fwd = new THREE.Vector3();
+      game.camera.getWorldDirection(fwd);
+      const look = B.look.clone().lerp(game.camera.position.clone().add(fwd.multiplyScalar(10)), k);
+      return { pos, look };
+    }
     if (!Q?.cam) return null;
     const C = Q.cam;
     const f = C.f;
     const ux = f.ux;
     const uz = f.uz;
     const ty = f.tgt.gy + RING_Y;
-    const want = new THREE.Vector3(f.x - ux * 3.4 + uz * 0.9, Math.max(Q.gy + 1.2, f.y + 0.8), f.z - uz * 3.4 - ux * 0.9);
-    if (!C.pos) C.pos = this.game.camera.position.clone();
-    C.pos.lerp(want, 0.25);
-    const look = new THREE.Vector3(f.x + ux * 5, f.y + (ty - f.y) * 0.5, f.z + uz * 5);
-    return { pos: C.pos, look };
+    // (once it's got there, the camera stops where it is and watches the ring: it doesn't fly on
+    // past it after the ball)
+    if (f.done && !C.stop) C.stop = true;
+    const want = C.stop ? C.pos : new THREE.Vector3(f.x - ux * 3.6 + uz * 1.0, Math.max(Q.gy + 1.3, f.y + 0.9), f.z - uz * 3.6 - ux * 1.0);
+    const lookW = C.stop ? new THREE.Vector3(f.tgt.x, f.tgt.grp.position.y + RING_Y, f.tgt.z) : new THREE.Vector3(f.x + ux * 6, f.y + (ty - f.y) * 0.5, f.z + uz * 6);
+    if (!C.pos && C.stop) return null;
+    if (!C.pos) {
+      C.pos = game.camera.position.clone();
+      const fwd = new THREE.Vector3();
+      game.camera.getWorldDirection(fwd);
+      C.look = C.pos.clone().add(fwd.multiplyScalar(10));
+    }
+    // (smooth: catching up over about a fifth of a second, frame rate or not)
+    const a = 1 - Math.exp(-dt * 6);
+    C.pos.lerp(want, a);
+    C.look.lerp(lookW, Math.min(1, a * 1.5));
+    return { pos: C.pos, look: C.look };
   },
 
   // A miss: the ring shakes and flashes red.
@@ -900,7 +935,8 @@ export const QBChallenge = {
     const game = this.game;
     const Q = this.qbc;
     // (bigger further off, so they read from the pocket)
-    const far = Math.max(1, dist(x, z, game.player.x, game.player.z) / 12);
+    const cp = game.camera.position;
+    const far = Math.max(1, Math.hypot(x - cp.x, z - cp.z) / 12);
     for (let i = 0; i < o.n; i++) {
       const m = new THREE.Mesh(FX_GEO, new THREE.MeshBasicMaterial({ color: o.colors[i % o.colors.length], transparent: true, depthWrite: false, side: THREE.DoubleSide }));
       const a = rand(0, Math.PI * 2);
@@ -920,7 +956,7 @@ export const QBChallenge = {
     if (up) m.lookAt(game.camera.position);
     else m.rotation.x = -Math.PI / 2;
     game.scene.add(m);
-    this.qbc.fx.push({ m, wave: size * Math.max(1, dist(x, z, game.player.x, game.player.z) / 14), life, t: 0 });
+    this.qbc.fx.push({ m, wave: size * Math.max(1, Math.hypot(x - game.camera.position.x, z - game.camera.position.z) / 14), life, t: 0 });
   },
   qbcFxStep(dt) {
     const game = this.game;

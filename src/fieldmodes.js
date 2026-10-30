@@ -32,7 +32,7 @@ const LEASH = 50 * YD;
 const FILL = 0.6; // (game seconds to a full meter: about 1.2 s with time slowed to half)
 const ACC_T = 0.45; // (game seconds for the accuracy needle: about 0.9 s slowed; the perfect tap's halfway)
 const SLOW = 0.5; // (time while you hold and tap)
-const SHORT_WIN = 2; // (the green on the shortest throws: this many times as wide)
+const SHORT_WIN = 2.37; // (the green at 8 yards and in: this many times as wide)
 const HITCAM_SLOW = 0.65; // (the QB Challenge's hit cam following a deep ball)
 export const CTYPES = {
   bullet: { max: 40, T: (L) => 0.25 + L / 26, win: 0.05, err: 0.35, h: 1.3 }, // (on a line: quick, the least forgiving)
@@ -326,7 +326,7 @@ export const FieldModes = {
     S.prevHeld = held;
     // (time slows to half while you hold and tap, and eases back after)
     const ts = game.timeScale || 1;
-    const want = this.press || S.acc ? SLOW : this.catchSlow() ? CW_SLOW : this.mode === 'qbc' && this.qbc?.cam ? HITCAM_SLOW : 1;
+    const want = this.press || S.acc ? SLOW : this.catchSlow() ? CW_SLOW : this.mode === 'qbc' && this.qbc?.cam?.slowNow ? HITCAM_SLOW : 1;
     game.timeScale = ts + (want - ts) * Math.min(1, (dt / ts) * 9);
     if (Math.abs(game.timeScale - 1) < 0.01) game.timeScale = 1;
     if (pad) a.sprint = fire; // (R2 sprints)
@@ -409,11 +409,13 @@ export const FieldModes = {
     this.prevFire = fire;
   },
 
-  // The green on the power meter either side of what's needed (need: that power). Wider for a
-  // short throw (up to SHORT_WIN times, at the shortest), where you'd have to let go almost as
-  // soon as you'd pressed; the QB Challenge's moving stage narrows it (qbchallenge.js).
+  // The green on the power meter either side of what's needed (need: that power). Wider the
+  // shorter the throw, where you'd have to let go almost as soon as you'd pressed: SHORT_WIN times
+  // as wide at 8 yards and in, easing back to its usual width by 30 yards. The QB Challenge's
+  // moving stage narrows it (qbchallenge.js).
   winFor(kind, need = 0.5) {
-    const short = Math.max(0, Math.min(1, (0.5 - need) / 0.35));
+    const d = need * CTYPES[kind].max; // (the throw's length)
+    const short = Math.max(0, Math.min(1, (30 * YD - d) / ((30 - 8) * YD)));
     return CTYPES[kind].win * (1 + (SHORT_WIN - 1) * short) * (this.mode === 'qbc' ? this.qbcWinK() : 1);
   },
 
