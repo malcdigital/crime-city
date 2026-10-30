@@ -1147,3 +1147,36 @@ body.board3pt-on #sport .sb { display: none; }
 /* Our own direction icons (icons.js): in the text's color, sat on its baseline like a letter. */
 .dir-ic { display: inline-block; vertical-align: -0.12em; flex: none; }
 #touch .tb .dir-ic { vertical-align: middle; }
+
+/* The drive's transition between plays (drivereads.js drWipeIn): the screen goes dark, a
+   broadcast band slashes in from the left with the result, the yards, the down and distance
+   next and why; under it everyone lines up for the next play; it slides off to the right. */
+#drwipe { position: fixed; inset: 0; z-index: 58; pointer-events: none; display: none; }
+#drwipe.on { display: block; }
+#drwipe .dw-shade { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(6,10,18,.82), rgba(0,0,0,.96)); opacity: 0; transition: opacity .3s ease; }
+#drwipe.in .dw-shade { opacity: 1; }
+#drwipe.out .dw-shade { opacity: 0; transition: opacity .45s ease .15s; }
+#drwipe .dw-band { position: absolute; left: -12%; right: -12%; top: 50%; height: clamp(120px, 44vh, 300px); margin-top: calc(clamp(120px, 44vh, 300px) / -2);
+  background: linear-gradient(100deg, #0c1424 0%, #16294a 55%, #0c1424 100%); border-top: 4px solid var(--dw, #ffd23f); border-bottom: 4px solid var(--dw, #ffd23f);
+  box-shadow: 0 0 40px rgba(0,0,0,.6); transform: skewY(-4deg) translateX(-115%); transition: transform .38s cubic-bezier(.2,.9,.25,1); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+#drwipe.in .dw-band { transform: skewY(-4deg) translateX(0); }
+#drwipe.out .dw-band { transform: skewY(-4deg) translateX(115%); transition: transform .42s cubic-bezier(.6,0,.8,.3); }
+#drwipe .dw-edge { position: absolute; top: 0; bottom: 0; left: 0; width: 34%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.07) 60%, transparent); transform: translateX(-120%); }
+#drwipe.in .dw-edge { animation: dw-shine .9s .25s ease-out forwards; }
+@keyframes dw-shine { to { transform: translateX(420%); } }
+#drwipe .dw-txt { transform: skewY(4deg); display: flex; flex-direction: column; align-items: center; text-align: center; gap: clamp(2px, 1vh, 8px); padding: 0 16px; }
+#drwipe .dw-big { font-size: clamp(30px, 11vh, 76px); font-weight: 900; font-style: italic; letter-spacing: 2px; line-height: .95; color: var(--dw, #ffd23f); text-shadow: 0 4px 0 rgba(0,0,0,.35), 0 0 26px var(--dwg, rgba(255,210,63,.45)); opacity: 0; transform: scale(1.35); }
+#drwipe.in .dw-big { animation: dw-pop .42s .18s cubic-bezier(.2,1.6,.4,1) forwards; }
+@keyframes dw-pop { to { opacity: 1; transform: scale(1); } }
+#drwipe .dw-yd { font-size: clamp(16px, 5.5vh, 34px); font-weight: 900; color: #fff; opacity: 0; }
+#drwipe .dw-yd:empty { display: none; }
+#drwipe .dw-next { font-size: clamp(11px, 3.4vh, 18px); font-weight: 800; letter-spacing: 3px; color: #c9d4e6; opacity: 0; }
+#drwipe .dw-why { font-size: clamp(10px, 2.9vh, 14px); font-weight: 600; color: #9fb0c8; max-width: 92vw; opacity: 0; }
+#drwipe.in .dw-yd, #drwipe.in .dw-next, #drwipe.in .dw-why { animation: dw-up .35s ease-out forwards; }
+#drwipe.in .dw-yd { animation-delay: .32s; }
+#drwipe.in .dw-next { animation-delay: .42s; }
+#drwipe.in .dw-why { animation-delay: .52s; }
+@keyframes dw-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+#drwipe.good { --dw: #3ddc78; --dwg: rgba(61,220,120,.45); }
+#drwipe.gold { --dw: #ffd23f; --dwg: rgba(255,210,63,.55); }
+#drwipe.bad { --dw: #ff5a5a; --dwg: rgba(255,90,90,.45); }

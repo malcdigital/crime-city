@@ -527,6 +527,13 @@ export class Football {
       if (r) return r;
     }
     if (f.role === 'wr' || f.role === 'rb') {
+      if (f.huddle) {
+        // (the drive's huddle: in a ring, leaning in: drivereads.js)
+        const g = goTo(f.huddle[0], f.huddle[1], 2.6);
+        if (g) return g;
+        faceAt(...f.huddleC);
+        return { speed: 0 };
+      }
       if (ph === 'play' && f.route && !(b.holder === p)) {
         const pt = f.route[f.leg];
         if (pt) {
@@ -545,7 +552,8 @@ export class Football {
         const q = this.qb;
         return goTo(q.x, q.z + 2, JOG) || { speed: 0 };
       }
-      const g = goTo(...f.home, JOG);
+      const g = goTo(...f.home, f.hurry ? RUN : JOG); // (out of the huddle: running to the line)
+      if (!g) f.hurry = false;
       if (g) return g;
       face(Math.PI);
       return { speed: 0 };
@@ -671,6 +679,12 @@ export class Football {
     const set = this.phase === 'set' && p.speed === 0;
     if (set) y = (f.role === 'qb' ? qbStance(c) : f.role === 'wr' || f.role === 'rb' ? wrStance(c) : f.role === 'db' || f.role === 'lb' ? dbStance(c) : 0) + 0.04; // (in their stance)
     if (f.beatT > 0) jukedPose(c, f.jukeSide || 1); // (juked: off balance, twisted, arms out)
+    if (f.huddle && p.speed === 0) {
+      // (in the huddle: bent over, hands on the knees)
+      bendSpine(c, 0.5, 0, 0);
+      c.armL.rotation.x = c.armR.rotation.x = -0.55;
+      c.elbowL.rotation.x = c.elbowR.rotation.x = -0.3;
+    }
     if (b) {
       if (b.holder === p) {
         if (f.throwT > 0) throwPose(c, 1 - Math.max(0, f.throwT - 0.12) / 0.23, 0); // (winding up)

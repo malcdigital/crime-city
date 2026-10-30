@@ -4,6 +4,7 @@ import { FieldModes } from './fieldmodes.js';
 import { QBChallenge, QBC_KEY } from './qbchallenge.js';
 import { DriveReads, DPLAYS, SACK_READ } from './drivereads.js';
 import { CFG } from './config.js';
+import { bendSpine } from './character.js';
 import { throwPose, layoutPose, qbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat } from './footballpose.js';
 
 // Quarterback a drive at Harbor Field (football.js runs the passing drill there).
@@ -409,13 +410,13 @@ export class Gridiron {
         if (pz <= this.goal) return this.touchdown('you');
         const tackler = this.defenders().find((q) => !(q.fb.downT > 0) && !(q.fb.beatT > 0) && dist(q.x, q.z, px, pz) < 0.9);
         if (this.scramble && tackler && !(this.runMove?.kind === 'spin' && Math.random() < 0.5)) {
-          game.hud.toast(`Brought down at the ${this.yardLine(pz)}`, '#ffd23f');
+          this.drRes = { kind: 'run' };
           fb.tackle(null, tackler);
           this.downT = 1.1; // (you hit the turf too)
           return this.over(pz);
         }
         if (!this.scramble && !this.dr.acc && this.t > SACK_READ) {
-          game.hud.toast(`SACKED · ${this.drTold()}`, '#ff8080');
+          this.drRes = { kind: 'sack', why: this.drTold() };
           this.downT = 1.1;
           return this.over(Math.min(this.los + 4 * YD, fb.site.field.z1 - 1));
         }
@@ -427,20 +428,22 @@ export class Gridiron {
       const tackler = this.defenders().find((q) => !(q.fb.downT > 0) && !(q.fb.beatT > 0) && dist(q.x, q.z, h.x, h.z) < 0.9);
       if (tackler) fb.tackle(h, tackler);
       if (tackler || this.t > 7 || (h.fb.runTo && dist(h.x, h.z, ...h.fb.runTo) < 0.6)) {
-        game.hud.toast(`Brought down at the ${this.yardLine(h.z)}`, '#ffd23f');
         return this.over(h.z);
       }
     } else if (this.state === 'dead') {
-      // The ball comes back to you; everyone lines up again (the defense in a new coverage).
-      if (this.t > 1.6) {
+      // A beat to see how it ended, then the result wipes across the screen; under it the ball
+      // comes back to you and everyone's lined up for the next one (the defense in a new
+      // coverage, a new play called): ✕ hikes it as soon as it clears.
+      if (this.t > 0.8 && !this.dr.wipe) this.drWipeIn(this.drCard);
+      if (this.dr.wipe && this.dr.wipe.t > 0.45) {
         b.mode = 'held';
         b.holder = 'you';
         fb.los = this.los;
         this.playI = Math.floor(Math.random() * DPLAYS.length); // (a new call every down: change it if you want)
         this.drLineUp(true);
-        fb.phase = 'reset';
-        fb.t = 0;
+        this.drSetAll(); // (everyone straight to his spot, you behind the center)
         this.state = 'line';
+        this.ready = false;
         this.t = 0;
       }
     }
@@ -505,16 +508,20 @@ export class Gridiron {
     if (this.dr) this.dr.acc = null;
     fb.phase = 'dead';
     fb.t = 0;
+    const was = this.los;
     if (z != null) this.los = Math.max(this.goal + YD, Math.min(fb.site.field.z1 - 1, z));
+    let first = false;
     if (this.los <= this.first + 0.01) {
+      first = true;
       this.down = 0;
       this.first = Math.max(this.goal, this.los - 10 * YD);
-      game.hud.toast('First down!', '#7ee081');
-      return;
-    }
-    this.down += 1;
+    } else this.down += 1;
+    // (what the transition says: drivereads.js drCardFor)
+    const R = this.drRes || { kind: z == null ? 'incomplete' : 'complete' };
+    this.drRes = null;
+    this.drCard = this.drCardFor(R, Math.round((was - this.los) / YD), first, this.down > 3);
     if (this.down > 3) {
-      game.hud.toast('Turnover on downs', '#ff8080');
+      this.drWipeIn(this.drCard, true);
       this.end('downs');
     }
   }
@@ -523,7 +530,8 @@ export class Gridiron {
     const game = this.game;
     for (const f of this.fb.fans) f.fb.cheerT = 2.5;
     for (const q of this.fb.wrs) q.fb.cheerT = 2;
-    game.hud.toast(who === 'you' ? 'TOUCHDOWN! You took it in yourself' : 'TOUCHDOWN!', '#7ee081');
+    if (this.dr) this.drWipeIn(this.drCardFor({ kind: 'td', why: who === 'you' ? 'You took it in yourself' : `${who.ballName || 'He'} took it to the house` }, Math.round((this.los - this.goal) / YD), false, true), true);
+    else game.hud.toast(who === 'you' ? 'TOUCHDOWN! You took it in yourself' : 'TOUCHDOWN!', '#7ee081');
     this.end('td');
   }
 
@@ -552,6 +560,13 @@ export class Gridiron {
       return;
     }
     if (this.mode && this.mode !== 'drive' && this.modeLate(c)) {
+      this.placeBall(c, b);
+      return;
+    }
+    if (this.dr?.huddle && (p.speed || 0) < 0.3) {
+      // (calling it in the huddle: bent over with them)
+      bendSpine(c, 0.45, 0, 0);
+      c.armL.rotation.x = c.armR.rotation.x = -0.5;
       this.placeBall(c, b);
       return;
     }

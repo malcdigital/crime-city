@@ -122,12 +122,19 @@ export const DriveReads = {
     this.drArt = null;
     this.playI = Math.floor(Math.random() * DPLAYS.length); // (a play called for you: change it at the line)
     this.drLineUp(true);
-    // Everyone already lined up (you too, behind the center, looking downfield), then the intro.
-    for (const q of [...fb.wrs.slice(0, 3), ...fb.dbs.slice(0, 3)]) {
-      [q.x, q.z] = q.fb.home;
-      q.heading = q.fb.role === 'db' ? 0 : Math.PI;
-    }
-    fb.phase = 'set';
+    // The defense already lined up; your receivers and you in a huddle behind the line (it
+    // breaks as the intro cuts in behind you: drStep), then the intro.
+    this.drSetAll();
+    const H = [F.cx, this.los + 7];
+    this.dr.huddle = { t: 0, c: H };
+    fb.wrs.slice(0, 3).forEach((w, k) => {
+      const a = [-Math.PI / 2, Math.PI, Math.PI / 2][k]; // (west, north, east of the middle; you're south)
+      w.fb.huddle = [H[0] + Math.sin(a) * 1.05, H[1] + Math.cos(a) * 1.05];
+      w.fb.huddleC = H;
+      [w.x, w.z] = w.fb.huddle;
+      w.heading = Math.atan2(H[0] - w.x, H[1] - w.z);
+    });
+    fb.phase = 'reset';
     const p = game.player;
     [p.x, p.z] = this.drSpot();
     p.heading = game.camYaw = Math.PI;
@@ -364,6 +371,19 @@ export const DriveReads = {
     const D = this.dr;
     if (!D) return;
     if (D.introAt != null && this.game.time >= D.introAt) this.drIntro();
+    // The huddle breaks as the intro cuts in behind you (or straight away if it's skipped):
+    // everyone runs to his spot.
+    if (D.huddle) {
+      D.huddle.t += dt;
+      if (D.huddle.t >= 3.0 || (D.introAt == null && !this.game.driveCine?.open)) {
+        D.huddle = null;
+        for (const w of this.fb.wrs) Object.assign(w.fb, { huddle: null, hurry: true });
+      }
+    }
+    if (D.wipe) {
+      D.wipe.t += dt;
+      if (D.wipe.t >= 2.0) this.drWipeOut();
+    }
     // The open man's window: just after he's out of his break.
     const w = D.openW;
     if (this.state !== 'line' && w && D.openAt == null && w.fb.route) {
@@ -451,7 +471,7 @@ export const DriveReads = {
       b.vx = rand(-1.5, 1.5);
       b.vz = rand(-1.5, 1.5);
       b.vy = -2;
-      game.hud.toast(`${why} · ${told}`, '#ff8080');
+      this.drRes = { kind: 'incomplete', why: `${why} · ${told}` };
       this.heatMiss();
       this.over(null);
     };
@@ -460,7 +480,7 @@ export const DriveReads = {
       if (dD < 2.2 && Math.random() < (b.throwKind === 'bullet' ? 0.4 : b.throwKind === 'lob' ? 0.38 : 0.32)) {
         fb.hold(db);
         this.heatMiss();
-        game.hud.toast(`INTERCEPTED · ${why} · ${told}`, '#ff8080');
+        this.drWipeIn(this.drCardFor({ kind: 'pick', why: `${why} · ${told}` }, 0, false, true), true);
         return this.end('pick');
       }
       if (dW < 1.2 && Math.random() < (D.perfect ? 0.35 : 0.15)) return this.drCaught(w, false, 'Contested catch!');
@@ -481,6 +501,7 @@ export const DriveReads = {
     const fb = this.fb;
     const b = fb.ball;
     fb.hold(w);
+    this.drRes = { kind: 'complete', why: this.drTold() };
     for (const f of fb.fans) f.fb.cheerT = rand(1, 2);
     game.hud.toast(text, '#7ee081');
     this.heatHit(b.x, Math.max(1, b.y), b.z); // (in rhythm, on fire: fieldmodes.js)
@@ -580,7 +601,73 @@ export const DriveReads = {
   },
   // At the line you walk yourself to your spot behind the center (input: gridiron.js).
   drSpot() {
+    const H = this.dr?.huddle;
+    if (H) return [H.c[0], H.c[1] + 1.05]; // (in the huddle, its south side)
     return [this.fb.site.field.cx, this.los + 3.2];
+  },
+  // Everyone straight to his spot for the next play (under the transition): the receivers and
+  // backs at their homes, set; you behind the center looking downfield.
+  drSetAll() {
+    const game = this.game;
+    const fb = this.fb;
+    for (const q of [...fb.wrs.slice(0, 3), ...fb.dbs.slice(0, 3)]) {
+      [q.x, q.z] = q.fb.home;
+      q.heading = q.fb.role === 'db' ? 0 : Math.PI;
+      Object.assign(q.fb, { route: null, runTo: null, downT: 0, pickT: 0, dive: false, beatT: 0, relT: 0, throwT: 0, hurry: false, huddle: null });
+    }
+    fb.phase = 'set';
+    fb.t = 0;
+    this.downT = 0;
+    this.throwT = 0;
+    const p = game.player;
+    [p.x, p.z] = [fb.site.field.cx, this.los + 3.2];
+    p.heading = game.camYaw = Math.PI;
+    this.pkYaw = null;
+  },
+  // ---- The transition between plays ----
+  // What it says: the result (big), the yards, the down and distance next (or how the drive
+  // ended), and why (who was open, what went wrong).
+  drCardFor(R, yds, first, final) {
+    const BIG = { complete: 'COMPLETE', incomplete: 'INCOMPLETE', sack: 'SACKED', run: 'SCRAMBLE', td: 'TOUCHDOWN!', pick: 'INTERCEPTED' };
+    let big = BIG[R.kind] || 'PLAY OVER';
+    let tone = R.kind === 'complete' || R.kind === 'run' || R.kind === 'td' ? 'good' : 'bad';
+    if (first && R.kind !== 'td') {
+      big = 'FIRST DOWN!';
+      tone = 'gold';
+    }
+    if (R.kind === 'td') tone = 'gold';
+    const yd = R.kind === 'incomplete' || R.kind === 'pick' ? '' : yds > 0 ? `+${yds} YDS` : yds < 0 ? `−${-yds} YDS` : 'NO GAIN';
+    let next = '';
+    if (R.kind === 'td') next = 'DRIVE OVER · YOU SCORED';
+    else if (R.kind === 'pick') next = 'DRIVE OVER';
+    else if (final) next = 'TURNOVER ON DOWNS · DRIVE OVER';
+    else next = `${this.drDownText()} · BALL ON THE ${this.yardLine(this.los)}`;
+    return { big, tone, yd, next, why: R.why || this.drTold(), kind: R.kind };
+  },
+  drWipeIn(card, final = false) {
+    if (!card) return;
+    let el = document.getElementById('drwipe');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'drwipe';
+      el.innerHTML = '<div class="dw-shade"></div><div class="dw-band"><div class="dw-edge"></div><div class="dw-txt"><b class="dw-big"></b><span class="dw-yd"></span><span class="dw-next"></span><small class="dw-why"></small></div></div>';
+      document.body.appendChild(el);
+    }
+    el.querySelector('.dw-big').textContent = card.big;
+    el.querySelector('.dw-yd').textContent = card.yd;
+    el.querySelector('.dw-next').textContent = card.next;
+    el.querySelector('.dw-why').textContent = card.why;
+    el.className = `on ${card.tone} k-${card.kind}`;
+    void el.offsetWidth;
+    el.classList.add('in');
+    if (this.dr) this.dr.wipe = { t: 0 };
+    // (the drive's over: nothing steps it out, so a timer does)
+    if (final) setTimeout(() => el.classList.add('out'), 2100);
+  },
+  drWipeOut() {
+    const el = document.getElementById('drwipe');
+    if (el) el.classList.add('out');
+    if (this.dr) this.dr.wipe = null;
   },
   drDownText() {
     const toGo = this.first <= this.goal + 0.01 ? 'GOAL' : Math.max(1, Math.round((this.los - this.first) / YD));

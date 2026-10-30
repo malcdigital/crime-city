@@ -2371,8 +2371,17 @@ class Game {
       // The QB Challenge's intro or finish: the game waits.
       this.qbcCine.update(dt, a);
     } else if (this.driveCine.open) {
-      // The drive's intro: the game waits.
+      // The drive's intro: the game keeps going under it (the huddle, breaking it) with your
+      // hands off the controls, the cinematic's camera on top.
       this.driveCine.update(dt, a);
+      if (this.driveCine.open) {
+        const q = {};
+        for (const [k, v] of Object.entries(a)) q[k] = typeof v === 'boolean' ? false : typeof v === 'number' ? 0 : v;
+        q.qbR = [false, false, false, false, false];
+        q.slot = -1;
+        this.update(dt, q);
+        this.driveCine.camera(this.driveCine.t);
+      }
     } else if (this.moves.open) {
       // The moves list: the game is paused underneath.
       if (a.moves || a.menuBack || a.pause || !this.pickupGame()) this.moves.hide();
