@@ -534,9 +534,9 @@ export class TouchControls {
       if (drive) b.cross.el.classList.toggle('hidden', !dline && !dread);
       // (the QB Challenge's last stage: ◀ ▶ are the juke)
       const juke = qbc && !!M.qbcJukeOn?.();
-      b.tprev.el.classList.toggle('hidden', !juke && !dread);
-      b.tnext.el.classList.toggle('hidden', !juke && !dread);
-      b.tprev.hint.textContent = b.tnext.hint.textContent = juke ? 'juke' : dread ? 'read' : '';
+      b.tprev.el.classList.toggle('hidden', !juke && !dread && !dline);
+      b.tnext.el.classList.toggle('hidden', !juke && !dread && !dline);
+      b.tprev.hint.textContent = b.tnext.hint.textContent = juke ? 'juke' : dread ? 'read' : dline ? 'scan' : '';
       if (juke) for (const id of ['reload', 'cross', 'tri']) b[id].el.classList.add('hidden'); // (no throwing till you've beaten him: just the juke)
     }
     if (ctx !== 'qb') this.el.root.classList.remove('catching');

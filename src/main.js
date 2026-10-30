@@ -49,6 +49,7 @@ import { MovesList } from './moveslist.js';
 import { Matchup } from './matchup.js';
 import { ContestCine } from './contestcine.js';
 import { QbcCine } from './qbccine.js';
+import { DriveCine } from './drivecine.js';
 import { AnimViewer } from './animviewer.js';
 import { markRecoil, markFlinch, PUNCH_T, FIGHT_STYLES, PISTOL_STYLES } from './combatpose.js';
 import { stepFalls } from './character.js';
@@ -123,6 +124,7 @@ class Game {
     this.matchup = new Matchup(this); // (the cinematic before a one-on-one)
     this.contestCine = new ContestCine(this); // (the 3-point contest's intro, record and finish)
     this.qbcCine = new QbcCine(this); // (the QB Challenge's intro and finish)
+    this.driveCine = new DriveCine(this); // (the drive's intro)
     this.animViewer = new AnimViewer(this); // (every pose and move, one at a time: from the pause menu)
     // Your style (the pause menu): how you hold a pistol, how you stand with your fists up.
     this.style = { grip: 'two', fight: 'orthodox', meter: 'arc' };
@@ -1704,11 +1706,11 @@ class Game {
   // Bad news that can wait (your stash got hit): while you're in a pickup game (or its
   // cinematics) it's held, and you get it once you're out.
   afterGame(fn) {
-    if (this.pickupGame() || this.contestCine?.open || this.qbcCine?.open) (this.heldNews ||= []).push(fn);
+    if (this.pickupGame() || this.contestCine?.open || this.qbcCine?.open || this.driveCine?.open) (this.heldNews ||= []).push(fn);
     else fn();
   }
   flushHeldNews() {
-    if (!this.heldNews?.length || this.pickupGame() || this.contestCine?.open || this.qbcCine?.open) return;
+    if (!this.heldNews?.length || this.pickupGame() || this.contestCine?.open || this.qbcCine?.open || this.driveCine?.open) return;
     const q = this.heldNews;
     this.heldNews = [];
     for (const fn of q) fn();
@@ -2368,6 +2370,9 @@ class Game {
     } else if (this.qbcCine.open) {
       // The QB Challenge's intro or finish: the game waits.
       this.qbcCine.update(dt, a);
+    } else if (this.driveCine.open) {
+      // The drive's intro: the game waits.
+      this.driveCine.update(dt, a);
     } else if (this.moves.open) {
       // The moves list: the game is paused underneath.
       if (a.moves || a.menuBack || a.pause || !this.pickupGame()) this.moves.hide();

@@ -120,8 +120,29 @@ export const DriveReads = {
     this.drRing = ring;
     this.drBadges = [];
     this.drArt = null;
-    this.playI = this.playI || 0;
+    this.playI = Math.floor(Math.random() * DPLAYS.length); // (a play called for you: change it at the line)
     this.drLineUp(true);
+    // Everyone already lined up (you too, behind the center, looking downfield), then the intro.
+    for (const q of [...fb.wrs.slice(0, 3), ...fb.dbs.slice(0, 3)]) {
+      [q.x, q.z] = q.fb.home;
+      q.heading = q.fb.role === 'db' ? 0 : Math.PI;
+    }
+    fb.phase = 'set';
+    const p = game.player;
+    [p.x, p.z] = this.drSpot();
+    p.heading = game.camYaw = Math.PI;
+    this.dr.introAt = game.time + 0.12; // (a few frames for everyone to settle into their stance first: drStep)
+  },
+  drIntro() {
+    const game = this.game;
+    this.dr.introAt = null;
+    game.driveCine?.intro({ spot: this.drSpot(), los: this.los, cx: this.fb.site.field.cx, squad: this.bench?.ballName || 'their', from: this.drFromText(), bet: this.bet, play: this.drPlayName() }, () => {
+      game.camYaw = Math.PI;
+    });
+  },
+  drFromText() {
+    const y = Math.round((this.los - this.goal) / YD);
+    return y > 50 ? `FROM YOUR OWN ${100 - y}` : y <= 20 ? `FROM THE ${y} (RED ZONE)` : `FROM THE ${y}`;
   },
 
   // Everyone to their spots for the play called: the formation (flipped at random), and the
@@ -173,6 +194,11 @@ export const DriveReads = {
     D.sel = P.read[0];
     D.lock = null;
     D.last = null;
+    // (the pre-snap scan: your eyes from man to man, left to right, starting straight downfield)
+    const left = D.order.filter((k) => D.slots[k].x < F.cx);
+    const right = D.order.filter((k) => D.slots[k].x >= F.cx);
+    D.scanList = [...left, null, ...right];
+    D.scanI = left.length;
     this.drPlayArt();
   },
 
@@ -215,7 +241,23 @@ export const DriveReads = {
     });
     D.openAt = D.closeAt = null;
     D.lock = null;
-    D.sel = D.play.read[0];
+    const scanned = D.scanList?.[D.scanI];
+    D.sel = scanned != null ? scanned : D.play.read[0]; // (the read starts on whoever you were looking at)
+    // (the ✕ that hiked it is also TOUCH: it's not a throw till it's let go and pressed again)
+    D.prevHeld = { bullet: true, touch: true, lob: true };
+    D.acc = null;
+    this.press = null;
+  },
+  // Before the snap: ◀ ▶ (D-pad, the phone's buttons, the stick or A / D) scans the field.
+  drScan(a) {
+    const inp = this.game.input;
+    const D = this.dr;
+    if (!D?.scanList) return;
+    const sx = a.moveX || 0;
+    const flick = Math.abs(sx) > 0.6 && !(Math.abs(this.scanPrevX || 0) > 0.6) ? Math.sign(sx) : 0;
+    this.scanPrevX = sx;
+    const step = (inp.btnHit?.(14) ? -1 : 0) + (inp.btnHit?.(15) ? 1 : 0) || flick;
+    if (step) D.scanI = clamp(D.scanI + step, 0, D.scanList.length - 1);
   },
 
   // ---- Your buttons while you've got it ----
@@ -233,6 +275,11 @@ export const DriveReads = {
   drFace() {
     const p = this.game.player;
     const b = this.fb.ball;
+    if (this.state === 'line') {
+      const k = this.dr?.scanList?.[this.dr.scanI];
+      const s = k != null ? this.fb.wrs[k] : null;
+      return s ? Math.atan2(s.x - p.x, s.z - p.z) : Math.PI;
+    }
     const w = this.state === 'air' && b.to && b.to !== 'you' ? b.to : this.drSelW();
     return w && this.mode === 'drive' && (this.state === 'play' || this.state === 'air') ? Math.atan2(w.x - p.x, w.z - p.z) : Math.PI;
   },
@@ -316,6 +363,7 @@ export const DriveReads = {
   drStep(dt) {
     const D = this.dr;
     if (!D) return;
+    if (D.introAt != null && this.game.time >= D.introAt) this.drIntro();
     // The open man's window: just after he's out of his break.
     const w = D.openW;
     if (this.state !== 'line' && w && D.openAt == null && w.fb.route) {
@@ -505,7 +553,8 @@ export const DriveReads = {
       s.scale.setScalar(sel ? 0.085 : on ? 0.055 : 0.06);
       s.material.opacity = on || sel ? 1 : 0.7;
     }
-    const sw = !on && reading ? this.drSelW() : null;
+    const sk = on ? D.scanList?.[D.scanI] : null;
+    const sw = !on && reading ? this.drSelW() : sk != null ? fb.wrs[sk] : null;
     this.drRing.visible = !!sw;
     if (sw) {
       this.drRing.position.set(sw.x, 0.075, sw.z);

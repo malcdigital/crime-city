@@ -191,7 +191,6 @@ export class Gridiron {
     for (const f of fb.fans) f.fb.cheerT = 1;
     this.prevR = [true, true, true, true, true]; // (nothing counts till it's let go and pressed again)
     this.press = null;
-    game.hud.toast(`${qb.ballName}'s squad · from the ${from > 50 ? `own ${100 - from}` : from} · ${bet ? `$${bet} says you score` : 'just for fun'}. Get behind the line`, '#ffd23f');
   }
 
   yardLine(z) {
@@ -225,6 +224,7 @@ export class Gridiron {
         this.drLineUp(false);
         game.hud.toast(`Play: ${this.drPlayName()}`, '#ffd23f');
       }
+      this.drScan(a); // (◀ ▶ / the stick: scanning the field, before the walk takes the stick)
       // You walk yourself to your spot behind the center (the stick's not needed), then set,
       // facing downfield.
       const [sx, sz] = this.drSpot();
@@ -436,6 +436,7 @@ export class Gridiron {
         b.mode = 'held';
         b.holder = 'you';
         fb.los = this.los;
+        this.playI = Math.floor(Math.random() * DPLAYS.length); // (a new call every down: change it if you want)
         this.drLineUp(true);
         fb.phase = 'reset';
         fb.t = 0;
@@ -453,7 +454,8 @@ export class Gridiron {
     const pk = inp.touchMode ? 'PLAY' : kb ? 'Z / X' : 'L1 / R1';
     const sk = inp.touchMode ? '◀ ▶' : kb ? 'Z / X' : 'D-pad ◀ ▶';
     const tk = inp.touchMode ? 'BULLET · TOUCH · LOB' : kb ? 'J · K · L' : '□ · ✕ · △';
-    if (this.state === 'line') hint = `${this.drPlayName()} (${pk} to change) · ${this.ready ? `${kb ? 'E' : '✕'} hike` : 'setting up'}`;
+    const scanK = inp.touchMode ? '◀ ▶' : kb ? 'A / D' : 'D-pad ◀ ▶';
+    if (this.state === 'line') hint = `${this.drPlayName()} (${pk} to change) · ${scanK} scan the field · ${this.ready ? `${kb ? 'E' : '✕'} hike` : 'setting up'}`;
     else if (this.state === 'play' && b.holder === 'you') hint = this.scramble ? (kb ? 'Run it in! J / L juke · U spin · K stiff-arm' : 'Run it in! juke · spin · stiff-arm') : this.t > SACK_READ - 0.9 ? 'Pocket collapsing: throw it!' : `${sk} pick your receiver (gold ring) · ${tk} throw to him`;
     // (the pocket clock, while you've got it in there)
     const clock = this.state === 'play' && b.holder === 'you' && !this.scramble ? { v: Math.max(0, 1 - this.t / SACK_READ), lo: 2, hi: 2 } : null;
