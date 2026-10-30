@@ -225,9 +225,22 @@ export class Gridiron {
         this.drLineUp(false);
         game.hud.toast(`Play: ${this.drPlayName()}`, '#ffd23f');
       }
-      // Behind the line, near the middle, everyone set: ✕ hikes it.
+      // You walk yourself to your spot behind the center (the stick's not needed), then set,
+      // facing downfield.
+      const [sx, sz] = this.drSpot();
+      const d = dist(px, pz, sx, sz);
+      const yaw = game.camYaw;
+      if (d > 0.25) {
+        const k = Math.min(1, d / 1.5) * (d > 4 ? 1 : 0.6);
+        const dx = ((sx - px) / d) * k;
+        const dz = ((sz - pz) / d) * k;
+        a.moveY = Math.sin(yaw) * dx + Math.cos(yaw) * dz;
+        a.moveX = -Math.cos(yaw) * dx + Math.sin(yaw) * dz;
+        a.sprint = d > 6;
+      } else a.moveX = a.moveY = 0;
+      // Everyone set: ✕ hikes it.
       const ready = fb.phase === 'set' || (fb.phase === 'reset' && fb.players.every((q) => q.fb.role === 'bench' || q.fb.role === 'fan' || dist(q.x, q.z, ...q.fb.home) < 1.5));
-      const spot = pz > this.los + 1 && pz < this.los + 8 && Math.abs(px - fb.site.field.cx) < 6;
+      const spot = d < 1.2;
       this.ready = ready && spot;
       if (hike && this.ready) this.snap();
       return;
@@ -440,8 +453,8 @@ export class Gridiron {
     const pk = inp.touchMode ? 'PLAY' : kb ? 'Z / X' : 'L1 / R1';
     const sk = inp.touchMode ? '◀ ▶' : kb ? 'Z / X' : 'D-pad ◀ ▶';
     const tk = inp.touchMode ? 'BULLET · TOUCH · LOB' : kb ? 'J · K · L' : '□ · ✕ · △';
-    if (this.state === 'line') hint = `${this.drPlayName()} (${pk} to change) · ${this.ready ? `${kb ? 'E' : '✕'} hike` : 'get behind the line, in the middle'}`;
-    else if (this.state === 'play' && b.holder === 'you') hint = this.scramble ? (kb ? 'Run it in! J / L juke · U spin · K stiff-arm' : 'Run it in! juke · spin · stiff-arm') : this.t > SACK_READ - 0.9 ? 'Pocket collapsing: throw it!' : `${sk} find the open man · ${tk} throw`;
+    if (this.state === 'line') hint = `${this.drPlayName()} (${pk} to change) · ${this.ready ? `${kb ? 'E' : '✕'} hike` : 'setting up'}`;
+    else if (this.state === 'play' && b.holder === 'you') hint = this.scramble ? (kb ? 'Run it in! J / L juke · U spin · K stiff-arm' : 'Run it in! juke · spin · stiff-arm') : this.t > SACK_READ - 0.9 ? 'Pocket collapsing: throw it!' : `${sk} pick your receiver (gold ring) · ${tk} throw to him`;
     // (the pocket clock, while you've got it in there)
     const clock = this.state === 'play' && b.holder === 'you' && !this.scramble ? { v: Math.max(0, 1 - this.t / SACK_READ), lo: 2, hi: 2 } : null;
     game.hud.sport?.(this.board(), clock, hint);

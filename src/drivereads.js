@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { dist, rand, pick, clamp } from './util.js';
+import { dist, rand, pick, clamp, lerpAngle } from './util.js';
 import { setShirt } from './character.js';
 import { CTYPES } from './fieldmodes.js';
 
@@ -232,8 +232,9 @@ export const DriveReads = {
   // (where you stand side-on to in the pocket: the man you're reading, or straight downfield)
   drFace() {
     const p = this.game.player;
-    const w = this.drSelW();
-    return w && this.mode === 'drive' && this.state === 'play' ? Math.atan2(w.x - p.x, w.z - p.z) : Math.PI;
+    const b = this.fb.ball;
+    const w = this.state === 'air' && b.to && b.to !== 'you' ? b.to : this.drSelW();
+    return w && this.mode === 'drive' && (this.state === 'play' || this.state === 'air') ? Math.atan2(w.x - p.x, w.z - p.z) : Math.PI;
   },
   drSelW() {
     return this.dr ? this.fb.wrs[this.dr.sel] || null : null;
@@ -327,6 +328,7 @@ export const DriveReads = {
     }
     this.goldStep(D);
     this.heatStep(dt);
+    this.drLook(dt);
     this.drDraw(dt);
   },
 
@@ -512,28 +514,24 @@ export const DriveReads = {
     this.arrow.visible = !!sw;
     if (sw) this.arrow.position.set(sw.x, 3.35 + Math.sin(game.time * 6) * 0.08, sw.z);
   },
-  // The camera, at the line and while you read: up behind you, the whole field in front (further
-  // back on a squarer screen); it hands back to the usual one once the ball's out.
-  drCam(dt) {
+  // The camera (the QB Challenge's, over your shoulder: fieldmodes.js camShot) turned to where
+  // you're looking: downfield at the line, the man you're on while you read, the ball's man while
+  // it's in the air. Your eyes go where the ◀ ▶ take them.
+  drLook(dt) {
     const game = this.game;
     const b = this.fb.ball;
-    const on = this.state === 'line' || (this.state === 'play' && b.holder === 'you' && !this.scramble);
-    this.drCamK = clamp((this.drCamK || 0) + (on ? 1 : -1) * dt * 2.5, 0, 1);
-    const k = this.drCamK * this.drCamK * (3 - 2 * this.drCamK);
-    if (k <= 0) return null;
-    const [px, pz] = game.player.pos();
-    const F = this.fb.site.field;
-    const tm = !!game.input.touchMode;
-    const sq = clamp(1.78 / (game.camera.aspect || 1.78), 1, 1.7) * (tm ? 1.12 : 1);
-    // (on a touch screen the throw buttons are on the right: the field sits a little left of them)
-    const x = px + (F.cx - px) * 0.4 + (tm ? 2.4 : 0);
-    const z = Math.max(this.los, pz);
-    const pos = new THREE.Vector3(x, 6.2 * sq, Math.max(z + 4, this.los + 12 * sq));
-    const look = new THREE.Vector3(x, 0, this.los - 12);
-    const fwd = new THREE.Vector3();
-    game.camera.getWorldDirection(fwd);
-    const now = game.camera.position.clone();
-    return { pos: now.clone().lerp(pos, k), look: now.add(fwd.multiplyScalar(12)).lerp(look, k) };
+    if (this.scramble || !(this.state === 'line' || this.state === 'play' || this.state === 'air') || (this.state === 'play' && b.holder !== 'you')) return;
+    const face = this.drFace();
+    // (the camera turns most of the way to him, not all of it: the rest of the field stays in
+    // the picture so you can still find the open man)
+    const off = Math.atan2(Math.sin(face - Math.PI), Math.cos(face - Math.PI));
+    game.camYaw = lerpAngle(game.camYaw, Math.PI + off * 0.7, Math.min(1, dt * 5));
+    const walking = this.state === 'line' && dist(...game.player.pos(), ...this.drSpot()) > 0.4; // (on the way to the spot: facing where you're going)
+    if (this.state !== 'air' && !this.dropping && !walking) game.player.heading = lerpAngle(game.player.heading, face, Math.min(1, dt * 10));
+  },
+  // At the line you walk yourself to your spot behind the center (input: gridiron.js).
+  drSpot() {
+    return [this.fb.site.field.cx, this.los + 3.2];
   },
   drDownText() {
     const toGo = this.first <= this.goal + 0.01 ? 'GOAL' : Math.max(1, Math.round((this.los - this.first) / YD));

@@ -890,7 +890,7 @@ export const QBChallenge = {
   // The follow cam (throws past 10 yards): easing off your shoulder to ride behind and above the
   // ball, looking on ahead of it to the ring; after the result, gliding back behind you.
   camOverride(dt = 1 / 60) {
-    if (this.mode === 'drive') return this.drCam(dt); // (the drive's camera up behind you: drivereads.js)
+    if (this.mode === 'drive') return null; // (the drive: the usual over-the-shoulder camera, camShot)
     const Q = this.mode === 'qbc' ? this.qbc : null;
     const game = this.game;
     if (Q?.camBack && !Q.cam) {
