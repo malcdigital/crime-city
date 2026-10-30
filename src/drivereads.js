@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { dist, rand, pick, clamp, lerpAngle } from './util.js';
 import { setShirt } from './character.js';
 import { CTYPES } from './fieldmodes.js';
+import { CATCHES } from './footballpose.js';
 import { HeatFx } from './heatfx.js';
 import { PERFECT } from './throwmeter.js';
 
@@ -402,7 +403,10 @@ export const DriveReads = {
     const tz = clamp(pz + uz * L + ux * lat, F.z0 - 3, F.z1 + 3);
     b.x = px + Math.sin(p.heading) * 0.2;
     b.z = pz + Math.cos(p.heading) * 0.2;
-    fb.launch(tx, TY.h, tz, TY.T(dist(px, pz, tx, tz)), 'pass', w);
+    // (how high it gets to him: on the power it's chest high; short, it dies low at his knees;
+    // long, it sails up over his head. That picks his catch: drCatchKind)
+    const ty = clamp(TY.h + clamp(((pw - need) / this.winFor(kind, need)) * 0.5, -1, 0.9) + rand(-0.12, 0.12), 0.45, 2.3);
+    fb.launch(tx, ty, tz, TY.T(dist(px, pz, tx, tz)), 'pass', w);
     b.style = kind === 'lob' ? 'lob' : 'bullet';
     b.throwKind = kind;
     this.throwT = 0.26;
@@ -565,7 +569,7 @@ export const DriveReads = {
           b.vz = (db.z - b.z) * 1.2;
           b.vy = 3.4;
           b.y = Math.max(b.y, 1.6);
-          this.tip = { db, at: t0 + 0.55 };
+          this.tip = { who: db, at: t0 + 0.55 };
           if (here) w.fb.act = { kind: 'denied', t0, T: 0.7 };
         } else {
           fb.hold(db);
@@ -589,6 +593,27 @@ export const DriveReads = {
         this.t = 0;
         this.drPickWhy = `${why} · ${told}`;
         game.hud.toast('INTERCEPTED!', '#ff8080');
+        return;
+      }
+      if (db && dD < 2.2 && dW < 1.2 && Math.random() < 0.2) {
+        // (tipped: the back gets a hand on it, it pops up and your man stays with it and takes it
+        // out of the air: drTipStep)
+        const t0 = game.time;
+        const lx = Math.cos(db.heading);
+        const lz = -Math.sin(db.heading);
+        db.fb.act = { kind: 'swat', t0, T: 0.7, side: (b.x - db.x) * lx + (b.z - db.z) * lz >= 0 ? 1 : -1 };
+        db.fb.relT = 0;
+        w.fb.act = null;
+        b.mode = 'loose';
+        b.holder = null;
+        b.vx = (w.x + Math.sin(w.heading) * 1.2 - b.x) * 1.4;
+        b.vz = (w.z + Math.cos(w.heading) * 1.2 - b.z) * 1.4;
+        b.vy = 3.4;
+        b.y = Math.max(b.y, 1.6);
+        this.tip = { who: w, at: t0 + 0.55, catch: true };
+        this.state = 'tip';
+        this.t = 0;
+        game.hud.toast('TIPPED!', '#ffd166');
         return;
       }
       if (dW < 1.2 && Math.random() < (D.perfect ? 0.35 : 0.15)) return this.drCaught(w, false, 'Contested catch!');
@@ -630,7 +655,11 @@ export const DriveReads = {
     fb.hold(w);
     this.drRes = { kind: 'complete', why: this.drTold() };
     this.dr.caught = (this.dr.caught || 0) + 1;
-    if (!dove) w.fb.act = { kind: 'secure', t0: game.time, T: 0.3 }; // (into the chest first, then the tuck)
+    // (how he takes it: the catch he went up/down/round for as it came (football.js, drCatchKind),
+    // or into the chest first, then the tuck)
+    const a = w.fb.act;
+    const going = a && CATCHES[a.kind] && game.time - a.t0 < a.T;
+    if (!dove && !going) w.fb.act = { kind: 'secure', t0: game.time, T: 0.3 };
     for (const f of fb.fans) f.fb.cheerT = rand(1, 2);
     game.hud.toast(text, '#7ee081');
     this.heatHit(b.x, Math.max(1, b.y), b.z); // (in rhythm, on fire: fieldmodes.js)
@@ -781,6 +810,35 @@ export const DriveReads = {
     if (moving && b.style !== 'lob' && b.y < 1.7) return 'pickRun';
     return 'pick';
   },
+  // How your receiver takes it (football.js starts it CATCHES[kind].lead s before it gets there,
+  // so he's at the top, in stride or round as it arrives): a low one he scoops; a deep one coming
+  // over him as he runs away (a deep ball or a lob), over the shoulder; one sailing high, he high-points it; on the move
+  // otherwise, he takes it in stride out in front; standing, a plain catch at the chest (null).
+  // (diving for one out of reach, reaching back for one behind him and a tip he stays with are
+  // decided as it gets there: drArrived.) The same catches as the backs' picks (drPickKind).
+  drCatchKind(w, b) {
+    const y = b.p1[1];
+    const L = Math.hypot(b.p1[0] - b.p0[0], b.p1[2] - b.p0[2]) || 1;
+    const ux = (b.p1[0] - b.p0[0]) / L;
+    const uz = (b.p1[2] - b.p0[2]) / L;
+    const dir = Math.sin(w.heading) * ux + Math.cos(w.heading) * uz; // (+: running the ball's way)
+    const moving = (w.fb.adjV ?? w.speed ?? 0) > 2.5;
+    if (y < 0.95) return 'pickScoop';
+    if (moving && dir > 0.55 && (L > 24 || (b.style === 'lob' && L > 14))) return 'pickShoulder';
+    if (y > 1.6) return 'pick';
+    if (moving) return 'pickRun';
+    return null;
+  },
+  // A tip your man stays with (the 'tip' state): it comes down to him, a snatch up high.
+  drTipStep() {
+    const T = this.tip;
+    if (!T || this.game.time < T.at) return;
+    this.tip = null;
+    const w = T.who;
+    if (!this.fb.players.includes(w)) return this.over(null);
+    w.fb.act = { kind: 'pick', t0: this.game.time - 0.35, T: 0.9 };
+    this.drCaught(w, false, 'TIPPED... AND CAUGHT!');
+  },
   // The pick run back (gridiron phase): done when he's there or down, then the card and the end.
   drPickStep() {
     const fb = this.fb;
@@ -789,8 +847,8 @@ export const DriveReads = {
     if (T && this.game.time >= T.at) {
       // (the tip comes down to him: a quick grab up high)
       this.tip = null;
-      fb.hold(T.db);
-      T.db.fb.act = { kind: 'pick', t0: this.game.time - 0.35, T: 0.9 };
+      fb.hold(T.who);
+      T.who.fb.act = { kind: 'pick', t0: this.game.time - 0.35, T: 0.9 };
     }
     if (this.tip) return;
     const h = b.holder;

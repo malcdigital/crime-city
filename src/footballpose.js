@@ -400,6 +400,10 @@ export function pickPose(c, k) {
   return -lowestPoint(c) + 0.55 * up;
 }
 
+// The catches (picks and your receivers' both): how long each takes and how far in (s) the ball's
+// in his hands, at the top of the leap, out in front, over the shoulder, down at the turf.
+export const CATCHES = { pick: { T: 0.9, lead: 0.34 }, pickRun: { T: 0.7, lead: 0.3 }, pickShoulder: { T: 0.9, lead: 0.48 }, pickScoop: { T: 0.8, lead: 0.32 } };
+
 // Jumping the route (k 0..1 over about 0.7 s): running, he drives his hands out in front at chest
 // height, takes it on the run and pulls it straight into the tuck. Upper body only: the legs run.
 export function pickUndercutPose(c, k) {

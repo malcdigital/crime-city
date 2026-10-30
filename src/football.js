@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { lam, setShirt, bendLeg, bendSpine } from './character.js';
-import { pickUndercutPose, pickShoulderPose, pickScoopPose, pickPose, swatPose, deniedPose, tackledPose, tacklerPose, griddyPose, reachBackPose, qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
+import { CATCHES, pickUndercutPose, pickShoulderPose, pickScoopPose, pickPose, swatPose, deniedPose, tackledPose, tacklerPose, griddyPose, reachBackPose, qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
 import { rand, dist, lerpAngle, pick } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
 
@@ -552,6 +552,19 @@ export class Football {
       // early, he waits on it facing the ball rather than running on and circling back.)
       const [lx, lz] = [b.p1[0], b.p1[2]];
       const left = Math.max(0.02, b.T - b.t);
+      // (his catch, decided as it comes (drCatchKind) and started so he's at the top, in stride or
+      // round for it as it gets there; not reaching back for one behind him)
+      if (f.catchFor !== b.p1) {
+        f.catchFor = b.p1;
+        f.catchKind = undefined;
+      }
+      if (f.catchKind === undefined && left < 0.7) f.catchKind = this.match.drCatchKind?.(p, b) ?? null;
+      const CK = f.catchKind && CATCHES[f.catchKind];
+      if (CK && !f.act && !f.reachBack && left <= CK.lead) {
+        const lx = Math.cos(p.heading);
+        const lz = -Math.sin(p.heading);
+        f.act = { kind: f.catchKind, t0: this.game.time - (CK.lead - left), T: CK.T, side: (b.p0[0] - p.x) * lx + (b.p0[2] - p.z) * lz >= 0 ? 1 : -1 };
+      }
       const sat = !f.route || f.leg >= f.route.length;
       // (he reads it a beat after it's out, like a receiver does: running his route till then;
       // then he decides once, on his line or not, and sticks to it)
@@ -641,6 +654,7 @@ export class Football {
       const r = this.driveRB(p, f, b, goTo, faceAt, face);
       if (r) return r;
     }
+    if (this.match?.tip?.who === p && b.mode === 'loose') return { tx: b.x, tz: b.z, speed: RUN * 1.1 }; // (tipped: staying with it)
     if ((f.role === 'wr' || f.role === 'rb') && this.match?.state === 'pick') {
       // (picked off: after the man with it)
       if (f.act) return { speed: 0 };
@@ -664,6 +678,8 @@ export class Football {
         return { speed: 0 };
       }
       if (b.holder === p && ph === 'run') {
+        // (high-pointed or scooped: he comes down / up with it before he runs)
+        if (f.act && (f.act.kind === 'pick' || f.act.kind === 'pickScoop') && this.game.time - f.act.t0 < f.act.T * 0.8) return { speed: 0 };
         if (!f.runTo) f.runTo = [p.x, Math.max(this.site.field.z0 + 1, p.z - 18)];
         return goTo(...f.runTo, RUN * 0.9) || { speed: 0 };
       }
@@ -693,7 +709,7 @@ export class Football {
         if (still || f.downT > 0) return { speed: 0 };
         return goTo(...(f.runTo || [p.x, p.z + 10]), RUN) || { speed: 0 };
       }
-      if (M.tip && M.tip.db === p) return goTo(b.x, b.z, RUN * 1.1) || { speed: 0 }; // (the tip: under it)
+      if (M.tip && M.tip.who === p) return goTo(b.x, b.z, RUN * 1.1) || { speed: 0 }; // (the tip: under it)
       if (f.act) return { speed: 0 };
       return goTo(b.x + rand(-0.1, 0.1), b.z + 3, RUN * 0.9) || { speed: 0 };
     }

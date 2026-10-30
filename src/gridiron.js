@@ -424,6 +424,8 @@ export class Gridiron {
           return this.over(Math.min(this.los + 4 * YD, fb.site.field.z1 - 1));
         }
       }
+    } else if (this.state === 'tip') {
+      this.drTipStep(); // (tipped, your man under it: drivereads.js)
     } else if (this.state === 'pick') {
       this.drPickStep(); // (picked off: he runs it back, then the drive's over: drivereads.js)
       if (!this.active) return;
