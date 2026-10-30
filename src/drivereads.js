@@ -55,6 +55,10 @@ const ROUTES = {
   post: { pts: [[0, 11], [-8, 22]], brk: 0, W: 0.85, name: 'post' },
   shallow: { pts: [[-1, 2], [-15, 5], [-28, 5.5]], brk: 1, W: 0.85, name: 'crosser' },
 };
+// Which way each route breaks: 'out' toward his sideline (or an outside release up it), 'in'
+// toward the middle (or back inside). His man shaded inside gives up the out-breakers; shaded
+// outside, the in-breakers (drFree).
+const BREAKS = { flat: 'out', corner: 'out', sail: 'out', fade: 'out', go: 'out', stick: 'out', slant: 'in', in: 'in', dig: 'in', post: 'in', shallow: 'in', seam: 'in', hitch: 'in', curl: 'in' };
 // Formations: where the three line up (metres across from the ball toward the strong side, and
 // off the line: a slot a step off it). Flipped at random, right or left.
 const FORMS = {
@@ -182,7 +186,13 @@ export const DriveReads = {
     const D = this.dr;
     const P = DPLAYS[this.playI];
     if (newCov || D.side == null) D.side = Math.random() < 0.5 ? 1 : -1;
-    if (newCov || !D.cov) D.cov = pick(['man', 'c3', 'c2']);
+    if (newCov || !D.cov) {
+      // (the coverage, and a third of the time it shows you another one before the snap and
+      // rotates into the real one after it; each back's leverage, inside or outside his man)
+      D.cov = pick(['man', 'c3', 'c2']);
+      D.show = Math.random() < 0.34 ? pick(['man', 'c3', 'c2'].filter((c) => c !== D.cov)) : D.cov;
+      D.lev = [0, 1, 2].map(() => (Math.random() < 0.5 ? 'in' : 'out'));
+    }
     D.play = P;
     if (fb.phase === 'set') fb.phase = 'reset'; // (a new call: everyone gets set again before the snap)
     const form = FORMS[P.form];
@@ -194,31 +204,16 @@ export const DriveReads = {
       w.fb.slot = k;
       w.fb.route = null;
     });
-    // The backs: one on each receiver, lined up by the coverage.
+    // The backs: one on each receiver, lined up by the coverage they're showing, shaded to
+    // their leverage (inside or outside him, a good metre: you can see it); after the snap a
+    // disguise rotates into the real one (drSnap).
     fb.dbs.slice(0, 3).forEach((d, k) => {
-      const s = D.slots[k];
-      const out = Math.sign(s.x - F.cx) || D.side;
-      const wide = Math.abs(s.x - F.cx) > 9;
-      let x = s.x;
-      let z = this.los - 1.2;
-      if (D.cov === 'man') {
-        x = s.x - out * 0.5; // (pressed up, shaded inside)
-        z = this.los - (s.z > this.los + 0.5 ? 3.2 : 1.2);
-      } else if (D.cov === 'c3') {
-        // (three deep: the corners 5 yards off, the safety 7 in the middle)
-        x = wide ? s.x - out * 0.6 : F.cx + (s.x - F.cx) * 0.6;
-        z = this.los - (wide ? 5 : 7) * YD;
-      } else {
-        // (Cover 2: the corner up with outside leverage, two safeties deep on the halves)
-        x = wide ? s.x + out * 0.8 : F.cx + (s.x - F.cx) * 0.7;
-        z = this.los - (wide ? 3 : 7.5) * YD;
-      }
-      d.fb.home = [clamp(x, F.x0 + 1, F.x1 - 1), z];
+      d.fb.home = this.drDBSpot(k, D.show);
+      d.fb.rot = null;
       d.fb.mark = fb.wrs[k];
     });
-    // Who the concept frees against this coverage.
-    D.openK = pick(P.beat[D.cov]);
-    D.openW = fb.wrs[D.openK];
+    // Who's open: drFree.
+    this.drFree();
     D.openAt = D.closeAt = null;
     D.sel = P.read[0];
     D.lock = null;
@@ -229,6 +224,57 @@ export const DriveReads = {
     D.scanList = [...left, null, ...right];
     D.scanI = left.length;
     this.drPlayArt();
+  },
+
+  // Where back k lines up in a coverage: man is pressed up (off a step on a slot), Cover 3 has
+  // the corners 5 yards off and the middle man 7 deep, Cover 2 the corners up at 3 and the
+  // safeties 7.5 deep; always shaded to his leverage.
+  drDBSpot(k, cov) {
+    const D = this.dr;
+    const F = this.fb.site.field;
+    const s = D.slots[k];
+    const out = Math.sign(s.x - F.cx) || D.side;
+    const wide = Math.abs(s.x - F.cx) > 9;
+    const lev = D.lev[k] === 'out' ? 1 : -1;
+    let x = s.x + out * lev * 1.1;
+    let z;
+    if (cov === 'man') z = this.los - (s.z > this.los + 0.5 ? 3.2 : 1.2);
+    else if (cov === 'c3') z = this.los - (wide ? 5 : 7) * YD;
+    else z = this.los - (wide ? 3 : 7.5) * YD;
+    if (cov !== 'man' && !wide) x = s.x + out * lev * 1.4; // (a deep man: a bit wider off him)
+    return [clamp(x, F.x0 + 1, F.x1 - 1), z];
+  },
+  // Who comes open this play: whoever's route breaks away from his man's leverage (BREAKS; you
+  // can see the shade before the snap), and if that's more than one, or nobody, the concept's
+  // answer to the real coverage (DPLAYS beat); still tied, at random. And the defense learns: a play you've completed twice this drive, they
+  // sit on the man who beat them with it last (D.sitOn: covered, and jumped if you go there),
+  // and the next man in the read comes open instead.
+  drFree() {
+    const D = this.dr;
+    const fb = this.fb;
+    const P = DPLAYS[this.playI];
+    const seen = D.seen?.[this.playI];
+    D.sitOn = seen && seen.n >= 2 ? seen.last : null;
+    const score = [0, 1, 2].map((k) => {
+      if (k === D.sitOn) return -9;
+      let v = 0;
+      if (P.beat[D.cov].includes(k)) v += 1;
+      const br = BREAKS[P.routes[k]];
+      if ((br === 'out' && D.lev[k] === 'in') || (br === 'in' && D.lev[k] === 'out')) v += 2;
+      return v;
+    });
+    if (D.sitOn != null) {
+      // (the next read after the man they're sitting on)
+      const i = P.read.indexOf(D.sitOn);
+      score[P.read[(i + 1) % 3]] += 5;
+    }
+    const best = Math.max(...score);
+    D.openK = pick([0, 1, 2].filter((k) => score[k] === best));
+    D.openW = fb.wrs[D.openK];
+    D.levBeat = (() => {
+      const br = BREAKS[P.routes[D.openK]];
+      return (br === 'out' && D.lev[D.openK] === 'in') || (br === 'in' && D.lev[D.openK] === 'out');
+    })();
   },
 
   // The play art: each route drawn on the turf from where he lines up, in his read color.
@@ -284,6 +330,8 @@ export const DriveReads = {
     });
     D.openAt = D.closeAt = null;
     D.lock = null;
+    // (a disguise: at the snap the backs rotate into the coverage they're really in)
+    if (D.show !== D.cov) fb.dbs.slice(0, 3).forEach((d, k) => (d.fb.rot = this.drDBSpot(k, D.cov)));
     D.camT = 0; // (the camera's move in starts now: drStep)
     this.tip = null;
     const scanned = D.scanList?.[D.scanI];
@@ -494,7 +542,11 @@ export const DriveReads = {
     const sep = this.drSep(w);
     let tx;
     let tz;
-    if (D.cov !== 'man' && this.t < 0.12) {
+    if (f.rot && this.t < 0.7 && sep <= 0.3) {
+      // (the disguise rotating: rolling down / bailing out to where the real coverage has him)
+      tx = f.rot[0];
+      tz = f.rot[1] - (D.cov === 'man' ? 0 : 1.5);
+    } else if (D.cov !== 'man' && this.t < 0.12) {
       // (zone: the first steps are a backpedal into it)
       tx = f.home[0];
       tz = f.home[1] - 2;
@@ -554,7 +606,8 @@ export const DriveReads = {
     };
     if (!open) {
       const why = L?.why === 'early' ? "Too early: he hadn't come open yet" : L?.why === 'late' ? 'Too late: his man closed' : 'Into coverage';
-      if (dD < 2.2 && Math.random() < (b.throwKind === 'bullet' ? 0.4 : b.throwKind === 'lob' ? 0.38 : 0.32)) {
+      const sat = D.sitOn != null && w === fb.wrs[D.sitOn]; // (they were sitting on him: jumped)
+      if (dD < 2.2 && Math.random() < (b.throwKind === 'bullet' ? 0.4 : b.throwKind === 'lob' ? 0.38 : 0.32) * (sat ? 1.6 : 1)) {
         // (picked: how depends on the ball and him (drPickKind), then he runs it back; the drive
         // ends when he's done)
         this.heatMiss();
@@ -655,6 +708,12 @@ export const DriveReads = {
     fb.hold(w);
     this.drRes = { kind: 'complete', why: this.drTold() };
     this.dr.caught = (this.dr.caught || 0) + 1;
+    // (the defense remembers what beat it: drFree)
+    const D0 = this.dr;
+    D0.seen = D0.seen || {};
+    const rec = (D0.seen[this.playI] = D0.seen[this.playI] || { n: 0, last: null });
+    rec.n++;
+    rec.last = fb.wrs.indexOf(w);
     // (how he takes it: the catch he went up/down/round for as it came (football.js, drCatchKind),
     // or into the chest first, then the tuck)
     const a = w.fb.act;
@@ -677,7 +736,10 @@ export const DriveReads = {
   // (what the defense was in, and who was open: shown after every play to learn the read)
   drTold() {
     const D = this.dr;
-    return `vs ${COVS[D.cov]}: the ${ROUTES[D.play.routes[D.openK]].name} was open`;
+    const R = ROUTES[D.play.routes[D.openK]].name;
+    const cov = D.show !== D.cov ? `${COVS[D.cov]} (showed ${COVS[D.show]})` : COVS[D.cov];
+    const why = D.sitOn != null ? `they sat on the ${ROUTES[D.play.routes[D.sitOn]].name}, ` : D.levBeat ? `his man was shaded ${D.lev[D.openK] === 'in' ? 'inside' : 'outside'}, ` : '';
+    return `vs ${cov}: ${why}the ${R} was open`;
   },
 
   // ---- What's drawn ----
@@ -1049,7 +1111,8 @@ export const DriveReads = {
   drPlayName() {
     const D = this.dr;
     const P = DPLAYS[this.playI];
-    return `${FORMS[P.form].name} ${D?.side === -1 ? 'Left' : 'Right'} · ${P.name}`;
+    const seen = D?.seen?.[this.playI]?.n >= 2 ? " · THEY'VE SEEN IT" : '';
+    return `${FORMS[P.form].name} ${D?.side === -1 ? 'Left' : 'Right'} · ${P.name}${seen}`;
   },
 
   drEnd() {
