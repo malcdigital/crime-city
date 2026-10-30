@@ -615,7 +615,7 @@ export const FieldModes = {
   // Your camera playing catch: in close behind you over your throwing (right) shoulder, locked
   // on him (main.js updateCamera).
   camShot() {
-    if (this.mode === 'drive' && this.dr && !this.scramble && (this.state === 'line' || this.state === 'air' || (this.state === 'play' && this.fb.ball.holder === 'you'))) return { back: 3.7, up: 0.45, shoulder: 0.85, fov: 58, look: null }; // (the drive: the QB Challenge's camera)
+    if (this.mode === 'drive' && this.dr && !this.scramble && (this.state === 'line' || this.state === 'air' || (this.state === 'play' && this.fb.ball.holder === 'you'))) return this.drCamShot(); // (the drive: wide at the line, in over your shoulder by the end of the drop: drivereads.js)
     if (!(this.mode === 'catch' && this.cat) && !(this.mode === 'qbc' && this.qbc)) return null;
     // (a high ball coming to you: pulled back and wider, so it, you and the grass are all in it)
     const b = this.fb.ball;

@@ -1893,7 +1893,7 @@ class Game {
 
     const v = this.player.vehicle;
     const down = this.wastedT > 0;
-    let tx, tz, ty, distBack, height, shoulder = 0, fov = 65;
+    let tx, tz, ty, distBack, height, shoulder = 0, fov = 65, fovNow = false;
     if (v) {
       // Swing behind the car when the camera stick/mouse is idle.
       if (this.camIdle > (this.input.touchMode ? 0.6 : 1) && Math.abs(v.speed) > 2) { // (sooner on a phone)
@@ -1927,6 +1927,7 @@ class Game {
         height = S.up;
         shoulder = S.shoulder;
         fov = S.fov;
+        if (S.snapFov) fovNow = fov; // (a move on its own curve: no extra easing)
       }
       // In cover: a wider view so you can see around you.
       if (this.player.cover) {
@@ -2030,7 +2031,7 @@ class Game {
       this.camera.lookAt(O.look);
     }
     if (Math.abs(this.camera.fov - fov) > 0.1) {
-      this.camera.fov = lerp(this.camera.fov, fov, Math.min(1, dt * 10));
+      this.camera.fov = fovNow ? fov : lerp(this.camera.fov, fov, Math.min(1, dt * 10));
       this.camera.updateProjectionMatrix();
     }
 

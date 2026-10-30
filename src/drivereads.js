@@ -778,6 +778,19 @@ export const DriveReads = {
     if (el) el.classList.add('out');
     if (this.dr) this.dr.wipe = null;
   },
+  // The drive's camera shot (fieldmodes.js camShot → main.js): wide at the line, easing back in
+  // over your shoulder through the drop-back on the drive curve; the near shot after.
+  drCamShot() {
+    const D = this.dr;
+    let k = 1;
+    if (this.state === 'line') k = 0;
+    else if (this.state === 'play') k = driveCurve(this.t / Math.max(0.2, D?.play?.drop ?? 0.6));
+    const sh = {};
+    for (const key of Object.keys(SHOT_NEAR)) sh[key] = SHOT_WIDE[key] + (SHOT_NEAR[key] - SHOT_WIDE[key]) * k;
+    sh.look = null;
+    sh.snapFov = true; // (the fov follows the curve as it is, not eased again)
+    return sh;
+  },
   drDownText() {
     const toGo = this.first <= this.goal + 0.01 ? 'GOAL' : Math.max(1, Math.round((this.los - this.first) / YD));
     return `${['1ST', '2ND', '3RD', '4TH'][Math.min(3, this.down)]} & ${toGo}`;
@@ -803,6 +816,29 @@ export const DriveReads = {
     if (game.timeScale !== 1) game.timeScale = 1;
   },
 };
+
+// The camera's ease from the wide pre-snap shot back in over your shoulder (a cubic Bezier from
+// (0,0) to (1,1), handles (0, 0.449) and (0, 0.993): it gets most of the way there fast and
+// settles in; x: how far through the move, 0..1 → y: how far the camera's come).
+const CB = [0, 0.4491228, 0.9932236, 1]; // (y control points; x's are 0, 0, 0, 1)
+export function driveCurve(x) {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const bz = (a, b, c, d, t) => {
+    const u = 1 - t;
+    return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
+  };
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 30; i++) {
+    const m = (lo + hi) / 2;
+    if (bz(0, 0, 0, 1, m) < x) lo = m;
+    else hi = m;
+  }
+  return bz(CB[0], CB[1], CB[2], CB[3], (lo + hi) / 2);
+}
+const SHOT_NEAR = { back: 3.7, up: 0.45, shoulder: 0.85, fov: 58 }; // (the QB Challenge's, over your shoulder)
+const SHOT_WIDE = { back: 13.7, up: 2.6, shoulder: 0, fov: 76 }; // (pre-snap: 10 m further back, up, wider)
 
 // How fast he'll go on: running his route, or stopped at its end.
 function routeSpeed(w) {
