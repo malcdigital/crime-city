@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeCharacter, animateWalk, crouchPose, crouchWalk, restPose, fallPose, lam } from './character.js';
 import { aimPose, lowReady, fightStance, markPunch, punchPose, markFlinch, flinchPose, markRecoil, reloadPose, kneelPose, FIGHT_STYLES, PUNCH_T } from './combatpose.js';
-import { qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, reachBackPose, griddyPose, upsetPose, layoutPose, jukedPose, reachBall, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
+import { qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, reachBackPose, tackledPose, tacklerPose, griddyPose, upsetPose, layoutPose, jukedPose, reachBall, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
 import { shotForm, dribbleArm, hesiPush, handoff, dribbleFrom, HO_TOP, SPIN_REL, dribbleArms, pivotPose, fadePose, triplePose, anklePose } from './streetball.js';
 import { dunkPose, dunkPhase } from './dunkpose.js';
 import { markJump, jumpPose } from './blockpose.js';
@@ -96,7 +96,10 @@ function list(game) {
     ['Football', 'Spin', 1.2, (c, t) => { animateWalk(c, t * 7.85, 1); const k = Math.max(0, Math.min(1, (t - 0.3) / 0.45)); if (k > 0 && k < 1) spinPose(c, k); else tuckCarry(c, 6); return { turn: -Math.PI * 2 * k * k * (3 - 2 * k), fball: 1 }; }],
     ['Football', 'Stiff-arm', 1.2, (c, t) => { animateWalk(c, t * 7.85, 1); if (t > 0.2 && t < 0.8) stiffArmPose(c, (t - 0.2) / 0.6, 6); else tuckCarry(c, 6); return { fball: 1 }; }],
     ['Football', 'Diving catch', 2, (c, t) => { const k = t < 0.4 ? t / 0.4 : t > 1.6 ? (2 - t) / 0.4 : 1; const y = layoutPose(c, k, true); return { y, rotX: c.group.rotation.x }; }],
-    ['Football', 'Tackled (going down)', 2, (c, t) => { const k = t < 0.3 ? t / 0.3 : t > 1.6 ? (2 - t) / 0.4 : 1; const y = layoutPose(c, k, false); return { y, rotX: c.group.rotation.x }; }],
+    ['Football', 'Tackled from behind', 2, (c, t) => { const k = t < 0.3 ? t / 0.3 : t > 1.6 ? (2 - t) / 0.4 : 1; const y = tackledPose(c, k, 'behind'); return { y, rotX: c.group.rotation.x, rotZ: c.group.rotation.z }; }],
+    ['Football', 'Tackled head on', 2, (c, t) => { const k = t < 0.3 ? t / 0.3 : t > 1.6 ? (2 - t) / 0.4 : 1; const y = tackledPose(c, k, 'front'); return { y, rotX: c.group.rotation.x, rotZ: c.group.rotation.z }; }],
+    ['Football', 'Tackled from the side', 2, (c, t) => { const k = t < 0.3 ? t / 0.3 : t > 1.6 ? (2 - t) / 0.4 : 1; const y = tackledPose(c, k, 'side', 1); return { y, rotX: c.group.rotation.x, rotZ: c.group.rotation.z }; }],
+    ['Football', 'The tackle (wrapping him up)', 2, (c, t) => { const k = t < 0.3 ? t / 0.3 : t > 1.6 ? (2 - t) / 0.4 : 1; const y = tacklerPose(c, k); return { y, rotX: c.group.rotation.x, rotZ: c.group.rotation.z }; }],
     ['Football', 'Juked (caught leaning)', 1.4, (c) => { jukedPose(c, 1); return {}; }],
     ['Football', 'Defender going up for the ball', 1.4, (c) => { reachBall(c); return {}; }],
     // ---- Basketball ----
@@ -430,6 +433,7 @@ export class AnimViewer {
     c.group.position.z += r.fwd || 0;
     c.group.rotation.y = r.turn || 0;
     c.group.rotation.x = r.rotX || 0;
+    c.group.rotation.z = r.rotZ || 0;
     if (r.gun) this.guns[r.gun].visible = true;
     // The muzzle flash at the end of the barrel.
     this.flash.visible = !!(r.gun && r.flash);

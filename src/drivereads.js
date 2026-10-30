@@ -520,11 +520,23 @@ export const DriveReads = {
     const w = b.to;
     const here = w && fb.players.includes(w);
     let dW = here ? dist(w.x, w.z, b.x, b.z) : 99;
+    // (out of bounds: over the sideline or past the back of the end zone, it doesn't count)
+    const F0 = fb.site.field;
+    const outB = here && (w.x < F0.x0 || w.x > F0.x1 || w.z < F0.z0 || b.x < F0.x0 - 0.3 || b.x > F0.x1 + 0.3 || b.z < F0.z0 - 0.3);
     const db = fb.dbs.find((q) => q.fb.mark === w);
     const dD = db ? dist(db.x, db.z, b.x, b.z) : 99;
     const L = D.lock;
     const open = !!(L && L.w === w && L.open);
     const told = this.drTold();
+    if (outB) {
+      b.mode = 'loose';
+      b.vx = rand(-1, 1);
+      b.vz = rand(-1, 1);
+      b.vy = -1;
+      this.drRes = { kind: 'incomplete', why: `Out of bounds · ${told}` };
+      this.heatMiss();
+      return this.over(null);
+    }
     const fail = (why) => {
       b.mode = 'loose';
       b.vx = rand(-1.5, 1.5);

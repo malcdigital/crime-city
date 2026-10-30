@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { lam, setShirt, bendLeg, bendSpine } from './character.js';
-import { griddyPose, reachBackPose, qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
+import { tackledPose, tacklerPose, griddyPose, reachBackPose, qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
 import { rand, dist, lerpAngle, pick } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
 
@@ -209,7 +209,14 @@ export class Football {
       const p = b.holder;
       const fx = Math.sin(p.heading);
       const fz = Math.cos(p.heading);
-      if (fbBallAt(p.char, _fv)) {
+      if (p.fb.downT > 0 && p.fb.fall) {
+        // (down with it: on the grass at his chest, wherever he's lying)
+        p.char.group.updateMatrixWorld(true);
+        p.char.chest.getWorldPosition(_fv);
+        b.x = _fv.x;
+        b.z = _fv.z;
+        b.y = Math.max(0.14, _fv.y - 0.12);
+      } else if (fbBallAt(p.char, _fv)) {
         // (in his hands, wherever this frame's pose put them: footballpose.js)
         b.x = _fv.x;
         b.y = _fv.y;
@@ -298,7 +305,7 @@ export class Football {
       }
     } else if (this.phase === 'dead' || this.phase === 'back') {
       // Getting the ball back to the quarterback.
-      if (b.holder && b.holder !== qb && b.mode === 'held' && this.t > 0.6 && dist(b.holder.x, b.holder.z, qb.x, qb.z) < 22) {
+      if (this.match?.mode !== 'drive' && b.holder && b.holder !== qb && b.mode === 'held' && this.t > 0.6 && dist(b.holder.x, b.holder.z, qb.x, qb.z) < 22) { // (your drive puts it back in your hands itself: it stays down with him)
         this.launch(qb.x, 1.2, qb.z, 0.45 + dist(b.holder.x, b.holder.z, qb.x, qb.z) / 22, 'toss', qb);
       }
       if (b.holder === qb && b.mode === 'held') {
@@ -357,13 +364,29 @@ export class Football {
   }
 
   // Brought down: the runner and the tackler both hit the turf.
+  // Brought down: where the hit came from (behind, head on, either side of him) decides how he
+  // goes down; the tackler drives through him and lands on top. (runner 'you' / null: the player)
   tackle(runner, tackler) {
-    for (const q of [runner, tackler]) {
-      if (!q || !q.fb) continue;
-      q.fb.dive = false;
-      q.fb.downT = q.fb.downLen = 1.1;
+    const R = runner && runner.x != null ? runner : null;
+    const P = this.game.player;
+    const [rx, rz, rh] = R ? [R.x, R.z, R.heading] : runner === null || runner === 'you' ? [...P.pos(), P.heading] : [0, 0, 0];
+    let from = 'behind';
+    let side = 1;
+    if (tackler) {
+      const dx = tackler.x - rx;
+      const dz = tackler.z - rz;
+      const L = Math.hypot(dx, dz) || 1;
+      const ahead = (dx * Math.sin(rh) + dz * Math.cos(rh)) / L; // (+: the tackler's in front of him)
+      const left = (dx * Math.cos(rh) - dz * Math.sin(rh)) / L; // (+: on his left)
+      from = ahead > 0.45 ? 'front' : ahead < -0.45 ? 'behind' : 'side';
+      side = left >= 0 ? 1 : -1;
+      tackler.heading = Math.atan2(rx - tackler.x, rz - tackler.z);
+      Object.assign(tackler.fb, { dive: true, diveTo: [rx + Math.sin(tackler.heading) * 0.6, rz + Math.cos(tackler.heading) * 0.6], downT: 1.3, downLen: 1.3, fall: { kind: 'tackler' } });
     }
-    if (tackler && runner && runner.x != null) tackler.heading = Math.atan2(runner.x - tackler.x, runner.z - tackler.z);
+    const fall = { kind: 'tackled', from, side };
+    if (R?.fb) Object.assign(R.fb, { dive: false, downT: 1.3, downLen: 1.3, fall });
+    else this.game.gridiron && (this.game.gridiron.youFall = fall); // (you: gridiron late())
+    return fall;
   }
 
   // Start scooping a loose ball up (onPick: when it's in his hands, halfway through).
@@ -460,7 +483,10 @@ export class Football {
       f.downT -= dt;
       const t = (f.downLen || 1.1) - f.downT;
       if (f.dive && t < 0.3 && f.diveTo) return { tx: f.diveTo[0], tz: f.diveTo[1], speed: 5.5 };
-      if (f.downT <= 0) f.dive = false;
+      if (f.downT <= 0) {
+        f.dive = false;
+        f.fall = null;
+      }
       return { speed: 0 };
     }
     if (f.dance) return { speed: 0 }; // (the drive's over: celebrating where he is: drivecine.js)
@@ -750,6 +776,8 @@ export class Football {
       const T = f.downLen || 1.1;
       const t = T - f.downT;
       const k = t < 0.25 ? t / 0.25 : f.downT < 0.35 ? f.downT / 0.35 : 1;
+      if (f.fall?.kind === 'tackled') return y + tackledPose(c, k, f.fall.from, f.fall.side);
+      if (f.fall?.kind === 'tackler') return y + tacklerPose(c, k);
       return y + layoutPose(c, k, f.dive);
     }
     const set = this.phase === 'set' && p.speed === 0;

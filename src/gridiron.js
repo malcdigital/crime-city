@@ -5,7 +5,7 @@ import { QBChallenge, QBC_KEY } from './qbchallenge.js';
 import { DriveReads, DPLAYS, SACK_READ, DRIVE_KEY } from './drivereads.js';
 import { CFG } from './config.js';
 import { bendSpine } from './character.js';
-import { throwPose, layoutPose, qbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat } from './footballpose.js';
+import { tackledPose, throwPose, layoutPose, qbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat } from './footballpose.js';
 
 // Quarterback a drive at Harbor Field (football.js runs the passing drill there).
 // - Join: walk onto the field while they're lining up; their quarterback offers you the ball.
@@ -429,6 +429,11 @@ export class Gridiron {
       if (!h || h === 'you') return this.over(this.los);
       if (h.z <= this.goal) return this.touchdown(h);
       const tackler = this.defenders().find((q) => !(q.fb.downT > 0) && !(q.fb.beatT > 0) && dist(q.x, q.z, h.x, h.z) < 0.9);
+      const F = fb.site.field;
+      if (h.x < F.x0 || h.x > F.x1) {
+        this.drRes = { kind: 'complete', why: `Out of bounds at the ${this.yardLine(h.z)} · ${this.drTold()}` };
+        return this.over(h.z);
+      }
       if (tackler) fb.tackle(h, tackler);
       if (tackler || this.t > 7 || (h.fb.runTo && dist(h.x, h.z, ...h.fb.runTo) < 0.6)) {
         return this.over(h.z);
@@ -557,12 +562,16 @@ export class Gridiron {
     c.group.rotation.x = 0;
     c.armL.rotation.z = c.armR.rotation.z = 0;
     c.group.userData.fbGrip = null;
+    c.group.rotation.z = 0;
     if (this.downT > 0) {
       const t = 1.1 - this.downT;
       const k = t < 0.25 ? t / 0.25 : this.downT < 0.35 ? this.downT / 0.35 : 1;
-      c.group.position.y += layoutPose(c, k, false);
+      const F = this.youFall;
+      c.group.position.y += F ? tackledPose(c, k, F.from, F.side) : layoutPose(c, k, false); // (brought down: how depends where he hit you from)
+      this.placeBallDown(c, b);
       return;
     }
+    this.youFall = null;
     if (this.mode === 'drive' && this.dr?.acc) {
       // (the arm coming through while you time the tap: the ball leaves the hand at the middle)
       throwPose(c, 1, Math.min(0.34, (this.dr.acc.n / 0.5) * 0.34));
@@ -627,6 +636,18 @@ export class Gridiron {
     const moving = Math.min(1, (dt > 0 ? moved / dt : 0) / 1.4 + turn * 1.5);
     c.group.rotation.y = this.pkYaw - POCKET_CLOSE;
     return pocketStance(c, 0, this.pkStep, moving);
+  }
+
+  // Down with the ball: on the grass at your chest, wherever you're lying.
+  placeBallDown(c, b) {
+    if (b.holder !== 'you' || b.mode !== 'held') return;
+    c.group.updateMatrixWorld(true);
+    c.chest.getWorldPosition(_gb);
+    _gb.y = Math.max(0.14, _gb.y - 0.12);
+    b.x = _gb.x;
+    b.y = _gb.y;
+    b.z = _gb.z;
+    b.mesh.position.copy(_gb);
   }
 
   // The ball in your hands, where this frame's pose put them.

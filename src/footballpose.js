@@ -311,6 +311,71 @@ export function layoutPose(c, k, dive) {
   return 0.2 * e;
 }
 
+// Tackled (the runner, k 0..1 down): hit from behind he pitches forward onto his front, arms
+// thrown out ahead to break the fall; hit head on he's driven back onto his back, legs up, arms
+// flung up; hit from the side (side +1: from his left) he's rolled over onto his side, the
+// near arm wrapped by the tackler, the other reaching for the ground. Returns the height.
+export function tackledPose(c, k, from, side = 1) {
+  const e = ease(Math.min(1, k));
+  c.group.rotation.z = 0;
+  if (from === 'behind') {
+    c.group.rotation.x = (Math.PI / 2) * 0.95 * e;
+    bendSpine(c, -0.15 * e, 0, 0);
+    c.neck.rotation.set(-0.6 * e, 0.25, 0);
+    c.armL.rotation.set(-2.5, 0, -0.35);
+    c.armR.rotation.set(-2.5, 0, 0.35);
+    c.elbowL.rotation.set(-0.5, 0, 0);
+    c.elbowR.rotation.set(-0.5, 0, 0);
+    bendLeg(c.legL, c.kneeL, 0.1 * e, 0.4 * e);
+    bendLeg(c.legR, c.kneeR, -0.15 * e, 0.2 * e);
+    return 0.2 * e;
+  }
+  if (from === 'front') {
+    c.group.rotation.x = -(Math.PI / 2) * 0.9 * e;
+    bendSpine(c, 0.35 * e, 0, 0); // (curled up round it)
+    c.neck.rotation.set(0.45 * e, 0, 0);
+    c.armL.rotation.set(-1.4 - 1.2 * e, 0, -0.6);
+    c.armR.rotation.set(-0.9, 0, 0.25); // (the ball arm, still tucked)
+    c.elbowL.rotation.set(-0.4, 0, 0);
+    c.elbowR.rotation.set(-1.9, 0, 0);
+    bendLeg(c.legL, c.kneeL, 0.9 * e, 1.0 * e);
+    bendLeg(c.legR, c.kneeR, 0.6 * e, 0.6 * e);
+    return 0.22 * e;
+  }
+  // (the side: rolled away from the hit)
+  c.group.rotation.x = 0.15 * e;
+  c.group.rotation.z = -side * (Math.PI / 2) * 0.92 * e;
+  bendSpine(c, 0.25 * e, 0, 0.2 * side * e);
+  c.neck.rotation.set(-0.2 * e, 0, 0.3 * side * e);
+  const near = side > 0 ? 'L' : 'R';
+  const far = side > 0 ? 'R' : 'L';
+  c['arm' + near].rotation.set(-0.9, 0, side * 0.2);
+  c['elbow' + near].rotation.set(-1.6, 0, 0);
+  c['arm' + far].rotation.set(-1.0, 0, side * 1.25 * e); // (out for the ground)
+  c['elbow' + far].rotation.set(-0.3, 0, 0);
+  bendLeg(c.legL, c.kneeL, 0.45 * e, 0.8 * e);
+  bendLeg(c.legR, c.kneeR, 0.2 * e, 0.5 * e);
+  return 0.24 * e;
+}
+
+// The tackler (k 0..1 through it): launching into him low, head across, arms wrapping round,
+// then down on top of him, face down. Returns the height.
+export function tacklerPose(c, k) {
+  const e = ease(Math.min(1, k));
+  c.group.rotation.z = 0;
+  c.group.rotation.x = (Math.PI / 2) * 0.9 * e;
+  bendSpine(c, 0.25, 0, 0);
+  c.neck.rotation.set(-0.5, 0.2, 0);
+  // (the wrap: both arms forward and in, elbows bent round him)
+  c.armL.rotation.set(-1.6, 0, 0.55);
+  c.armR.rotation.set(-1.6, 0, -0.55);
+  c.elbowL.rotation.set(-1.2, 0, 0);
+  c.elbowR.rotation.set(-1.2, 0, 0);
+  bendLeg(c.legL, c.kneeL, -0.2 * e, 0.3);
+  bendLeg(c.legR, c.kneeR, 0.1 * e, 0.6);
+  return 0.24 * e;
+}
+
 // Juked: caught leaning the wrong way, twisted, the arms out for balance.
 export function jukedPose(c, side = 1) {
   bendSpine(c, -0.2, 0.4 * side, 0.3 * side);
