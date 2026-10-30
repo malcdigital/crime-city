@@ -94,6 +94,31 @@ export function holdBall(c, look = 0, still = true, now = 0) {
   return -lowestPoint(c);
 }
 
+// In the pocket, the way a quarterback really stands there (you and theirs): side-on, the front
+// (left) shoulder at the target and the body turned POCKET_CLOSE away from it (the caller turns
+// the body: its facing minus POCKET_CLOSE), the head round on the target; the ball high at the
+// chest by the back shoulder in both hands; a base a little wider than the shoulders, knees soft,
+// the weight on the balls of the feet. Moving he doesn't run: short shuffle steps, one foot then
+// the other (step: the stepping phase, the caller moves it on with distance and with turning to
+// a new target; moving 0..1). look (-1..1) scans a little. Returns the height change.
+export const POCKET_CLOSE = 1.0;
+export function pocketStance(c, look = 0, step = 0, moving = 0) {
+  bendSpine(c, 0.16, 0.32 + look * 0.15, 0); // (the chest a little round toward the target)
+  c.neck.rotation.set(-0.08, 0.62 + look * 0.3, 0); // (the eyes on it)
+  reachArm(c, 'R', _a.set(-0.15, 1.3, 0.25), _b.set(-1, -0.6, -0.3), _c.set(0.25, 0.3, 1), null, 'body');
+  reachArm(c, 'L', _a.set(-0.03, 1.31, 0.33), _b.set(1, -0.6, -0.2), _c.set(-0.15, 0.3, 1), null, 'body');
+  grip(c, 'two');
+  const m = clamp01(moving);
+  const sL = Math.max(0, Math.sin(step)) * m; // (the left foot up and across)
+  const sR = Math.max(0, -Math.sin(step)) * m;
+  const alive = (1 - m) * 0.03 * Math.sin(step * 0.5); // (standing: the feet alive)
+  bendLeg(c.legL, c.kneeL, 0.38 + 0.3 * sL + alive, 0.62 + 0.7 * sL);
+  bendLeg(c.legR, c.kneeR, 0.38 + 0.3 * sR - alive, 0.62 + 0.7 * sR);
+  c.legL.rotation.z = 0.3 - 0.1 * sL; // (a little wider than the shoulders; the stepping foot comes in a touch)
+  c.legR.rotation.z = -0.3 + 0.1 * sR;
+  return -lowestPoint(c);
+}
+
 // Running with it: high and tight (the ball against the ribs, the hand over its front tip, the
 // elbow clamped on it), leaning into the run (speed m/s), the head up.
 // (the five points of a good carry: the nose in the palm, fingers over the front tip, the ball

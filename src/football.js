@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { lam, setShirt, bendLeg, bendSpine } from './character.js';
-import { qbStance, wrStance, dbStance, holdBall, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
+import { qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
 import { rand, dist, lerpAngle, pick } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
 
@@ -675,7 +675,11 @@ export class Football {
       if (b.holder === p) {
         if (f.throwT > 0) throwPose(c, 1 - Math.max(0, f.throwT - 0.12) / 0.23, 0); // (winding up)
         else if (p.speed > (f.role === 'qb' ? 4 : 0.5)) tuckCarry(c, p.speed); // (high and tight; a quarterback dropping back keeps two hands on it)
-        else if (!set) y = holdBall(c, f.role === 'qb' ? Math.sin(this.t * 1.6) * 0.8 : 0, p.speed < 0.6, this.t) + 0.04; // (in the pocket, scanning, feet at shoulder width)
+        else if (!set && f.role === 'qb' && p.speed < 1.8) {
+          // (set in the pocket: side-on to where he's looking, shuffling when he moves; the same as you)
+          y = pocketStance(c, Math.sin(this.t * 1.6) * 0.5, this.t * 7, Math.min(1, p.speed / 1.4)) + 0.04;
+          c.group.rotation.y = p.heading - POCKET_CLOSE;
+        } else if (!set) y = holdBall(c, 0, p.speed < 0.6, this.t) + 0.04; // (two hands on it at the chest)
       } else if (f.relT > 0) {
         throwPose(c, 1, 1 - f.relT / 0.4); // (the throw and the follow-through)
       } else if (b.mode === 'flight' && b.to === p && b.T - b.t < 0.6) {

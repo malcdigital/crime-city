@@ -256,7 +256,7 @@ export class Scoreboard {
     const sec = Math.ceil(v.left);
     const ck = el.querySelector('.c3-clock');
     ck.textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
-    ck.classList.toggle('low', v.left <= 10 && v.phase !== 'count');
+    ck.classList.toggle('low', v.left <= (v.lowAt ?? 10) && v.phase !== 'count');
     const sc = el.querySelector('.c3-sc');
     if (sc.textContent !== String(v.score)) {
       sc.textContent = String(v.score);

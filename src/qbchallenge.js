@@ -1,55 +1,61 @@
 import * as THREE from 'three';
-import { dist, rand, pick, lerpAngle } from './util.js';
+import { dist, rand, lerpAngle } from './util.js';
 import { CTYPES, GOLD, YD, G } from './fieldmodes.js';
 import { Scoreboard } from './scoreboard.js';
 
 // The QB Challenge at Harbor Field (mixed into Gridiron: gridiron.js), picked from the field's
-// menu. Three stages from the spot, 40 seconds each, with the throw meter (throwmeter.js: □
-// bullet, ✕ touch, △ lob; hold for power, let go in the green, tap again on the line), at five
-// rings on posts downfield (10, 16, 22, 30 and 40 yards: 1, 2, 2, 3, 5 points). D-pad ◀ ▶
-// (Z / X, ◀ ▶ on a phone) picks the ring.
+// menu. Three stages from the spot, with the throw meter (throwmeter.js: □ bullet, ✕ touch, △
+// lob; hold for power, let go in the green, tap again on the line). You stand in the pocket the
+// way a quarterback does (footballpose.js pocketStance: side-on, shuffling, stepping round to the
+// target).
+// The targets pop up out of the grass one at a time, and you get one throw at each (SHOT_T
+// seconds to get it off, or it's gone). Each stage has a fixed set of distances, each worth its
+// points (SETS), dealt in a random order and set at a random spot across the field: everyone
+// gets the same throws, so the same points are there to be had. The last target of each stage
+// is the MONEY ring (gold): double.
 //   ACCURACY  the rings standing still.
 //   MOVING    the rings sliding side to side (the throw's aimed where the ring will be), and the
 //             green on the power meter narrower (MOVE_WIN of its width).
-//   POCKET    the rings still again, with two rushers coming at you from 7 yards off every
-//             snap: hold it too long and you're sacked (the streak's gone). Step up or slide in
-//             the pocket to buy time.
+//   PRESSURE  a rusher comes at you from 9 m off, from one side or the other. When he's close
+//             (JUKE! comes up), juke the other way, away from him (◀ ▶: D-pad, Z / X, the JUKE
+//             buttons on a phone): too early and he reads it, the wrong way or not at all and
+//             you're sacked. Beat him and he dives past (+1), and a moving ring pops up: hit it.
 // Scoring: through the middle of a ring (within 25 cm) is a BULLSEYE, double points. Hits in a
-// row build a multiplier: x2 from the third, x3 from the sixth (a miss or a sack resets it).
-// Every so often one ring turns gold: the MONEY ring, double again for a few seconds.
-// Presentation: an intro (the camera flying down the field over the rings; skippable), a 3-2-1
-// before each stage, the contest board (the clock, the three stages' scores, the multiplier,
-// the record), a hit cam that rides a deep ball in (time slowed; the clock waits for it), the
-// record banner the moment you pass it, and a finish (the camera round you, the final score by
-// stage, NEW RECORD). The best total is saved (a new record: +3 cred).
+// row build a multiplier: x2 from the third, x3 from the sixth (a miss, too slow or a sack
+// resets it).
+// Presentation: an intro (the camera flying down the field; skippable), a 3-2-1 before each
+// stage, the contest board (the shot clock, the three stages' scores and how far through, the
+// multiplier, the record), a hit cam that rides a deep ball in (time slowed), the record banner
+// the moment you pass it, and a finish (the camera round you, the final score by stage, NEW
+// RECORD). The best total is saved (a new record: +3 cred).
 
 const RING_R = 0.8;
 const RING_Y = 1.7;
-const QBC_KEY = 'crimecity.qbc.v2';
-const STAGE_T = 40;
+const QBC_KEY = 'crimecity.qbc.v3';
 export const QBC_STAGES = [
-  { id: 'acc', name: 'ACCURACY', sub: 'Put it through the rings' },
-  { id: 'move', name: 'MOVING', sub: 'Rings on the move, a smaller green' },
-  { id: 'pocket', name: 'POCKET', sub: 'Beat the rush' },
+  { id: 'acc', name: 'ACCURACY', sub: 'One throw at each ring' },
+  { id: 'move', name: 'MOVING', sub: 'Moving rings, a smaller green' },
+  { id: 'juke', name: 'PRESSURE', sub: 'Juke the rusher, then hit the ring' },
 ];
-// The rings: [yards downfield, meters across, points]
-const TARGETS = [
-  [10, -6, 1],
-  [16, 6.5, 2],
-  [22, 0, 2],
-  [30, -7.5, 3],
-  [40, 5, 5],
-];
-const COLORS = [0x6fa8ff, 0x3ddc97, 0xffd23f, 0xff9f43, 0xff4d6d];
+// Each stage's targets: [yards downfield, points]. The same for everyone, in a shuffled order.
+const SETS = {
+  acc: [[10, 1], [15, 1], [20, 2], [25, 2], [30, 3], [35, 3], [40, 4], [45, 5]],
+  move: [[10, 1], [15, 1], [20, 2], [25, 2], [30, 3], [35, 3], [40, 4], [45, 5]],
+  juke: [[12, 1], [18, 2], [24, 3], [30, 4], [38, 5]],
+};
+const COLORS = { 1: 0x6fa8ff, 2: 0x3ddc97, 3: 0xffd23f, 4: 0xff9f43, 5: 0xff4d6d };
 const BULL = 0.25; // (through the middle of a ring: a bullseye)
+const SHOT_T = 6; // (seconds to get the throw off once a target's up)
+const POP_T = 0.45; // (a target rising out of the grass)
 const MOVE_WIN = 0.6; // (MOVING: the green window on the power meter, this much of its usual width)
-const RUSH_START = 7; // (the rushers' marks, meters in front of the spot)
-const RUSH_SPEED = 3.3;
-const RUSH_DELAY = 0.5;
+const DEF_START = 9; // (the rusher's mark, meters in front of the spot)
+const DEF_SPEED = 4.2;
+const JUKE_D = 2.8; // (he's this close: juke now)
 const SACK_R = 0.85;
-const MONEY_T = 6;
 const HITCAM_PTS = 5; // (the hit cam: the deep ring (or the money one) going through)
 const HITCAM_GAP = 6; // (seconds, at least, between hit cams)
+
+const ease = (k) => k * k * (3 - 2 * k);
 
 export const QBChallenge = {
   startChallenge(qb) {
@@ -70,123 +76,109 @@ export const QBChallenge = {
       // (storage unavailable)
     }
     const gy = game.city.groundY?.(F.cx, sz) || 0;
-    const Q = (this.qbc = { spot: [F.cx, sz], gy, stage: -1, t: -99, left: STAGE_T, score: 0, stageScores: [0, 0, 0], throws: 0, hits: 0, best, passed: false, targets: [], flights: [], ready: false, rackAt: 0, over: false, stageOver: false, overT: 0, sel: 2, streak: 0, mult: 1, money: null, nextMoney: 0, cam: null, rush: [], rushOn: false, readyAt: 0 });
-    TARGETS.forEach(([yd, across, pts], i) => {
-      const z = sz - yd * YD;
-      const x0 = F.cx + across;
-      const grp = new THREE.Group();
-      const col = COLORS[i];
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, RING_Y - RING_R + 0.05, 6), new THREE.MeshLambertMaterial({ color: 0x2a2f38 }));
-      post.position.y = (RING_Y - RING_R) / 2;
-      grp.add(post);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(RING_R, 0.08, 8, 28), new THREE.MeshLambertMaterial({ color: col, emissive: 0x000000 }));
-      ring.position.y = RING_Y;
-      grp.add(ring);
-      // (a see-through face with its points and the bullseye on it)
-      const cv = document.createElement('canvas');
-      cv.width = cv.height = 128;
-      const g = cv.getContext('2d');
-      const hex = `#${col.toString(16).padStart(6, '0')}`;
-      g.fillStyle = hex;
-      g.globalAlpha = 0.25;
-      g.beginPath();
-      g.arc(64, 64, 62, 0, Math.PI * 2);
-      g.fill();
-      const br = (BULL / (RING_R * 0.92)) * 62; // (the bullseye, to scale)
-      g.globalAlpha = 0.5;
-      g.fillStyle = '#ffd23f';
-      g.beginPath();
-      g.arc(64, 64, br, 0, Math.PI * 2);
-      g.fill();
-      g.globalAlpha = 0.95;
-      g.strokeStyle = '#fff3b0';
-      g.lineWidth = 3;
-      g.beginPath();
-      g.arc(64, 64, br, 0, Math.PI * 2);
-      g.stroke();
-      g.fillStyle = '#ffffff';
-      g.font = 'bold 30px sans-serif';
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      g.fillText(`+${pts}`, 64, 24); // (its points: "+3", not to be mixed up with its button)
-      g.font = 'bold 15px sans-serif';
-      g.fillText(pts > 1 ? 'PTS' : 'PT', 64, 106);
-      const disc = new THREE.Mesh(new THREE.CircleGeometry(RING_R * 0.92, 28), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, side: THREE.DoubleSide, depthWrite: false }));
-      disc.position.y = RING_Y;
-      grp.add(disc);
-      grp.position.set(x0, gy, z);
-      grp.rotation.y = Math.atan2(F.cx - x0, sz - z); // (facing the spot)
-      game.scene.add(grp);
-      Q.targets.push({ grp, ring, col, x: x0, z, x0, gy, pts, ph: rand(0, Math.PI * 2), amp: 0, ampM: rand(2.5, 4), per: rand(2.6, 4.2), flash: 0 });
-    });
-    // (left to right as you look downfield: ◀ ▶ steps through them in that order)
-    Q.targets.sort((a, b) => a.x0 - b.x0);
-    // The players: two to rush in the pocket; the rest watch from the sideline.
-    const pool = fb.players.slice().sort(() => Math.random() - 0.5);
-    for (const q of pool) {
-      q.fb.qbcSaveHome = q.fb.home;
-      q.fb.qbcRole = null;
-    }
-    Q.rush = pool.slice(0, 2);
+    const Q = (this.qbc = { spot: [F.cx, sz], gy, stage: -1, t: -99, score: 0, stageScores: [0, 0, 0], throws: 0, hits: 0, best, passed: false, flights: [], ready: false, stageOver: false, overT: 0, streak: 0, mult: 1, cam: null, camNext: null, lastCam: -99, queue: [], idx: 0, tp: 'wait', tT: 0, shot: SHOT_T, def: null, jk: null });
+    Q.ring = this.qbcMakeRing();
+    // The rusher for the last stage; everyone else watches from the sideline.
+    Q.def = fb.players.slice().sort(() => Math.random() - 0.5)[0] || null;
+    for (const q of fb.players) q.fb.qbcRole = null;
     this.toSideline(sz - 4);
     this.qbcPlace(); // (already off the field when the intro starts)
     fb.ball.mesh.visible = false; // (in your hands from stage one: not left hanging where it was under the intro)
-    // The intro, then stage one (the game waits under the intro).
-    game.qbcCine?.intro({ spot: Q.spot, gy, rings: Q.targets.map((T) => [T.x, T.z]), best }, () => this.qbcStage(0));
+    // The intro, then stage one (the game waits under the intro). (Where the targets come up:
+    // down the middle, for the camera.)
+    const rings = SETS.acc.map(([yd]) => [F.cx, sz - yd * YD]);
+    game.qbcCine?.intro({ spot: Q.spot, gy, rings, best }, () => this.qbcStage(0));
     if (!game.qbcCine) this.qbcStage(0);
   },
 
-  // A stage: its players placed, its targets up, the 3-2-1.
+  // The one ring (it moves to each target in turn, its face showing the points).
+  qbcMakeRing() {
+    const game = this.game;
+    const grp = new THREE.Group();
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, RING_Y - RING_R + 0.05, 6), new THREE.MeshLambertMaterial({ color: 0x2a2f38 }));
+    post.position.y = (RING_Y - RING_R) / 2;
+    grp.add(post);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(RING_R, 0.08, 8, 28), new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x000000 }));
+    ring.position.y = RING_Y;
+    grp.add(ring);
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 128;
+    const tex = new THREE.CanvasTexture(cv);
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(RING_R * 0.92, 28), new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
+    disc.position.y = RING_Y;
+    grp.add(disc);
+    grp.visible = false;
+    game.scene.add(grp);
+    return { grp, ring, cv, tex, col: 0xffffff, x: 0, z: 0, x0: 0, gy: 0, pts: 1, amp: 0, ph: 0, per: 3, flash: 0, money: false };
+  },
+  // (its face: the points, the bullseye; gold for the money ring)
+  qbcSkin(T) {
+    const g = T.cv.getContext('2d');
+    const col = T.money ? 0xffc83a : COLORS[T.pts];
+    T.col = col;
+    const hex = `#${col.toString(16).padStart(6, '0')}`;
+    g.clearRect(0, 0, 128, 128);
+    g.fillStyle = hex;
+    g.globalAlpha = 0.28;
+    g.beginPath();
+    g.arc(64, 64, 62, 0, Math.PI * 2);
+    g.fill();
+    const br = (BULL / (RING_R * 0.92)) * 62;
+    g.globalAlpha = 0.5;
+    g.fillStyle = '#ffd23f';
+    g.beginPath();
+    g.arc(64, 64, br, 0, Math.PI * 2);
+    g.fill();
+    g.globalAlpha = 0.95;
+    g.strokeStyle = '#fff3b0';
+    g.lineWidth = 3;
+    g.beginPath();
+    g.arc(64, 64, br, 0, Math.PI * 2);
+    g.stroke();
+    g.fillStyle = '#ffffff';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = 'bold 30px sans-serif';
+    g.fillText(T.money ? 'x2' : `+${T.pts}`, 64, 24);
+    g.font = 'bold 15px sans-serif';
+    g.fillText(T.money ? `+${T.pts} MONEY` : T.pts > 1 ? 'PTS' : 'PT', 64, 106);
+    T.tex.needsUpdate = true;
+    T.ring.material.color.setHex(col);
+  },
+
+  // A stage: its targets dealt, the 3-2-1.
   qbcStage(i) {
     const game = this.game;
     const fb = this.fb;
     const Q = this.qbc;
     if (!Q) return;
     const S = QBC_STAGES[i];
-    Q.stage = i;
-    Q.t = -3;
-    Q.left = STAGE_T;
-    Q.stageOver = false;
-    Q.ready = true;
-    Q.readyAt = 0;
-    Q.streak = 0;
-    Q.mult = 1;
-    Q.money = null;
-    Q.nextMoney = rand(6, 10);
-    Q.rushOn = false;
+    Object.assign(Q, { stage: i, t: -3, started: false, stageOver: false, ready: true, streak: 0, mult: 1, idx: 0, tp: 'wait', tT: 0, shot: SHOT_T, jk: null });
+    // (the same distances for everyone, in a shuffled order)
+    Q.queue = SETS[S.id].slice().sort(() => Math.random() - 0.5);
     this.press = null;
-    const MS = this.meterS();
-    MS.acc = null;
-    this.fb.ball.mesh.visible = true;
+    this.meterS().acc = null;
+    fb.ball.mesh.visible = true;
+    Q.ring.grp.visible = false;
     const [sx, sz] = Q.spot;
     game.player.x = sx;
     game.player.z = sz;
     game.player.heading = Math.PI;
-    // (everyone off the field first; then this stage's players to their marks)
     for (const q of fb.players) {
       q.fb.qbcRole = null;
       q.fb.route = null;
     }
     this.toSideline(sz - 4);
-    Q.sel = 2;
-    if (S.id === 'pocket') {
-      Q.rush.forEach((q, k) => {
-        q.fb.qbcRole = 'rush';
-        q.fb.side = null;
-        q.fb.mark = [sx + (k ? 2.6 : -2.6), sz - RUSH_START];
-      });
-    }
-    for (const T of Q.targets) {
-      T.amp = S.id === 'move' ? T.ampM : 0;
-      T.x = T.x0;
-      T.ring.material.color.setHex(T.col);
-      T.ring.material.emissive.setHex(0);
+    if (S.id === 'juke' && Q.def) {
+      Q.def.fb.qbcRole = 'rush';
+      Q.def.fb.side = null;
+      Q.def.fb.mark = [sx, sz - DEF_START];
     }
     this.qbcPlace();
   },
 
-  // Everyone straight to their place, not walking there: the ones watching on the sideline,
-  // the rushers on their marks.
+  // Everyone straight to their place, not walking there: the ones watching on the sideline, the
+  // rusher on his mark.
   qbcPlace() {
     const Q = this.qbc;
     const [sx, sz] = Q.spot;
@@ -207,58 +199,143 @@ export const QBChallenge = {
     }
   },
 
-  qbcCanThrow() {
+  // The next target up (or, in the last stage, the next rush first).
+  qbcNext() {
+    const game = this.game;
     const Q = this.qbc;
-    if (!Q || Q.stage < 0 || Q.t < 0 || Q.stageOver || !Q.ready || Q.cam || this.downT > 0) return false;
-    return true;
+    const T = Q.ring;
+    const st = QBC_STAGES[Q.stage].id;
+    if (Q.idx >= Q.queue.length) {
+      Q.stageOver = true;
+      Q.overT = Q.t;
+      T.grp.visible = false;
+      Q.jk = null;
+      game.hud.toast(`${QBC_STAGES[Q.stage].name}: ${Q.stageScores[Q.stage]} pts`, '#ffd23f');
+      return;
+    }
+    const [yd, pts] = Q.queue[Q.idx];
+    const F = this.fb.site.field;
+    const [sx, sz] = Q.spot;
+    T.pts = pts;
+    T.money = Q.idx === Q.queue.length - 1; // (the last one: the money ring)
+    T.z = sz - yd * YD;
+    T.gy = game.city.groundY?.(sx, T.z) || Q.gy;
+    T.amp = st !== 'acc' ? rand(2.5, 3.6) : 0;
+    const room = Math.max(0, Math.min(3 + yd * YD * 0.16, (F.x1 - F.x0) / 2 - 2 - T.amp));
+    T.x0 = Math.max(F.x0 + 2 + T.amp, Math.min(F.x1 - 2 - T.amp, sx + rand(-1, 1) * room));
+    T.x = T.x0;
+    T.ph = rand(0, Math.PI * 2);
+    T.per = rand(2.6, 3.8);
+    T.flash = 0;
+    this.qbcSkin(T);
+    if (st === 'juke') {
+      // (the rush first: he sets on his mark, then comes from one side)
+      Q.jk = { phase: 'reset', t: 0, side: Math.random() < 0.5 ? -1 : 1, juked: false, fail: null, move: null };
+      Q.tp = 'wait';
+      Q.tT = 0;
+      T.grp.visible = false;
+    } else this.qbcPop();
+  },
+  qbcPop() {
+    const Q = this.qbc;
+    Q.tp = 'pop';
+    Q.tT = 0;
+    Q.shot = SHOT_T;
+    Q.ring.grp.visible = true;
+    Q.tStart = Q.t; // (a moving ring starts its slide from here)
   },
 
-  // What the meter's measured against: the ring you've picked.
+  qbcCanThrow() {
+    const Q = this.qbc;
+    return !!Q && Q.stage >= 0 && Q.t >= 0 && !Q.stageOver && Q.ready && Q.tp === 'live' && !Q.cam && !(this.downT > 0);
+  },
   qbcTarget() {
     const Q = this.qbc;
-    if (!Q || Q.stage < 0) return null;
-    return Q.targets[Q.sel] || null;
+    return Q && Q.stage >= 0 && Q.ring.grp.visible ? Q.ring : null;
+  },
+  // (where you look and stand side-on to: the ring, or downfield)
+  qbcFace() {
+    const Q = this.qbc;
+    const p = this.game.player;
+    const T = this.qbcTarget();
+    if (T) return Math.atan2(T.x - p.x, T.z - p.z);
+    return Math.atan2(Q.spot[0] - p.x, Q.spot[1] - 30 - p.z);
   },
   // (the green on the power meter: narrower when the rings move; fieldmodes.js winFor)
   qbcWinK() {
     const Q = this.qbc;
     return Q && QBC_STAGES[Q.stage]?.id === 'move' ? MOVE_WIN : 1;
   },
+  // (the last stage, while he's coming: ◀ ▶ are the juke; phones show JUKE buttons)
+  qbcJukeOn() {
+    const Q = this.qbc;
+    return !!Q && QBC_STAGES[Q.stage]?.id === 'juke' && !!Q.jk && (Q.jk.phase === 'rush' || Q.jk.phase === 'set');
+  },
 
-  // Your buttons: ◀ ▶ picks the ring; the meter throws.
+  // Your buttons: ◀ ▶ juke in the last stage; the meter throws; you shuffle in the pocket.
   qbcInput(dt, a, fire) {
     const inp = this.game.input;
     const Q = this.qbc;
     const R = a.qbR || [];
-    const MS = this.meterS();
-    if (Q.stage >= 0 && !this.press && !MS.acc) {
-      const n = Q.targets.length;
-      const step = (inp.btnHit?.(14) || inp.hit?.('KeyZ') ? -1 : 0) + (inp.btnHit?.(15) || inp.hit?.('KeyX') ? 1 : 0);
-      if (step && n) Q.sel = (Q.sel + step + n) % n;
+    if (Q.stage >= 0 && QBC_STAGES[Q.stage].id === 'juke') {
+      const dir = (inp.btnHit?.(14) || inp.hit?.('KeyZ') || inp.hit?.('KeyQ') ? -1 : 0) + (inp.btnHit?.(15) || inp.hit?.('KeyX') || inp.hit?.('KeyE') ? 1 : 0);
+      const rs = a.rsX || 0;
+      const flick = Math.abs(rs) > 0.6 && !(Math.abs(this.prevRs || 0) > 0.6) ? Math.sign(rs) : 0;
+      this.prevRs = rs;
+      if (dir || flick) this.qbcJuke(dir || flick);
     }
     this.meterInput(dt, a, fire);
+    a.sprint = false; // (in the pocket you shuffle, you don't run)
+    if (Q.jk?.move) a.moveX = a.moveY = 0;
     this.prevR = R.slice();
     this.prevFire = fire;
   },
 
+  // A juke (dir: -1 screen left, +1 right): away from the side he's coming at, when he's close.
+  qbcJuke(dir) {
+    const game = this.game;
+    const Q = this.qbc;
+    const J = Q.jk;
+    if (!J || J.phase !== 'rush' || J.juked || J.fail || J.move || this.downT > 0) return;
+    const p = game.player;
+    const d = Q.def ? dist(Q.def.x, Q.def.z, p.x, p.z) : 99;
+    // (screen right: the camera's right)
+    const rx = -Math.cos(game.camYaw);
+    const rz = Math.sin(game.camYaw);
+    J.move = { dir, t: 0, x0: p.x, z0: p.z, tx: p.x + rx * dir * 1.7, tz: p.z + rz * dir * 1.7 };
+    if (d > JUKE_D) J.fail = 'early';
+    else if (dir === J.side) J.fail = 'wrong'; // (into him)
+    else {
+      J.juked = true;
+      // (he lays out at where you were)
+      const f = Q.def.fb;
+      f.dive = true;
+      f.diveTo = [p.x - rx * dir * 0.6, p.z - rz * dir * 0.6];
+      f.downT = f.downLen = 1.4;
+      Q.score += 1;
+      Q.stageScores[Q.stage] += 1;
+      game.hud.toast('Juked him! +1', '#7ee081');
+      for (const q of this.fb.fans) q.fb.cheerT = rand(0.8, 1.4);
+    }
+  },
+
   // Let go and tapped (fieldmodes.js meterRelease): at the ring (where it'll be, if it's moving).
-  qbcThrow(T, kind, pw, acc, tapN) {
+  qbcThrow(_T, kind, pw, acc, tapN) {
     const game = this.game;
     const p = game.player;
     const Q = this.qbc;
     const b = this.fb.ball;
+    const T = Q.ring;
     const [px, pz] = p.pos();
     const TY = CTYPES[kind];
     // (aimed at where the ring will be when it gets there)
     const ft = TY.T(dist(px, pz, T.x, T.z));
-    const tx = T.amp ? T.x0 + T.amp * Math.sin(T.ph + ((Q.t + ft) * Math.PI * 2) / T.per) : T.x;
+    const tx = T.amp ? this.qbcRingX(T, Q.t + ft) : T.x;
     const tz = T.z;
     const d = dist(px, pz, tx, tz) || 1;
     const ux = (tx - px) / d;
     const uz = (tz - pz) / d;
     // (the power sets how far it carries; the tap, how far off line: early left, late right)
-    // (dead on the green carries right there; anywhere in the green, close; off it, as far as
-    // the power you let go at)
     const off = pw - this.needFor(kind, d);
     const win = this.winFor(kind);
     const k = Math.abs(off) <= win * 0.5 ? 0.04 : Math.abs(off) <= win ? 0.5 : 1;
@@ -277,23 +354,24 @@ export const QBChallenge = {
     Q.flights.push(f);
     b.mesh.visible = false;
     Q.ready = false;
-    Q.rushOn = false; // (it's out: the rush pulls up)
-    Q.rackAt = Q.t + 0.7;
+    Q.tp = 'flight';
+    Q.tT = 0;
     Q.throws++;
     this.throwT = 0.26;
-    // (a deep one that's going in: the hit cam rides it; not too often)
-    // (it picks the ball up for the last second or so before it gets there)
-    if (Q.t - (Q.lastCam ?? -99) > HITCAM_GAP && this.qbcGoingIn(f, T, L, lat, FT)) {
-      const tIn = (f.ringD / L) * FT;
-      Q.camNext = { f, at: Math.max(0, tIn - 1.0) };
+    // (a deep one that's going in: the hit cam rides it for the last second; not too often)
+    if (Q.t - Q.lastCam > HITCAM_GAP && this.qbcGoingIn(f, T, L, lat, FT)) {
+      Q.camNext = { f, at: Math.max(0, (f.ringD / L) * FT - 1.0) };
       Q.lastCam = Q.t;
     }
+  },
+  // (a moving ring's place at time t)
+  qbcRingX(T, t) {
+    return T.x0 + T.amp * Math.sin(T.ph + ((t - (this.qbc.tStart || 0)) * Math.PI * 2) / T.per);
   },
 
   // Will it go in? (for the hit cam: the +5 ring or the money ring, through it)
   qbcGoingIn(f, T, L, lat, FT) {
-    const Q = this.qbc;
-    if (!(T.pts >= HITCAM_PTS || Q.money?.T === T) || L < f.ringD) return false;
+    if (!(T.pts >= HITCAM_PTS || T.money) || L < f.ringD) return false;
     const k = f.ringD / L;
     const t = k * FT;
     const y = f.p0[1] + f.vy0 * t - 0.5 * G * t * t;
@@ -332,54 +410,62 @@ export const QBChallenge = {
     const Q = this.qbc;
     const p = game.player;
     if (!Q || Q.stage < 0) return;
-    const stage = QBC_STAGES[Q.stage].id;
+    const st = QBC_STAGES[Q.stage].id;
     Q.t += dt;
-    if (Q.t >= 0 && !Q.cam && !Q.stageOver) Q.left -= dt; // (the clock waits for the hit cam)
     if (this.downT > 0) this.downT -= dt;
-    // (the next ball: a beat after each throw; in the pocket, once the rush is back on its marks)
-    if (!Q.ready && Q.t >= Q.rackAt && !Q.stageOver && !Q.cam && !Q.camNext && !(this.downT > 0)) {
-      const set = stage !== 'pocket' || Q.rush.every((q) => dist(q.x, q.z, ...q.fb.mark) < 1);
-      if (set) {
-        Q.ready = true;
-        Q.readyAt = Q.t;
-        this.fb.ball.mesh.visible = true;
-      }
-    }
-    // (you throw from the spot: a few steps of room)
+    // (you throw from the spot: a few steps of room to shuffle in)
     const [sx, sz] = Q.spot;
     p.x = Math.max(sx - 4, Math.min(sx + 4, p.x));
-    p.z = Math.max(sz - 0.5, Math.min(sz + 4, p.z));
-    // The camera on what you've picked, you squared up to it.
-    const S = this.qbcTarget();
-    if (S && !Q.cam) {
-      const face = Math.atan2(S.x - p.x, S.z - p.z);
-      game.camYaw = lerpAngle(game.camYaw, face, Math.min(1, dt * 6));
-      if ((p.speed || 0) < 0.6 || this.press || this.meterS().acc) p.heading = lerpAngle(p.heading, face, Math.min(1, dt * 10));
+    p.z = Math.max(sz - 1, Math.min(sz + 3, p.z));
+    // The camera on the target (or downfield), you squared up to it.
+    if (!Q.cam) {
+      const face = this.qbcFace();
+      game.camYaw = lerpAngle(game.camYaw, face, Math.min(1, dt * 5));
+      p.heading = lerpAngle(p.heading, face, Math.min(1, dt * 10));
     }
-    // The money target: one ring gold for a few seconds every so often.
-    if (Q.t >= 0) {
-      if (Q.money && Q.t > Q.money.until) Q.money = null;
-      if (!Q.money && Q.t >= Q.nextMoney && !Q.stageOver) {
-        Q.money = { T: pick(Q.targets), until: Q.t + MONEY_T };
-        Q.nextMoney = Q.t + MONEY_T + rand(5, 9);
-        game.hud.toast(`MONEY RING: the +${Q.money.T.pts} pays double`, '#ffd23f');
+    // The targets, one at a time.
+    const T = Q.ring;
+    if (Q.t >= 0 && !Q.stageOver) {
+      if (!Q.started) {
+        Q.started = true;
+        this.qbcNext();
+      }
+      if (st === 'juke') this.qbcRush(dt);
+      Q.tT += dt;
+      if (Q.tp === 'pop' && Q.tT >= POP_T) {
+        Q.tp = 'live';
+        Q.ready = true;
+        this.fb.ball.mesh.visible = true;
+      } else if (Q.tp === 'live' && !this.press && !this.meterS().acc) {
+        Q.shot -= dt;
+        if (Q.shot <= 0) {
+          this.qbcMiss('Too slow');
+          this.qbcDone();
+        }
+      } else if (Q.tp === 'flight') {
+        if (!Q.flights.some((f) => !f.done) && !Q.cam && !Q.camNext) this.qbcDone();
+      } else if (Q.tp === 'done' && Q.tT > 0.9) {
+        Q.tp = T.grp.visible ? 'sink' : 'next';
+        Q.tT = 0;
+      } else if ((Q.tp === 'sink' && Q.tT > 0.35) || Q.tp === 'next') {
+        Q.idx++;
+        this.qbcNext();
       }
     }
-    // The rings (sliding, when they move); the picked one pulsing, the money one gold.
-    for (const T of Q.targets) {
-      const on = Q.targets[Q.sel] === T;
-      T.ring.scale.setScalar(on ? 1 + 0.06 * Math.sin(game.time * 8) : 1);
-      if (T.amp) T.x = T.x0 + T.amp * Math.sin(T.ph + (Math.max(0, Q.t) * Math.PI * 2) / T.per);
-      T.grp.position.x = T.x;
+    // (rising out of the grass, sinking back into it; sliding, if it moves)
+    if (T.grp.visible) {
+      const u = Math.min(1, Q.tT / POP_T);
+      const rise = Q.tp === 'pop' ? ease(u) * (1 + 0.12 * Math.sin(u * Math.PI)) : Q.tp === 'sink' ? 1 - ease(Math.min(1, Q.tT / 0.35)) : 1;
+      if (T.amp) T.x = this.qbcRingX(T, Q.t);
+      T.grp.position.set(T.x, T.gy - (1 - rise) * (RING_Y + RING_R + 0.2), T.z);
       T.grp.rotation.y = Math.atan2(p.x - T.x, p.z - T.z);
-      const gold = Q.money?.T === T;
+      T.ring.scale.setScalar(Q.tp === 'live' ? 1 + 0.05 * Math.sin(game.time * 8) : 1);
       if (T.flash > 0) {
         T.flash -= dt;
-        T.ring.material.color.setHex(Math.floor(T.flash * 12) % 2 === 0 ? 0xffffff : gold ? 0xffc83a : T.col);
-      } else T.ring.material.color.setHex(gold ? 0xffc83a : T.col);
-      T.ring.material.emissive.setHex(gold ? (Math.sin(game.time * 9) > 0 ? 0x9a6a00 : 0x553800) : 0);
+        T.ring.material.color.setHex(Math.floor(T.flash * 12) % 2 === 0 ? 0xffffff : T.col);
+      } else T.ring.material.color.setHex(T.col);
+      T.ring.material.emissive.setHex(T.money ? (Math.sin(game.time * 9) > 0 ? 0x9a6a00 : 0x553800) : 0);
     }
-    if (stage === 'pocket') this.qbcRush(dt);
     this.qbcFlights(dt);
     // The hit cam: on for the last second of the flight, done a beat after the ball's settled.
     if (Q.camNext && (Q.camNext.f.t >= Q.camNext.at || Q.camNext.f.done)) {
@@ -391,48 +477,82 @@ export const QBChallenge = {
       if (f.done && Q.cam.endAt == null) Q.cam.endAt = Q.t + 0.55;
       if ((Q.cam.endAt != null && Q.t >= Q.cam.endAt) || f.life > 2 || !Q.flights.includes(f)) Q.cam = null;
     }
-    // Time: the balls in the air finish, then the next stage (or the finish).
-    if (!Q.stageOver && Q.left <= 0) {
-      Q.stageOver = true;
-      Q.overT = Q.t;
-      Q.rushOn = false;
-      this.press = null;
-      this.meterS().acc = null;
-      game.hud.toast(`Time! ${QBC_STAGES[Q.stage].name}: ${Q.stageScores[Q.stage]} pts`, '#ffd23f');
-    }
-    if (Q.stageOver && !Q.cam && !Q.camNext && (!Q.flights.some((f) => !f.done) || Q.t > Q.overT + 4) && Q.t > Q.overT + 1.6) {
+    // Every target's had its throw: the next stage (or the finish).
+    if (Q.stageOver && !Q.cam && !Q.camNext && Q.t > Q.overT + 1.6) {
       if (Q.stage < QBC_STAGES.length - 1) this.qbcStage(Q.stage + 1);
       else this.qbcFinish();
     }
   },
+  // (the throw at this target's settled, or it's gone: the ring goes down, the next comes up)
+  qbcDone() {
+    const Q = this.qbc;
+    Q.tp = 'done';
+    Q.tT = 0;
+    Q.ready = false;
+    this.press = null;
+    this.meterS().acc = null;
+  },
 
-  // POCKET: the rush comes a beat after each snap; reach you with the ball and you're sacked.
-  qbcRush() {
+  // PRESSURE: he sets on his mark, comes at you from one side; juke him and the ring comes up.
+  qbcRush(dt) {
     const game = this.game;
     const Q = this.qbc;
-    if (Q.ready && !Q.stageOver && Q.t >= 0 && Q.t >= Q.readyAt + RUSH_DELAY) Q.rushOn = true;
-    if (!Q.rushOn) return;
-    const [px, pz] = game.player.pos();
-    if (Q.rush.some((q) => dist(q.x, q.z, px, pz) < SACK_R)) {
-      Q.rushOn = false;
-      Q.ready = false;
-      Q.rackAt = Q.t + 1.4;
-      this.press = null;
-      this.meterS().acc = null;
-      this.downT = 1.1; // (you hit the turf: gridiron.js late())
-      this.fb.ball.mesh.visible = false;
-      this.qbcMiss('SACKED');
-      game.shakeCamera?.(0.05, 0.25);
+    const J = Q.jk;
+    const D = Q.def;
+    if (!J || !D) return;
+    const p = game.player;
+    J.t += dt;
+    // (your juke: a quick hop sideways)
+    if (J.move) {
+      J.move.t += dt;
+      const k = ease(Math.min(1, J.move.t / 0.3));
+      p.x = J.move.x0 + (J.move.tx - J.move.x0) * k;
+      p.z = J.move.z0 + (J.move.tz - J.move.z0) * k;
+      if (J.move.t > 0.45) J.move = null;
+    }
+    if (J.phase === 'reset') {
+      if (dist(D.x, D.z, ...D.fb.mark) < 0.8 && !(D.fb.downT > 0)) Object.assign(J, { phase: 'set', t: 0 });
+    } else if (J.phase === 'set') {
+      this.fb.ball.mesh.visible = true;
+      if (J.t > 1.1) Object.assign(J, { phase: 'rush', t: 0 });
+    } else if (J.phase === 'rush') {
+      const d = dist(D.x, D.z, p.x, p.z);
+      if (J.juked && !J.move) {
+        // (beat him: the ring comes up)
+        J.phase = 'beat';
+        this.qbcPop();
+      } else if (!J.juked && d < SACK_R) {
+        J.phase = 'sacked';
+        J.move = null;
+        this.downT = 1.1; // (you hit the turf: gridiron.js late())
+        this.fb.ball.mesh.visible = false;
+        game.shakeCamera?.(0.05, 0.25);
+        this.qbcMiss(J.fail === 'early' ? 'SACKED: too early, he read it' : J.fail === 'wrong' ? 'SACKED: juked into him' : 'SACKED');
+        this.qbcDone();
+      }
     }
   },
 
-  // Where the challenge's players go (football.js drive → fieldmodes.js drivePlayer).
+  // Where the challenge's rusher goes (football.js drive → fieldmodes.js drivePlayer).
   driveQbc(p, f, b, goTo, faceAt) {
     const Q = this.qbc;
     const [px, pz] = this.game.player.pos();
     if (f.qbcRole === 'rush') {
-      if (Q.rushOn) return { tx: px, tz: pz, speed: RUSH_SPEED };
-      const g = goTo(f.mark[0], f.mark[1], 5);
+      const J = Q.jk;
+      if (J?.phase === 'rush' && !J.juked) {
+        // (at the side he's attacking: your right (+1) or left, on the camera; wide of you,
+        // closing in)
+        const rx = -Math.cos(this.game.camYaw);
+        const rz = Math.sin(this.game.camYaw);
+        const far = dist(p.x, p.z, px, pz);
+        const off = Math.min(1.6, far * 0.35) * J.side;
+        return { tx: px + rx * off, tz: pz + rz * off, speed: DEF_SPEED };
+      }
+      if (J?.phase === 'set') {
+        faceAt(px, pz);
+        return { speed: 0 };
+      }
+      const g = goTo(f.mark[0], f.mark[1], 4.5);
       if (g) return g;
       faceAt(px, pz);
       return { speed: 0 };
@@ -441,7 +561,7 @@ export const QBChallenge = {
     return { speed: 0 };
   },
 
-  // The balls in the air: through a ring, off it, short, wide.
+  // The balls in the air: through the ring, off it, short, wide.
   qbcFlights(dt) {
     const game = this.game;
     const Q = this.qbc;
@@ -502,17 +622,16 @@ export const QBChallenge = {
     }
   },
 
-  // A ball crossing a ring's plane: through it (it scores, and flies on), off it (knocked back),
-  // or past it.
+  // A ball crossing the ring's plane: through it (it scores, and flies on), off it (knocked
+  // back), or past it.
   qbcCross(f, vy) {
-    const Q = this.qbc;
     const T = f.tgt;
     const lat = Math.abs((f.x - T.x) * -f.uz + (f.z - T.z) * f.ux);
     const off = Math.hypot(lat, f.y - (T.gy + RING_Y));
     f.done = true;
     if (off < RING_R - 0.11) {
       T.flash = 0.6;
-      this.qbcScore(T.pts, { bull: off < BULL, money: Q.money?.T === T, label: off < BULL ? 'Dead center!' : 'Through!' });
+      this.qbcScore(T.pts, { bull: off < BULL, money: T.money, label: off < BULL ? 'Dead center!' : 'Through!' });
     } else if (off < RING_R + 0.2) {
       const sp = Math.hypot(f.p1[0] - f.p0[0], f.p1[2] - f.p0[2]) / f.T;
       f.mode = 'loose';
@@ -531,8 +650,9 @@ export const QBChallenge = {
     f.vz = f.uz * sp;
     f.vy = vy;
   },
-  // The hit cam: riding behind the ball, looking on to the ring (main.js
-  // updateCamera asks; null when it's not on).
+
+  // The hit cam: riding behind the ball, looking on to the ring (main.js updateCamera asks; null
+  // when it's not on).
   camOverride() {
     const Q = this.mode === 'qbc' ? this.qbc : null;
     if (!Q?.cam) return null;
@@ -548,28 +668,60 @@ export const QBChallenge = {
     return { pos: C.pos, look };
   },
 
-  // The board, the arrow over your pick, the meter, the hint.
+  // The board, the arrow over the target, the meter, the hint.
   qbcHud() {
     const game = this.game;
     const Q = this.qbc;
     if (!Q || Q.stage < 0) return;
     const stage = QBC_STAGES[Q.stage];
     const aim = this.qbcTarget();
-    this.arrow.visible = !!aim && !Q.stageOver && !Q.cam;
+    this.arrow.visible = !!aim && Q.tp === 'live' && !Q.cam;
     if (aim) {
-      this.arrow.position.set(aim.x, aim.gy + RING_Y + RING_R + 0.7 + Math.sin(game.time * 6) * 0.08, aim.z);
-      this.arrow.material.color.setHex(Q.money?.T === aim ? 0xffc83a : 0xffd23f);
+      this.arrow.position.set(aim.x, aim.grp.position.y + RING_Y + RING_R + 0.7 + Math.sin(game.time * 6) * 0.08, aim.z);
+      this.arrow.material.color.setHex(aim.money ? 0xffc83a : 0xffd23f);
     }
     this.updateIcons?.();
     const inp = game.input;
     const kb = inp.mode === 'kb' && !inp.touchMode;
     const keys = inp.touchMode ? 'BULLET · TOUCH · LOB' : kb ? 'J · K · L' : '□ · ✕ · △';
-    const pickK = inp.touchMode ? '◀ ▶' : kb ? 'Z / X' : 'D-pad ◀ ▶';
-    const hint = Q.t < 0 ? `${stage.name}: ${stage.sub}` : Q.stageOver ? 'Time!' : this.meterS().acc ? 'Tap it again on the line!' : `${pickK}: pick a ring · ${keys}: hold, let go in the green, tap on the line${stage.id === 'pocket' ? ' · get it out before the rush gets there' : ''}`;
+    const jk = inp.touchMode ? 'JUKE ◀ ▶' : kb ? 'Z / X' : 'D-pad ◀ ▶';
+    const J = Q.jk;
+    const close = J?.phase === 'rush' && !J.juked && !J.fail && !!Q.def && dist(Q.def.x, Q.def.z, game.player.x, game.player.z) < JUKE_D;
+    const hint =
+      Q.t < 0
+        ? `${stage.name}: ${stage.sub}`
+        : Q.stageOver
+          ? `${stage.name} done`
+          : this.meterS().acc
+            ? 'Tap it again on the line!'
+            : close
+              ? `JUKE! ${jk}, away from him`
+              : J && (J.phase === 'set' || J.phase === 'rush') && !J.juked
+                ? `Here he comes: when he's on you, juke away from his side (${jk})`
+                : Q.tp === 'live'
+                  ? `${keys}: hold, let go in the green, tap on the line · shuffle with the stick`
+                  : '';
     game.hud.sport?.(`QB CHALLENGE · STAGE ${Q.stage + 1} OF 3: ${stage.name}`, null, hint);
-    // (the contest board: the 3-point contest's, shared)
+    if (close !== !!this.jukeCue) {
+      this.jukeCue = close;
+      if (close) game.hud.toast('JUKE!', '#ffd23f');
+    }
+    // (the contest board: the 3-point contest's, shared; the clock's the shot clock)
     const sb = (game.sport.scoreboard ||= new Scoreboard());
-    sb.showQbc?.({ left: Math.max(0, Q.left), count: Math.ceil(-Q.t), phase: Q.t < 0 ? 'count' : 'play', stage: Q.stage, stages: QBC_STAGES.map((s, i) => ({ name: s.name, score: Q.stageScores[i], done: i < Q.stage || (i === Q.stage && Q.stageOver) })), score: Q.score, best: Q.best, mult: Q.mult, streak: Q.streak, sub: stage.sub });
+    const n = Q.queue.length;
+    sb.showQbc?.({
+      left: Q.tp === 'live' ? Math.max(0, Q.shot) : SHOT_T,
+      lowAt: 2,
+      count: Math.ceil(-Q.t),
+      phase: Q.t < 0 ? 'count' : 'play',
+      stage: Q.stage,
+      stages: QBC_STAGES.map((s, i) => ({ name: i === Q.stage && n ? `${s.name} ${Math.min(n, Q.idx + (Q.stageOver ? 0 : 1))}/${n}` : s.name, score: Q.stageScores[i], done: i < Q.stage || (i === Q.stage && Q.stageOver) })),
+      score: Q.score,
+      best: Q.best,
+      mult: Q.mult,
+      streak: Q.streak,
+      sub: stage.sub,
+    });
     this.meterHud();
   },
 
@@ -588,12 +740,11 @@ export const QBChallenge = {
       game.cred += 3;
     }
     for (const q of this.fb.fans) q.fb.cheerT = rec ? 3 : 1.5;
-    const sb = game.sport.scoreboard;
-    sb?.hideContest();
+    game.sport.scoreboard?.hideContest();
     game.hud.sport?.(null);
     this.arrow.visible = false;
     const done = () => {
-      game.hud.toast(`QB Challenge: ${Q.score} points · ${Q.hits} of ${Q.throws} on target${rec ? ' · NEW RECORD! +3 cred' : Q.best ? ` · record ${Q.best}` : ''}`, rec ? '#7ee081' : '#ffd23f');
+      game.hud.toast(`QB Challenge: ${Q.score} points · ${Q.hits} of ${Q.throws} through${rec ? ' · NEW RECORD! +3 cred' : Q.best ? ` · record ${Q.best}` : ''}`, rec ? '#7ee081' : '#ffd23f');
       this.end('qbc');
     };
     if (game.qbcCine) game.qbcCine.outro({ score: Q.score, best: Q.best, newBest: rec, stages: QBC_STAGES.map((s, i) => [s.name, Q.stageScores[i]]), hits: Q.hits, throws: Q.throws }, done);
@@ -604,11 +755,10 @@ export const QBChallenge = {
   qbcEnd(how) {
     const game = this.game;
     const Q = this.qbc;
-    for (const T of Q.targets) game.scene.remove(T.grp);
+    game.scene.remove(Q.ring.grp);
+    Q.ring.tex.dispose();
     for (const f of Q.flights) game.scene.remove(f.mesh);
     for (const q of this.fb.players) {
-      if (q.fb.qbcSaveHome) q.fb.home = q.fb.qbcSaveHome;
-      q.fb.qbcSaveHome = null;
       q.fb.qbcRole = null;
       q.fb.route = null;
     }

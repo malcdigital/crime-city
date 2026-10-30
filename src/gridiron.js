@@ -4,7 +4,7 @@ import { setShirt } from './character.js';
 import { FieldModes } from './fieldmodes.js';
 import { QBChallenge, QBC_KEY } from './qbchallenge.js';
 import { CFG } from './config.js';
-import { throwPose, layoutPose, qbStance, holdBall, tuckCarry, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat } from './footballpose.js';
+import { throwPose, layoutPose, qbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat } from './footballpose.js';
 
 // Quarterback a drive at Harbor Field (football.js runs the passing drill there).
 // - Join: walk onto the field while they're lining up; their quarterback offers you the ball.
@@ -141,7 +141,7 @@ export class Gridiron {
       place: fb.site.name || 'Harbor Field',
       games: [
         { id: 'drive', title: `Run a drive vs. ${qb.ballName.toUpperCase()}'s squad`, sub: (st) => `${fromText(st.from)} · four downs to make 10 · ${st.wager ? `$${st.wager} says you score` : 'just for fun'}` },
-        { id: 'qbc', title: 'QB Challenge · solo', sub: () => `3 stages: still rings, moving rings, the pocket · 40 s each · ${best ? `record ${best}` : 'set the record'}` },
+        { id: 'qbc', title: 'QB Challenge · solo', sub: () => `3 stages, one throw at each target: still rings, moving rings, juke the rush · ${best ? `record ${best}` : 'set the record'}` },
         { id: 'catch', title: 'Play catch', sub: (st) => `With ${st.mate.ballName} · anywhere on the field, within 50 yards · bullet, touch or lob` },
       ],
       rules: [
@@ -831,9 +831,31 @@ export class Gridiron {
         c.group.rotation.y = p.heading - Math.PI * 2 * (k * k * (3 - 2 * k));
       } else if (M && M.kind === 'stiff') stiffArmPose(c, M.t / M.T, sp);
       else if (this.scramble || (sp > 3 && !this.dropping)) tuckCarry(c, sp); // (high and tight; dropping back it stays in both hands)
-      else c.group.position.y += holdBall(c, this.dropping ? 0 : Math.sin(game.time * 1.4) * 0.5, !this.dropping && sp < 0.6, game.time); // (two hands on it at the chest, scanning; feet at shoulder width)
+      else if (this.dropping) c.group.position.y += holdBall(c, 0, false, game.time); // (two hands on it, backpedaling)
+      else if (this.mode === 'qbc' && this.qbc?.jk?.move) {
+        const J = this.qbc.jk.move; // (the juke past the rusher: thrown toward the side you went)
+        jukePose(c, J.dir, J.t / 0.45, 4);
+      } else c.group.position.y += this.pocketPose(c, this.mode === 'qbc' ? this.qbcFace() : this.target ? Math.atan2(this.target.x - p.x, this.target.z - p.z) : Math.PI); // (set in the pocket: side-on, shuffling)
       this.placeBall(c, b);
     } else if (this.throwT > 0) throwPose(c, 1, 1 - this.throwT / 0.4); // (the follow-through)
+  }
+
+  // You in the pocket (the drive, the QB Challenge): side-on to where you're looking (face: the
+  // yaw of the target), shuffling as you move, the feet stepping round as you turn to a new one.
+  pocketPose(c, face) {
+    const game = this.game;
+    const p = game.player;
+    const dt = Math.min(0.1, game.time - (this.pkT ?? game.time));
+    this.pkT = game.time;
+    const [px, pz] = p.pos();
+    const moved = this.pkP ? Math.hypot(px - this.pkP[0], pz - this.pkP[1]) : 0;
+    this.pkP = [px, pz];
+    this.pkYaw = this.pkYaw == null ? face : this.pkYaw + Math.atan2(Math.sin(face - this.pkYaw), Math.cos(face - this.pkYaw)) * Math.min(1, dt * 7);
+    const turn = Math.abs(Math.atan2(Math.sin(face - this.pkYaw), Math.cos(face - this.pkYaw)));
+    this.pkStep = (this.pkStep || 0) + moved * 5 + turn * dt * 14 + dt * 2;
+    const moving = Math.min(1, (dt > 0 ? moved / dt : 0) / 1.4 + turn * 1.5);
+    c.group.rotation.y = this.pkYaw - POCKET_CLOSE;
+    return pocketStance(c, 0, this.pkStep, moving);
   }
 
   // The ball in your hands, where this frame's pose put them.

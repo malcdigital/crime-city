@@ -521,8 +521,12 @@ export class TouchControls {
       b.cclose.el.classList.toggle('hidden', !cat || incoming);
       b.reload.el.classList.toggle('hidden', running || incoming);
       b.tri.el.classList.toggle('hidden', running || incoming);
-      b.tprev.el.classList.toggle('hidden', !qbc);
-      b.tnext.el.classList.toggle('hidden', !qbc);
+      // (the QB Challenge's last stage: ◀ ▶ are the juke)
+      const juke = qbc && !!M.qbcJukeOn?.();
+      b.tprev.el.classList.toggle('hidden', !juke);
+      b.tnext.el.classList.toggle('hidden', !juke);
+      b.tprev.hint.textContent = b.tnext.hint.textContent = juke ? 'juke' : '';
+      if (juke) for (const id of ['reload', 'cross', 'tri']) b[id].el.classList.add('hidden'); // (no throwing till you've beaten him: just the juke)
     }
     if (ctx !== 'qb') this.el.root.classList.remove('catching');
     this.dribbleGest = false;

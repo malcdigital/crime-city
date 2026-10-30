@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeCharacter, animateWalk, crouchPose, crouchWalk, restPose, fallPose, lam } from './character.js';
 import { aimPose, lowReady, fightStance, markPunch, punchPose, markFlinch, flinchPose, markRecoil, reloadPose, kneelPose, FIGHT_STYLES, PUNCH_T } from './combatpose.js';
-import { qbStance, wrStance, dbStance, holdBall, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
+import { qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
 import { shotForm, dribbleArm, hesiPush, handoff, dribbleFrom, HO_TOP, SPIN_REL, dribbleArms, pivotPose, fadePose, triplePose, anklePose } from './streetball.js';
 import { dunkPose, dunkPhase } from './dunkpose.js';
 import { markJump, jumpPose } from './blockpose.js';
@@ -61,6 +61,14 @@ function list(game) {
     ['Fighting', 'Shot from behind: falls forward', 2.6, (c, t) => S_fall(c, t - 0.3, 'front')],
     // ---- Football (footballpose.js: yours and theirs) ----
     ['Football', 'QB stance (at the line)', 2, (c) => ({ y: qbStance(c), fball: 1 })],
+    ['Football', 'In the pocket: side-on (the target straight ahead)', 2, (c, t) => {
+      c.group.rotation.y = -POCKET_CLOSE;
+      return { y: pocketStance(c, 0, t * 2, 0), fball: 1 };
+    }],
+    ['Football', 'In the pocket: shuffling', 1.2, (c, t) => {
+      c.group.rotation.y = -POCKET_CLOSE;
+      return { y: pocketStance(c, 0, (t / 1.2) * Math.PI * 4, 1), fball: 1 };
+    }],
     ['Football', 'In the pocket (scanning)', 3, (c, t) => ({ y: holdBall(c, Math.sin((t / 3) * Math.PI * 2) * 0.8, true, t), fball: 1 })],
     ['Football', 'Throw (wind up, release, follow-through)', 1.6, (c, t) => {
       if (t < 0.25) return { y: holdBall(c, 0, true, t), fball: 1 };

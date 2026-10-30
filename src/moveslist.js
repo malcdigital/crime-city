@@ -73,21 +73,20 @@ const QBC = {
       ['Bullet (on a line, quick)', 'BULLET', '□', 'J'],
       ['Touch (over the top, dropped in)', 'TOUCH', '✕', 'K (or click)'],
       ['Lob (high, the deepest)', 'LOB', '△', 'L'],
-      ['Pick the ring', '◀ ▶', 'D-pad ◀ ▶', 'Z / X'],
-      ['Step up / slide in the pocket', 'the stick', 'left stick', 'WASD'],
+      ['Shuffle in the pocket', 'the stick', 'left stick', 'WASD'],
+      ['Juke the rusher (stage 3)', 'JUKE ◀ ▶', 'D-pad ◀ ▶ (or right stick)', 'Z / X'],
     ]],
-    ['THE STAGES (40 seconds each)', [
-      ['Rings worth', '1 · 2 · 2 · 3 · 5', 'deeper is worth more', 'deeper is worth more'],
-      ['1 Accuracy: the rings still', '—', '—', '—'],
-      ['2 Moving: rings sliding', 'smaller green', 'smaller green', 'smaller green'],
-      ['3 Pocket: rings with a rush', 'get it out', 'or get sacked', 'sacks end the streak'],
+    ['THE STAGES (one throw at each target as it pops up, 6 seconds to get it off)', [
+      ['1 Accuracy: 8 rings, still', '10-45 yds', '1 to 5 points', 'deeper is worth more'],
+      ['2 Moving: 8 rings, sliding', 'smaller green', 'smaller green', 'smaller green'],
+      ['3 Pressure: 5 rushes', 'juke away from him', 'then hit the ring', 'too early: sacked'],
     ]],
     ['THE GAME', [
       ['Quit', 'QUIT, then SURE?', 'hold the touchpad', 'hold M'],
       ['This list', '?', 'Create', 'Tab'],
     ]],
   ],
-  notes: 'Through the middle of a ring is a BULLSEYE: double points. Three hits in a row: x2, six: x3 (a miss or a sack resets it). A gold ring: the MONEY ring, double again. Moving rings: the throw\'s aimed where the ring will be, and the green on the meter is smaller. Deep balls that are going in get the hit cam (the clock waits). Time slows to half while you throw; both dead on is a PERFECT PASS.',
+  notes: 'Everyone gets the same targets (the same distances, in a different order), so the same points are there to be had. Through the middle of a ring is a BULLSEYE: double points. Three hits in a row: x2, six: x3 (a miss, too slow or a sack resets it). The last target of each stage is the gold MONEY ring: double again. In stage 3 the rusher comes at one side: when JUKE! comes up, juke the other way (too early he reads it, the wrong way or not at all and you\'re sacked); beat him (+1) and the ring pops up. Time slows to half while you throw; both dead on is a PERFECT PASS.',
   setting: 'meter',
 };
 const CATCH = {

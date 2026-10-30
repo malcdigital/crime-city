@@ -41,7 +41,7 @@ export class QbcCine extends ContestCine {
     const best = info.best > 0 ? `RECORD TO BEAT <b>${info.best}</b>` : 'NO RECORD YET: <b>SET ONE</b>';
     el.innerHTML = `<div class="c3-lb top"></div><div class="c3-lb bot"></div>
       <div class="c3-title"><small>THE</small><b>QB</b><span>CHALLENGE</span></div>
-      <div class="c3-rules">3 STAGES · ACCURACY · TIMING · POCKET · 40 SECONDS EACH<br>BULLSEYES DOUBLE · STREAKS MULTIPLY · HIT THE GOLD</div>
+      <div class="c3-rules">3 STAGES · ACCURACY · MOVING · PRESSURE · ONE THROW AT EACH TARGET<br>BULLSEYES DOUBLE · STREAKS MULTIPLY · THE LAST ONE'S THE MONEY RING</div>
       <div class="c3-best">${best}</div>
       <div class="c3-skip">${this.skipText()}</div>`;
     this.show();
