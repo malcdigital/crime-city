@@ -433,7 +433,7 @@ export class Gridiron {
       const h = b.holder;
       if (!h || h === 'you') return this.over(this.los);
       if (h.z <= this.goal) return this.touchdown(h);
-      const tackler = this.defenders().find((q) => !(q.fb.downT > 0) && !(q.fb.beatT > 0) && dist(q.x, q.z, h.x, h.z) < 0.9);
+      const tackler = this.defenders().find((q) => !(q.fb.downT > 0) && !(q.fb.beatT > 0) && dist(q.x, q.z, h.x, h.z) < 1.0);
       const F = fb.site.field;
       if (h.x < F.x0 || h.x > F.x1) {
         this.drRes = { kind: 'complete', why: `Out of bounds at the ${this.yardLine(h.z)} · ${this.drTold()}` };

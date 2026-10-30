@@ -721,10 +721,13 @@ export class Football {
     // (after a catch every back goes for the ball carrier)
     const m = ph === 'run' && b.holder && b.holder !== 'you' && (b.holder.fb?.role === 'wr' || b.holder.fb?.role === 'rb') ? b.holder : f.mark;
     if ((ph === 'play' || ph === 'run') && m && this.players.includes(m)) {
-      const lead = 0.6;
+      // (from a way off, cutting him off a step ahead; close in, straight at him to make the hit:
+      // aiming ahead of him that close, a back in front of him ran along with him just out of reach)
+      const close = ph === 'run' && b.holder === m && dist(p.x, p.z, m.x, m.z) < 3;
+      const lead = close ? 0 : 0.6;
       const tx = m.x + Math.sin(m.heading) * lead * (m.speed > 0 ? 1 : 0);
-      const tz = m.z + Math.cos(m.heading) * lead * (m.speed > 0 ? 1 : 0) - 0.8;
-      const g = goTo(tx, tz, ph === 'run' && b.holder === m ? (this.match ? RUN * 1.05 : RUN * 0.95) : COVER);
+      const tz = m.z + Math.cos(m.heading) * lead * (m.speed > 0 ? 1 : 0) - (close ? 0 : 0.8);
+      const g = close ? { tx, tz, speed: this.match ? RUN * 1.05 : RUN * 0.95 } : goTo(tx, tz, ph === 'run' && b.holder === m ? (this.match ? RUN * 1.05 : RUN * 0.95) : COVER);
       if (g) return g;
       faceAt(m.x, m.z);
       return { speed: 0 };

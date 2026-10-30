@@ -1,14 +1,7 @@
 
-  VITE v5.4.10  ready in 2095 ms
+  VITE v5.4.10  ready in 342 ms
 
   ➜  Local:   http://localhost:5174/
   ➜  Network: use --host to expose
-2:13:45 PM [vite] page reload src/footballpose.js
-2:13:56 PM [vite] page reload src/animviewer.js
-2:15:10 PM [vite] page reload src/footballpose.js
-2:15:39 PM [vite] page reload src/footballpose.js
-2:16:07 PM [vite] page reload src/footballpose.js
-2:18:47 PM [vite] page reload src/footballpose.js
-2:20:12 PM [vite] page reload src/football.js
-2:20:12 PM [vite] page reload src/gridiron.js
-2:20:36 PM [vite] page reload src/fieldmodes.js
+11:46:08 PM [vite] page reload src/football.js
+11:48:21 PM [vite] page reload src/gridiron.js
