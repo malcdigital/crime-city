@@ -58,7 +58,9 @@ const MOVE_SPEED = 4.5; // (a moving ring's pace across the field: the same for 
 const SACK_R = 0.85;
 const HITCAM_PTS = 5; // (the hit cam: the deep ring (or the money one) going through)
 const HITCAM_GAP = 6; // (seconds, at least, between hit cams)
-const CAM_BACK = 0.5; // (seconds gliding back behind you)
+const CAM_BACK = 0.35; // (seconds gliding back behind you)
+const HOLD_T = 0.35; // (after a throw's settled, a beat before the ring goes down)
+const SINK_T = 0.25; // (the ring sinking back into the grass)
 const FOLLOW_D = 10 * 0.9144; // (throws past 10 yards: the camera follows the ball out)
 
 const ease = (k) => k * k * (3 - 2 * k);
@@ -634,10 +636,10 @@ export const QBChallenge = {
         }
       } else if (Q.tp === 'flight') {
         if (!Q.flights.some((f) => !f.done) && !Q.cam) this.qbcDone();
-      } else if (Q.tp === 'done' && Q.tT > 0.9) {
+      } else if (Q.tp === 'done' && Q.tT > HOLD_T) {
         Q.tp = T.grp.visible ? 'sink' : 'next';
         Q.tT = 0;
-      } else if ((Q.tp === 'sink' && Q.tT > 0.35) || Q.tp === 'next') {
+      } else if ((Q.tp === 'sink' && Q.tT > SINK_T) || Q.tp === 'next') {
         Q.idx++;
         this.qbcNext();
       }
@@ -645,7 +647,7 @@ export const QBChallenge = {
     // (rising out of the grass, sinking back into it; sliding, if it moves)
     if (T.grp.visible) {
       const u = Math.min(1, Q.tT / POP_T);
-      const rise = Q.tp === 'pop' ? ease(u) * (1 + 0.12 * Math.sin(u * Math.PI)) : Q.tp === 'sink' ? 1 - ease(Math.min(1, Q.tT / 0.35)) : 1;
+      const rise = Q.tp === 'pop' ? ease(u) * (1 + 0.12 * Math.sin(u * Math.PI)) : Q.tp === 'sink' ? 1 - ease(Math.min(1, Q.tT / SINK_T)) : 1;
       if (T.moving && Q.tp !== 'pop') T.x = this.qbcRingX(T, Q.t);
       T.grp.position.set(T.x, T.gy - (1 - rise) * (RING_Y + RING_R + 0.2), T.z);
       T.grp.rotation.y = Math.atan2(p.x - T.x, p.z - T.z);
@@ -682,7 +684,7 @@ export const QBChallenge = {
       const C = Q.cam;
       const f = C.f;
       C.slowNow = C.slowAt != null && !f.done && f.t >= C.slowAt;
-      if (f.done && C.endAt == null) C.endAt = Q.t + 0.7; // (a beat on how it went)
+      if (f.done && C.endAt == null) C.endAt = Q.t + 0.4; // (a beat on how it went)
       if ((C.endAt != null && Q.t >= C.endAt) || f.life > 2 || !Q.flights.includes(f)) {
         // (then back behind you, smoothly)
         if (C.pos) Q.camBack = { pos: C.pos.clone(), look: C.look.clone(), t: 0 };
