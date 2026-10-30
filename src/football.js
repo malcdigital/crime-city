@@ -502,21 +502,31 @@ export class Football {
     }
     // Ball coming to me: go get under it.
     if (b.mode === 'flight' && b.to === p && this.match?.mode === 'drive' && b.kind === 'pass') {
-      // (your drive: he times his run to get to where it's coming down just as it gets there,
-      // still at full tilt, and catches it in stride; a ball thrown behind him, he comes back for)
-      const [tx, tz] = [b.p1[0], b.p1[2]];
-      const left = Math.max(0.05, b.T - b.t);
-      const d = dist(p.x, p.z, tx, tz);
-      // (a man sitting down at the end of his route, a curl or a hitch, just steps to it)
+      // (your drive: the ball's thrown to where his route takes him, so on target he just keeps
+      // running his route and it meets him there in stride, steering onto it the last moment.
+      // Off his route, he goes for where it's coming down, paced to get there as it does; there
+      // early, he waits on it facing the ball rather than running on and circling back.)
+      const [lx, lz] = [b.p1[0], b.p1[2]];
+      const left = Math.max(0.02, b.T - b.t);
       const sat = !f.route || f.leg >= f.route.length;
-      const speed = Math.max(sat ? 0 : RUN * 0.95, Math.min(RUN * 1.2, d / left)); // (never easing off: a hair early, he runs on through it)
-      if (d > 0.35 && speed > 0.2) return { tx, tz, speed };
-      if (sat) {
+      const P = sat ? [p.x, p.z] : routeAt(p, RUN * left);
+      const onRoute = !sat && dist(P[0], P[1], lx, lz) < 2.2;
+      if (onRoute && left > 0.3) {
+        let pt = f.route[f.leg];
+        if (dist(p.x, p.z, pt[0], pt[1]) < 0.6) f.leg++;
+        pt = f.route[f.leg] || pt;
+        return { tx: pt[0], tz: pt[1], speed: RUN };
+      }
+      const d = dist(p.x, p.z, lx, lz);
+      if (d < 0.35) {
+        // (a hair early, still running: on through the catch; well early on a throw off his
+        // route: wait on it)
+        if (left < 0.25 && !sat && (p.speed || 0) > 2) return { tx: p.x + Math.sin(p.heading) * 2, tz: p.z + Math.cos(p.heading) * 2, speed: p.speed };
         faceAt(b.x, b.z);
         return { speed: 0 };
       }
-      // (there a hair early: carry on the way he was going)
-      return { tx: p.x + Math.sin(p.heading) * 2, tz: p.z + Math.cos(p.heading) * 2, speed };
+      const speed = onRoute ? Math.max(RUN * 0.9, Math.min(RUN * 1.3, d / left)) : Math.max(1.5, Math.min(RUN * 1.2, d / left));
+      return { tx: lx, tz: lz, speed };
     }
     if (b.mode === 'flight' && b.to === p) {
       const [tx, tz] = [b.p1[0], b.p1[2]];
@@ -722,6 +732,21 @@ export class Football {
     }
     return y;
   }
+}
+
+// Where he'll be s metres further along his route (its end if it runs out first).
+function routeAt(w, s) {
+  const r = w.fb.route;
+  let x = w.x;
+  let z = w.z;
+  if (!r) return [x, z];
+  for (let k = w.fb.leg || 0; k < r.length && s > 0; k++) {
+    const d = dist(x, z, r[k][0], r[k][1]);
+    if (d >= s) return [x + ((r[k][0] - x) * s) / d, z + ((r[k][1] - z) * s) / d];
+    s -= d;
+    [x, z] = r[k];
+  }
+  return [x, z];
 }
 
 // How far he's still got to run on his route.

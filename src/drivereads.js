@@ -64,6 +64,7 @@ export const DPLAYS = [
 ];
 const COVS = { man: 'Man', c3: 'Cover 3', c2: 'Cover 2' };
 const READ_COLORS = ['#3ddc97', '#ffd23f', '#ff79c6'];
+const SIT = new Set(['hitch', 'curl', 'stick']); // (routes that settle down facing you)
 const OFFENSE = 0x2e7d32;
 const DEFENSE = 0x22416e;
 
@@ -219,7 +220,7 @@ export const DriveReads = {
     const D = this.dr;
     const g = new THREE.Group();
     D.slots.forEach((s) => {
-      const pts = [[s.x, s.z], ...this.drRoute(s)];
+      const pts = [[s.x, s.z], ...this.drRoute(s, true)];
       const n = D.play.read.indexOf(s.k);
       const m = new THREE.Mesh(ribbon(pts, 0.22), new THREE.MeshBasicMaterial({ color: READ_COLORS[n], transparent: true, opacity: 0.75, depthWrite: false, side: THREE.DoubleSide }));
       m.renderOrder = 2;
@@ -231,10 +232,24 @@ export const DriveReads = {
   },
 
   // A route's points on the field (from his slot), kept inside the sidelines.
-  drRoute(s) {
+  drRoute(s, art = false) {
     const F = this.fb.site.field;
     const out = Math.sign(s.x - F.cx) || this.dr.side;
-    return ROUTES[s.route].pts.map(([dx, dy]) => [clamp(s.x + dx * YD * XS * out, F.x0 + 1.2, F.x1 - 1.2), Math.max(F.z0 + 2, this.los - dy * YD)]);
+    const cx = (x) => clamp(x, F.x0 + 1.2, F.x1 - 1.2);
+    const cz = (z) => Math.max(F.z0 + 2, z);
+    const pts = ROUTES[s.route].pts.map(([dx, dy]) => [cx(s.x + dx * YD * XS * out), cz(this.los - dy * YD)]);
+    // (after his last cut he keeps running, as receivers do: on across the field, or turned
+    // upfield along the sideline when he runs out of room; a hitch, curl or stick man sits down.
+    // The play art shows the route as called, without it.)
+    if (art || SIT.has(s.route)) return pts;
+    const [ax, az] = pts.length > 1 ? pts[pts.length - 2] : [s.x, s.z];
+    const [bx, bz] = pts[pts.length - 1];
+    const L = Math.hypot(bx - ax, bz - az) || 1;
+    const ex = cx(bx + ((bx - ax) / L) * 14);
+    const ez = cz(bz + ((bz - az) / L) * 14);
+    pts.push([ex, ez]);
+    if (Math.hypot(ex - bx, ez - bz) < 10) pts.push([ex, cz(ez - 20)]); // (out of room at the sideline: up it)
+    return pts;
   },
 
   // ---- The snap ----
@@ -303,12 +318,12 @@ export const DriveReads = {
     return this.state === 'play' && b.holder === 'you' && b.mode === 'held' && !this.scramble && this.game.player.pos()[1] >= this.los;
   },
   // The meter's man: where he'll be when it gets there (along his route).
-  drAim() {
+  drAim(want = null) {
     const D = this.dr;
     const w = D.lock?.w || this.drSelW();
     if (!w) return null;
     const [px, pz] = this.game.player.pos();
-    const kind = this.press?.kind || D.acc?.kind || 'touch';
+    const kind = want || this.press?.kind || D.acc?.kind || 'touch'; // (the throw's own flight time: a lob hangs, a bullet's there quick)
     let p = [w.x, w.z];
     for (let i = 0; i < 3; i++) {
       const T = CTYPES[kind].T(dist(px, pz, p[0], p[1]));
@@ -340,7 +355,7 @@ export const DriveReads = {
     const D = this.dr;
     const p = game.player;
     const [px, pz] = p.pos();
-    const A = this.drAim();
+    const A = this.drAim(kind);
     const w = A?.w || this.drSelW();
     if (!A || !w) return;
     const TY = CTYPES[kind];
