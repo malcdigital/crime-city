@@ -79,7 +79,7 @@ const QBC = {
     ['THE STAGES (one throw at each target as it pops up, 6 seconds to get it off)', [
       ['1 Accuracy: 8 rings, still', '10-45 yds', '1 to 5 points', 'deeper is worth more'],
       ['2 Moving: 8 rings, crossing the field', 'smaller green', 'smaller green', 'smaller green'],
-      ['3 Pressure: 5 rushes', 'juke away from him', 'then hit the ring', 'too early: sacked'],
+      ['3 Pressure: 10 rushes', 'juke away from him', 'then hit the ring', 'too early: sacked'],
     ]],
     ['THE GAME', [
       ['Quit', 'QUIT, then SURE?', 'hold the touchpad', 'hold M'],

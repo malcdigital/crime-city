@@ -18,7 +18,7 @@ import { Scoreboard } from './scoreboard.js';
 //             turning back; the throw's aimed where the ring will be), and the green on the power
 //             meter narrower (MOVE_WIN of its width).
 //   PRESSURE  one rusher at a time appears on a mark 6 m in front of you (a puff of dust) and comes
-//             at you fast, from one side or the other (the last one's gone the same way). When he's close
+//             at you fast, from one side or the other; when he's had his go he fades away. When he's close
 //             (JUKE! comes up), juke the other way, away from him (◀ ▶: D-pad, Z / X, the JUKE
 //             buttons on a phone): too early and he reads it, the wrong way or not at all and
 //             you're sacked. Beat him and he dives past (+1), and a moving ring pops up: hit it.
@@ -43,7 +43,7 @@ export const QBC_STAGES = [
 const SETS = {
   acc: [[10, 1], [15, 1], [20, 2], [25, 2], [30, 3], [35, 3], [40, 4], [45, 5]],
   move: [[10, 1], [15, 1], [20, 2], [25, 2], [30, 3], [35, 3], [40, 4], [45, 5]],
-  juke: [[12, 1], [18, 2], [24, 3], [30, 4], [38, 5]],
+  juke: [[12, 1], [15, 1], [18, 2], [21, 2], [24, 3], [27, 3], [30, 4], [34, 4], [38, 5], [42, 5]],
 };
 const COLORS = { 1: 0x6fa8ff, 2: 0x3ddc97, 3: 0xffd23f, 4: 0xff9f43, 5: 0xff4d6d };
 const BULL = 0.25; // (through the middle of a ring: a bullseye)
@@ -257,6 +257,7 @@ export const QBChallenge = {
     const n = Q.defs.length;
     if (!n) return;
     const [sx, sz] = Q.spot;
+    if (Q.fading) this.qbcFadeEnd();
     const prev = Q.def;
     const next = Q.defs[r % n];
     const gy = Q.gy;
@@ -287,6 +288,50 @@ export const QBChallenge = {
     next.char.group.rotation.y = next.heading;
     this.qbcBurst(next.x, gy + 0.15, next.z, { n: 16, colors: [0xd8d8d8, 0xb8b0a0, 0x7a6a4a], speed: [1.5, 3.2], up: [0.6, 2], size: [0.25, 0.45], life: 0.6, grav: 2 });
     this.qbcWave(next.x, gy + 0.05, next.z, 0xffffff, 2.2, 0.4);
+  },
+
+  // A rusher who's had his go fades away where he is (after delay s), instead of getting up and
+  // jogging off: his own see-through copies of the (shared) materials, the real ones back after.
+  qbcFade(q, delay) {
+    const Q = this.qbc;
+    if (Q.fading) this.qbcFadeEnd();
+    const mats = [];
+    q.char.group.traverse((m) => {
+      if (!m.isMesh || !m.material) return;
+      const orig = m.material;
+      m.material = orig.clone();
+      m.material.transparent = true;
+      mats.push([m, orig]);
+    });
+    Q.fading = { q, t: 0, delay, mats };
+  },
+  qbcFadeStep(dt) {
+    const F = this.qbc.fading;
+    if (!F) return;
+    F.t += dt;
+    const k = Math.max(0, Math.min(1, (F.t - F.delay) / 0.5));
+    for (const [m] of F.mats) m.material.opacity = 1 - k;
+    if (k >= 1) this.qbcFadeEnd();
+  },
+  qbcFadeEnd() {
+    const Q = this.qbc;
+    const F = Q.fading;
+    if (!F) return;
+    Q.fading = null;
+    for (const [m, orig] of F.mats) {
+      m.material.dispose();
+      m.material = orig;
+    }
+    // (gone: back on the sideline, out of the way)
+    const q = F.q;
+    q.fb.qbcRole = null;
+    q.fb.downT = 0;
+    q.fb.dive = false;
+    const side = q.fb.side || [this.fb.site.field.x0 - 1.4, Q.spot[1] - 4];
+    q.x = side[0];
+    q.z = side[1];
+    q.char.group.position.x = q.x;
+    q.char.group.position.z = q.z;
   },
 
   // Everyone straight to their place, not walking there: the ones watching on the sideline, the
@@ -451,6 +496,7 @@ export const QBChallenge = {
       Q.score += 1;
       Q.stageScores[Q.stage] += 1;
       game.hud.toast('Juked him! +1', '#7ee081');
+      this.qbcPop(); // (the ring comes up the moment you've beaten him)
       for (const q of this.fb.fans) q.fb.cheerT = rand(0.8, 1.4);
     }
   },
@@ -626,6 +672,7 @@ export const QBChallenge = {
     }
     this.qbcFlights(dt);
     this.qbcFxStep(dt);
+    this.qbcFadeStep(dt);
     // The hit cam: on for the last second of the flight, done a beat after the ball's settled.
     if (Q.camNext && (Q.camNext.f.t >= Q.camNext.at || Q.camNext.f.done)) {
       if (!Q.camNext.f.done) Q.cam = { f: Q.camNext.f, endAt: null, pos: null };
@@ -677,9 +724,9 @@ export const QBChallenge = {
     } else if (J.phase === 'rush') {
       const d = dist(D.x, D.z, p.x, p.z);
       if (J.juked && !J.move) {
-        // (beat him: the ring comes up)
+        // (beat him: he's laid out on the grass, then he fades away)
         J.phase = 'beat';
-        this.qbcPop();
+        this.qbcFade(D, 0.7);
       } else if (!J.juked && d < SACK_R) {
         J.phase = 'sacked';
         J.move = null;
@@ -688,6 +735,7 @@ export const QBChallenge = {
         game.shakeCamera?.(0.05, 0.25);
         this.qbcMiss(J.fail === 'early' ? 'SACKED: too early, he read it' : J.fail === 'wrong' ? 'SACKED: juked into him' : 'SACKED');
         this.qbcDone();
+        this.qbcFade(D, 0.6);
       }
     }
   },
@@ -698,6 +746,7 @@ export const QBChallenge = {
     const [px, pz] = this.game.player.pos();
     if (f.qbcRole === 'rush') {
       const J = Q.jk;
+      if (Q.fading?.q === p) return { speed: 0 }; // (fading away where he is)
       const on = p === Q.def; // (the man on the mark)
       if (on && J?.phase === 'rush' && !J.juked) {
         // (at the side he's attacking: your right (+1) or left, on the camera; wide of you,
@@ -992,6 +1041,7 @@ export const QBChallenge = {
     Q.ring.tex.dispose();
     for (const f of Q.flights) game.scene.remove(f.mesh);
     for (const P of Q.fx) game.scene.remove(P.m);
+    if (Q.fading) this.qbcFadeEnd(); // (his own materials back)
     for (const q of this.fb.players) {
       q.fb.qbcRole = null;
       q.fb.route = null;
