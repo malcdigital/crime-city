@@ -16,6 +16,11 @@ function capture(el, id) {
     // (some browsers refuse; the touch still works without it)
   }
 }
+// (a label written only when it changes: rewriting it every frame swaps out the text under your
+// finger, and an iPhone can lose the lift of that finger, leaving the button stuck down)
+function setText(el, t) {
+  if (el && el.textContent !== t) el.textContent = t;
+}
 const LOOK = 1.5; // look speed (mouse pixels per screen pixel)
 const STICK_R = 56; // joystick radius in pixels
 // Driving with the stick (thumbs are less precise than a real stick):
@@ -170,6 +175,16 @@ export class TouchControls {
     this.build();
     // Turn on at the first touch anywhere.
     addEventListener('touchstart', () => this.enable(), { passive: true, capture: true });
+    // No fingers left on the screen: nothing's held, whatever lifts went missing (iPhones can
+    // drop one), so a button can never get stuck down. (A quick tap still counts: fresh.)
+    const allUp = (e) => {
+      if (e.touches && e.touches.length) return;
+      for (const B0 of Object.values(this.el?.buttons || {})) B0.reset?.();
+      this.held.clear();
+      this.stickReset?.();
+    };
+    addEventListener('touchend', allUp, { passive: true, capture: true });
+    addEventListener('touchcancel', allUp, { passive: true, capture: true });
     if (opts.force) this.enable();
   }
 
@@ -250,10 +265,17 @@ export class TouchControls {
     let ly = 0;
     let downT = 0;
     let pressed = null;
+    B0.reset = () => {
+      pid = null;
+      pressed = null;
+      el.classList.toggle('on', kind === 'toggle' && this.toggled.has(b));
+    };
     el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       e.stopPropagation();
       this.enable();
+      // (still down from a lift that never arrived: let go of that one first)
+      if (pid !== null && kind !== 'toggle' && kind !== 'weapon') this.release(pressed ?? b);
       capture(el, e.pointerId);
       pid = e.pointerId;
       lx = e.clientX;
@@ -391,7 +413,7 @@ export class TouchControls {
       stick.classList.add('hidden');
     };
     zone.addEventListener('pointerup', up);
-    zone.addEventListener('pointercancel', up);
+    zone.addEventListener('pointercancel', up);    this.stickReset = () => up({ pointerId: pid }); // (no fingers on the screen: let the stick go)
   }
 
   // The right side of the screen: drag to look. With the ball in a pickup game it's the dribble
@@ -485,7 +507,7 @@ export class TouchControls {
       for (const [id, B0] of Object.entries(this.el.buttons)) {
         const show = B0.ctx.includes(ctx);
         B0.el.classList.toggle('hidden', !show);
-        B0.hint.textContent = (HINTS[ctx] && HINTS[ctx][id]) || '';
+        setText(B0.hint, (HINTS[ctx] && HINTS[ctx][id]) || '');
       }
     }
     // On foot and in the car, ✕ (and the car's ○) are only for answering: a buyer's offer, a
@@ -496,17 +518,17 @@ export class TouchControls {
       bx.cross.el.classList.toggle('hidden', !ask);
       bx.circle.el.classList.toggle('hidden', !ask); // (on foot, punching is on USE)
     }
-    if (ctx === 'stop') this.el.buttons.fight.hint.textContent = game.player.vehicle ? 'floor it' : 'fight';
+    if (ctx === 'stop') setText(this.el.buttons.fight.hint, game.player.vehicle ? 'floor it' : 'fight');
     if (ctx === 'qb') {
       const M = game.gridiron;
       const b = this.el.buttons;
       const line = M?.state === 'line';
       const running = M?.state === 'play' && M.scramble && game.football?.ball?.holder === 'you';
-      b.cross.hint.textContent = line ? 'hike' : '';
+      setText(b.cross.hint, line ? 'hike' : '');
       for (const id of ['reload', 'cross', 'circle', 'tri']) b[id].el.classList.toggle('hidden', running);
       for (const id of ['rjuke', 'rspin', 'rstiff']) b[id].el.classList.toggle('hidden', !running);
       b.qr1.el.classList.toggle('hidden', running);
-      b.qr1.el.querySelector('.tl').textContent = line ? 'PLAY' : 'R1';
+      setText(b.qr1.el.querySelector('.tl'), line ? 'PLAY' : 'R1');
       // Playing catch: □ bullet, ✕ touch, △ lob, LONG / CLOSER (no ○, no R1).
       // (the QB Challenge too: the same three throws; ◀ ▶ pick the ring)
       const cat = M?.mode === 'catch';
@@ -519,12 +541,12 @@ export class TouchControls {
       const meter = cat || qbc || dread;
       this.el.root.dataset.mode = cat ? 'catch' : qbc ? 'qbc' : drive ? 'drive' : '';
       
-      b.reload.hint.textContent = meter ? 'bullet' : '';
-      b.tri.hint.textContent = meter ? 'lob' : '';
+      setText(b.reload.hint, meter ? 'bullet' : '');
+      setText(b.tri.hint, meter ? 'lob' : '');
       // (a ball coming to you: CATCH is the only button)
       const incoming = cat && ((game.football?.ball?.mode === 'flight' && game.football.ball.to === 'you') || !!M?.cat?.late);
       this.el.root.classList.toggle('catching', incoming); // (CATCH alone, and big: style.css)
-      if (meter) b.cross.hint.textContent = incoming ? 'catch' : 'touch';
+      if (meter) setText(b.cross.hint, incoming ? 'catch' : 'touch');
       b.circle.el.classList.toggle('hidden', running || meter || drive);
       b.qr1.el.classList.toggle('hidden', running || meter || (drive && !dline));
       b.clong.el.classList.toggle('hidden', !cat || incoming);
@@ -536,7 +558,7 @@ export class TouchControls {
       const juke = qbc && !!M.qbcJukeOn?.();
       b.tprev.el.classList.toggle('hidden', !juke && !dread && !dline);
       b.tnext.el.classList.toggle('hidden', !juke && !dread && !dline);
-      b.tprev.hint.textContent = b.tnext.hint.textContent = juke ? 'juke' : dread ? 'read' : dline ? 'scan' : '';
+      setText(b.tprev.hint, b.tnext.hint.textContent = juke ? 'juke' : dread ? 'read' : dline ? 'scan' : '');
       if (juke) for (const id of ['reload', 'cross', 'tri']) b[id].el.classList.add('hidden'); // (no throwing till you've beaten him: just the juke)
     }
     if (ctx !== 'qb') this.el.root.classList.remove('catching');
@@ -549,12 +571,12 @@ export class TouchControls {
       const st = game.sport.reset ? 'SKIP' : game.sport.check ? 'CHECK' : off || game.sport.has !== 'opp' ? 'SHOOT' : 'STEAL';
       const stl = b.bshoot.el.querySelector('.tl');
       if (stl.textContent !== st) stl.textContent = st;
-      b.bblock.hint.textContent = game.sport.has === 'opp' ? 'block' : 'rebound';
+      setText(b.bblock.hint, game.sport.has === 'opp' ? 'block' : 'rebound');
       // (with the ball the dribble moves are gestures on the right side of the screen, so no
       // move buttons; △ is for D and rebounds, the oop is a double tap on PASS)
       for (const id of ['bcross', 'bstep', 'bspin']) b[id].el.classList.add('hidden');
       b.bhesi.el.classList.toggle('hidden', game.sport.has !== 'opp' || dead); // (on defense: HANDS, hold to contest)
-      b.bhesi.el.querySelector('.tl').textContent = 'HANDS';
+      setText(b.bhesi.el.querySelector('.tl'), 'HANDS');
       b.bblock.el.classList.toggle('hidden', !!game.sport.t3 || off || dead);
       b.bpass.el.classList.toggle('hidden', dead || !!game.sport.t33 || !(off || (game.sport.solo && game.sport.g?.ball?.mode === 'loose'))); // (passing / the oop; a fetch shooting around)
       // (a one-on-one: no one to pass to, so PASS is OOP; shooting around, OOP gets its own button)
@@ -562,7 +584,7 @@ export class TouchControls {
       const pl = b.bpass.el.querySelector('.tl');
       const pt = this.passOop ? 'OOP' : 'PASS';
       if (pl.textContent !== pt) pl.textContent = pt;
-      b.bpass.hint.textContent = '';
+      setText(b.bpass.hint, '');
       b.boop.el.classList.toggle('hidden', !(off && game.sport.solo && !game.sport.t33));
       this.dribbleGest = off; // (the right side: tap hesi, swipe cross / spin / step back)
       b.bd.el.classList.toggle('hidden', !!game.sport.solo || off || dead); // (GUARD: on defense only; with the ball the back-pedal is automatic)
@@ -571,12 +593,12 @@ export class TouchControls {
     const qb = this.el.buttons.quit;
     if (qb) {
       const armed = this.quitArm > performance.now();
-      qb.el.querySelector('.tl').textContent = armed ? 'SURE?' : 'QUIT';
+      setText(qb.el.querySelector('.tl'), armed ? 'SURE?' : 'QUIT');
       qb.el.classList.toggle('hot', armed);
       if (this.quitNow) {
         this.quitNow = false;
         this.quitArm = 0;
-        qb.el.querySelector('.tl').textContent = 'QUIT';
+        setText(qb.el.querySelector('.tl'), 'QUIT');
         qb.el.classList.remove('hot');
         if (armed) game.quitPickup?.();
       }
