@@ -501,6 +501,23 @@ export class Football {
       }
     }
     // Ball coming to me: go get under it.
+    if (b.mode === 'flight' && b.to === p && this.match?.mode === 'drive' && b.kind === 'pass') {
+      // (your drive: he times his run to get to where it's coming down just as it gets there,
+      // still at full tilt, and catches it in stride; a ball thrown behind him, he comes back for)
+      const [tx, tz] = [b.p1[0], b.p1[2]];
+      const left = Math.max(0.05, b.T - b.t);
+      const d = dist(p.x, p.z, tx, tz);
+      // (a man sitting down at the end of his route, a curl or a hitch, just steps to it)
+      const sat = !f.route || f.leg >= f.route.length;
+      const speed = Math.max(sat ? 0 : RUN * 0.95, Math.min(RUN * 1.2, d / left)); // (never easing off: a hair early, he runs on through it)
+      if (d > 0.35 && speed > 0.2) return { tx, tz, speed };
+      if (sat) {
+        faceAt(b.x, b.z);
+        return { speed: 0 };
+      }
+      // (there a hair early: carry on the way he was going)
+      return { tx: p.x + Math.sin(p.heading) * 2, tz: p.z + Math.cos(p.heading) * 2, speed };
+    }
     if (b.mode === 'flight' && b.to === p) {
       const [tx, tz] = [b.p1[0], b.p1[2]];
       const g = goTo(tx, tz, b.kind === 'pass' ? RUN * 1.1 : JOG);

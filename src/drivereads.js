@@ -553,13 +553,14 @@ export const DriveReads = {
       dd.tex.needsUpdate = true;
     }
     const on = this.state === 'line';
+    const cine = !!game.driveCine?.open; // (the intro: no play art, no numbers, no ring)
     dd.mesh.material.opacity += ((on ? 0.9 : 0) - dd.mesh.material.opacity) * Math.min(1, dt * 6);
     dd.mesh.visible = dd.mesh.material.opacity > 0.02;
     dd.mesh.position.set(fb.site.field.cx + (D.side || 1) * -6.5, 0.066, this.los - 3.2);
-    if (this.drArt) this.drArt.visible = on;
+    if (this.drArt) this.drArt.visible = on && !cine;
     // The read numbers over the receivers (and the man you're on, bigger, with a ring).
     const reading = this.drReading() || (this.state === 'play' && fb.ball.holder === 'you' && !this.scramble);
-    const show = on || reading;
+    const show = (on || reading) && !cine;
     for (let n = 0; n < 3; n++) {
       if (!this.drBadges[n]) {
         this.drBadges[n] = badge(String(n + 1), READ_COLORS[n]);
@@ -577,12 +578,12 @@ export const DriveReads = {
     }
     const sk = on ? D.scanList?.[D.scanI] : null;
     const sw = !on && reading ? this.drSelW() : sk != null ? fb.wrs[sk] : null;
-    this.drRing.visible = !!sw;
+    this.drRing.visible = !!sw && !cine;
     if (sw) {
       this.drRing.position.set(sw.x, 0.075, sw.z);
       this.drRing.scale.setScalar(1 + Math.sin(game.time * 7) * 0.07);
     }
-    this.arrow.visible = !!sw;
+    this.arrow.visible = !!sw && !cine;
     if (sw) this.arrow.position.set(sw.x, 3.35 + Math.sin(game.time * 6) * 0.08, sw.z);
   },
   // The camera (the QB Challenge's, over your shoulder: fieldmodes.js camShot) turned to where
