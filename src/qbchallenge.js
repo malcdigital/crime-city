@@ -590,6 +590,7 @@ export const QBChallenge = {
   },
   qbcMiss(why) {
     const Q = this.qbc;
+    this.heatMiss();
     if (Q.streak >= 3) this.game.hud.toast(`${why} · streak over`, '#ff8080');
     else this.game.hud.toast(why, '#ff8080');
     Q.streak = 0;
@@ -860,6 +861,7 @@ export const QBChallenge = {
       this.qbcBurst(T.x, T.grp.position.y + RING_Y, T.z, { n: bull ? 34 : 22, colors: bull ? [0xffd23f, 0xfff3b0, 0xffc83a, 0xffffff] : CONFETTI, speed: [3, bull ? 8 : 6], up: [1, 4], size: [0.1, 0.2], life: 1.3, grav: 6, spin: true });
       this.qbcWave(T.x, T.grp.position.y + RING_Y, T.z, bull ? 0xffd23f : T.col, bull ? 3.4 : 2.4, 0.5, true);
       this.qbcScore(T.pts, { bull: off < BULL, money: T.money, label: off < BULL ? 'Dead center!' : 'Through!' });
+      this.heatHit(T.x, T.grp.position.y + RING_Y, T.z); // (in rhythm, on fire: fieldmodes.js)
     } else if (off < RING_R + 0.2) {
       const sp = Math.hypot(f.p1[0] - f.p0[0], f.p1[2] - f.p0[2]) / f.T;
       f.mode = 'loose';
@@ -1041,6 +1043,7 @@ export const QBChallenge = {
       best: Q.best,
       mult: Q.mult,
       streak: Q.streak,
+      heat: Q.heat?.st || null, // (IN RHYTHM, ON FIRE: fieldmodes.js)
       sub: stage.sub,
     });
     this.meterHud();

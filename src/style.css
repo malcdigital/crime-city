@@ -1129,6 +1129,14 @@ body.touch #hud.field .pt-head { font-size: 8px; }
 #board3pt.qbc .c3-st.qm.m3 { background: rgba(255,200,58,.22); box-shadow: inset 0 0 0 1.5px #ffc83a, 0 0 12px rgba(255,200,58,.5); animation: qb-hot 0.6s ease-in-out infinite alternate; }
 #board3pt.qbc .c3-st.qm.m3 b { color: #ffd23f; }
 #board3pt.qbc .c3-st.qm.bump { animation: b3-bump .45s cubic-bezier(.2, 1.5, .4, 1); }
+/* In rhythm (two in a row) and on fire (the third): fieldmodes.js heat. */
+#board3pt.qbc .c3-st.qm.rhythm { opacity: 1; background: rgba(255,179,107,.18); box-shadow: inset 0 0 0 1.5px #ffb36b; }
+#board3pt.qbc .c3-st.qm.rhythm span { color: #ffb36b; }
+#board3pt.qbc .c3-st.qm.fire { opacity: 1; background: linear-gradient(0deg, rgba(255,90,20,.45), rgba(255,200,60,.18)); box-shadow: inset 0 0 0 1.5px #ff9a3c, 0 0 14px rgba(255,120,30,.7); animation: qb-fire .35s ease-in-out infinite alternate; }
+#board3pt.qbc .c3-st.qm.fire span, #board3pt.qbc .c3-st.qm.fire b { color: #ffe27a; }
+@keyframes qb-fire { from { box-shadow: inset 0 0 0 1.5px #ff9a3c, 0 0 10px rgba(255,120,30,.55); } to { box-shadow: inset 0 0 0 1.5px #ffd23f, 0 0 20px rgba(255,140,30,.95); } }
+#sport.rhythm .sb { box-shadow: 0 0 0 1.5px #ffb36b; }
+#sport.onfire .sb { color: #ffe27a; box-shadow: 0 0 0 1.5px #ff9a3c, 0 0 16px rgba(255,120,30,.85); animation: qb-fire .35s ease-in-out infinite alternate; }
 @keyframes qb-hot { to { box-shadow: inset 0 0 0 1.5px #ffc83a, 0 0 20px rgba(255,200,58,.85); } }
 body.touch #board3pt.qbc .c3-st.qs, body.touch #board3pt.qbc .c3-st.qm { min-width: 0; padding: 2px 4px; }
 body.touch #board3pt.qbc .c3-st span { font-size: 6.5px; letter-spacing: .8px; }

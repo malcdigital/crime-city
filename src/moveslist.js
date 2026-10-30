@@ -65,7 +65,7 @@ const FOOTBALL = {
       ['This list', '?', 'Create', 'Tab'],
     ]],
   ],
-  notes: 'Every play one receiver comes open for a moment (the play beats the coverage there): find him, start the throw before his man closes. After each play you\'re told the coverage and who was open.',
+  notes: 'Every play one receiver comes open for a moment (the play beats the coverage there): find him, start the throw before his man closes. After each play you\'re told the coverage and who was open. Two catches in a row: IN RHYTHM; the third: ON FIRE (a bigger green) till you miss.',
 };
 
 const QBC = {
@@ -88,7 +88,7 @@ const QBC = {
       ['This list', '?', 'Create', 'Tab'],
     ]],
   ],
-  notes: 'Everyone gets the same targets (the same distances, in a different order), so the same points are there to be had. Through the middle of a ring is a BULLSEYE: double points. Three hits in a row: x2, six: x3 (a miss, too slow or a sack resets it). The last target of each stage is the gold MONEY ring: double again. In stage 3 the rushers come one at a time, fast, at one side: when JUKE! comes up, juke the other way (too early he reads it, the wrong way or not at all and you\'re sacked); beat him (+1) and the ring pops up. Time slows to half while you throw; both dead on is a PERFECT PASS.',
+  notes: 'Everyone gets the same targets (the same distances, in a different order), so the same points are there to be had. Through the middle of a ring is a BULLSEYE: double points. Three hits in a row: x2, six: x3 (a miss, too slow or a sack resets it). Two hits in a row: IN RHYTHM (the ball smokes); the third: ON FIRE for up to three throws (flames, a 20% bigger green) till you miss. The last target of each stage is the gold MONEY ring: double again. In stage 3 the rushers come one at a time, fast, at one side: when JUKE! comes up, juke the other way (too early he reads it, the wrong way or not at all and you\'re sacked); beat him (+1) and the ring pops up. Time slows to half while you throw; both dead on is a PERFECT PASS.',
   setting: 'meter',
 };
 const CATCH = {

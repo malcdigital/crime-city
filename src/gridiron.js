@@ -201,7 +201,8 @@ export class Gridiron {
 
   board() {
     const toGo = this.first <= this.goal + 0.01 ? 'Goal' : Math.max(1, Math.round((this.los - this.first) / YD));
-    return `${DOWNS[this.down] || '4th'} & ${toGo} · ball on the ${this.yardLine(this.los)}${this.bet ? ` · $${this.bet} on it` : ''}`;
+    const heat = this.heatSt() === 'fire' ? ' · ON FIRE' : this.heatSt() === 'rhythm' ? ' · IN RHYTHM' : '';
+    return `${DOWNS[this.down] || '4th'} & ${toGo} · ball on the ${this.yardLine(this.los)}${this.bet ? ` · $${this.bet} on it` : ''}${heat}`;
   }
 
   // ---- Your buttons (main.js, before the weapons) ----
@@ -444,6 +445,9 @@ export class Gridiron {
     // (the pocket clock, while you've got it in there)
     const clock = this.state === 'play' && b.holder === 'you' && !this.scramble ? { v: Math.max(0, 1 - this.t / SACK_READ), lo: 2, hi: 2 } : null;
     game.hud.sport?.(this.board(), clock, hint);
+    // (in rhythm, on fire: the board says so, and glows: fieldmodes.js)
+    game.hud.sportEl?.classList.toggle('rhythm', this.heatSt() === 'rhythm');
+    game.hud.sportEl?.classList.toggle('onfire', this.heatOn());
   }
 
   // The ball in your hands (football.js step).
@@ -651,6 +655,7 @@ export class Gridiron {
       else fb.loose();
     }
     this.mode = null;
+    game.hud.sportEl?.classList.remove('rhythm', 'onfire');
     game.hud.sport?.(null);
     game.save();
   }

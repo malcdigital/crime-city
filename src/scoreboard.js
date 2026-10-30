@@ -265,7 +265,7 @@ export class Scoreboard {
     el.querySelector('.c3-best').textContent = String(Math.max(v.best || 0, 0));
     const html =
       v.stages.map((S, i) => `<div class="c3-st qs${i === v.stage ? ' cur' : ''}${S.done ? ' done' : ''}"><span>${S.name}</span><b>${S.score}</b></div>`).join('') +
-      `<div class="c3-st qm${v.mult > 1 ? ` on m${v.mult}` : ''}"><span>STREAK ${v.streak}</span><b>x${v.mult}</b></div>`;
+      `<div class="c3-st qm${v.mult > 1 ? ` on m${v.mult}` : ''}${v.heat ? ` ${v.heat}` : ''}"><span>${v.heat === 'fire' ? 'ON FIRE' : v.heat === 'rhythm' ? 'IN RHYTHM' : `STREAK ${v.streak}`}</span><b>x${v.mult}</b></div>`;
     const racks = el.querySelector('.c3-racks');
     if (racks.innerHTML !== html) {
       const bumped = racks.querySelector('.qm b')?.textContent !== `x${v.mult}` && v.mult > 1;

@@ -326,6 +326,7 @@ export const DriveReads = {
       }
     }
     this.goldStep(D);
+    this.heatStep(dt);
     this.drDraw(dt);
   },
 
@@ -401,12 +402,14 @@ export const DriveReads = {
       b.vz = rand(-1.5, 1.5);
       b.vy = -2;
       game.hud.toast(`${why} · ${told}`, '#ff8080');
+      this.heatMiss();
       this.over(null);
     };
     if (!open) {
       const why = L?.why === 'early' ? "Too early: he hadn't come open yet" : L?.why === 'late' ? 'Too late: his man closed' : 'Into coverage';
       if (dD < 2.2 && Math.random() < (b.throwKind === 'bullet' ? 0.4 : b.throwKind === 'lob' ? 0.38 : 0.32)) {
         fb.hold(db);
+        this.heatMiss();
         game.hud.toast(`INTERCEPTED · ${why} · ${told}`, '#ff8080');
         return this.end('pick');
       }
@@ -430,6 +433,7 @@ export const DriveReads = {
     fb.hold(w);
     for (const f of fb.fans) f.fb.cheerT = rand(1, 2);
     game.hud.toast(text, '#7ee081');
+    this.heatHit(b.x, Math.max(1, b.y), b.z); // (in rhythm, on fire: fieldmodes.js)
     if (dove) {
       if (b.z <= this.goal) return this.touchdown(w);
       return this.over(w.z);
@@ -551,6 +555,7 @@ export const DriveReads = {
     this.drBadges = [];
     if (this.dr?.gold) this.goldBall(false);
     this.tmeter?.hide();
+    this.hfx?.clear();
     this.dr = null;
     if (game.timeScale !== 1) game.timeScale = 1;
   },

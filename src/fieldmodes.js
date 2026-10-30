@@ -3,6 +3,7 @@ import { dist, rand, pick, lerpAngle } from './util.js';
 import { throwPose, catchPose, holdBall, tuckCarry, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
 import { bendLeg, bendSpine, reachArm } from './character.js';
 import { ThrowMeter, PERFECT } from './throwmeter.js';
+import { HeatFx } from './heatfx.js';
 
 // The other games at Harbor Field (mixed into Gridiron: gridiron.js), picked from the field's
 // menu the way you pick a game at the courts (courtmenu.js):
@@ -33,6 +34,7 @@ const FILL = 0.6; // (game seconds to a full meter: about 1.2 s with time slowed
 const ACC_T = 0.45; // (game seconds for the accuracy needle: about 0.9 s slowed; the perfect tap's halfway)
 const SLOW = 0.5; // (time while you hold and tap)
 const SHORT_WIN = 2.37; // (the green at 8 yards and in: this many times as wide)
+const FIRE_WIN = 1.2; // (on fire: the green 20% wider)
 const READ_SLOW = 0.5; // (the drive, reading the field after the drop: drivereads.js)
 const HITCAM_SLOW = 0.65; // (the QB Challenge's hit cam following a deep ball)
 export const CTYPES = {
@@ -173,8 +175,10 @@ export const FieldModes = {
     else this.outT = 0;
     if (this.outT > 2.5 || game.player.vehicle || game.stars > 0 || game.wastedT > 0 || game.bustedT > 0) return this.end('forfeit');
     if (this.throwT > 0) this.throwT -= dt;
-    if (this.mode === 'qbc') this.qbcStep(dt);
-    else this.catchStep(dt);
+    if (this.mode === 'qbc') {
+      this.qbcStep(dt);
+      this.heatStep(dt);
+    } else this.catchStep(dt);
     if (!this.active) return;
     if (this.mode === 'catch') return this.catchHud();
     this.qbcHud(); // (the QB Challenge's board, arrow and meter: qbchallenge.js)
@@ -238,6 +242,7 @@ export const FieldModes = {
       this.side = null;
     }
     if (fb.ball) fb.ball.mesh.visible = true;
+    this.hfx?.clear();
     game.hud.sportFloat?.(null);
     this.tmeter?.hide();
     if (this.cat?.gold) this.goldBall(false);
@@ -421,7 +426,7 @@ export const FieldModes = {
   winFor(kind, need = 0.5) {
     const d = need * CTYPES[kind].max; // (the throw's length)
     const short = Math.max(0, Math.min(1, (30 * YD - d) / ((30 - 8) * YD)));
-    return CTYPES[kind].win * (1 + (SHORT_WIN - 1) * short) * (this.mode === 'qbc' ? this.qbcWinK() : 1);
+    return CTYPES[kind].win * (1 + (SHORT_WIN - 1) * short) * (this.mode === 'qbc' ? this.qbcWinK() : 1) * (this.heatOn() ? FIRE_WIN : 1);
   },
 
   // The power a throw of d meters needs (0..1 on the meter).
@@ -496,6 +501,72 @@ export const FieldModes = {
       for (const g of C.gold.ghosts) game.scene.remove(g);
       C.gold = null;
     }
+  },
+
+  // ---- In rhythm / on fire (the QB Challenge and the drive: basketball's heat, in football's
+  // words) ----
+  // Two in a row (rings hit, passes caught): IN RHYTHM, the ball smokes in your hand. Hit the next
+  // one: ON FIRE for up to 3 throws while they keep landing: flames off the ball, a fire trail
+  // behind it, an explosion where it gets there, and the green 20% wider. A miss puts it out.
+  heatS() {
+    return this.mode === 'qbc' ? this.qbc : this.mode === 'drive' ? this.dr : null;
+  },
+  heatSt() {
+    return this.heatS()?.heat?.st || null;
+  },
+  heatOn() {
+    return this.heatSt() === 'fire';
+  },
+  // A hit, at x, y, z (the ring, or where he caught it).
+  heatHit(x, y, z) {
+    const game = this.game;
+    const S = this.heatS();
+    if (!S) return;
+    const H = (S.heat ||= { n: 0, st: null, left: 0 });
+    H.n += 1;
+    const boom = () => {
+      (this.hfx ||= new HeatFx(game.scene)).explode(x, y, z);
+      game.shakeCamera?.(0.08, 0.3);
+    };
+    if (H.st === 'rhythm') {
+      H.st = 'fire';
+      H.left = 3;
+      boom();
+      game.hud.toast("YOU'RE ON FIRE!", '#ff9a3c');
+    } else if (H.st === 'fire') {
+      boom();
+      H.left -= 1;
+      if (H.left <= 0) {
+        Object.assign(H, { st: null, n: 0, left: 0 });
+        game.hud.toast('The fire burns out', '#ffd23f');
+      }
+    } else if (H.n >= 2) {
+      H.st = 'rhythm';
+      game.hud.toast("IN RHYTHM! Hit the next one and you're on fire", '#ffb36b');
+    }
+  },
+  // A miss (off target, incomplete, picked, sacked, too slow): it's out.
+  heatMiss() {
+    const H = this.heatS()?.heat;
+    if (!H) return;
+    if (H.st === 'fire') this.game.hud.toast('You cooled off', '#9fc3ff');
+    Object.assign(H, { st: null, n: 0, left: 0 });
+  },
+  // Smoke or flames off the ball: in your hand, or the one you've just thrown.
+  heatStep(dt) {
+    const st = this.heatSt();
+    if (!st && !this.hfx) return;
+    const fx = (this.hfx ||= new HeatFx(this.game.scene));
+    if (st) {
+      const b = this.fb.ball;
+      const f = this.mode === 'qbc' ? [...(this.qbc.flights || [])].reverse().find((q) => q.mode === 'flight') : null;
+      if (f) fx[st === 'fire' ? 'fire' : 'smoke'](f.x, f.y, f.z, dt, true);
+      else if (b && b.mesh.visible && (b.holder === 'you' || (b.mode === 'flight' && this.mode === 'drive' && this.state === 'air'))) {
+        if (st === 'fire') fx.fire(b.x, b.y, b.z, dt, b.mode === 'flight');
+        else fx.smoke(b.x, b.y, b.z, dt);
+      }
+    }
+    fx.update(dt);
   },
 
   // A perfect pass's gold trail of afterimages, till it lands (S: whose meter it was).
