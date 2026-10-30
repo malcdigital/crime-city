@@ -752,7 +752,13 @@ export const DriveReads = {
       }
     }
     const info = { score: D.score, best, newBest, how, plays, bonus, passes: D.passes || 0, caught: D.caught || 0, bestThrow: D.bestThrow || 0 };
-    setTimeout(() => game.driveCine?.outro(info, () => {}), 2300);
+    this.again = game.time + 9; // (no asking for another game till the final screen's been and gone)
+    setTimeout(() => {
+      if (game.courtMenu?.open || this.active || game.driveCine?.open) return; // (something else up already: no final screen over it)
+      game.driveCine?.outro(info, () => {
+        this.again = game.time + 0.8;
+      });
+    }, 2300);
   },
   drWipeIn(card, final = false) {
     if (!card) return;

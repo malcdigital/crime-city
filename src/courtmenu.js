@@ -34,6 +34,13 @@ export class CourtMenu {
   // only }], start(state) -> label, onStart(state), onWatch(), watch }
   show(opts) {
     const game = this.game;
+    // (a game's own screen still up: it goes first, a menu never opens under it)
+    for (const C of [game.driveCine, game.qbcCine, game.contestCine]) {
+      if (C?.open) {
+        C.done = null;
+        C.finish();
+      }
+    }
     this.opts = opts;
     this.gi = 0; // (the chosen game)
     this.rows = null;

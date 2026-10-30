@@ -69,7 +69,7 @@ export class Gridiron {
       }
       return;
     }
-    if (this.active || game.player.vehicle || game.stars > 0 || game.stop || !fb?.ball || fb.match || game.time < (this.again || 0)) return;
+    if (this.active || game.player.vehicle || game.stars > 0 || game.stop || !fb?.ball || fb.match || game.time < (this.again || 0) || game.driveCine?.open || game.qbcCine?.open) return; // (not over a game's own screens)
     const qb = fb.qb;
     const [px, pz] = game.player.pos();
     // (anywhere on the field: you call over to their quarterback, wherever he is and whatever
