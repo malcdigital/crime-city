@@ -665,6 +665,7 @@ export class Gridiron {
     this.icons = [];
     this.press = null;
     if (this.dr) {
+      if (this.dr.follow && (how === 'td' || how === 'pick')) this.endFollow = { ...this.dr.follow, until: game.time + 2.6 }; // (the camera stays on it through the last result)
       this.drFinal(how); // (the drive's score, the record, the final screen: drivereads.js)
       this.drEnd();
     }

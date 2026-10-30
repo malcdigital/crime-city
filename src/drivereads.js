@@ -74,6 +74,9 @@ export const DPLAYS = [
 ];
 const COVS = { man: 'Man', c3: 'Cover 3', c2: 'Cover 2' };
 const READ_COLORS = ['#3ddc97', '#ffd23f', '#ff79c6'];
+const _cw = new THREE.Vector3();
+const _cl = new THREE.Vector3();
+const _cv = new THREE.Vector3();
 const SIT = new Set(['hitch', 'curl', 'stick']); // (routes that settle down facing you)
 const OFFENSE = 0x2e7d32;
 const DEFENSE = 0x22416e;
@@ -402,6 +405,7 @@ export const DriveReads = {
     b.throwKind = kind;
     this.throwT = 0.26;
     this.state = 'air';
+    D.follow = { pos: null, look: null, w, h: w.heading }; // (the camera takes the ball to him, then him: drCamFollow)
     D.perfect = this.meterResult(D, kind, pw, need, acc, tapN);
     if (D.perfect) this.goldBall(true);
     // (the pass's points: the read and timing at the press, the power and the tap now)
@@ -796,6 +800,66 @@ export const DriveReads = {
     sh.look = null;
     sh.snapFov = true; // (the fov follows the curve as it is, not eased again)
     return sh;
+  },
+  // The follow camera (the QB Challenge's, main.js camOverride): from the throw it chases the ball
+  // from behind and above all the way to him, then rides behind him with it till he's down; an
+  // incompletion, it holds and watches the ball. Every move is eased from where the camera is.
+  // It lets go under the transition, when everyone's lined up again.
+  drCamFollow(dt) {
+    const game = this.game;
+    const D = this.endFollow ? { follow: this.endFollow } : this.dr; // (the drive's over: still on the scorer or the pick till the final screen)
+    const F = D?.follow;
+    if (this.endFollow && (game.time > this.endFollow.until || game.driveCine?.open)) {
+      this.endFollow = null;
+      return null;
+    }
+    if (!F || (!this.endFollow && (this.state === 'line' || this.state === 'play'))) {
+      if (D) D.follow = null;
+      return null;
+    }
+    const b = this.fb.ball;
+    const w = F.w;
+    if (!F.pos) {
+      F.pos = game.camera.position.clone();
+      const fwd = new THREE.Vector3();
+      game.camera.getWorldDirection(fwd);
+      F.look = F.pos.clone().add(fwd.multiplyScalar(10));
+    }
+    let want;
+    let look;
+    let rate = 6;
+    if (b.mode === 'flight' && b.kind === 'pass') {
+      // (behind the ball and a little to the side, looking on down its line, onto him as it gets there)
+      const L = Math.hypot(b.p1[0] - b.p0[0], b.p1[2] - b.p0[2]) || 1;
+      const ux = (b.p1[0] - b.p0[0]) / L;
+      const uz = (b.p1[2] - b.p0[2]) / L;
+      // (rising only partway with a high ball, so he stays in the picture with it)
+      want = _cw.set(b.x - ux * 3.6 + uz * 1.0, Math.max(1.6, 1.3 + b.y * 0.45), b.z - uz * 3.6 - ux * 1.0);
+      const near = clamp(1 - (b.T - b.t) / 0.6, 0, 1);
+      look = _cl.set(b.x + ux * 6, b.y * 0.5 + 0.6, b.z + uz * 6).lerp(_cv.set(w.x, 1.2, w.z), 0.35 + near * 0.55);
+    } else if (b.holder && b.holder !== 'you' && this.fb.players.includes(b.holder)) {
+      // (whoever's got it: him after the catch, a back after a pick)
+      const h = b.holder;
+      if (h !== F.w) {
+        F.w = h;
+        F.h = h.heading;
+      }
+      if (h.speed > 0.5) F.h = F.h + Math.atan2(Math.sin(h.heading - F.h), Math.cos(h.heading - F.h)) * Math.min(1, dt * 3);
+      const fx = Math.sin(F.h);
+      const fz = Math.cos(F.h);
+      want = _cw.set(h.x - fx * 4.6, 2.3, h.z - fz * 4.6);
+      look = _cl.set(h.x + fx * 5, 1.1, h.z + fz * 5);
+      rate = 4;
+    } else {
+      // (incomplete or knocked down: hold there, watching the ball)
+      want = F.pos;
+      look = _cl.set(b.x, Math.max(0.4, b.y), b.z);
+      rate = 3;
+    }
+    const a = 1 - Math.exp(-dt * rate);
+    if (want !== F.pos) F.pos.lerp(want, a);
+    F.look.lerp(look, Math.min(1, a * 1.5));
+    return { pos: F.pos, look: F.look };
   },
   drDownText() {
     const toGo = this.first <= this.goal + 0.01 ? 'GOAL' : Math.max(1, Math.round((this.los - this.first) / YD));

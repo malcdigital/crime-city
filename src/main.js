@@ -2025,7 +2025,7 @@ class Game {
       this.camera.lookAt(hx + (L.x - hx) * L.k, hy + (L.y - hy) * L.k, hz + (L.z - hz) * L.k);
     } else this.camera.lookAt(tx + rx * shoulder, ty + 0.6, tz + rz * shoulder);
     // (the QB Challenge's hit cam riding a deep ball in)
-    const O = this.gridiron?.active && this.gridiron.camOverride?.(dt);
+    const O = (this.gridiron?.active || this.gridiron?.endFollow) && this.gridiron.camOverride?.(dt);
     if (O) {
       this.camera.position.copy(O.pos);
       this.camera.lookAt(O.look);
