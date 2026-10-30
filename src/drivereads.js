@@ -838,7 +838,7 @@ export function driveCurve(x) {
   return bz(CB[0], CB[1], CB[2], CB[3], (lo + hi) / 2);
 }
 const SHOT_NEAR = { back: 3.7, up: 0.45, shoulder: 0.85, fov: 58 }; // (the QB Challenge's, over your shoulder)
-const SHOT_WIDE = { back: 13.7, up: 2.6, shoulder: 0, fov: 76 }; // (pre-snap: 10 m further back, up, wider)
+const SHOT_WIDE = { back: 8.7, up: 1.5, shoulder: 0.4, fov: 67 }; // (pre-snap: 5 m further back, up a bit, wider: half way to the old wide shot)
 
 // How fast he'll go on: running his route, or stopped at its end.
 function routeSpeed(w) {
