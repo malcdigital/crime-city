@@ -92,7 +92,9 @@ export class Gridiron {
     if (this.active || game.player.vehicle || game.stars > 0 || game.stop || !fb?.ball || fb.match || game.time < (this.again || 0)) return;
     const qb = fb.qb;
     const [px, pz] = game.player.pos();
-    if (!qb || !qb.fb || !fb.wrs.length || !['reset', 'set'].includes(fb.phase) || !this.onField(px, pz) || dist(px, pz, qb.x, qb.z) > 9) {
+    // (anywhere on the field: you call over to their quarterback, wherever he is and whatever
+    // they're in the middle of)
+    if (!qb || !qb.fb || !fb.wrs.length || !this.onField(px, pz)) {
       if (!this.talk?.open) this.talk = null; // (walked off before he answered)
       return;
     }
