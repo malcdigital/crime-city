@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { dist, rand, pick, clamp, lerpAngle } from './util.js';
 import { setShirt } from './character.js';
 import { CTYPES } from './fieldmodes.js';
+import { PERFECT } from './throwmeter.js';
 
 // The drive's passing game (mixed into Gridiron: gridiron.js): three receivers against three
 // defensive backs, real formations and pass concepts, and one read.
@@ -25,7 +26,16 @@ import { CTYPES } from './fieldmodes.js';
 // open (game seconds; time runs at half speed while you read).
 const YD = 0.9144;
 const XS = 0.55; // (across: the field's about half as wide as a real one)
-export const SACK_READ = 4.2; // (game seconds after the snap)
+export const SACK_READ = 4.2;
+export const DRIVE_KEY = 'crimecity.driveBest'; // (the best drive score, kept like the QB Challenge's)
+// The drive's score (every drive from your own 25, so they compare):
+//   each pass, up to 100: timing 40 / 25 / 10 for starting the throw in the early, middle or late
+//   third of the open man's window (0 too early, too late or into coverage; 25 for a man with
+//   real daylight who wasn't the play's), power 20 dead center of the green / 10 in it,
+//   accuracy 20 perfect / 10 close, +20 a perfect pass (a bad read keeps a quarter of it);
+//   ×1.5 in rhythm, ×2 on fire.
+//   the play: +10 caught, +1 a yard, +15 a first down, +100 a touchdown; −20 a sack, −50 a pick.
+//   the drive: +10 for every play under 8 on a touchdown drive. // (game seconds after the snap)
 const PEAK = 3.5; // (how far his man trails him at the most, metres)
 const ROUTES = {
   flat: { pts: [[1, 1], [6, 2.5], [10, 3]], brk: 0, W: 0.9, name: 'flat' },
@@ -144,7 +154,13 @@ export const DriveReads = {
   drIntro() {
     const game = this.game;
     this.dr.introAt = null;
-    game.driveCine?.intro({ spot: this.drSpot(), los: this.los, cx: this.fb.site.field.cx, squad: this.bench?.ballName || 'their', from: this.drFromText(), bet: this.bet, play: this.drPlayName() }, () => {
+    let best = 0;
+    try {
+      best = Number(localStorage.getItem(DRIVE_KEY)) || 0;
+    } catch {
+      // (storage unavailable)
+    }
+    game.driveCine?.intro({ best, spot: this.drSpot(), los: this.los, cx: this.fb.site.field.cx, squad: this.bench?.ballName || 'their', from: this.drFromText(), bet: this.bet, play: this.drPlayName() }, () => {
       game.camYaw = Math.PI;
     });
   },
@@ -345,6 +361,14 @@ export const DriveReads = {
     if (w === D.openW) why = D.openAt == null || t < D.openAt - 0.3 ? 'early' : t > D.closeAt ? 'late' : 'open';
     if (gap >= 3 && t >= D.play.drop) why = 'open'; // (real daylight, once he's into his route)
     D.lock = { w, open: why === 'open', why, sep: why === 'open' ? Math.max(2.4, gap) : 0 };
+    // (the read and the timing: where in his window you started it)
+    let timing = 0;
+    let tag = why === 'early' ? 'TOO EARLY' : why === 'late' ? 'TOO LATE' : 'INTO COVERAGE';
+    if (why === 'open' && w === D.openW && D.openAt != null) {
+      const k = (t - (D.openAt - 0.15)) / Math.max(0.2, D.closeAt - (D.openAt - 0.15)); // (from his cut to his man closing)
+      [timing, tag] = k < 1 / 3 ? [40, 'EARLY READ'] : k < 2 / 3 ? [25, 'ON TIME'] : [10, 'LATE READ'];
+    } else if (why === 'open') [timing, tag] = [25, 'GOOD READ'];
+    D.grade = { timing, tag };
   },
 
   // The throw (the meter let go and tapped): as far as the power, the line off the tap.
@@ -379,6 +403,19 @@ export const DriveReads = {
     this.state = 'air';
     D.perfect = this.meterResult(D, kind, pw, need, acc, tapN);
     if (D.perfect) this.goldBall(true);
+    // (the pass's points: the read and timing at the press, the power and the tap now)
+    const W = this.winFor(kind, need);
+    const po = Math.abs(pw - need);
+    const power = po <= W * 0.5 ? 20 : po <= W ? 10 : 0;
+    const aim = tapN != null && Math.abs(acc) <= PERFECT ? 20 : tapN != null && Math.abs(acc) <= 0.1 ? 10 : 0;
+    const G = D.grade || { timing: 0, tag: 'INTO COVERAGE' };
+    const heat = this.heatSt();
+    const mult = heat === 'fire' ? 2 : heat === 'rhythm' ? 1.5 : 1;
+    // (a bad read, into coverage or out of his window, keeps only a quarter: the throw's no good
+    // if it's to the wrong man)
+    const base = (G.timing + power + aim + (D.perfect ? 20 : 0)) * (G.timing > 0 ? 1 : 0.25);
+    D.cur = { pts: Math.round(base * mult), tags: [G.tag, D.perfect ? 'PERFECT PASS' : '', mult > 1 ? `×${mult} ${heat === 'fire' ? 'ON FIRE' : 'IN RHYTHM'}` : ''].filter(Boolean) };
+    D.passes = (D.passes || 0) + 1;
   },
 
   // ---- Every frame ----
@@ -496,7 +533,9 @@ export const DriveReads = {
       if (dD < 2.2 && Math.random() < (b.throwKind === 'bullet' ? 0.4 : b.throwKind === 'lob' ? 0.38 : 0.32)) {
         fb.hold(db);
         this.heatMiss();
-        this.drWipeIn(this.drCardFor({ kind: 'pick', why: `${why} · ${told}` }, 0, false, true), true);
+        const card = this.drCardFor({ kind: 'pick', why: `${why} · ${told}` }, 0, false, true);
+        this.drScorePlay('pick', 0, false, card, true);
+        this.drWipeIn(card, true);
         return this.end('pick');
       }
       if (dW < 1.2 && Math.random() < (D.perfect ? 0.35 : 0.15)) return this.drCaught(w, false, 'Contested catch!');
@@ -519,6 +558,7 @@ export const DriveReads = {
     const b = fb.ball;
     fb.hold(w);
     this.drRes = { kind: 'complete', why: this.drTold() };
+    this.dr.caught = (this.dr.caught || 0) + 1;
     for (const f of fb.fans) f.fb.cheerT = rand(1, 2);
     game.hud.toast(text, '#7ee081');
     this.heatHit(b.x, Math.max(1, b.y), b.z); // (in rhythm, on fire: fieldmodes.js)
@@ -662,17 +702,68 @@ export const DriveReads = {
     else next = `${this.drDownText()} · BALL ON THE ${this.yardLine(this.los)}`;
     return { big, tone, yd, next, why: R.why || this.drTold(), kind: R.kind };
   },
+  // The play's points (over() / touchdown / a pick): the pass's own, then what it got you; onto
+  // the card and the drive's total.
+  drScorePlay(kind, yds, first, card, td = false) {
+    const D = this.dr;
+    if (!D) return;
+    const pass = D.cur?.pts || 0;
+    const tags = D.cur?.tags ? [...D.cur.tags] : [];
+    let pts = pass;
+    if (kind === 'complete' || kind === 'run') pts += (kind === 'complete' && D.cur ? 10 : 0) + Math.max(0, yds);
+    if (first) pts += 15;
+    if (td || kind === 'td') pts += 100;
+    if (kind === 'sack') pts -= 20;
+    if (kind === 'pick') pts -= 50;
+    D.cur = null;
+    D.grade = null;
+    D.plays = (D.plays || 0) + 1;
+    D.score = (D.score || 0) + pts;
+    if (pass > (D.bestThrow || 0)) D.bestThrow = pass;
+    D.log = [...(D.log || []), pts];
+    if (card) {
+      card.pts = pts;
+      card.tags = tags;
+    }
+  },
+  // The drive's over (end()): the finish bonus, the record, and the final screen once the last
+  // transition's gone by.
+  drFinal(how) {
+    const game = this.game;
+    const D = this.dr;
+    if (!D || how === 'forfeit' || how === 'off' || how === 'x') return;
+    const plays = D.plays || 0;
+    const bonus = how === 'td' ? Math.max(0, 8 - plays) * 10 : 0;
+    D.score = (D.score || 0) + bonus;
+    let best = 0;
+    try {
+      best = Number(localStorage.getItem(DRIVE_KEY)) || 0;
+    } catch {
+      // (storage unavailable)
+    }
+    const newBest = D.score > best;
+    if (newBest) {
+      try {
+        localStorage.setItem(DRIVE_KEY, String(D.score));
+      } catch {
+        // (storage unavailable)
+      }
+    }
+    const info = { score: D.score, best, newBest, how, plays, bonus, passes: D.passes || 0, caught: D.caught || 0, bestThrow: D.bestThrow || 0 };
+    setTimeout(() => game.driveCine?.outro(info, () => {}), 2300);
+  },
   drWipeIn(card, final = false) {
     if (!card) return;
     let el = document.getElementById('drwipe');
     if (!el) {
       el = document.createElement('div');
       el.id = 'drwipe';
-      el.innerHTML = '<div class="dw-shade"></div><div class="dw-band"><div class="dw-edge"></div><div class="dw-txt"><b class="dw-big"></b><span class="dw-yd"></span><span class="dw-next"></span><small class="dw-why"></small></div></div>';
+      el.innerHTML = '<div class="dw-shade"></div><div class="dw-band"><div class="dw-edge"></div><div class="dw-txt"><b class="dw-big"></b><span class="dw-yd"></span><span class="dw-pts"></span><span class="dw-next"></span><small class="dw-why"></small></div></div>';
       document.body.appendChild(el);
     }
     el.querySelector('.dw-big').textContent = card.big;
     el.querySelector('.dw-yd').textContent = card.yd;
+    el.querySelector('.dw-pts').textContent = card.pts != null ? [`${card.pts >= 0 ? '+' : '−'}${Math.abs(card.pts)} PTS`, ...(card.tags || [])].join(' · ') : '';
     el.querySelector('.dw-next').textContent = card.next;
     el.querySelector('.dw-why').textContent = card.why;
     el.className = `on ${card.tone} k-${card.kind}`;

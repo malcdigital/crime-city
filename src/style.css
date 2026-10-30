@@ -1170,6 +1170,9 @@ body.board3pt-on #sport .sb { display: none; }
 @keyframes dw-pop { to { opacity: 1; transform: scale(1); } }
 #drwipe .dw-yd { font-size: clamp(16px, 5.5vh, 34px); font-weight: 900; color: #fff; opacity: 0; }
 #drwipe .dw-yd:empty { display: none; }
+#drwipe .dw-pts { font-size: clamp(11px, 3.6vh, 19px); font-weight: 900; letter-spacing: 2px; color: var(--dw, #ffd23f); opacity: 0; }
+#drwipe .dw-pts:empty { display: none; }
+#drwipe.in .dw-pts { animation: dw-up .35s .37s ease-out forwards; }
 #drwipe .dw-next { font-size: clamp(11px, 3.4vh, 18px); font-weight: 800; letter-spacing: 3px; color: #c9d4e6; opacity: 0; }
 #drwipe .dw-why { font-size: clamp(10px, 2.9vh, 14px); font-weight: 600; color: #9fb0c8; max-width: 92vw; opacity: 0; }
 #drwipe.in .dw-yd, #drwipe.in .dw-next, #drwipe.in .dw-why { animation: dw-up .35s ease-out forwards; }

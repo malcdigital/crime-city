@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { dist, rand, pick } from './util.js';
 import { FieldModes } from './fieldmodes.js';
 import { QBChallenge, QBC_KEY } from './qbchallenge.js';
-import { DriveReads, DPLAYS, SACK_READ } from './drivereads.js';
+import { DriveReads, DPLAYS, SACK_READ, DRIVE_KEY } from './drivereads.js';
 import { CFG } from './config.js';
 import { bendSpine } from './character.js';
 import { throwPose, layoutPose, qbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat } from './footballpose.js';
@@ -58,7 +58,7 @@ export class Gridiron {
       const w = fb.wrs[0];
       if (!w.ballName) w.ballName = pick(w.female ? ['Kiki', 'Nae', 'Jada', 'Shay'] : NAMES.filter((n) => n !== qb.ballName));
       if (CFG.START_FIELD_GAME === 'qbc') this.startChallenge(qb);
-      else if (CFG.START_FIELD_GAME === 'drive') this.start(qb, 0, 40);
+      else if (CFG.START_FIELD_GAME === 'drive') this.start(qb, 0);
       else {
         // (out in the middle of the field, a little toward the south end)
         const F = fb.site.field;
@@ -108,7 +108,6 @@ export class Gridiron {
     const bets = BETS.filter((v) => v <= game.cash);
     let bi = bets.indexOf(BETS[this.betI]);
     if (bi < 0) bi = bets.length - 1;
-    const FROMS = [40, 80, 15];
     const mates = [qb, ...fb.players.filter((q) => q !== qb && (q.fb.role === 'wr' || q.fb.role === 'db'))];
     for (const q of mates) if (!q.ballName) q.ballName = pick(q.female ? ['Kiki', 'Nae', 'Jada', 'Shay', 'Tasha'] : NAMES.filter((n) => n !== qb.ballName));
     let best = 0;
@@ -117,18 +116,22 @@ export class Gridiron {
     } catch {
       // (storage unavailable)
     }
-    const fromText = (v) => (v === 80 ? 'From your own 20' : v === 15 ? 'From the 15 (red zone)' : 'From the 40');
+    let driveBest = 0;
+    try {
+      driveBest = Number(localStorage.getItem(DRIVE_KEY)) || 0;
+    } catch {
+      // (storage unavailable)
+    }
     game.courtMenu.show({
       title: `${qb.ballName}'s squad`,
       place: fb.site.name || 'Harbor Field',
       games: [
-        { id: 'drive', title: `Run a drive vs. ${qb.ballName.toUpperCase()}'s squad`, sub: (st) => `${fromText(st.from)} · four downs to make 10 · ${st.wager ? `$${st.wager} says you score` : 'just for fun'}` },
+        { id: 'drive', title: `Run a drive vs. ${qb.ballName.toUpperCase()}'s squad`, sub: (st) => `From your own 25 · scored on every throw · ${driveBest ? `record ${driveBest}` : 'set the record'} · ${st.wager ? `$${st.wager} says you score` : 'just for fun'}` },
         { id: 'qbc', title: 'QB Challenge · solo', sub: () => `3 stages, one throw at each target: still rings, moving rings, juke the rush · ${best ? `record ${best}` : 'set the record'}` },
         { id: 'catch', title: 'Play catch', sub: (st) => `With ${st.mate.ballName} · anywhere on the field, within 50 yards · bullet, touch or lob` },
       ],
       rules: [
         { id: 'wager', label: 'Wager', values: bets, i: bi, fmt: (v) => (v ? `$${v}` : 'None'), only: 'drive' },
-        { id: 'from', label: 'Start', values: FROMS, i: this.fromI || 0, fmt: (v) => (v === 80 ? 'Own 20' : v === 15 ? 'Red zone' : 'The 40'), only: 'drive' },
         { id: 'mate', label: 'Throw with', values: mates, i: 0, fmt: (q) => `${q.ballName}${q === qb ? ' (QB)' : q.fb.role === 'db' ? ' (DB)' : ' (WR)'}`, only: 'catch' },
       ],
       start: (st) => (st.game === 'qbc' ? 'START THE CLOCK' : st.game === 'catch' ? 'START THROWING' : `START THE DRIVE${st.wager ? ` · $${st.wager}` : ''}`),
@@ -136,13 +139,12 @@ export class Gridiron {
       onChange: (R) => {
         // (remembered for next time)
         if (R.id === 'wager') this.betI = BETS.indexOf(R.values[R.i]);
-        if (R.id === 'from') this.fromI = R.i;
       },
       onStart: (st) => {
         this.talk = null;
         if (st.game === 'qbc') this.startChallenge(qb);
         else if (st.game === 'catch') this.startCatch(qb, st.mate);
-        else this.start(qb, st.wager, st.from);
+        else this.start(qb, st.wager);
       },
       onClose: () => {
         this.talk = null;
@@ -151,7 +153,7 @@ export class Gridiron {
     });
   }
 
-  start(qb, bet, from = 40) {
+  start(qb, bet, from = 75) {
     const game = this.game;
     const fb = this.fb;
     const S = fb.site;
@@ -202,7 +204,7 @@ export class Gridiron {
   board() {
     const toGo = this.first <= this.goal + 0.01 ? 'Goal' : Math.max(1, Math.round((this.los - this.first) / YD));
     const heat = this.heatSt() === 'fire' ? ' · ON FIRE' : this.heatSt() === 'rhythm' ? ' · IN RHYTHM' : '';
-    return `${DOWNS[this.down] || '4th'} & ${toGo} · ball on the ${this.yardLine(this.los)}${this.bet ? ` · $${this.bet} on it` : ''}${heat}`;
+    return `${DOWNS[this.down] || '4th'} & ${toGo} · ball on the ${this.yardLine(this.los)} · SCORE ${this.dr?.score || 0}${this.bet ? ` · $${this.bet}` : ''}${heat}`;
   }
 
   // ---- Your buttons (main.js, before the weapons) ----
@@ -520,7 +522,9 @@ export class Gridiron {
     // (what the transition says: drivereads.js drCardFor)
     const R = this.drRes || { kind: z == null ? 'incomplete' : 'complete' };
     this.drRes = null;
-    this.drCard = this.drCardFor(R, Math.round((was - this.los) / YD), first, this.down > 3);
+    const yds = Math.round((was - this.los) / YD);
+    this.drCard = this.drCardFor(R, yds, first, this.down > 3);
+    this.drScorePlay(R.kind, yds, first, this.drCard); // (the play's points: drivereads.js)
     if (this.down > 3) {
       this.drWipeIn(this.drCard, true);
       this.end('downs');
@@ -531,7 +535,12 @@ export class Gridiron {
     const game = this.game;
     for (const f of this.fb.fans) f.fb.cheerT = 2.5;
     for (const q of this.fb.wrs) q.fb.cheerT = 2;
-    if (this.dr) this.drWipeIn(this.drCardFor({ kind: 'td', why: who === 'you' ? 'You took it in yourself' : `${who.ballName || 'He'} took it to the house` }, Math.round((this.los - this.goal) / YD), false, true), true);
+    if (this.dr) {
+      const yds = Math.round((this.los - this.goal) / YD);
+      const card = this.drCardFor({ kind: 'td', why: who === 'you' ? 'You took it in yourself' : `${who.ballName || 'He'} took it to the house` }, yds, false, true);
+      this.drScorePlay(who === 'you' && !this.dr.cur ? 'run' : 'complete', yds, false, card, true);
+      this.drWipeIn(card, true);
+    }
     else game.hud.toast(who === 'you' ? 'TOUCHDOWN! You took it in yourself' : 'TOUCHDOWN!', '#7ee081');
     this.end('td');
   }
@@ -655,7 +664,10 @@ export class Gridiron {
     for (const s of this.icons || []) if (s) game.scene.remove(s);
     this.icons = [];
     this.press = null;
-    if (this.dr) this.drEnd();
+    if (this.dr) {
+      this.drFinal(how); // (the drive's score, the record, the final screen: drivereads.js)
+      this.drEnd();
+    }
     // (whoever came off the sideline to make it three on three goes home)
     for (const d of this.extra || []) {
       if (fb.players.includes(d)) fb.players.splice(fb.players.indexOf(d), 1);

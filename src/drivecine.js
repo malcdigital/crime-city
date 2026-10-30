@@ -25,9 +25,31 @@ export class DriveCine extends QbcCine {
     const stake = info.bet ? `<b>$${info.bet}</b> SAYS YOU SCORE` : 'JUST FOR FUN';
     el.innerHTML = `<div class="c3-lb top"></div><div class="c3-lb bot"></div>
       <div class="c3-title"><small>THE</small><b>DRIVE</b><span>VS ${esc(info.squad.toUpperCase())}'S SQUAD</span></div>
-      <div class="c3-rules">${esc(info.from)} · FOUR DOWNS TO MAKE 10 · SCORE TO WIN<br>ONE MAN COMES OPEN EVERY PLAY · FIND HIM BEFORE HIS MAN CLOSES</div>
-      <div class="c3-best">${stake} · PLAY CALL <b>${esc(info.play.toUpperCase())}</b></div>
+      <div class="c3-rules">${esc(info.from)} · FOUR DOWNS TO MAKE 10 · EVERY THROW SCORED<br>FIND THE OPEN MAN EARLY · HIT THE GREEN · TAP IT PERFECT · SCORE FAST</div>
+      <div class="c3-best">${info.best > 0 ? `RECORD TO BEAT <b>${info.best}</b>` : 'NO RECORD YET'} · ${stake} · PLAY CALL <b>${esc(info.play.toUpperCase())}</b></div>
       <div class="c3-skip">${this.skipText()}</div>`;
+    this.show();
+    this.camera(0);
+  }
+
+  // info: { score, best (before this one), newBest, how ('td' / 'pick' / 'downs'), plays, bonus,
+  // passes, caught, bestThrow }: the drive's final score, the camera round you (celebrating a
+  // touchdown or a record, hands on your head otherwise).
+  outro(info, done) {
+    this.mode = 'outro';
+    this.info = info;
+    this.done = done;
+    this.t = 0;
+    this.T = 4.6;
+    this.open = true;
+    const el = this.panel();
+    const how = info.how === 'td' ? `TOUCHDOWN IN ${info.plays} PLAY${info.plays === 1 ? '' : 'S'}${info.bonus ? ` · +${info.bonus} QUICK DRIVE` : ''}` : info.how === 'pick' ? 'INTERCEPTED' : 'TURNOVER ON DOWNS';
+    const line = info.newBest ? '<div class="c3-new">NEW RECORD!</div>' : info.best > 0 ? `<div class="c3-best">RECORD <b>${info.best}</b></div>` : '';
+    el.innerHTML = `<div class="c3-lb top"></div><div class="c3-lb bot"></div>
+      <div class="c3-final"><small>DRIVE SCORE</small><b>${info.score}</b><span>${how}<br>${info.caught} OF ${info.passes} CAUGHT · BEST THROW ${info.bestThrow}</span></div>
+      ${line}
+      <div class="c3-skip">${this.skipText()}</div>`;
+    this.happy = info.how === 'td' || info.newBest;
     this.show();
     this.camera(0);
   }

@@ -65,7 +65,7 @@ const FOOTBALL = {
       ['This list', '?', 'Create', 'Tab'],
     ]],
   ],
-  notes: 'Every play one receiver comes open for a moment (the play beats the coverage there): find him, start the throw before his man closes. After each play you\'re told the coverage and who was open. Two catches in a row: IN RHYTHM; the third: ON FIRE (a bigger green) till you miss.',
+  notes: 'Every play one receiver comes open for a moment (the play beats the coverage there): find him, start the throw before his man closes. After each play you\'re told the coverage and who was open. Two catches in a row: IN RHYTHM; the third: ON FIRE (a bigger green) till you miss. Scored: timing (throw early in his window), power, accuracy, perfect passes, yards, first downs, the touchdown, how fast you score.',
 };
 
 const QBC = {
