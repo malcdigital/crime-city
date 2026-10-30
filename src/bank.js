@@ -246,8 +246,11 @@ export class Bank {
     if (took <= 0) return;
     h.stash -= took;
     const who = gang ? GANGS[gang].name : 'Somebody';
-    game.hud.toast(`${who} broke into your ${h.name.toLowerCase()}: -${money(took)}`, '#ff8080');
-    game.hud.news(`Break-in on ${streetAt(h.x, h.z)}${gang ? `: ${GANGS[gang].name} suspected` : ''}`, 'crime');
+    // (in a pickup game: you hear about it after)
+    game.afterGame(() => {
+      game.hud.toast(`${who} broke into your ${h.name.toLowerCase()}: -${money(took)}`, '#ff8080');
+      game.hud.news(`Break-in on ${streetAt(h.x, h.z)}${gang ? `: ${GANGS[gang].name} suspected` : ''}`, 'crime');
+    });
     this.save();
   }
 

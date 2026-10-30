@@ -1701,6 +1701,19 @@ class Game {
     return this.sport.active ? this.sport : this.gridiron.active ? this.gridiron : null;
   }
 
+  // Bad news that can wait (your stash got hit): while you're in a pickup game (or its
+  // cinematics) it's held, and you get it once you're out.
+  afterGame(fn) {
+    if (this.pickupGame() || this.contestCine?.open || this.qbcCine?.open) (this.heldNews ||= []).push(fn);
+    else fn();
+  }
+  flushHeldNews() {
+    if (!this.heldNews?.length || this.pickupGame() || this.contestCine?.open || this.qbcCine?.open) return;
+    const q = this.heldNews;
+    this.heldNews = [];
+    for (const fn of q) fn();
+  }
+
   handleInteractions(dt, a) {
     const p = this.player;
     const input = this.input;
@@ -2392,6 +2405,7 @@ class Game {
 
   update(dt, a) {
     this.time += dt;
+    this.flushHeldNews(); // (stash news held through a game)
     if (this.cine || this.stop || this.travel.active) {
       // Watching a cinematic (or stopped by a cop): hands off the controls (the car brakes).
       a.moveX = a.moveY = a.throttle = a.steer = 0;

@@ -254,8 +254,11 @@ export class Shops {
     const took = Math.round(this.stash * 0.5);
     this.stash -= took;
     this.unpaid = 0;
-    this.game.hud.news(`${GANGS[g].name} hit Green Street's stash and walked off with ${money(took)}`, 'crime');
-    this.game.hud.toast(`${GANGS[g].name} robbed your stash: -${money(took)}`, '#ff8080');
+    // (in a pickup game: you hear about it after)
+    this.game.afterGame(() => {
+      this.game.hud.news(`${GANGS[g].name} hit Green Street's stash and walked off with ${money(took)}`, 'crime');
+      this.game.hud.toast(`${GANGS[g].name} robbed your stash: -${money(took)}`, '#ff8080');
+    });
   }
 
   collect() {
