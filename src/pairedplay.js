@@ -84,12 +84,58 @@ export function startPair(name, A, B, { at = 0, mirror = false, now = 0, maxTurn
   const oB = alignedOrigin(pair, nB, oA, mirror);
   const rB = rootAt(clips[nB], start, mirror);
   const [bx, bz] = place(oB, rB.x, rB.z);
-  const mk = (clip, origin, off, c, yawOff = 0) => ({ name, clip, origin, mirror, start, t0: now, off, yawOff, from: c ? joints(c) : null, length: clip.length });
+  const mk = (clip, origin, off, c, yawOff = 0) => ({ name, clip, origin, mirror, start, t0: now, off, yawOff, from: c ? joints(c) : null, length: clip.length, blend: BLEND });
   return {
     a: mk(clips[nA], oA, [0, 0], A.char, -turn),
     b: mk(clips[nB], oB, [B.x - bx, B.z - bz], B.char),
     pair,
   };
+}
+
+// A pair at a basket (authored with a rim: the basketball ones): startPairRim(name, A, B,
+// { rim, at, mirror, now }) puts the scene's rim on the real one (rim: x, y, z and dx, dz out
+// over the court), turned round it (up to maxTurn) so the anchor's start is on his side of it;
+// both men blended in from where they really are (blend seconds; blendB: the partner's). Also gives ballAt(f): the
+// scene's ball at frame f, in the world.
+export function startPairRim(name, A, B, { rim, at = 0, mirror = false, now = 0, maxTurn = 0.8, lead = LEAD, blend = 0.3, blendB = blend } = {}) {
+  const P = PAIRED[name];
+  if (!P?.pair.rim) return null;
+  const { pair, clips } = P;
+  const [nA, nB] = pair.actors;
+  const start = typeof at === 'string' ? Math.max(0, pair.events[at] / pair.fps - lead) : at;
+  const pr = pair.rim;
+  const rx = mirror ? -pr.pos[0] : pr.pos[0];
+  const rz = pr.pos[2];
+  const ryaw = mirror ? -pr.yaw : pr.yaw;
+  // (the anchor's origin that puts the scene's rim on the real one, facing yaw + turn)
+  const originFor = (yaw) => {
+    const [wx, wz] = place({ x: 0, z: 0, yaw }, rx, rz);
+    return { x: rim.x - wx, y: rim.y - pr.pos[1], z: rim.z - wz, yaw };
+  };
+  const yaw0 = Math.atan2(rim.dx, rim.dz) - ryaw;
+  const rA = rootAt(clips[nA], start, mirror);
+  const [ax0, az0] = place(originFor(yaw0), rA.x, rA.z);
+  const d = Math.atan2(A.x - rim.x, A.z - rim.z) - Math.atan2(ax0 - rim.x, az0 - rim.z);
+  const turn = Math.max(-maxTurn, Math.min(maxTurn, Math.atan2(Math.sin(d), Math.cos(d))));
+  const oA = originFor(yaw0 + turn);
+  const oB = alignedOrigin(pair, nB, oA, mirror);
+  const at0 = (clip, o, M) => {
+    const r = rootAt(clip, start, mirror);
+    const [x, z] = place(o, r.x, r.z);
+    return [M.x - x, M.z - z];
+  };
+  const turnOf = (clip, o, M) => {
+    const a = (M.heading ?? 0) - (o.yaw + rootAt(clip, start, mirror).yaw);
+    return Math.atan2(Math.sin(a), Math.cos(a));
+  };
+  const mk = (clip, origin, M, blend) => ({ name, clip, origin, mirror, start, t0: now, off: at0(clip, origin, M), yawOff: turnOf(clip, origin, M), from: M.char ? joints(M.char) : null, length: clip.length, blend });
+  const ballAt = (f) => {
+    const b = pair.ball?.[Math.max(0, Math.min(pair.ball.length - 1, f))];
+    if (!b) return null;
+    const [x, z] = place(oA, mirror ? -b[0] : b[0], b[2]);
+    return { x, y: oA.y + b[1], z };
+  };
+  return { a: mk(clips[nA], oA, A, blend), b: mk(clips[nB], oB, B, blendB), pair, start, ballAt };
 }
 
 // One character posed from his play at time now. rise (0..1): back up off the turf. Returns
@@ -100,7 +146,7 @@ export function playClip(c, play, now, rise = 0) {
   applyClip(c, play.clip, t, play.origin, play.mirror);
   c.group.scale.copy(scale);
   // (blended in: from his own pose, and from where he really was)
-  const k = Math.min(1, (now - play.t0) / BLEND);
+  const k = Math.min(1, (now - play.t0) / (play.blend || BLEND));
   const w = 1 - k * k * (3 - 2 * k);
   if (w > 0) {
     c.group.position.x += play.off[0] * w;

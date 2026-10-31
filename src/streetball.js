@@ -12,6 +12,7 @@ import { markStripped, markScoop, scooping, strippedPose, scoopPose, markFoul, f
 import { readyPose, boxOutPose, markGrab, grabbing, grabPose } from './reboundpose.js';
 import { markPass, markCatch, passPose, passReset, passFrom, steerPass, handsAt, holdPose, catching, palmBall, twoHandBall } from './passpose.js';
 import { CFG } from './config.js';
+import { startPairRim, playClip } from './pairedplay.js';
 
 const px0 = (p) => p.pos()[0];
 const pz0 = (p) => p.pos()[1];
@@ -147,6 +148,9 @@ const spinHeading = (mv, k) => mv.h0 - (mv.from || 1) * Math.PI * 2 * (k * k * (
 // let go before the end of the turn and dribbled across: one bounce in front into the other hand
 // (never handed from one hand to the other: that's a travel).
 export const SPIN_REL = 0.7;
+// The paired moments: who ends up on the floor in each, and how long getting up takes.
+const PAIR_DOWN = { 'bb-poster': { defender: true } };
+const PAIR_RISE = 0.45;
 // Smoothing between poses (yours and his): every joint eases to where this frame's pose puts it
 // (about 0.1 s to settle), so moves, stances and shots blend instead of snapping.
 const JOINTS = ['armL', 'armR', 'legL', 'legR', 'kneeL', 'kneeR', 'elbowL', 'elbowR', 'wristL', 'wristR', 'spine', 'chest', 'neck'];
@@ -2508,6 +2512,13 @@ export class Streetball {
       this.prevShoot = shootHeld;
       return;
     }
+    // A paired moment at the rim: your clip moves you, not the stick.
+    if (this.scene?.you) {
+      a.moveX = a.moveY = 0;
+      a.sprint = false;
+      this.prevShoot = shootHeld;
+      return;
+    }
     // A dunk in progress (the glide up, the hang, the drop): it moves you, not the stick.
     if (Y.dunk) {
       this.updateDunk(dt);
@@ -3510,6 +3521,7 @@ export class Streetball {
       if (Math.random() < (s.type === 'dunk' ? 0.25 : 0.4) * (this.r / 75)) {
         if (this.you.dunk) this.you.dunk.hangs = false;
         game.shakeCamera?.(0.05, 0.25);
+        this.chaseDown('you');
         return this.swatted(px, pz, `Chased down by ${opp.ballName}! Pinned on the glass`, 'you', opp.x, opp.z, true);
       }
     }
@@ -3525,6 +3537,7 @@ export class Streetball {
       grade = make ? (contact ? 'POSTERIZED HIM!' : s.oop ? `ALLEY-OOP! ${name}` : name) : 'Rimmed it out';
       game.shakeCamera?.(make ? 0.14 : 0.07, 0.4); // (the rim rattles)
       if (this.you.dunk) this.you.dunk.hangs = make; // (hang on the rim after a make)
+      if (make && contact && !s.oop) this.posterize('you'); // (right on top of him: the posterizer)
     } else {
       const m = Math.abs(e) - w / 2;
       const fire = this.onFire('you');
@@ -3560,6 +3573,126 @@ export class Streetball {
     }
   }
 
+  // ---- Paired moments at the rim (src/paired/bb-*.js): you and him, each on his own clip of
+  // the one scene, started from where you both are. anchor: who the scene's first man is (the
+  // dunker, the shooter); at: the event to start from; mirror: from the other side. While it
+  // plays your stick and his brain wait; the one put on the floor gets back up at the end. ----
+  playPair(name, anchor, at, mirror, opts = {}) {
+    const game = this.game;
+    const p = game.player;
+    const opp = this.opp;
+    if (this.scene || this.solo || this.t33 || this.t3) return null;
+    const [px, pz] = p.pos();
+    const you = { x: px, z: pz, heading: p.heading, char: p.char };
+    const him = { x: opp.x, z: opp.z, heading: opp.heading, char: opp.char };
+    const [A, B] = anchor === 'you' ? [you, him] : [him, you];
+    const S = startPairRim(name, A, B, { rim: this.rim, at, mirror, now: game.time, ...opts });
+    if (!S) return null;
+    const [nA, nB] = S.pair.actors;
+    const down = PAIR_DOWN[name] || {};
+    const yours = anchor === 'you' ? [S.a, nA] : [S.b, nB];
+    const his = anchor === 'you' ? [S.b, nB] : [S.a, nA];
+    yours[0].down = !!down[yours[1]];
+    his[0].down = !!down[his[1]];
+    this.scene = { you: yours[0], opp: his[0], S, t0: game.time };
+    // (the ball on the scene's own track till its moment: through the rim, pinned on the glass)
+    if (opts.ballTill && S.pair.ball) this.scene.ballEnd = game.time + S.pair.events[opts.ballTill] / S.pair.fps - S.start + (opts.ballHold || 0);
+    // (whatever was moving you both stops: the clips have you now)
+    const Y = this.you;
+    Y.dunk = null;
+    Y.fall = null;
+    Y.jumpT = 0;
+    const hp = opp.hp;
+    hp.state = 'read';
+    hp.t = 0;
+    hp.jump = 0;
+    hp.jumpT = 0;
+    hp.next = 0.3;
+    // (nobody grabs the ball out of a clip)
+    const left = (pl) => pl.length - pl.start + (pl.down ? PAIR_RISE : 0);
+    Y.noGrabT = Math.max(Y.noGrabT || 0, left(this.scene.you) - 0.3);
+    hp.noGrabT = Math.max(hp.noGrabT || 0, left(this.scene.opp) - 0.3);
+    return S;
+  }
+
+  // One of you posed from his clip this frame (who: 'you' or 'opp'); null once it's over.
+  playScene(who) {
+    const sc = this.scene;
+    const play = sc?.[who];
+    if (!play) return null;
+    const game = this.game;
+    const P = who === 'you' ? game.player : this.opp;
+    const c = P.char;
+    const t = play.start + (game.time - play.t0);
+    if (t >= play.length + (play.down ? PAIR_RISE : 0)) {
+      sc[who] = null;
+      if (!sc.you && !sc.opp) this.scene = null;
+      c.group.rotation.set(0, P.heading, 0); // (upright again)
+      return null;
+    }
+    const rise = play.down && t > play.length ? (t - play.length) / PAIR_RISE : 0;
+    const r = playClip(c, play, game.time, rise);
+    P.x = r.x;
+    P.z = r.z;
+    P.heading = r.heading;
+    P.speed = 0;
+    smoothJoints(c, 1); // (the easing picks up from here when it's over)
+    const s = c.group.userData.sm;
+    s.g = { x: 0, z: 0 };
+    return r;
+  }
+
+  // The ball on a paired clip's own track (till the slam, the pin), whatever mode it's in;
+  // after that the game has it again from where the track left it. True while it's on it.
+  sceneBall() {
+    const sc = this.scene;
+    if (!sc?.ballEnd) return false;
+    const game = this.game;
+    const b = this.g.ball;
+    const S = sc.S;
+    if (game.time >= sc.ballEnd) {
+      sc.ballEnd = null;
+      if (b.mode === 'flight' && b.p1) {
+        // (a flight picks up from here: the dunk going down through)
+        const { kind, make } = b;
+        this.H.launch(b, b.p1[0], b.p1[1], b.p1[2], Math.max(0.08, b.T - b.t));
+        Object.assign(b, { kind, make });
+      }
+      return false;
+    }
+    const f = Math.round((S.start + game.time - sc.t0) * S.pair.fps);
+    const at = S.ballAt(f);
+    if (!at) return false;
+    b.x = at.x;
+    b.y = at.y;
+    b.z = at.z;
+    b.mesh.position.set(b.x, b.y, b.z);
+    return true;
+  }
+
+  // The posterizer: a dunk that went in with the other one right there under it (dunker: 'you'
+  // or 'opp'), from whichever side of the lane he came down.
+  posterize(dunker) {
+    const rim = this.rim;
+    const [px, pz] = this.game.player.pos();
+    const [x, z] = dunker === 'you' ? [px, pz] : [this.opp.x, this.opp.z];
+    const [ox, oz] = dunker === 'you' ? [this.opp.x, this.opp.z] : [px, pz];
+    if (dist(x, z, ox, oz) > 2.6) return null;
+    const lateral = (x - rim.x) * rim.dz - (z - rim.z) * rim.dx; // (along the rim's own +x)
+    return this.playPair('bb-poster', dunker, 'contact', lateral > 0, { lead: 0.12, blend: 0.25, blendB: 0.15, ballTill: 'slam' });
+  }
+
+  // The chase-down: the shooter ('you' or 'opp') caught from behind, pinned on the glass.
+  chaseDown(shooter) {
+    const [px, pz] = this.game.player.pos();
+    const p = this.game.player;
+    const opp = this.opp;
+    const S = shooter === 'you' ? { x: px, z: pz, heading: p.heading } : opp;
+    const C = shooter === 'you' ? opp : { x: px, z: pz };
+    const left = (C.x - S.x) * Math.cos(S.heading) - (C.z - S.z) * Math.sin(S.heading) >= 0;
+    return this.playPair('bb-chasedown', shooter, 'release', !left, { lead: 0.1, blend: 0.25, ballTill: 'pin', ballHold: 0.12 });
+  }
+
   // A block: the ball knocked out of the shooter's hands, away from the blocker's hand (from
   // bx, bz). A chase-down pins it on the glass and it drops off the board.
   swatted(x, z, text, shooter, bx = null, bz = null, pinned = false) {
@@ -3572,6 +3705,8 @@ export class Streetball {
       b.x = rim.x - rim.dx * 0.3 + rand(-0.3, 0.3) * rim.dz;
       b.z = rim.z - rim.dz * 0.3 - rand(-0.3, 0.3) * rim.dx;
       b.y = rim.y + 0.45;
+      // (a chase-down clip playing: it goes on up to the glass on the clip's track and comes off
+      // there, under his hand: sceneBall)
       b.vx = rim.dx * rand(1.2, 2.2);
       b.vz = rim.dz * rand(1.2, 2.2);
       b.vy = -0.5;
@@ -3720,6 +3855,7 @@ export class Streetball {
         hp.state = 'read';
         hp.t = 0;
         hp.jump = 0;
+        this.chaseDown('opp');
         this.swatted(opp.x, opp.z, 'CHASE-DOWN BLOCK! Pinned on the glass', 'opp', px, pz, true);
         for (const q of this.g.players) if (q.hp.role === 'watch') q.hp.cheerT = 1.4;
         game.shakeCamera?.(0.05, 0.25);
@@ -3807,7 +3943,9 @@ export class Streetball {
     this.oopStep(dt, this.oopHits?.shoot, this.oopHits?.block);
     this.oopHits = null;
     if (!this.active) return;
-    if (b.mode === 'flight') {
+    if (this.sceneBall()) {
+      // (the ball's on a paired clip's track: nothing else moves it)
+    } else if (b.mode === 'flight') {
       // (a pass goes to his hands, wherever he's moved to)
       if (b.kind === 'pass' && b.to && !b.to.removed) {
         b.p1[0] = b.to.x;
@@ -3896,8 +4034,8 @@ export class Streetball {
     }
     // His hands up: you going up for a shot with him in your face (the same as your hands up).
     hp.handsUp = !!this.shot && this.shot.type !== 'dunk' && hp.fallT <= 0 && !(hp.jumpT > 0) && dist(px, pz, opp.x, opp.z) < 2.0;
-    // Nobody walks through anybody: the two of you are pushed apart.
-    if (!this.check) {
+    // Nobody walks through anybody: the two of you are pushed apart (a paired clip has them).
+    if (!this.check && !this.scene) {
       const dx = opp.x - px;
       const dz = opp.z - pz;
       const d = Math.hypot(dx, dz);
@@ -4486,6 +4624,7 @@ export class Streetball {
   // ---- His game (hoops.js asks for his moves while the match is on) ----
   drive(p, dt) {
     if (this.t33) return this.drive33(p, dt);
+    if (p === this.opp && this.scene?.opp) return { speed: 0 }; // (his clip moves him)
     if (this.foul) return { speed: 0 }; // (the whistle: he holds where he is)
     if (this.reset && p === this.opp && !this.solo) return this.resetDrive(p, dt);
     const game = this.game;
@@ -5039,7 +5178,8 @@ export class Streetball {
       const b = this.g.ball;
       b.y = Math.max(b.y, this.rim.y + 0.15);
       this.launch(make, 'opp', pts, 0.14);
-      game.hud.toast(make ? `${p.ballName} throws it down` : `${p.ballName} rims out the dunk`, make ? '#ff8080' : '#7ee081');
+      const poster = make && lv >= 3 && !(Y.fallT > 0) && this.posterize('opp');
+      game.hud.toast(make ? (poster ? `${p.ballName} POSTERIZED YOU` : `${p.ballName} throws it down`) : `${p.ballName} rims out the dunk`, make ? '#ff8080' : '#7ee081');
       game.shakeCamera?.(make ? 0.07 : 0.04, 0.3);
     } else this.launch(make, 'opp', pts, 0, hp.shot);
   }
@@ -5088,6 +5228,15 @@ export class Streetball {
     // (his joints, height and facing eased the same way as yours)
     const c = p.char;
     const s = c.group.userData.sm || (c.group.userData.sm = {});
+    const r = this.playScene('opp');
+    if (r) {
+      // (a paired moment: his clip, as it is)
+      const yo = r.y - this.game.city.groundY(p.x, p.z);
+      s.t = this.clock;
+      s.yo = yo;
+      s.h = p.heading;
+      return yo;
+    }
     const dt = Math.min(0.1, Math.max(0.001, this.clock - (s.t ?? this.clock - 1 / 60)));
     s.t = this.clock;
     smoothJoints(c, dt);
@@ -5514,6 +5663,7 @@ export class Streetball {
       const [qx, qz] = this.game.player.pos();
       g.position.y = this.game.city.groundY(qx, qz) + 0.06 - lowestPoint(c); // (on the court's surface)
     }
+    if (this.playScene('you')) g.position.y = this.game.player.char.group.position.y; // (a paired moment: your clip, as it is)
     s.y = g.position.y;
     s.ry = g.rotation.y;
     this.dribbleHand('you'); // (your hand on the ball at the top of the bounce)
@@ -5713,6 +5863,11 @@ export class Streetball {
   end(how) {
     const game = this.game;
     this.tiredFx(1); // (colors back)
+    if (this.scene) {
+      // (a paired clip cut off by the end: both of you upright again)
+      for (const P of [game.player, this.opp]) P?.char?.group.rotation.set(0, P.heading, 0);
+      this.scene = null;
+    }
     const mm = document.getElementById('minimap');
     if (mm) mm.style.visibility = ''; // (the minimap back)
     this.scoreboard?.hide();
