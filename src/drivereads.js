@@ -3,6 +3,7 @@ import { dist, rand, pick, clamp, lerpAngle } from './util.js';
 import { setShirt } from './character.js';
 import { CTYPES } from './fieldmodes.js';
 import { CATCHES } from './footballpose.js';
+import { startPair, sideOf } from './pairedplay.js';
 import { HeatFx } from './heatfx.js';
 import { PERFECT } from './throwmeter.js';
 
@@ -679,8 +680,26 @@ export const DriveReads = {
       }
       if (dW < 1.2 && Math.random() < (D.perfect ? 0.35 : 0.15)) return this.drCaught(w, false, 'Contested catch!');
       if (db && dD < 2.5) {
-        // (broken up: he goes up and swats it, it pops away off his hand; your man's left reaching)
+        // (broken up. Into your man's hands: the paired breakup, the back's arm down through his
+        // hands knocking it out (src/paired/pbu.js); short of him: the back goes up and swats it,
+        // it pops away off his hand, your man's left reaching)
         db.fb.relT = 0;
+        const S = here && dW < 1.2 ? startPair('pbu', w, db, { at: 0, mirror: sideOf(w, db) < 0, now: game.time, maxTurn: 1.2 }) : null;
+        if (S) {
+          w.fb.act = db.fb.act = null;
+          w.fb.pclip = S.a;
+          db.fb.pclip = S.b;
+          fail(`Broken up. ${why}`);
+          // (in his hands till the swat, then knocked down and across, away from the back)
+          const side = sideOf(w, db);
+          const lx = Math.cos(w.heading);
+          const lz = -Math.sin(w.heading);
+          const fx = Math.sin(w.heading);
+          const fz = Math.cos(w.heading);
+          b.mode = 'stuck';
+          b.stuck = { p: w, at: game.time + S.pair.events.swat / S.pair.fps, v: [-side * lx * 2.4 + fx * 2.0 + rand(-0.4, 0.4), 2.4, -side * lz * 2.4 + fz * 2.0 + rand(-0.4, 0.4)] };
+          return;
+        }
         const t0 = game.time;
         const lx = Math.cos(db.heading);
         const lz = -Math.sin(db.heading);
@@ -845,7 +864,7 @@ export const DriveReads = {
     for (const q of [...fb.wrs.slice(0, 3), ...fb.dbs.slice(0, 3)]) {
       [q.x, q.z] = q.fb.home;
       q.heading = q.fb.role === 'db' ? 0 : Math.PI;
-      Object.assign(q.fb, { adjV: null, reachBack: 0, route: null, runTo: null, runVia: null, downT: 0, pickT: 0, dive: false, beatT: 0, relT: 0, throwT: 0, hurry: false, huddle: null });
+      Object.assign(q.fb, { pclip: null, adjV: null, reachBack: 0, route: null, runTo: null, runVia: null, downT: 0, pickT: 0, dive: false, beatT: 0, relT: 0, throwT: 0, hurry: false, huddle: null });
     }
     fb.phase = 'set';
     fb.t = 0;

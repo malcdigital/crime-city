@@ -13,6 +13,8 @@ const _p = new THREE.Vector3();
 const _l = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const _mn = new THREE.Vector3();
+const _mx = new THREE.Vector3();
 
 // (the boxes of a character: its meshes, with their world matrices and names)
 function boxes(c, skip) {
@@ -39,13 +41,18 @@ function samples(B) {
   return pts;
 }
 // (a point in a box: how deep, and which way out in the world)
-function inside(p, B, out) {
+function inside(p, B, out, margin = 0) {
   _inv.copy(B.m.matrixWorld).invert();
   _l.copy(p).applyMatrix4(_inv);
-  const { min, max } = B.bb;
-  if (_l.x <= min.x || _l.x >= max.x || _l.y <= min.y || _l.y >= max.y || _l.z <= min.z || _l.z >= max.z) return 0;
   const s = new THREE.Vector3();
   B.m.matrixWorld.decompose(_n, _q, s);
+  // (margin: the box grown by that much all round, in the world: near enough counts)
+  const mx = margin / (s.x || 1);
+  const my = margin / (s.y || 1);
+  const mz = margin / (s.z || 1);
+  const min = _mn.set(B.bb.min.x - mx, B.bb.min.y - my, B.bb.min.z - mz);
+  const max = _mx.set(B.bb.max.x + mx, B.bb.max.y + my, B.bb.max.z + mz);
+  if (_l.x <= min.x || _l.x >= max.x || _l.y <= min.y || _l.y >= max.y || _l.z <= min.z || _l.z >= max.z) return 0;
   const opts = [
     [(_l.x - min.x) * s.x, -1, 0, 0], [(max.x - _l.x) * s.x, 1, 0, 0],
     [(_l.y - min.y) * s.y, 0, -1, 0], [(max.y - _l.y) * s.y, 0, 1, 0],
@@ -57,7 +64,7 @@ function inside(p, B, out) {
   return best[0];
 }
 
-export function overlap(a, b, skipA = [], skipB = []) {
+export function overlap(a, b, skipA = [], skipB = [], margin = 0) {
   const A = boxes(a, skipA);
   const B = boxes(b, skipB);
   let depth = 0;
@@ -71,7 +78,7 @@ export function overlap(a, b, skipA = [], skipB = []) {
     for (const bp of P) {
       for (const p of samples(bp)) {
         for (const bq of Q) {
-          const d = inside(p, bq, dir);
+          const d = inside(p, bq, dir, margin);
           if (d <= 0) continue;
           sum.addScaledVector(dir, sign * d);
           n++;

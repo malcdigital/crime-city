@@ -28,7 +28,8 @@
   },
   "events": {
     "contact": 9,
-    "down": 26
+    "down": 26,
+    "touch": 13
   },
   "clips": {
     "runner": "tackle-front.runner.json",

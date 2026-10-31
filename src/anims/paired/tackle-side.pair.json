@@ -1,0 +1,48 @@
+{
+  "name": "tackle-side",
+  "fps": 30,
+  "frames": 49,
+  "length": 1.6,
+  "actors": [
+    "runner",
+    "tackler"
+  ],
+  "anchor": "runner",
+  "align": {
+    "runner": {
+      "pos": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    "tackler": {
+      "pos": [
+        3.4828,
+        0,
+        1.6543
+      ],
+      "yaw": -1.5708
+    }
+  },
+  "events": {
+    "contact": 9,
+    "down": 26,
+    "touch": 10
+  },
+  "clips": {
+    "runner": "tackle-side.runner.json",
+    "tackler": "tackle-side.tackler.json"
+  },
+  "contact": {
+    "worstCm": 1.4231,
+    "atFrame": 9,
+    "tolCm": 1.5,
+    "framesOver": 0,
+    "underTurfCm": {
+      "runner": 0,
+      "tackler": 1.1116
+    }
+  }
+}

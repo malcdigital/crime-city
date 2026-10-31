@@ -1,4 +1,4 @@
-<title>Paired Tackle Preview</title>
+<title>Paired Football Animations</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -33,6 +33,8 @@
   .hud b { font-family: var(--display); font-size: 22px; letter-spacing: 0.04em; }
   .hud .ev { color: var(--mark); min-height: 1em; }
   .views { position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .picker { display: flex; gap: 8px; flex-wrap: wrap; }
+  .picker button { font-family: var(--display); font-size: 17px; letter-spacing: 0.04em; text-transform: uppercase; padding: 8px 14px; }
   .deck { display: grid; grid-template-columns: auto auto 1fr auto; gap: 10px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
   button, .chip { font: 600 13px var(--body); color: var(--fg); background: #222c28; border: 1px solid var(--line); border-radius: 7px; padding: 7px 11px; cursor: pointer; }
   button:hover { border-color: var(--muted); }
@@ -75,15 +77,16 @@
 <div class="wrap">
   <header>
     <div>
-      <h1>Head-on tackle · <span>paired</span></h1>
+      <h1 id="title">Head-on tackle · <span>paired</span></h1>
       <p class="sub">Authored as one scene, exported as two clips. Each player below is driven only by his own clip, started from the shared alignment point. Checked for clipping on export.</p>
     </div>
   </header>
+  <div class="picker" id="picker" role="group" aria-label="Animation"></div>
   <div class="stage" id="stage">
     <canvas id="cv" aria-label="The two players playing their clips"></canvas>
     <div class="hud"><b id="fr">FRAME 0 / 48</b><span id="tm">0.00 s</span><span class="ev" id="ev"></span></div>
     <div class="views" role="group" aria-label="Camera">
-      <button id="v-side" class="on">Side</button><button id="v-end">Behind runner</button><button id="v-top">Top</button><button id="v-close">Close</button>
+      <button id="v-side" class="on">Side</button><button id="v-end">Behind</button><button id="v-top">Top</button><button id="v-close">Close</button>
     </div>
   </div>
   <div class="deck">
@@ -93,11 +96,12 @@
     <div class="speed" role="group" aria-label="Speed"><button id="s1" class="on">1×</button><button id="s2">½×</button><button id="s4">¼×</button></div>
   </div>
   <div class="toggles">
-    <label><input type="checkbox" id="t-runner" checked> <span class="dot" style="background: var(--runner)"></span> Runner clip</label>
-    <label><input type="checkbox" id="t-tackler" checked> <span class="dot" style="background: var(--tackler)"></span> Tackler clip</label>
+    <label><input type="checkbox" id="t-runner" checked> <span class="dot" style="background: var(--runner)"></span> <span id="lab-a">Runner clip</span></label>
+    <label><input type="checkbox" id="t-tackler" checked> <span class="dot" style="background: var(--tackler)"></span> <span id="lab-b">Tackler clip</span></label>
+    <label id="mirror-wrap" hidden><input type="checkbox" id="t-mirror"> From his right (mirrored)</label>
     <label><input type="checkbox" id="t-align" checked> <span class="dot" style="background: var(--mark)"></span> Alignment point</label>
   </div>
   <div class="cards" id="cards"></div>
-  <p class="note">Nothing here is in the game yet. Drag the view to turn it. Space plays and pauses; the arrow keys step a frame.</p>
+  <p class="note">These play in the game when a tackle or a breakup happens. Drag the view to turn it. Space plays and pauses; the arrow keys step a frame.</p>
 </div>
 <script type="module" src="./preview.js"></script>

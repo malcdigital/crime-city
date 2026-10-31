@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { animateWalk, bendSpine, bendLeg, reachArm } from '../character.js';
 import { fbPose, tackledPose, tacklerPose } from '../footballpose.js';
+import { curve, ease, clamp01, put, mix, jointsOf } from './kit.js';
 
 // A head-on tackle, authored as one scene (src/paired.js): the runner coming up the field (+z)
 // with the ball tucked, the tackler coming the other way low. At contact (0.30 s) the tackler's
@@ -14,26 +15,6 @@ import { fbPose, tackledPose, tacklerPose } from '../footballpose.js';
 const TC = 0.3; // (contact)
 const TD = 0.88; // (down)
 
-// A smooth curve through keyed values: [time, value] pairs (Catmull-Rom between them, held at
-// the ends), so the bodies carry their speed through the keys instead of stopping at each.
-function curve(keys) {
-  return (t) => {
-    if (t <= keys[0][0]) return keys[0][1];
-    const n = keys.length - 1;
-    if (t >= keys[n][0]) return keys[n][1];
-    let i = 0;
-    while (t > keys[i + 1][0]) i++;
-    const [t1, p1] = keys[i];
-    const [t2, p2] = keys[i + 1];
-    const p0 = i > 0 ? keys[i - 1][1] : p1 - (p2 - p1);
-    const p3 = i + 2 <= n ? keys[i + 2][1] : p2 + (p2 - p1);
-    const u = (t - t1) / (t2 - t1);
-    return 0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u * u + (-p0 + 3 * p1 - 3 * p2 + p3) * u * u * u);
-  };
-}
-const ease = (k) => k * k * (3 - 2 * k);
-const clamp01 = (k) => Math.max(0, Math.min(1, k));
-
 // The roots: where each man's feet are and how he's tipped, through the tackle.
 const R = {
   z: curve([[0, -1.8], [TC, 0], [0.42, 0.22], [0.6, 0.12], [0.8, -0.25], [TD, -0.35], [1.6, -0.38]]),
@@ -45,23 +26,6 @@ const T = {
   y: curve([[0, 0], [TC, 0], [0.6, 0.05], [0.8, 0.2], [TD, 0.26], [0.96, 0.22], [1.6, 0.22]]),
   pitch: curve([[0, 0], [TC, 0.1], [0.42, 0.25], [0.6, 0.75], [0.8, 1.25], [TD, 1.33], [1.6, 1.33]]),
 };
-
-// (a pose's joint rotations, to blend from one pose into another)
-const J = ['spine', 'chest', 'neck', 'legL', 'legR', 'kneeL', 'kneeR', 'armL', 'armR', 'elbowL', 'elbowR', 'wristL', 'wristR'];
-const snap = (c) => J.map((j) => c[j].quaternion.clone());
-const put = (c, S) => J.forEach((j, i) => c[j].quaternion.copy(S[i]));
-const mix = (c, A, B, w) => J.forEach((j, i) => c[j].quaternion.copy(A[i]).slerp(B[i], w));
-const zero = (c) => J.forEach((j) => c[j].rotation.set(0, 0, 0));
-// (a pose function that also sets the root: run it with the root kept)
-function jointsOf(c, fn) {
-  const p = c.group.position.clone();
-  const r = c.group.rotation.clone();
-  zero(c);
-  fn();
-  c.group.position.copy(p);
-  c.group.rotation.copy(r);
-  return snap(c);
-}
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -81,6 +45,7 @@ export default {
     a.group.rotation.order = 'YXZ';
     a.group.position.set(0, R.y(t), R.z(t));
     a.group.rotation.set(R.pitch(t), 0, 0);
+    if (adjust.runner) a.group.position.add(adjust.runner);
     const run = jointsOf(a, () => {
       animateWalk(a, t * 13 + 0.6, 1);
       fbPose(a, { lower: ['run'], upper: ['tuck', 6] });

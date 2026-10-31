@@ -4,9 +4,22 @@ import * as THREE from 'three';
 import { makeCharacter } from '../../src/character.js';
 import { applyClip, alignedOrigin } from '../../src/paired.js';
 import { fbBallAt, fbBallQuat } from '../../src/footballpose.js';
-import pair from '../../src/anims/paired/tackle-front.pair.json';
-import runnerClip from '../../src/anims/paired/tackle-front.runner.json';
-import tacklerClip from '../../src/anims/paired/tackle-front.tackler.json';
+// (every exported pair: its pair file and a clip per actor)
+const FILES = import.meta.glob('../../src/anims/paired/*.json', { eager: true, import: 'default' });
+const PAIRS = {};
+for (const [path, data] of Object.entries(FILES)) {
+  const [, name, part] = path.match(/([\w-]+)\.(\w+)\.json$/);
+  PAIRS[name] ||= { clips: {} };
+  if (part === 'pair') PAIRS[name].pair = data;
+  else PAIRS[name].clips[part] = data;
+}
+const ORDER = ['tackle-front', 'tackle-behind', 'tackle-side', 'pbu'].filter((n) => PAIRS[n]);
+const TITLES = { 'tackle-front': ['Head-on tackle', 'Tackled head on'], 'tackle-behind': ['Tackle from behind', 'Chased down'], 'tackle-side': ['Tackle from the side', 'Hit from the side'], pbu: ['Pass breakup', 'Knocked from his hands'] };
+let cur = ORDER[0];
+let mirror = false;
+let pair = PAIRS[cur].pair;
+let anchorClip = PAIRS[cur].clips[pair.actors[0]];
+let partnerClip = PAIRS[cur].clips[pair.actors[1]];
 
 const $ = (id) => document.getElementById(id);
 const cv = $('cv');
@@ -62,15 +75,17 @@ ball.scale.set(1, 1, 1.6);
 ball.castShadow = true;
 scene.add(ball);
 
-// Where each clip starts: the runner anywhere (here, the origin facing up the field); the
-// tackler from the pair's alignment.
+// Where each clip starts: the anchor anywhere (here, the origin facing up the field); the
+// partner from the pair's alignment.
 const runnerAt = { x: 0, y: 0, z: 0, yaw: 0 };
-const tacklerAt = alignedOrigin(pair, 'tackler', runnerAt);
+let tacklerAt = alignedOrigin(pair, pair.actors[1], runnerAt);
 
 // (the alignment: a ring at each start, an arrow for the facing, a line between)
 const alignG = new THREE.Group();
 scene.add(alignG);
 const markCol = 0xffd23f;
+function buildAlign() {
+  alignG.clear();
 for (const [o, col] of [[runnerAt, 0x4cc46f], [tacklerAt, 0x6f95ff]]) {
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.5, 40), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.9, depthWrite: false }));
   ring.rotation.x = -Math.PI / 2;
@@ -90,31 +105,45 @@ for (const [o, col] of [[runnerAt, 0x4cc46f], [tacklerAt, 0x6f95ff]]) {
   line.computeLineDistances();
   alignG.add(line);
 }
+}
+buildAlign();
 
 // ---- Playback ----
-const N = pair.frames - 1;
+let N = pair.frames - 1;
 let t = 0;
 let playing = true;
 let speed = 1;
 let hold = 0; // (a beat on the last frame before it loops)
-const evAt = Object.fromEntries(Object.entries(pair.events).map(([k, f]) => [f, k]));
+const flyV = new THREE.Vector3();
+const flyP = new THREE.Vector3();
 function pose() {
-  const fr = applyClip(runner, runnerClip, t, runnerAt);
-  applyClip(tackler, tacklerClip, t, tacklerAt);
+  const fr = applyClip(runner, anchorClip, t, runnerAt, mirror);
+  applyClip(tackler, partnerClip, t, tacklerAt, mirror);
   runner.group.visible = $('t-runner').checked;
   tackler.group.visible = $('t-tackler').checked;
   alignG.visible = $('t-align').checked;
-  // (the ball under the runner's arm, where his clip puts it)
-  runner.group.userData.fbGrip = runnerClip.events.props?.ball || 'tuck';
+  // (the ball: under his arm, or in his hands till it's knocked out, then flying off the way
+  // the arm went)
+  const props = anchorClip.events.props || {};
+  const until = props.until ? pair.events[props.until] / pair.fps : null;
   ball.visible = runner.group.visible;
-  if (fbBallAt(runner, ball.position)) fbBallQuat(runner, ball.quaternion);
+  if (until != null && t > until) {
+    const s = t - until;
+    ball.position.copy(flyP).addScaledVector(flyV, s);
+    ball.position.y = Math.max(0.12, flyP.y + flyV.y * s - 4.9 * s * s);
+    ball.rotation.x += 0.4;
+  } else {
+    runner.group.userData.fbGrip = props.ball === 'tuck' && mirror ? 'tuckL' : props.ball || 'tuck';
+    if (fbBallAt(runner, ball.position)) fbBallQuat(runner, ball.quaternion);
+    flyP.copy(ball.position);
+    flyV.set((mirror ? -1 : 1) * -2.2, 2.6, 2.0); // (knocked down and across, out in front)
+  }
   const f = Math.round(fr);
   $('fr').textContent = `FRAME ${f} / ${N}`;
   $('tm').textContent = `${t.toFixed(2)} s · ${pair.fps} fps`;
   const near = Object.entries(pair.events).find(([, ef]) => Math.abs(ef - fr) < 1.5);
   $('ev').textContent = near ? `● ${near[0].toUpperCase()} · frame ${near[1]}` : '';
   $('scrub').value = String(fr);
-  void evAt;
 }
 
 // ---- Camera ----
@@ -200,28 +229,66 @@ window.addEventListener('keydown', (e) => {
   } else if (e.code === 'ArrowLeft') step(-1);
   else if (e.code === 'ArrowRight') step(1);
 });
-$('scrub').max = String(N);
-// (the scrub bar's ticks: every 5 frames, the events marked)
-{
+// ---- The picker, the scrub bar's ticks, what was exported ----
+function ticks() {
+  $('scrub').max = String(N);
   const T = $('ticks');
   let h = '';
   for (let f = 0; f <= N; f += 5) h += `<i style="left:${(f / N) * 100}%"></i>`;
-  for (const [k, f] of Object.entries(pair.events)) h += `<em style="left:${(f / N) * 100}%">${k.toUpperCase()} ${f}</em>`;
+  for (const [k, f] of Object.entries(pair.events)) if (k !== 'touch') h += `<em style="left:${(f / N) * 100}%">${k.toUpperCase()} ${f}</em>`;
   T.innerHTML = h;
 }
-
-// ---- What was exported ----
-{
+function cards() {
+  const [A0, A1] = pair.actors;
+  const cap = (w) => w[0].toUpperCase() + w.slice(1);
   const deg = (r) => `${Math.round((r * 180) / Math.PI)}°`;
-  const A = pair.align.tackler;
+  const A = pair.align[A1];
+  const x = mirror ? -A.pos[0] : A.pos[0];
+  const yaw = mirror ? -A.yaw : A.yaw;
+  const facing = Math.abs(Math.abs(yaw) - Math.PI) < 0.05 ? `${deg(Math.abs(yaw))} (toward him)` : Math.abs(yaw) < 0.05 ? '0° (the same way)' : `${deg(yaw)} (across him)`;
   const card = (title, col, rows, note) => `<div class="card"><h2><span class="dot" style="width:10px;height:10px;border-radius:50%;background:${col};display:inline-block"></span>${title}</h2><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>${note ? `<p>${note}</p>` : ''}</div>`;
   const clipRows = (C, file) => [['File', file], ['Frames', `${C.frames} (0–${C.frames - 1})`], ['Rate', `${C.fps} fps · ${C.length.toFixed(2)} s`], ['Tracks', `root + ${C.joints.length} joints`]];
+  const evRows = Object.entries(pair.events).map(([k, f]) => [k === 'touch' ? 'First touch' : cap(k), `frame ${f}`]);
+  const ahead = A.pos[2];
   $('cards').innerHTML =
-    card('Runner clip', 'var(--runner)', clipRows(runnerClip, pair.clips.runner), 'The anchor: starts wherever the runner is. Root motion is stored relative to his own first frame.') +
-    card('Tackler clip', 'var(--tackler)', clipRows(tacklerClip, pair.clips.tackler), 'Same length and frame timing as the runner’s. Its root motion is relative to its own first frame too.') +
-    card('Alignment point', 'var(--mark)', [['Ahead of runner', `${A.pos[2].toFixed(2)} m`], ['To his left', `${A.pos[0].toFixed(2)} m`], ['Height', `${A.pos[1].toFixed(2)} m`], ['Facing', `${deg(A.yaw)} (toward him)`], ['Contact', `frame ${pair.events.contact}`], ['Both down', `frame ${pair.events.down}`]], `Stored in ${pair.name}.pair.json: where the tackler’s root starts, relative to the runner’s, at frame 0.`) +
-    (pair.contact ? card('Contact check', 'var(--runner)', [['Deepest overlap', `${pair.contact.worstCm.toFixed(1)} cm (frame ${pair.contact.atFrame})`], ['Frames over', `${pair.contact.framesOver} (tolerance ${pair.contact.tolCm} cm)`], ['Under the turf', Object.entries(pair.contact.underTurfCm).map(([k, v]) => `${k} ${v.toFixed(1)} cm`).join(' · ')]], 'Checked on export: every box of one body against every box of the other, each frame. The tackler is pushed clear of the runner before his hands are placed, so they still land on him.') : '');
+    card(`${cap(A0)} clip`, 'var(--runner)', clipRows(anchorClip, pair.clips[A0]), `The anchor: starts wherever the ${A0} is. Root motion is stored relative to his own first frame.`) +
+    card(`${cap(A1)} clip`, 'var(--tackler)', clipRows(partnerClip, pair.clips[A1]), `Same length and frame timing as the ${A0}’s. Its root motion is relative to its own first frame too.`) +
+    card('Alignment point', 'var(--mark)', [[ahead >= 0 ? `Ahead of ${A0}` : `Behind ${A0}`, `${Math.abs(ahead).toFixed(2)} m`], [x >= 0 ? 'To his left' : 'To his right', `${Math.abs(x).toFixed(2)} m`], ['Facing', facing], ...evRows], `Stored in ${pair.name}.pair.json: where the ${A1}’s root starts, relative to the ${A0}’s, at frame 0.${mirror ? ' Shown mirrored: the same clips played left for right.' : ''}`) +
+    (pair.contact ? card('Contact check', 'var(--runner)', [['Deepest overlap', `${pair.contact.worstCm.toFixed(1)} cm (frame ${pair.contact.atFrame})`], ['Frames over', `${pair.contact.framesOver} (tolerance ${pair.contact.tolCm} cm)`], ['Under the turf', Object.entries(pair.contact.underTurfCm).map(([k, v]) => `${k} ${v.toFixed(1)} cm`).join(' · ')]], `Checked on export: every box of one body against every box of the other, each frame, and both against the turf. The ${A1} is pushed clear before his hands are placed, so they still land where they should.`) : '');
 }
+function choose(name) {
+  cur = name;
+  pair = PAIRS[name].pair;
+  anchorClip = PAIRS[name].clips[pair.actors[0]];
+  partnerClip = PAIRS[name].clips[pair.actors[1]];
+  if (name !== 'tackle-side') mirror = false;
+  $('mirror-wrap').hidden = name !== 'tackle-side';
+  $('t-mirror').checked = mirror;
+  tacklerAt = alignedOrigin(pair, pair.actors[1], runnerAt, mirror);
+  buildAlign();
+  N = pair.frames - 1;
+  t = 0;
+  hold = 0;
+  setPlaying(true);
+  const [title, sub] = TITLES[name] || [name, ''];
+  $('title').innerHTML = `${title} · <span>paired</span>`;
+  document.title = `${title} · Paired`;
+  void sub;
+  $('lab-a').textContent = `${pair.actors[0][0].toUpperCase()}${pair.actors[0].slice(1)} clip`;
+  $('lab-b').textContent = `${pair.actors[1][0].toUpperCase()}${pair.actors[1].slice(1)} clip`;
+  for (const n of ORDER) $(`p-${n}`).classList.toggle('on', n === name);
+  ticks();
+  cards();
+}
+$('picker').innerHTML = ORDER.map((n) => `<button id="p-${n}">${TITLES[n]?.[0] || n}</button>`).join('');
+for (const n of ORDER) $(`p-${n}`).addEventListener('click', () => choose(n));
+$('t-mirror').addEventListener('change', (e) => {
+  mirror = e.target.checked;
+  tacklerAt = alignedOrigin(pair, pair.actors[1], runnerAt, mirror);
+  buildAlign();
+  cards();
+});
+choose(cur);
 
 // ---- Loop ----
 function resize() {
@@ -252,5 +319,5 @@ function frame(now) {
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
-window.__preview = { setT: (v) => { setPlaying(false); t = v; }, pair };
+window.__preview = { setT: (v) => { setPlaying(false); t = v; }, choose, mirror: (v) => { $('t-mirror').checked = v; $('t-mirror').dispatchEvent(new Event('change')); } };
 requestAnimationFrame(frame);

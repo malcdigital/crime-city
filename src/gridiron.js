@@ -5,6 +5,7 @@ import { QBChallenge, QBC_KEY } from './qbchallenge.js';
 import { DriveReads, DPLAYS, SACK_READ, DRIVE_KEY } from './drivereads.js';
 import { CFG } from './config.js';
 import { fbPose, POCKET_CLOSE, POCKET_STICK, PocketFeet, fbBallAt, fbBallQuat } from './footballpose.js';
+import { playClip, tackleReach } from './pairedplay.js';
 
 const ease = (k) => k * k * (3 - 2 * k);
 
@@ -428,11 +429,12 @@ export class Gridiron {
         // Scrambling past the line.
         if (pz < this.los) this.scramble = true;
         if (pz <= this.goal) return this.touchdown('you');
-        const tackler = this.defenders().find((q) => !(q.fb.downT > 0) && !(q.fb.beatT > 0) && dist(q.x, q.z, px, pz) < 0.9);
+        // (in reach: as close as the tackle that'd come from where he is meets you: pairedplay.js)
+        const tackler = this.defenders().find((q) => !(q.fb.downT > 0) && !(q.fb.beatT > 0) && dist(q.x, q.z, px, pz) < Math.max(0.9, tackleReach(px, pz, game.player.heading, q.x, q.z) - 0.05));
         if (this.scramble && tackler && !(this.runMove?.kind === 'spin' && Math.random() < 0.5)) {
           this.drRes = { kind: 'run' };
-          fb.tackle(null, tackler);
-          this.downT = 1.1; // (you hit the turf too)
+          const fall = fb.tackle(null, tackler);
+          this.downT = fall?.downT || 1.1; // (you hit the turf too: the paired tackle's length)
           return this.over(pz);
         }
         if (!this.scramble && !this.dr.acc && this.t > SACK_READ) {
@@ -450,7 +452,7 @@ export class Gridiron {
       const h = b.holder;
       if (!h || h === 'you') return this.over(this.los);
       if (h.z <= this.goal) return this.touchdown(h);
-      const tackler = this.defenders().find((q) => !(q.fb.downT > 0) && !(q.fb.beatT > 0) && dist(q.x, q.z, h.x, h.z) < 1.0);
+      const tackler = this.defenders().find((q) => !(q.fb.downT > 0) && !(q.fb.beatT > 0) && dist(q.x, q.z, h.x, h.z) < Math.max(1.0, tackleReach(h.x, h.z, h.heading, q.x, q.z) - 0.05));
       const F = fb.site.field;
       if (h.x < F.x0 || h.x > F.x1) {
         this.drRes = { kind: 'complete', why: `Out of bounds at the ${this.yardLine(h.z)} · ${this.drTold()}` };
@@ -591,6 +593,19 @@ export class Gridiron {
     const moving = sp > 1.5; // (on the move the legs keep running under a throw)
     const throwL = (cock, release) => ({ lower: moving ? ['run'] : ['step', release > 0 ? 1 : ease(Math.min(1, cock))], upper: ['throw', cock, release] });
     let L = null;
+    if (this.downT > 0 && this.youClip) {
+      // (a paired tackle: your own clip from the pair, getting back up at the end)
+      const rise = this.downT < 0.4 ? 1 - this.downT / 0.4 : 0;
+      const r = playClip(c, this.youClip, game.time, rise);
+      p.x = r.x;
+      p.z = r.z;
+      p.heading = r.heading;
+      c.group.position.y += p.gy?.() || 0;
+      c.group.userData.fbGrip = b.holder === 'you' ? (this.youClip.mirror ? 'tuckL' : 'tuck') : null;
+      this.placeBall(c, b);
+      return;
+    }
+    this.youClip = null;
     if (this.downT > 0) {
       const t = 1.1 - this.downT;
       const k = t < 0.25 ? t / 0.25 : this.downT < 0.35 ? this.downT / 0.35 : 1;

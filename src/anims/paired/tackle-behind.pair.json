@@ -1,0 +1,48 @@
+{
+  "name": "tackle-behind",
+  "fps": 30,
+  "frames": 49,
+  "length": 1.6,
+  "actors": [
+    "runner",
+    "tackler"
+  ],
+  "anchor": "runner",
+  "align": {
+    "runner": {
+      "pos": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    "tackler": {
+      "pos": [
+        -0.0925,
+        0,
+        -2.0885
+      ],
+      "yaw": 0
+    }
+  },
+  "events": {
+    "contact": 10,
+    "down": 26,
+    "touch": 10
+  },
+  "clips": {
+    "runner": "tackle-behind.runner.json",
+    "tackler": "tackle-behind.tackler.json"
+  },
+  "contact": {
+    "worstCm": 2.4008,
+    "atFrame": 18,
+    "tolCm": 1.5,
+    "framesOver": 0,
+    "underTurfCm": {
+      "runner": 0.2322,
+      "tackler": 1.481
+    }
+  }
+}

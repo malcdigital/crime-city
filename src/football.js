@@ -1,8 +1,11 @@
 import * as THREE from 'three';
 import { lam, setShirt, bendLeg, bendSpine } from './character.js';
+import { startPair, playClip, tackleKind } from './pairedplay.js';
 import { fbPose, CATCHES, POCKET_CLOSE, PocketFeet, fbBallAt, fbBallQuat, PICK_T } from './footballpose.js';
 import { rand, dist, lerpAngle, pick } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
+
+const RISE_T = 0.4; // (getting up after a paired tackle)
 
 // Football practice at Harbor Field (field.js): a passing drill, and a few people watching
 // from the bleachers.
@@ -203,13 +206,26 @@ export class Football {
       b.x = Math.max(F.x0 - 2, Math.min(F.x1 + 2, b.x));
       b.z = Math.max(F.z0 - 2, Math.min(F.z1 + 2, b.z));
       b.mesh.rotation.x += dt * 6 * Math.hypot(b.vx, b.vz);
+    } else if (b.mode === 'stuck') {
+      // (in his hands a moment, till the swat knocks it out: drivereads.js, a pass breakup)
+      const S = b.stuck;
+      if (S?.p?.char && fbBallAt(S.p.char, _fv)) {
+        b.x = _fv.x;
+        b.y = _fv.y;
+        b.z = _fv.z;
+      }
+      if (!S || this.game.time >= S.at) {
+        b.mode = 'loose';
+        [b.vx, b.vy, b.vz] = S ? S.v : [0, 0, 0];
+        b.stuck = null;
+      }
     } else if (b.holder === 'you') {
       if (this.match) this.match.carry(b);
     } else if (b.holder) {
       const p = b.holder;
       const fx = Math.sin(p.heading);
       const fz = Math.cos(p.heading);
-      if (p.fb.downT > 0 && (p.fb.fall || p.fb.dive)) {
+      if (p.fb.downT > 0 && (p.fb.fall || p.fb.dive) && !p.fb.pclip) {
         // (down with it: on the grass at his chest, wherever he's lying)
         p.char.group.updateMatrixWorld(true);
         p.char.chest.getWorldPosition(_fv);
@@ -372,18 +388,33 @@ export class Football {
     const [rx, rz, rh] = R ? [R.x, R.z, R.heading] : runner === null || runner === 'you' ? [...P.pos(), P.heading] : [0, 0, 0];
     let from = 'behind';
     let side = 1;
+    let kind = null;
     if (tackler) {
-      const dx = tackler.x - rx;
-      const dz = tackler.z - rz;
-      const L = Math.hypot(dx, dz) || 1;
-      const ahead = (dx * Math.sin(rh) + dz * Math.cos(rh)) / L; // (+: the tackler's in front of him)
-      const left = (dx * Math.cos(rh) - dz * Math.sin(rh)) / L; // (+: on his left)
-      from = ahead > 0.45 ? 'front' : ahead < -0.45 ? 'behind' : 'side';
-      side = left >= 0 ? 1 : -1;
+      kind = tackleKind(rx, rz, rh, tackler.x, tackler.z); // (in front, behind or at his side: pairedplay.js)
+      ({ from, side } = kind);
       tackler.heading = Math.atan2(rx - tackler.x, rz - tackler.z);
       Object.assign(tackler.fb, { dive: true, diveTo: [rx + Math.sin(tackler.heading) * 0.6, rz + Math.cos(tackler.heading) * 0.6], downT: 1.3, downLen: 1.3, fall: { kind: 'tackler' } });
     }
     const fall = { kind: 'tackled', from, side };
+    // (the paired tackle for where he came from (src/pairedplay.js): both of them on their own
+    // clips from the moment they meet; from his right, the side one mirrored)
+    const you = !R && (runner === null || runner === 'you');
+    const who = R || (you ? { x: rx, z: rz, heading: rh, char: P.char } : null);
+    const S = tackler && who ? startPair(kind.name, who, tackler, { at: 'touch', mirror: kind.mirror, now: this.game.time }) : null;
+    if (S) {
+      const down = S.a.length - S.a.start + RISE_T;
+      S.a.down = S.b.down = true;
+      fall.downT = down;
+      Object.assign(tackler.fb, { dive: false, diveTo: null, downT: down, downLen: down, pclip: S.b });
+      if (R?.fb) Object.assign(R.fb, { dive: false, downT: down, downLen: down, fall, pclip: S.a });
+      else if (this.game.gridiron) Object.assign(this.game.gridiron, { youFall: fall, youClip: S.a });
+      const M2 = this.match;
+      if (M2?.mode === 'drive') {
+        this.game.shakeCamera?.(0.05, 0.22);
+        M2.tackleDust?.(rx, rz);
+      }
+      return fall;
+    }
     // (the hit: a puff of turf and a jolt)
     const M = this.match;
     if (M?.mode === 'drive') {
@@ -495,6 +526,7 @@ export class Football {
       }
       return { speed: 0 };
     }
+    if (f.pclip) return { speed: 0 }; // (on a paired clip: it moves him)
     if (f.dance) return { speed: 0 }; // (the drive's over: celebrating where he is: drivecine.js)
     if (f.role === 'fan') {
       // Watching the ball.
@@ -818,6 +850,21 @@ export class Football {
     c.group.rotation.x = c.group.rotation.z = 0;
     c.armL.rotation.z = c.armR.rotation.z = 0;
     c.group.userData.fbGrip = null;
+    if (f.pclip) {
+      // (a paired animation: his own clip from the pair, wherever it takes him; getting back
+      // up at the end of a tackle: src/pairedplay.js)
+      const now = this.game.time;
+      const rise = f.pclip.down && f.downT > 0 && f.downT < RISE_T ? 1 - f.downT / RISE_T : 0;
+      const r = playClip(c, f.pclip, now, rise);
+      p.x = r.x;
+      p.z = r.z;
+      p.heading = r.heading;
+      const b = this.ball;
+      if (b.holder === p) c.group.userData.fbGrip = f.pclip.mirror ? 'tuckL' : 'tuck';
+      else if (b.mode === 'stuck' && b.stuck?.p === p) c.group.userData.fbGrip = 'hands';
+      if (f.pclip.down ? !(f.downT > 0) : r.done) f.pclip = null;
+      else return r.y;
+    }
     const act = f.act && this.game.time - f.act.t0 < f.act.T ? f.act : null;
     if (!act && f.act) f.act = null;
     if (!act && !f.dance && !(f.pickT > 0)) {

@@ -606,10 +606,10 @@ export function fbBallAt(c, out) {
   if (!g) return null;
   c.group.updateMatrixWorld(true);
   if (g === 'throw') return c.wristR.localToWorld(out.set(0, -0.12, 0.04));
-  if (g === 'tuck') {
-    // (cradled along the forearm, just inside it, between it and the ribs)
-    c.elbowR.getWorldPosition(_e1);
-    c.wristR.getWorldPosition(_e2);
+  if (g === 'tuck' || g === 'tuckL') {
+    // (cradled along the forearm, just inside it, between it and the ribs; tuckL: the left arm)
+    (g === 'tuckL' ? c.elbowL : c.elbowR).getWorldPosition(_e1);
+    (g === 'tuckL' ? c.wristL : c.wristR).getWorldPosition(_e2);
     // (resting on top of the forearm, the front of it in the hand, against the front of the ribs)
     const sc = c.group.scale.y || 1;
     out.lerpVectors(_e1, _e2, 0.62);
@@ -621,9 +621,10 @@ export function fbBallAt(c, out) {
 // The ball's lie for the grip: tucked, along the forearm (its long axis is z); otherwise null
 // (the caller keeps it square to the carrier).
 export function fbBallQuat(c, q) {
-  if (c.group.userData.fbGrip !== 'tuck') return null;
-  c.elbowR.getWorldPosition(_e1);
-  c.wristR.getWorldPosition(_e2);
+  const g = c.group.userData.fbGrip;
+  if (g !== 'tuck' && g !== 'tuckL') return null;
+  (g === 'tuckL' ? c.elbowL : c.elbowR).getWorldPosition(_e1);
+  (g === 'tuckL' ? c.wristL : c.wristR).getWorldPosition(_e2);
   return q.setFromUnitVectors(_e5.set(0, 0, 1), _e2.sub(_e1).normalize());
 }
 const _e1 = new THREE.Vector3();
