@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { reachArm } from '../character.js';
+import { palmBall } from '../passpose.js';
 
 // What the paired scenes (src/paired/*.js) are written with: keyed curves for the roots, and
 // whole poses snapshotted and blended into each other.
@@ -53,4 +55,19 @@ export function pointOn(node, x, y, z, frameOf, out = new THREE.Vector3()) {
   node.localToWorld(_v.set(x, y, z));
   frameOf.group.updateMatrixWorld(true);
   return out.copy(frameOf.group.worldToLocal(_v));
+}
+// (a palm on a point in the world: the arm reached so a ball held on that palm would be right
+// there (the ball through the rim, a hand flat on a ball); aimed, measured, corrected)
+const _w = new THREE.Vector3();
+const _pq = new THREE.Quaternion();
+export function reachPalm(c, side, world, pole) {
+  c.group.updateMatrixWorld(true);
+  const tgt = c.group.worldToLocal(world.clone());
+  for (let i = 0; i < 3; i++) {
+    reachArm(c, side, tgt, pole, null, null, 'group');
+    const p = palmBall(c, side, _w);
+    c.group.getWorldQuaternion(_pq).invert();
+    tgt.add(p.subVectors(world, p).applyQuaternion(_pq));
+  }
+  reachArm(c, side, tgt, pole, null, null, 'group');
 }

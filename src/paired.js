@@ -134,12 +134,14 @@ export function bakePaired(def, chars) {
     }
   }
   const clips = {};
+  const balls = []; // (the ball, if the scene has one: world, per frame)
   const start = {};
   for (const a of def.actors) clips[a] = { name: def.name, actor: a, fps, frames, length: def.length, joints: JOINTS, root: [], tracks: Object.fromEntries(JOINTS.map((j) => [j, []])), events: { ...(def.events || {}), ...(def.props?.[a] ? { props: def.props[a] } : {}) } };
   for (let f = 0; f < frames; f++) {
     const t = Math.min(def.length, f / fps);
     reset();
-    def.pose(t, chars, at(f));
+    const got = def.pose(t, chars, at(f)) || {};
+    if (got.ball) balls.push(got.ball.clone());
     for (const a of def.actors) {
       const c = chars[a];
       const C = clips[a];
@@ -188,7 +190,19 @@ export function bakePaired(def, chars) {
       if (overlap(chars[C.against], chars[C.move], [...(C.skip?.[C.against] || []), 'wristL', 'wristR', 'elbowL', 'elbowR'], [...(C.skip?.[C.move] || []), 'wristL', 'wristR', 'elbowL', 'elbowR'], 0.04).depth > 0) touch = f;
     }
   }
-  const pair = { name: def.name, fps, frames, length: def.length, actors: def.actors, anchor, align, events: { ...(def.events || {}), ...(touch != null ? { touch } : {}) }, clips: Object.fromEntries(def.actors.map((a) => [a, `${def.name}.${a}.json`])) };
+  // (the rim (def.rim: where it is and the way it faces out over the court) and the ball, both
+  // in the anchor's start space, like the alignment)
+  const toAnchor = new THREE.Matrix4().copy(start[anchor]).invert();
+  let rim = null;
+  if (def.rim) {
+    const R = def.rim;
+    const m = new THREE.Matrix4().compose(new THREE.Vector3(R.x, R.y, R.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), R.yaw || 0), new THREE.Vector3(1, 1, 1));
+    m.premultiply(toAnchor).decompose(_p, _q, _s);
+    const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(_q);
+    rim = { pos: [r4(_p.x), r4(_p.y), r4(_p.z)], yaw: r4(Math.atan2(fwd.x, fwd.z)) };
+  }
+  const ball = balls.length ? balls.map((v) => v.applyMatrix4(toAnchor).toArray().map(r4)) : null;
+  const pair = { name: def.name, fps, frames, length: def.length, actors: def.actors, anchor, align, events: { ...(def.events || {}), ...(touch != null ? { touch } : {}) }, clips: Object.fromEntries(def.actors.map((a) => [a, `${def.name}.${a}.json`])), ...(rim ? { rim } : {}), ...(ball ? { ball } : {}) };
   pair.contact = { worstCm: r4(report.worst * 100), atFrame: report.at, tolCm: r4(report.tol * 100), framesOver: report.over, underTurfCm: Object.fromEntries(Object.entries(report.sink).map(([k, v]) => [k, r4(v * 100)])) };
   return { clips, pair, report };
 }

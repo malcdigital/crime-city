@@ -13,8 +13,8 @@ for (const [path, data] of Object.entries(FILES)) {
   if (part === 'pair') PAIRS[name].pair = data;
   else PAIRS[name].clips[part] = data;
 }
-const ORDER = ['tackle-front', 'tackle-behind', 'tackle-side', 'pbu'].filter((n) => PAIRS[n]);
-const TITLES = { 'tackle-front': ['Head-on tackle', 'Tackled head on'], 'tackle-behind': ['Tackle from behind', 'Chased down'], 'tackle-side': ['Tackle from the side', 'Hit from the side'], pbu: ['Pass breakup', 'Knocked from his hands'] };
+const ORDER = ['tackle-front', 'tackle-behind', 'tackle-side', 'pbu', 'bb-poster', 'bb-chasedown'].filter((n) => PAIRS[n]);
+const TITLES = { 'tackle-front': ['Head-on tackle', 'Tackled head on'], 'tackle-behind': ['Tackle from behind', 'Chased down'], 'tackle-side': ['Tackle from the side', 'Hit from the side'], pbu: ['Pass breakup', 'Knocked from his hands'], 'bb-poster': ['Dunked on', 'Posterized'], 'bb-chasedown': ['Chase-down block', 'Pinned on the glass'] };
 let cur = ORDER[0];
 let mirror = false;
 let pair = PAIRS[cur].pair;
@@ -70,6 +70,41 @@ for (const c of [runner, tackler]) {
   shadows(c);
   scene.add(c.group);
 }
+// (a hoop, for the basketball pairs: pole, arm, backboard and its square, the rim; built in the
+// rim's own frame (it at y 0, facing +z), placed where the pair file's rim is)
+const hoop = new THREE.Group();
+{
+  const white = new THREE.MeshLambertMaterial({ color: 0xf2f2f2 });
+  const steel = new THREE.MeshLambertMaterial({ color: 0x5a6068 });
+  const orange = new THREE.MeshLambertMaterial({ color: 0xff6a1a });
+  const box = (w, h, d, m, x, y, z) => {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    b.position.set(x, y, z);
+    b.castShadow = true;
+    hoop.add(b);
+  };
+  box(1.8, 1.05, 0.06, white, 0, 0.37, -0.4);
+  box(0.59, 0.45, 0.02, orange, 0, 0.2, -0.36);
+  box(0.14, 0.14, 0.8, steel, 0, 0.4, -0.8);
+  box(0.16, 3.6, 0.16, steel, 0, -1.2, -1.2);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.23, 0.022, 8, 24), orange);
+  rim.rotation.x = Math.PI / 2;
+  hoop.add(rim);
+  const court = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), new THREE.MeshLambertMaterial({ color: 0x5f7fa8 }));
+  court.rotation.x = -Math.PI / 2;
+  court.receiveShadow = true;
+  hoop.add(court);
+  const key = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 5.2), new THREE.MeshLambertMaterial({ color: 0xc8694f }));
+  key.rotation.x = -Math.PI / 2;
+  key.receiveShadow = true;
+  hoop.add(key);
+  hoop.userData.court = court;
+  hoop.userData.key = key;
+}
+scene.add(hoop);
+const bball = new THREE.Mesh(new THREE.SphereGeometry(0.12, 18, 14), new THREE.MeshLambertMaterial({ color: 0xd9621f }));
+bball.castShadow = true;
+scene.add(bball);
 const ball = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 12), new THREE.MeshLambertMaterial({ color: 0x7a3b16 }));
 ball.scale.set(1, 1, 1.6);
 ball.castShadow = true;
@@ -122,12 +157,35 @@ function pose() {
   runner.group.visible = $('t-runner').checked;
   tackler.group.visible = $('t-tackler').checked;
   alignG.visible = $('t-align').checked;
+  // (basketball: the hoop where the pair's rim is, the ball on its own track)
+  hoop.visible = !!pair.rim;
+  bball.visible = !!pair.ball;
+  if (pair.rim) {
+    const [rx, ry, rz] = pair.rim.pos;
+    hoop.position.set(runnerAt.x + rx, 0, runnerAt.z + rz);
+    hoop.rotation.y = pair.rim.yaw;
+    for (const m of hoop.children) if (m !== hoop.userData.court && m !== hoop.userData.key) m.position.y = m.userData.y0 ??= m.position.y + ry;
+    hoop.userData.court.position.set(0, 0.006, 3.6);
+    hoop.userData.key.position.set(0, 0.008, 2.2);
+  }
+  if (pair.ball) {
+    const fr0 = Math.max(0, Math.min(N, t * pair.fps));
+    const i = Math.floor(fr0);
+    const B0 = pair.ball[i];
+    const B1 = pair.ball[Math.min(N, i + 1)];
+    const k = fr0 - i;
+    bball.position.set(runnerAt.x + B0[0] + (B1[0] - B0[0]) * k, B0[1] + (B1[1] - B0[1]) * k, runnerAt.z + B0[2] + (B1[2] - B0[2]) * k);
+    bball.rotation.x += 0.15;
+    ball.visible = false;
+  }
   // (the ball: under his arm, or in his hands till it's knocked out, then flying off the way
   // the arm went)
   const props = anchorClip.events.props || {};
   const until = props.until ? pair.events[props.until] / pair.fps : null;
-  ball.visible = runner.group.visible;
-  if (until != null && t > until) {
+  ball.visible = runner.group.visible && !pair.ball;
+  if (pair.ball) {
+    // (on its track: above)
+  } else if (until != null && t > until) {
     const s = t - until;
     ball.position.copy(flyP).addScaledVector(flyV, s);
     ball.position.y = Math.max(0.12, flyP.y + flyV.y * s - 4.9 * s * s);
@@ -150,23 +208,30 @@ function pose() {
 let view = 'side';
 let drag = null;
 let orbit = null; // (a dragged view: yaw, pitch, distance round the middle of the play)
-const MID = 1.6; // (the middle of the play, up the field from where the runner's clip starts)
+// (the middle of the play: up the field from where the runner's clip starts, or for basketball
+// a step out from the rim, over the lane)
+const CEN = { x: 0, z: 1.6, y: 0.7 };
 const VIEWS = {
-  side: { pos: [5.8, 1.35, MID], look: [0, 0.65, MID] },
-  end: { pos: [0.6, 2.0, MID - 7], look: [0, 0.8, MID] },
-  top: { pos: [0.01, 9.5, MID], look: [0, 0, MID] },
-  close: { pos: [3.0, 1.4, MID + 2.4], look: [0, 0.6, MID - 0.2] },
+  side: { pos: [5.8, 0.65, 0], look: [0, 0, 0] },
+  end: { pos: [0.6, 1.3, -7], look: [0, 0.1, 0] },
+  top: { pos: [0.01, 8.8, 0], look: [0, -0.7, 0] },
+  close: { pos: [3.0, 0.7, 2.4], look: [0, -0.1, -0.2] },
 };
+function centre() {
+  if (pair.rim) Object.assign(CEN, { x: runnerAt.x + pair.rim.pos[0], z: runnerAt.z + pair.rim.pos[2] + 1.3 * Math.cos(pair.rim.yaw), y: 1.5 });
+  else Object.assign(CEN, { x: 0, z: 1.6, y: 0.7 });
+}
 function placeCamera() {
   if (orbit) {
     const { yaw, pitch, d } = orbit;
-    camera.position.set(Math.sin(yaw) * Math.cos(pitch) * d, 0.8 + Math.sin(pitch) * d, MID + Math.cos(yaw) * Math.cos(pitch) * d);
-    camera.lookAt(0, 0.8, MID);
+    camera.position.set(CEN.x + Math.sin(yaw) * Math.cos(pitch) * d, CEN.y + Math.sin(pitch) * d, CEN.z + Math.cos(yaw) * Math.cos(pitch) * d);
+    camera.lookAt(CEN.x, CEN.y, CEN.z);
     return;
   }
   const V = VIEWS[view];
-  camera.position.set(...V.pos);
-  camera.lookAt(...V.look);
+  const far = pair.rim ? 1.25 : 1;
+  camera.position.set(CEN.x + V.pos[0] * far, CEN.y + V.pos[1], CEN.z + V.pos[2] * far);
+  camera.lookAt(CEN.x + V.look[0], CEN.y + V.look[1], CEN.z + V.look[2]);
 }
 for (const k of Object.keys(VIEWS)) {
   $(`v-${k}`).addEventListener('click', () => {
@@ -177,8 +242,8 @@ for (const k of Object.keys(VIEWS)) {
 }
 cv.addEventListener('pointerdown', (e) => {
   const p = camera.position;
-  const d = Math.hypot(p.x, p.y - 0.8, p.z - MID);
-  orbit ||= { yaw: Math.atan2(p.x, p.z - MID), pitch: Math.asin((p.y - 0.8) / d), d };
+  const d = Math.hypot(p.x - CEN.x, p.y - CEN.y, p.z - CEN.z);
+  orbit ||= { yaw: Math.atan2(p.x - CEN.x, p.z - CEN.z), pitch: Math.asin((p.y - CEN.y) / d), d };
   drag = { x: e.clientX, y: e.clientY };
   cv.setPointerCapture(e.pointerId);
   for (const j of Object.keys(VIEWS)) $(`v-${j}`).classList.remove('on');
@@ -266,6 +331,7 @@ function choose(name) {
   $('t-mirror').checked = mirror;
   tacklerAt = alignedOrigin(pair, pair.actors[1], runnerAt, mirror);
   buildAlign();
+  centre();
   N = pair.frames - 1;
   t = 0;
   hold = 0;
