@@ -3531,7 +3531,10 @@ export class Streetball {
     if (s.type === 'dunk') {
       // At the rim: a contact dunk if he's there.
       const contact = lv >= 3;
-      if (contact && Math.random() < 0.15 * (this.r / 75)) return this.swatted(px, pz, `${opp.ballName} STUFFED the dunk!`, 'you', opp.x, opp.z);
+      if (contact && Math.random() < 0.15 * (this.r / 75)) {
+        this.rimBlock('you', this.you.dunk?.hand ?? 1); // (met at the rim)
+        return this.swatted(px, pz, `${opp.ballName} STUFFED the dunk!`, 'you', opp.x, opp.z);
+      }
       make = Math.random() < (contact ? 0.6 : s.oop ? 0.88 : 0.95);
       const name = { two: 'Two-hand slam!', one: 'One-hand jam!', windmill: 'WINDMILL!', tomahawk: 'Tomahawk!' }[this.you.dunk?.style] || 'Slam!';
       grade = make ? (contact ? 'POSTERIZED HIM!' : s.oop ? `ALLEY-OOP! ${name}` : name) : 'Rimmed it out';
@@ -3547,7 +3550,10 @@ export class Streetball {
       const tm = green ? 1 : m < 0.06 ? 0.7 : m < 0.16 ? 0.4 : 0.12;
       // His contest: a block on a heavy contest.
       const blockP = { jumper: 0.1, layup: 0.2, floater: 0.12 }[s.type] * (this.r / 75) * (s.euro ? 0.5 : 1);
-      if (lv >= 2 && (hp.jumpT || 0) > 0 && Math.random() < blockP) return this.swatted(px, pz, `Blocked by ${opp.ballName}`, 'you', opp.x, opp.z);
+      if (lv >= 2 && (hp.jumpT || 0) > 0 && Math.random() < blockP) {
+        if (s.type === 'layup') this.rimBlock('you', s.hand ?? 1); // (met at the rim)
+        return this.swatted(px, pz, `Blocked by ${opp.ballName}`, 'you', opp.x, opp.z);
+      }
       const base = s.type === 'layup' ? 0.82 : s.type === 'floater' ? 0.55 : this.base(fire ? Math.min(s.d0, FIRE_RANGE) : s.d0);
       make = green || Math.random() < base * tm * OPEN_MAKE[lv] * (0.7 + 0.3 * this.you.st);
     }
@@ -3652,6 +3658,17 @@ export class Streetball {
     const S = sc.S;
     if (game.time >= sc.ballEnd) {
       sc.ballEnd = null;
+      if (b.mode === 'loose') {
+        // (knocked loose: it goes on the way the scene had it going (swatted out, off the glass))
+        const f = Math.round((S.start + game.time - sc.t0) * S.pair.fps);
+        const p0 = S.ballAt(f - 1);
+        const p1 = S.ballAt(f);
+        if (p0 && p1) {
+          b.vx = (p1.x - p0.x) * S.pair.fps;
+          b.vy = (p1.y - p0.y) * S.pair.fps;
+          b.vz = (p1.z - p0.z) * S.pair.fps;
+        }
+      }
       if (b.mode === 'flight' && b.p1) {
         // (a flight picks up from here: the dunk going down through)
         const { kind, make } = b;
@@ -3691,6 +3708,19 @@ export class Streetball {
     const C = shooter === 'you' ? opp : { x: px, z: pz };
     const left = (C.x - S.x) * Math.cos(S.heading) - (C.z - S.z) * Math.sin(S.heading) >= 0;
     return this.playPair('bb-chasedown', shooter, 'release', !left, { lead: 0.1, blend: 0.25, clear: true, ballTill: 'pin', ballHold: 0.12 });
+  }
+
+  // The block at the rim: a layup or a dunk met at the top by the man in front of him, swatted
+  // out (shooter: 'you' or 'opp'); off his right hand or (mirrored) his left. Only up close
+  // to the rim, with the blocker between him and it.
+  rimBlock(shooter, hand = 1) {
+    const rim = this.rim;
+    const [px, pz] = this.game.player.pos();
+    const opp = this.opp;
+    const [sx, sz, bx, bz] = shooter === 'you' ? [px, pz, opp.x, opp.z] : [opp.x, opp.z, px, pz];
+    if (dist(sx, sz, rim.x, rim.z) > 3.2 || dist(sx, sz, bx, bz) > 2.4) return null;
+    if (dist(bx, bz, rim.x, rim.z) > dist(sx, sz, rim.x, rim.z) + 0.3) return null; // (he's not in front of him)
+    return this.playPair('bb-rimblock', shooter, 'block', hand < 0, { lead: 0.22, blend: 0.2, clear: true, ballTill: 'block', ballHold: 0.02 });
   }
 
   // A block: the ball knocked out of the shooter's hands, away from the blocker's hand (from
@@ -3870,6 +3900,7 @@ export class Streetball {
     if (hp.t <= hp.rel && Math.random() < base * timing * (front ? 1 : 0.6)) {
       hp.state = 'read';
       hp.t = 0;
+      if (hp.shot === 'layup' || hp.shot === 'dunk') this.rimBlock('opp', hp.sHand ?? 1); // (met at the rim)
       this.swatted(opp.x, opp.z, 'Get that outta here! BLOCKED', 'opp', px, pz);
       for (const q of this.g.players) if (q.hp.role === 'watch') q.hp.cheerT = 1;
     }

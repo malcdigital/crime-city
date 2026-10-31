@@ -13,8 +13,8 @@ for (const [path, data] of Object.entries(FILES)) {
   if (part === 'pair') PAIRS[name].pair = data;
   else PAIRS[name].clips[part] = data;
 }
-const ORDER = ['tackle-front', 'tackle-behind', 'tackle-side', 'pbu', 'bb-poster', 'bb-chasedown'].filter((n) => PAIRS[n]);
-const TITLES = { 'tackle-front': ['Head-on tackle', 'Tackled head on'], 'tackle-behind': ['Tackle from behind', 'Chased down'], 'tackle-side': ['Tackle from the side', 'Hit from the side'], pbu: ['Pass breakup', 'Knocked from his hands'], 'bb-poster': ['Dunked on', 'Posterized'], 'bb-chasedown': ['Chase-down block', 'Pinned on the glass'] };
+const ORDER = ['tackle-front', 'tackle-behind', 'tackle-side', 'pbu', 'bb-poster', 'bb-chasedown', 'bb-rimblock'].filter((n) => PAIRS[n]);
+const TITLES = { 'tackle-front': ['Head-on tackle', 'Tackled head on'], 'tackle-behind': ['Tackle from behind', 'Chased down'], 'tackle-side': ['Tackle from the side', 'Hit from the side'], pbu: ['Pass breakup', 'Knocked from his hands'], 'bb-poster': ['Dunked on', 'Posterized'], 'bb-chasedown': ['Chase-down block', 'Pinned on the glass'], 'bb-rimblock': ['Block at the rim', 'Sent back'] };
 let cur = ORDER[0];
 let mirror = false;
 let pair = PAIRS[cur].pair;
