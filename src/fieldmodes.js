@@ -315,7 +315,7 @@ export const FieldModes = {
       if (held[P.kind]) {
         // (filling: at the speed for how far it's going, meterRate)
         P.t += dt;
-        P.pw = Math.min(1, P.pw + (dt / FILL) * meterRate(game.style?.speed, d / YD));
+        P.pw = Math.min(1, P.pw + (dt / FILL) * meterRate(d / YD));
       } else {
         this.press = null;
         const pw = P.pw;

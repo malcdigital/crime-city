@@ -12,21 +12,13 @@
 // perfect tap is at 0.5 (the moment the ball leaves the hand).
 
 export const METER_STYLES = { arc: 'Arc', needle: 'Bar + needle', golf: 'Golf swing' };
-// How fast the power fills, by the throw's length (the moves list's "Meter speed", saved with
-// your style): a short throw's green is down at the start of the meter, so at one speed you'd
-// have to let go almost as soon as you'd pressed.
-//   slowShort  long throws as they were; short ones slower, down to 45% of the speed (8 yards
-//              and in), easing back to full speed by 30 yards
-//   both       short ones slower (half speed at 8 yards and in), long ones faster (135% at 30
-//              yards and out), eased between
-//   orig       one speed for every throw (as it was)
-export const METER_SPEEDS = { slowShort: 'Slower on short', both: 'Slow short · fast long', orig: 'Original' };
-export function meterRate(speed, yards) {
+// How fast the power fills, by the throw's length: a short throw's green is down at the start of
+// the meter, so at one speed you'd have to let go almost as soon as you'd pressed. Half speed at
+// 8 yards and in, 135% at 30 yards and out, eased between.
+export function meterRate(yards) {
   const k = Math.max(0, Math.min(1, (yards - 8) / (30 - 8)));
   const s = k * k * (3 - 2 * k);
-  if (speed === 'both') return 0.5 + 0.85 * s;
-  if (speed === 'orig') return 1;
-  return 0.45 + 0.55 * s;
+  return 0.5 + 0.85 * s;
 }
 export const PERFECT = 0.035; // (either side of the middle: a perfect tap)
 const GOOD = 0.1;
