@@ -42,7 +42,7 @@ const R = {
 };
 const T = {
   z: curve([[0, 2.0], [TC, 0.75], [0.42, 0.55], [0.6, 0.3], [0.8, -0.05], [TD, -0.15], [1.6, -0.18]]),
-  y: curve([[0, 0], [TC, 0], [0.6, 0.05], [0.8, 0.32], [TD, 0.42], [0.96, 0.36], [1.6, 0.38]]),
+  y: curve([[0, 0], [TC, 0], [0.6, 0.05], [0.8, 0.2], [TD, 0.26], [0.96, 0.22], [1.6, 0.22]]),
   pitch: curve([[0, 0], [TC, 0.1], [0.42, 0.25], [0.6, 0.75], [0.8, 1.25], [TD, 1.33], [1.6, 1.33]]),
 };
 
@@ -73,7 +73,10 @@ export default {
   actors: ['runner', 'tackler'],
   events: { contact: Math.round(TC * 30), down: Math.round(TD * 30) },
   props: { runner: { ball: 'tuck' } },
-  pose(t, { runner: a, tackler: b }) {
+  // (bodies don't go through each other: the tackler's pushed clear of the runner, his hands
+  // still on him; src/paired.js contact)
+  contact: { move: 'tackler', against: 'runner', skip: { tackler: ['wristL', 'wristR'] }, tol: 0.015 },
+  pose(t, { runner: a, tackler: b }, adjust = {}) {
     // ---- The runner: up the field (+z), the ball tucked under his right arm ----
     a.group.rotation.order = 'YXZ';
     a.group.position.set(0, R.y(t), R.z(t));
@@ -88,8 +91,8 @@ export default {
       fbPose(a, { lower: ['run'], upper: ['tuck', 6] });
       bendSpine(a, 0.55, -0.15, 0.1);
       a.neck.rotation.set(0.35, 0.2, 0);
-      a.armL.rotation.set(-1.9, 0, 0.9);
-      a.elbowL.rotation.set(-0.4, 0, 0);
+      a.armL.rotation.set(-1.4, 0, 1.55); // (flung out wide, clear of the tackler's arms)
+      a.elbowL.rotation.set(-0.3, 0, 0);
       bendLeg(a.legL, a.kneeL, 0.9, 0.6);
       bendLeg(a.legR, a.kneeR, 0.35, 1.1);
     });
@@ -107,6 +110,7 @@ export default {
     // ---- The tackler: coming the other way (-z), low ----
     b.group.rotation.order = 'YXZ';
     b.group.position.set(0.05, T.y(t), T.z(t));
+    if (adjust.tackler) b.group.position.add(adjust.tackler);
     b.group.rotation.set(T.pitch(t), Math.PI, 0);
     const come = jointsOf(b, () => {
       animateWalk(b, t * 12, 1);
@@ -121,7 +125,12 @@ export default {
       bendSpine(b, 0.7, 0.25, 0);
       b.neck.rotation.set(-0.45, 0.55, 0);
     });
-    const land = jointsOf(b, () => tacklerPose(b, 1));
+    const land = jointsOf(b, () => {
+      tacklerPose(b, 1);
+      // (on top of him: the thighs down to the turf, knees on it, the shins along it)
+      bendLeg(b.legL, b.kneeL, 0.75, 0.55);
+      bendLeg(b.legR, b.kneeR, 0.6, 0.75);
+    });
     if (t < TC) put(b, come);
     else if (t < 0.55) mix(b, come, drive, ease(clamp01((t - TC) / 0.12)));
     else mix(b, drive, land, ease(clamp01((t - 0.55) / (TD - 0.55))));

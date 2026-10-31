@@ -219,7 +219,8 @@ $('scrub').max = String(N);
   $('cards').innerHTML =
     card('Runner clip', 'var(--runner)', clipRows(runnerClip, pair.clips.runner), 'The anchor: starts wherever the runner is. Root motion is stored relative to his own first frame.') +
     card('Tackler clip', 'var(--tackler)', clipRows(tacklerClip, pair.clips.tackler), 'Same length and frame timing as the runner’s. Its root motion is relative to its own first frame too.') +
-    card('Alignment point', 'var(--mark)', [['Ahead of runner', `${A.pos[2].toFixed(2)} m`], ['To his left', `${A.pos[0].toFixed(2)} m`], ['Height', `${A.pos[1].toFixed(2)} m`], ['Facing', `${deg(A.yaw)} (toward him)`], ['Contact', `frame ${pair.events.contact}`], ['Both down', `frame ${pair.events.down}`]], `Stored in ${pair.name}.pair.json: where the tackler’s root starts, relative to the runner’s, at frame 0.`);
+    card('Alignment point', 'var(--mark)', [['Ahead of runner', `${A.pos[2].toFixed(2)} m`], ['To his left', `${A.pos[0].toFixed(2)} m`], ['Height', `${A.pos[1].toFixed(2)} m`], ['Facing', `${deg(A.yaw)} (toward him)`], ['Contact', `frame ${pair.events.contact}`], ['Both down', `frame ${pair.events.down}`]], `Stored in ${pair.name}.pair.json: where the tackler’s root starts, relative to the runner’s, at frame 0.`) +
+    (pair.contact ? card('Contact check', 'var(--runner)', [['Deepest overlap', `${pair.contact.worstCm.toFixed(1)} cm (frame ${pair.contact.atFrame})`], ['Frames over', `${pair.contact.framesOver} (tolerance ${pair.contact.tolCm} cm)`], ['Under the turf', Object.entries(pair.contact.underTurfCm).map(([k, v]) => `${k} ${v.toFixed(1)} cm`).join(' · ')]], 'Checked on export: every box of one body against every box of the other, each frame. The tackler is pushed clear of the runner before his hands are placed, so they still land on him.') : '');
 }
 
 // ---- Loop ----

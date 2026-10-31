@@ -17,10 +17,17 @@ for (const name of names) {
     const { makeCharacter } = await import('/src/character.js');
     const def = (await import(`/src/paired/${name}.js`)).default;
     const chars = Object.fromEntries(def.actors.map((a) => [a, makeCharacter({})]));
-    return bakePaired(def, chars);
+    const r = bakePaired(def, chars);
+    return { clips: r.clips, pair: r.pair, report: r.report && { ...r.report } };
   }, name);
   for (const [a, clip] of Object.entries(res.clips)) writeFileSync(new URL(`${name}.${a}.json`, out), JSON.stringify(clip));
   writeFileSync(new URL(`${name}.pair.json`, out), JSON.stringify(res.pair, null, 2) + '\n');
   console.log(`${name}: ${res.pair.frames} frames @ ${res.pair.fps} fps · ${Object.keys(res.clips).join(' + ')} · align ${JSON.stringify(res.pair.align)}`);
+  if (res.report) {
+    const R = res.report;
+    console.log(`  contact: worst overlap ${(R.worst * 100).toFixed(1)} cm (frame ${R.at}${R.parts ? `, ${R.parts.join(' / ')}` : ''}), ${R.over} frames over ${(R.tol * 100).toFixed(1)} cm`);
+    console.log(`  under the turf at most: ${Object.entries(R.sink).map(([a, v]) => `${a} ${(v * 100).toFixed(1)} cm`).join(', ')}`);
+    if (R.over) process.exitCode = 1;
+  }
 }
 await browser.close();

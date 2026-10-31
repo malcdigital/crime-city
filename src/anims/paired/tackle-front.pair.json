@@ -19,9 +19,9 @@
     },
     "tackler": {
       "pos": [
-        0.05,
+        0.081,
         0,
-        3.8
+        3.9537
       ],
       "yaw": 3.1416
     }
@@ -33,5 +33,15 @@
   "clips": {
     "runner": "tackle-front.runner.json",
     "tackler": "tackle-front.tackler.json"
+  },
+  "contact": {
+    "worstCm": 0.9855,
+    "atFrame": 29,
+    "tolCm": 1.5,
+    "framesOver": 0,
+    "underTurfCm": {
+      "runner": 0,
+      "tackler": 0.8006
+    }
   }
 }
