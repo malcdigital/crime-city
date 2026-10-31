@@ -74,6 +74,7 @@ export const FieldModes = {
   // ---- Shared ----
   startMode(qb, mode) {
     const game = this.game;
+    game.hud.clearToast(); // (his answer's done with: nothing over the countdown)
     const fb = this.fb;
     this.active = true;
     this.mode = mode;

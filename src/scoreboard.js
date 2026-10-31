@@ -230,6 +230,7 @@ export class Scoreboard {
     if (racks.innerHTML !== html) racks.innerHTML = html;
     const cn = this.elCount;
     const ctext = v.phase === 'count' ? String(v.count) : '';
+    document.body.classList.toggle('counting', !!ctext); // (no toasts over the 3-2-1: style.css)
     if (cn.dataset.n !== ctext) {
       cn.dataset.n = ctext;
       cn.innerHTML = ctext ? `${ctext}<small></small>` : '';
@@ -274,6 +275,7 @@ export class Scoreboard {
     }
     const cn = this.elCount;
     const ctext = v.phase === 'count' && v.count > 0 ? String(v.count) : '';
+    document.body.classList.toggle('counting', !!ctext); // (no toasts over the 3-2-1: style.css)
     const key = `${ctext}:${v.stage}`;
     if (cn.dataset.n !== key) {
       cn.dataset.n = key;
@@ -327,7 +329,7 @@ export class Scoreboard {
   hideContest() {
     if (this.elC) this.elC.classList.add('hidden');
     if (this.elCount) this.elCount.classList.add('hidden');
-    document.body.classList.remove('board3pt-on');
+    document.body.classList.remove('board3pt-on', 'counting');
   }
 
   hide33() {

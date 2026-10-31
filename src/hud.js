@@ -264,6 +264,12 @@ export class Hud {
     }
   }
 
+  // (a game starting: whatever was said to get it going is done with)
+  clearToast() {
+    $('toast').classList.remove('show');
+    this.toastT = 0;
+  }
+
   toast(text, color = '#8ff08f') {
     const el = $('toast');
     setRich(el, text);

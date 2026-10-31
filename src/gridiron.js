@@ -156,6 +156,7 @@ export class Gridiron {
 
   start(qb, bet, from = 75) {
     const game = this.game;
+    game.hud.clearToast(); // (his answer's done with: nothing over the intro)
     const fb = this.fb;
     const S = fb.site;
     this.active = true;
@@ -399,6 +400,7 @@ export class Gridiron {
     // (no minimap in the drive or the QB Challenge: just the game; back when it's over, end)
     const mm = document.getElementById('minimap');
     if (mm) mm.style.visibility = this.mode === 'drive' || this.mode === 'qbc' ? 'hidden' : '';
+    document.body.classList.add('fielding'); // (the turf war line moves out of the way: style.css)
     if (this.mode && this.mode !== 'drive') return this.modePhase(dt);
     const game = this.game;
     const fb = this.fb;
@@ -691,6 +693,7 @@ export class Gridiron {
     fb.match = null;
     const mm = document.getElementById('minimap');
     if (mm) mm.style.visibility = ''; // (the minimap back)
+    document.body.classList.remove('fielding');
     game.scene.remove(this.arrow);
     for (const s of this.icons || []) if (s) game.scene.remove(s);
     this.icons = [];

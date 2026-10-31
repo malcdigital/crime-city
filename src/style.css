@@ -740,8 +740,15 @@ body.paused #scoreboard, body.paused #board33, body.paused #sport, body.paused #
 #scoreboard .sc-side.check .sc-num { text-shadow: 0 0 8px rgba(200,200,200,.6); }
 /* On the court (shooting around or a game): the turf war line moves off the top center, down
    the right side under the cash and the stars. */
-body.hooping #war { left: auto; right: 14px; transform: none; top: 158px; max-width: 240px; font-size: 11px; padding: 4px 9px; text-align: right; }
-body.touch.hooping #war { top: 104px; right: 8px; max-width: 170px; font-size: 9px; padding: 3px 7px; }
+body.hooping #war, body.fielding #war { left: auto; right: 14px; transform: none; top: 158px; max-width: 240px; font-size: 11px; padding: 4px 9px; text-align: right; }
+body.touch.hooping #war, body.touch.fielding #war { top: 104px; right: 8px; max-width: 170px; font-size: 9px; padding: 3px 7px; }
+/* A game's 3-2-1 (and the stage or money rack under it) has the middle to itself; in 33 the
+   toasts drop below the board's hint line, which sits where they'd be. */
+body.counting #toast { opacity: 0 !important; }
+body.board33-on #toast { top: calc(244px + 2.6em); }
+body.touch.board33-on #toast { top: calc(160px + 2.2em); }
+/* (on a phone the 33 board fills that corner: the turf war line waits till it's down) */
+body.touch.board33-on #war { display: none; }
 
 /* Your shot's timing (streetball.js badge): under the energy bar, same spot every time. */
 #shot-badge { position: fixed; z-index: 6; transform: translateX(-50%); pointer-events: none; opacity: 0; padding: 5px 14px 6px; border-radius: 12px; background: rgba(10, 14, 20, .82); border: 2px solid var(--bc, #5ef2b0); text-align: center; white-space: nowrap; font-family: inherit; }

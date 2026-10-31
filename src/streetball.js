@@ -831,6 +831,7 @@ export class Streetball {
 
   start(H, g, opp, bet, to) {
     const game = this.game;
+    game.hud.clearToast(); // (what got it going's done with: nothing over the matchup and the check-up)
     this.active = true;
     this.H = H;
     this.g = g;
@@ -920,6 +921,7 @@ export class Streetball {
   // "opponent" stays far off the court so everything that looks for him finds nobody.
   startSolo(H, rim, spare = null) {
     const game = this.game;
+    game.hud.clearToast();
     // (the ball you picked up is the one you play with)
     if (spare) this.spares.splice(this.spares.indexOf(spare), 1);
     this.strays = [];
@@ -970,6 +972,7 @@ export class Streetball {
   // ---- The 3-point contest (solo; contest.js keeps the racks, the clock and the score) ----
   startContest(H, g, money) {
     const game = this.game;
+    game.hud.clearToast();
     this.active = true;
     this.solo = true;
     this.H = H;
@@ -1045,6 +1048,7 @@ export class Streetball {
 
   start33(H, g, bet) {
     const game = this.game;
+    game.hud.clearToast();
     this.active = true;
     this.solo = true; // (no defender: the shootaround setup, with 33's turns on top)
     this.H = H;
@@ -1124,7 +1128,8 @@ export class Streetball {
     this.labels33 = [];
     game.cash -= bet; // (everyone's buy-in is held till it's over)
     this.give('you');
-    game.hud.toast(`33 with ${npcs.map((q) => q.ballName).join(', ')}${bet ? ` · $${bet} each, winner takes $${bet * (npcs.length + 1)}` : ''}. Pick your spot`, '#ffd23f');
+    // (the board lists who's in and says pick your spot; just the money, if there's any on it)
+    if (bet) game.hud.toast(`$${bet} each · winner takes $${bet * (npcs.length + 1)}`, '#ffd23f');
   }
 
   // A spot's taken: the ring flashes white, a ring bursts out from it like a shockwave, and it
