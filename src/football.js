@@ -707,6 +707,12 @@ export class Football {
       if (b.holder === p) {
         const still = f.act && (f.act.kind === 'pick' || f.act.kind === 'pickScoop') && this.game.time - f.act.t0 < f.act.T;
         if (still || f.downT > 0) return { speed: 0 };
+        if (f.runVia) {
+          // (carrying on a stride the way he was going before he turns it back upfield)
+          const g = goTo(...f.runVia, RUN);
+          if (g) return g;
+          f.runVia = null;
+        }
         return goTo(...(f.runTo || [p.x, p.z + 10]), RUN) || { speed: 0 };
       }
       if (M.tip && M.tip.who === p) return goTo(b.x, b.z, RUN * 1.1) || { speed: 0 }; // (the tip: under it)

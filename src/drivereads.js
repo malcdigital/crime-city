@@ -636,7 +636,15 @@ export const DriveReads = {
             const lz = -Math.sin(db.heading);
             const T = { pick: 0.9, pickRun: 0.7, pickShoulder: 0.9, pickScoop: 0.8 }[kind];
             db.fb.act = { kind, t0, T, side: (b.p0[0] - db.x) * lx + (b.p0[2] - db.z) * lz >= 0 ? 1 : -1 };
-            if (kind === 'pickRun' || kind === 'pickShoulder') db.fb.runTo = [db.x + Math.sin(db.heading) * 14, db.z + Math.cos(db.heading) * 14]; // (on the way he was going)
+            if (kind === 'pickRun' || kind === 'pickShoulder') {
+              // (caught on the run: a stride or two on the way he was going if that's toward your
+              // end, then he turns it back upfield, the other way, drifting the side he was going)
+              const F = fb.site.field;
+              const hx = Math.sin(db.heading);
+              const hz = Math.cos(db.heading);
+              db.fb.runVia = hz < 0.3 ? [clamp(db.x + hx * 2, F.x0 + 1, F.x1 - 1), db.z + hz * 2] : null;
+              db.fb.runTo = [clamp(db.x + hx * 6, F.x0 + 1, F.x1 - 1), Math.min(F.z1 - 2, db.z + 16)];
+            }
           }
           if (here) w.fb.act = { kind: 'denied', t0, T: 0.7 };
         }
@@ -837,7 +845,7 @@ export const DriveReads = {
     for (const q of [...fb.wrs.slice(0, 3), ...fb.dbs.slice(0, 3)]) {
       [q.x, q.z] = q.fb.home;
       q.heading = q.fb.role === 'db' ? 0 : Math.PI;
-      Object.assign(q.fb, { adjV: null, reachBack: 0, route: null, runTo: null, downT: 0, pickT: 0, dive: false, beatT: 0, relT: 0, throwT: 0, hurry: false, huddle: null });
+      Object.assign(q.fb, { adjV: null, reachBack: 0, route: null, runTo: null, runVia: null, downT: 0, pickT: 0, dive: false, beatT: 0, relT: 0, throwT: 0, hurry: false, huddle: null });
     }
     fb.phase = 'set';
     fb.t = 0;

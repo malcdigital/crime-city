@@ -396,6 +396,9 @@ export class Gridiron {
 
   // ---- Every frame (football.js step) ----
   phase(dt) {
+    // (no minimap in the drive or the QB Challenge: just the game; back when it's over, end)
+    const mm = document.getElementById('minimap');
+    if (mm) mm.style.visibility = this.mode === 'drive' || this.mode === 'qbc' ? 'hidden' : '';
     if (this.mode && this.mode !== 'drive') return this.modePhase(dt);
     const game = this.game;
     const fb = this.fb;
@@ -686,6 +689,8 @@ export class Gridiron {
     this.active = false;
     this.meter = null;
     fb.match = null;
+    const mm = document.getElementById('minimap');
+    if (mm) mm.style.visibility = ''; // (the minimap back)
     game.scene.remove(this.arrow);
     for (const s of this.icons || []) if (s) game.scene.remove(s);
     this.icons = [];
