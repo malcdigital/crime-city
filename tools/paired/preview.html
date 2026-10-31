@@ -1,0 +1,103 @@
+<title>Paired Tackle Preview</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;800&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+  /* Film room: the play big on top, a scrub bar like a coach's tape deck under it, then the export. */
+  :root {
+    --bg: #0f1412;
+    --panel: #171e1b;
+    --line: #26302c;
+    --fg: #e7ece9;
+    --muted: #8d9a94;
+    --turf: #2f6b3f;
+    --runner: #4cc46f;
+    --tackler: #6f95ff;
+    --mark: #ffd23f;
+    --display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+    --body: 'IBM Plex Sans', system-ui, sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, monospace;
+    color-scheme: dark;
+  }
+  html, body { background: var(--bg); color: var(--fg); }
+  body { font-family: var(--body); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 16px 32px; }
+  .wrap { max-width: 1100px; margin: 0 auto; display: grid; gap: 14px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font-family: var(--display); font-weight: 800; font-size: 34px; letter-spacing: 0.02em; margin: 0; text-transform: uppercase; text-wrap: balance; }
+  h1 span { color: var(--mark); }
+  .sub { color: var(--muted); font-size: 14px; max-width: 62ch; margin: 2px 0 0; }
+  .stage { position: relative; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #1b2a22; aspect-ratio: 16 / 9; max-width: 100%; max-height: 64vh; width: 100%; }
+  .stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  .hud { position: absolute; left: 12px; top: 10px; font-family: var(--mono); font-size: 12px; color: var(--fg); background: rgba(15, 20, 18, 0.72); padding: 6px 9px; border-radius: 6px; display: grid; gap: 2px; pointer-events: none; }
+  .hud b { font-family: var(--display); font-size: 22px; letter-spacing: 0.04em; }
+  .hud .ev { color: var(--mark); min-height: 1em; }
+  .views { position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .deck { display: grid; grid-template-columns: auto auto 1fr auto; gap: 10px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  button, .chip { font: 600 13px var(--body); color: var(--fg); background: #222c28; border: 1px solid var(--line); border-radius: 7px; padding: 7px 11px; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--mark); outline-offset: 2px; }
+  button.on { background: var(--mark); color: #1a1600; border-color: var(--mark); }
+  .play { font-family: var(--display); font-size: 18px; letter-spacing: 0.06em; min-width: 82px; }
+  .steps { display: flex; gap: 6px; }
+  .scrub { position: relative; height: 38px; min-width: 0; }
+  .scrub input { position: absolute; inset: 14px 0 auto; width: 100%; margin: 0; accent-color: var(--mark); }
+  .ticks { position: absolute; inset: 0; pointer-events: none; }
+  .ticks i { position: absolute; top: 4px; width: 1px; height: 8px; background: var(--line); }
+  .ticks em { position: absolute; top: 0; transform: translateX(-50%); font: 600 10px var(--mono); color: var(--mark); white-space: nowrap; }
+  .ticks em::after { content: ''; display: block; margin: 1px auto 0; width: 2px; height: 26px; background: var(--mark); opacity: 0.55; }
+  .speed { display: flex; gap: 4px; }
+  .toggles { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 13px; color: var(--muted); }
+  .toggles label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; color: var(--fg); }
+  .toggles .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+  .card h2 { font-family: var(--display); font-size: 20px; letter-spacing: 0.04em; text-transform: uppercase; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+  .card dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+  .card dt { color: var(--muted); }
+  .card dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .card p { margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+  .note { color: var(--muted); font-size: 13px; line-height: 1.5; max-width: 80ch; }
+  @media (max-width: 560px) {
+    .views { top: auto; bottom: 8px; right: 8px; left: 8px; justify-content: flex-start; }
+    .views button { padding: 5px 8px; font-size: 12px; }
+    .hud { font-size: 11px; padding: 4px 7px; }
+    .hud b { font-size: 18px; }
+  }
+  @media (max-width: 760px) {
+    .deck { grid-template-columns: auto 1fr; }
+    .deck .scrub { grid-column: 1 / -1; order: 3; }
+    .cards { grid-template-columns: 1fr; }
+    h1 { font-size: 28px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Head-on tackle · <span>paired</span></h1>
+      <p class="sub">Authored as one scene, exported as two clips. Each player below is driven only by his own clip, started from the shared alignment point.</p>
+    </div>
+  </header>
+  <div class="stage" id="stage">
+    <canvas id="cv" aria-label="The two players playing their clips"></canvas>
+    <div class="hud"><b id="fr">FRAME 0 / 48</b><span id="tm">0.00 s</span><span class="ev" id="ev"></span></div>
+    <div class="views" role="group" aria-label="Camera">
+      <button id="v-side" class="on">Side</button><button id="v-end">Behind runner</button><button id="v-top">Top</button><button id="v-close">Close</button>
+    </div>
+  </div>
+  <div class="deck">
+    <button class="play" id="play">PAUSE</button>
+    <div class="steps"><button id="back" aria-label="Back one frame">◂ 1</button><button id="fwd" aria-label="Forward one frame">1 ▸</button></div>
+    <div class="scrub"><div class="ticks" id="ticks"></div><input id="scrub" type="range" min="0" max="48" step="0.01" value="0" aria-label="Frame"></div>
+    <div class="speed" role="group" aria-label="Speed"><button id="s1" class="on">1×</button><button id="s2">½×</button><button id="s4">¼×</button></div>
+  </div>
+  <div class="toggles">
+    <label><input type="checkbox" id="t-runner" checked> <span class="dot" style="background: var(--runner)"></span> Runner clip</label>
+    <label><input type="checkbox" id="t-tackler" checked> <span class="dot" style="background: var(--tackler)"></span> Tackler clip</label>
+    <label><input type="checkbox" id="t-align" checked> <span class="dot" style="background: var(--mark)"></span> Alignment point</label>
+  </div>
+  <div class="cards" id="cards"></div>
+  <p class="note">Nothing here is in the game yet. Drag the view to turn it. Space plays and pauses; the arrow keys step a frame.</p>
+</div>
+<script type="module" src="./preview.js"></script>

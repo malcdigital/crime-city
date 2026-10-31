@@ -1,0 +1,37 @@
+{
+  "name": "tackle-front",
+  "fps": 30,
+  "frames": 49,
+  "length": 1.6,
+  "actors": [
+    "runner",
+    "tackler"
+  ],
+  "anchor": "runner",
+  "align": {
+    "runner": {
+      "pos": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    "tackler": {
+      "pos": [
+        0.05,
+        0,
+        3.8
+      ],
+      "yaw": 3.1416
+    }
+  },
+  "events": {
+    "contact": 9,
+    "down": 26
+  },
+  "clips": {
+    "runner": "tackle-front.runner.json",
+    "tackler": "tackle-front.tackler.json"
+  }
+}
