@@ -246,7 +246,10 @@ export class Gridiron {
       // Everyone set: ✕ hikes it.
       const ready = fb.phase === 'set' || (fb.phase === 'reset' && fb.players.every((q) => q.fb.role === 'bench' || q.fb.role === 'fan' || dist(q.x, q.z, ...q.fb.home) < 1.5));
       const spot = d < 1.2;
-      this.ready = ready && spot;
+      // (not under the result transition, or as it slides off: ✕ there was for the card, not a hike)
+      const D = this.dr;
+      const wiping = !!D?.wipe || game.time - (D?.wipeGone ?? -9) < 0.35;
+      this.ready = ready && spot && !wiping;
       if (hike && this.ready) this.snap();
       return;
     }

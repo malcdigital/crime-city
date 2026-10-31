@@ -1030,7 +1030,10 @@ export const DriveReads = {
   drWipeOut() {
     const el = document.getElementById('drwipe');
     if (el) el.classList.add('out');
-    if (this.dr) this.dr.wipe = null;
+    if (this.dr) {
+      this.dr.wipe = null;
+      this.dr.wipeGone = this.game.time; // (no hike till it's off: gridiron.js)
+    }
   },
   // The drive's camera shot (fieldmodes.js camShot → main.js): wide at the line, easing back in
   // over your shoulder on the drive curve over CAM_MOVE real seconds from the snap.
