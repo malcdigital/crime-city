@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { dist, rand, pick, lerpAngle } from './util.js';
-import { throwPose, catchPose, holdBall, tuckCarry, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
+import { fbPose, fbBallAt, fbBallQuat, PICK_T } from './footballpose.js';
 import { bendLeg, bendSpine, reachArm } from './character.js';
 import { ThrowMeter, PERFECT } from './throwmeter.js';
 import { HeatFx } from './heatfx.js';
@@ -186,28 +186,18 @@ export const FieldModes = {
   },
 
   // Your follow-through and catches (gridiron late()); true if it posed you.
-  modeLate(c) {
+  // Your layers in a mode (gridiron.js late; footballpose.js fbPose), or null: the drive's.
+  modeLayers(c) {
     const b = this.fb.ball;
+    const moving = (this.game.player.speed || 0) > 1.5;
+    const throwL = (cock, release) => ({ lower: moving ? ['run'] : ['step', 1], upper: ['throw', cock, release] });
     const MS = this.mode === 'qbc' || this.mode === 'catch' ? this.meterS() : null;
-    if (MS?.acc) {
-      // (the arm coming through while you time the tap: the ball leaves the hand at the middle)
-      throwPose(c, 1, Math.min(0.34, (MS.acc.n / 0.5) * 0.34));
-      c.group.userData.fbGrip = 'throw';
-      return true;
-    }
-    if (this.mode === 'catch' && this.pickT > 0) {
-      c.group.position.y += pickupPose(c, 1 - this.pickT / PICK_T); // (scooping it up)
-      return true;
-    }
-    if (this.mode === 'catch' && b.mode === 'flight' && b.to === 'you' && b.T - b.t < 0.6) {
-      catchPose(c, b.style === 'lob' || b.p1[1] > 1.5); // (hands up for it)
-      return true;
-    }
-    if (this.mode === 'qbc' && !this.press && this.throwT > 0) {
-      throwPose(c, 1, 1 - this.throwT / 0.4); // (the follow-through)
-      return true;
-    }
-    return false;
+    // (the arm coming through while you time the tap: the ball leaves the hand at the middle)
+    if (MS?.acc) return { ...throwL(1, Math.min(0.34, (MS.acc.n / 0.5) * 0.34)), grip: 'throw' };
+    if (this.mode === 'catch' && this.pickT > 0) return { full: ['pickup', 1 - this.pickT / PICK_T] }; // (scooping it up)
+    if (this.mode === 'catch' && b.mode === 'flight' && b.to === 'you' && b.T - b.t < 0.6) return { lower: ['run'], upper: ['catch', b.style === 'lob' || b.p1[1] > 1.5] }; // (hands up for it)
+    if (this.mode === 'qbc' && !this.press && this.throwT > 0) return throwL(1, 1 - this.throwT / 0.4); // (the follow-through)
+    return null;
   },
 
   endMode(how) {
@@ -811,15 +801,19 @@ export const FieldModes = {
     }
     const S = this.side;
     if (S && (p === S.a || p === S.b)) {
+      // (the same layers as everyone's: footballpose.js fbPose)
       c.group.userData.fbGrip = null;
-      let y = 0.04;
+      const moving = (p.speed || 0) > 1.5;
+      let L = null;
       if (S.holder === p) {
-        if (f.throwT > 0) throwPose(c, 1 - Math.max(0, f.throwT - 0.12) / 0.23, 0);
-        else if (p.speed > 0.5) tuckCarry(c, p.speed);
-        else y = holdBall(c, 0, true, this.game.time) + 0.04;
-      } else if (f.relT > 0) throwPose(c, 1, 1 - f.relT / 0.4);
-      else if (S.flight && S.flight.to === p && S.flight.T - S.flight.t < 0.6) catchPose(c, S.flight.lob);
-      return y;
+        if (f.throwT > 0) {
+          const cock = 1 - Math.max(0, f.throwT - 0.12) / 0.23;
+          L = { lower: moving ? ['run'] : ['step', Math.min(1, cock) ** 2 * (3 - 2 * Math.min(1, cock))], upper: ['throw', cock, 0] };
+        } else if (p.speed > 0.5) L = { lower: ['run'], upper: ['tuck', p.speed] };
+        else L = { lower: ['set', this.game.time], upper: ['hold', 0] };
+      } else if (f.relT > 0) L = { lower: moving ? ['run'] : ['step', 1], upper: ['throw', 1, 1 - f.relT / 0.4] };
+      else if (S.flight && S.flight.to === p && S.flight.T - S.flight.t < 0.6) L = { lower: ['run'], upper: ['catch', S.flight.lob] };
+      return 0.04 + (L ? fbPose(c, L) : 0);
     }
     return null;
   },

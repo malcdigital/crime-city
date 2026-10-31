@@ -32,47 +32,62 @@ const grip = (c, g) => (c.group.userData.fbGrip = g);
 
 // The quarterback's stance at the line: knees bent, hands out together for the snap.
 export function qbStance(c) {
+  return fbPose(c, { lower: ['qbSet'], upper: ['snap'] });
+}
+function qbSetLegs(c) {
   bendLeg(c.legL, c.kneeL, 0.75, 1.05);
   bendLeg(c.legR, c.kneeR, 0.75, 1.05);
   c.legL.rotation.z = 0.14;
   c.legR.rotation.z = -0.14;
   bendSpine(c, 0.45, 0, 0);
+  return -lowestPoint(c);
+}
+function snapHands(c) {
   c.neck.rotation.set(-0.5, 0, 0); // (eyes downfield over the line)
   reachArm(c, 'R', _a.set(-0.07, 0.98, 0.45), _b.set(-1, -0.4, -0.3), _c.set(0, -0.5, 1), null, 'group');
   reachArm(c, 'L', _a.set(0.07, 0.98, 0.45), _b.set(1, -0.4, -0.3), _c.set(0, -0.5, 1), null, 'group');
   grip(c, 'two');
-  return -lowestPoint(c);
 }
 
 // A receiver's two-point stance: the outside foot up, leaning over it, head up, arms cocked to
 // drive off the line.
 export function wrStance(c) {
-  // (set, not running: the feet a short stagger apart, knees bent, bent at the waist, both hands
-  // hanging low in front, still; head up)
+  return fbPose(c, { lower: ['wrSet'], upper: ['wrReady'] });
+}
+function wrSetLegs(c) {
+  // (set, not running: the feet a short stagger apart, knees bent, bent at the waist)
   bendLeg(c.legL, c.kneeL, 0.55, 0.8);
   bendLeg(c.legR, c.kneeR, 0.15, 0.55);
   bendSpine(c, 0.6, 0, 0);
+  return -lowestPoint(c);
+}
+function wrReady(c) {
+  // (both hands hanging low in front, still; head up)
   c.neck.rotation.set(-0.7, 0, 0);
   c.armL.rotation.set(-0.45, 0, 0.08);
   c.armR.rotation.set(-0.5, 0, -0.08);
   c.elbowL.rotation.set(-0.55, 0, 0);
   c.elbowR.rotation.set(-0.55, 0, 0);
-  return -lowestPoint(c);
 }
 
 // A defender's stance: wide, low, the hands loose in front, eyes up.
 export function dbStance(c) {
+  return fbPose(c, { lower: ['dbSet'], upper: ['dbReady'] });
+}
+function dbSetLegs(c) {
   bendLeg(c.legL, c.kneeL, 0.65, 1.05);
   bendLeg(c.legR, c.kneeR, 0.65, 1.05);
   c.legL.rotation.z = 0.2;
   c.legR.rotation.z = -0.2;
   bendSpine(c, 0.35, 0, 0);
+  return -lowestPoint(c);
+}
+function dbReady(c) {
   c.neck.rotation.set(-0.35, 0, 0);
   c.armL.rotation.set(-0.55, 0, 0.12);
   c.armR.rotation.set(-0.55, 0, -0.12);
   c.elbowL.rotation.set(-1.0, 0, 0);
   c.elbowR.rotation.set(-1.0, 0, 0);
-  return -lowestPoint(c);
 }
 
 // In the pocket: two hands on the ball high at the chest, elbows in; look (-1..1, + his left)
@@ -81,17 +96,23 @@ export function dbStance(c) {
 // shoulder width, knees soft, the front (left) foot a half step ahead, the weight on the balls
 // of the feet, the feet alive (a light quick shuffle, now: seconds). Returns the height change.
 export function holdBall(c, look = 0, still = true, now = 0) {
-  bendSpine(c, 0.16, look * 0.3, 0);
+  return fbPose(c, { lower: still ? ['set', now] : ['run'], upper: ['hold', look] });
+}
+function holdHands(c, look = 0) {
+  bendUpper(c, 0.16, look * 0.3, 0);
   c.neck.rotation.set(-0.08, look * 0.6, 0);
   reachArm(c, 'R', _a.set(-0.07, 1.3, 0.32), _b.set(-1, -0.6, -0.2), _c.set(0.2, 0.3, 1), null, 'body');
   reachArm(c, 'L', _a.set(0.07, 1.3, 0.32), _b.set(1, -0.6, -0.2), _c.set(-0.2, 0.3, 1), null, 'body');
   grip(c, 'two');
-  if (!still) return 0;
-  const hop = Math.max(0, Math.sin(now * 9)) * 0.06; // (alive on the toes, one foot then the other)
+}
+// (set: feet out to shoulder width, knees soft, the front (left) foot a half step ahead, alive
+// on the toes, one foot then the other)
+function setLegs(c, now = 0) {
+  const hop = Math.max(0, Math.sin(now * 9)) * 0.06;
   const hop2 = Math.max(0, -Math.sin(now * 9)) * 0.06;
-  bendLeg(c.legL, c.kneeL, 0.42 + hop, 0.55 + hop * 2); // (the front foot, a half step ahead)
+  bendLeg(c.legL, c.kneeL, 0.42 + hop, 0.55 + hop * 2);
   bendLeg(c.legR, c.kneeR, 0.18 + hop2, 0.55 + hop2 * 2);
-  c.legL.rotation.z = 0.24; // (out to shoulder width)
+  c.legL.rotation.z = 0.24;
   c.legR.rotation.z = -0.24;
   return -lowestPoint(c);
 }
@@ -105,11 +126,16 @@ export function holdBall(c, look = 0, still = true, now = 0) {
 // a new target; moving 0..1). look (-1..1) scans a little. Returns the height change.
 export const POCKET_CLOSE = 1.0;
 export function pocketStance(c, look = 0, step = 0, moving = 0) {
-  bendSpine(c, 0.16, 0.32 + look * 0.15, 0); // (the chest a little round toward the target)
+  return fbPose(c, { lower: ['pocket', step, moving], upper: ['pocketHands', look] });
+}
+function pocketHands(c, look = 0) {
+  bendUpper(c, 0.16, 0.32 + look * 0.15, 0); // (the chest a little round toward the target)
   c.neck.rotation.set(-0.08, 0.62 + look * 0.3, 0); // (the eyes on it)
   reachArm(c, 'R', _a.set(-0.15, 1.3, 0.25), _b.set(-1, -0.6, -0.3), _c.set(0.25, 0.3, 1), null, 'body');
   reachArm(c, 'L', _a.set(-0.03, 1.31, 0.33), _b.set(1, -0.6, -0.2), _c.set(-0.15, 0.3, 1), null, 'body');
   grip(c, 'two');
+}
+function pocketLegs(c, step = 0, moving = 0) {
   const m = clamp01(moving);
   const sL = Math.max(0, Math.sin(step)) * m; // (the left foot up and across)
   const sR = Math.max(0, -Math.sin(step)) * m;
@@ -127,8 +153,11 @@ export function pocketStance(c, look = 0, step = 0, moving = 0) {
 // along the forearm, the back tip pinned in the crook of the elbow against the ribs, carried high
 // on the outside of the body; the elbow tucked back and down)
 export function tuckCarry(c, speed = 0) {
+  return fbPose(c, { upper: ['tuck', speed] });
+}
+function tuckArm(c, speed = 0) {
   const lean = 0.08 + 0.2 * clamp01(speed / 7);
-  bendSpine(c, lean, 0, 0);
+  bendUpper(c, lean, 0, 0);
   c.neck.rotation.set(-lean * 0.9, 0, 0);
   reachArm(c, 'R', _a.set(-0.29, 1.27, 0.3), _b.set(-0.3, -0.75, -1), _c.set(0.35, 0.05, 1), _d.set(-0.6, 1, 0), 'body');
   grip(c, 'tuck');
@@ -158,6 +187,9 @@ export function pickupPose(c, k) {
 // release (0-1, over ~0.4 s): the hips and chest whip round, the elbow leads, the forearm comes
 // through and the arm follows through down across the body, the back shoulder ending forward.
 export function throwPose(c, cock, release) {
+  return fbPose(c, { lower: ['step', release > 0 ? 1 : ease(Math.min(1, cock))], upper: ['throw', cock, release] });
+}
+function throwArm(c, cock, release) {
   const k = ease(Math.min(1, cock));
   // (cocked: the upper arm out to the side and up, the forearm back up behind the head)
   let s = [mix(-0.7, -2.0, k), mix(0, -0.7, k), mix(-0.4, -1.9, k), mix(0, 0.5, k)];
@@ -183,21 +215,26 @@ export function throwPose(c, cock, release) {
   c.armL.rotation.set(g[0], g[3], g[1]); // (the front arm turned back toward the target)
   c.elbowL.rotation.set(g[2], 0, 0);
   c.wristL.rotation.set(0, 0, 0);
-  bendSpine(c, lean, tw, roll);
+  bendUpper(c, lean, tw, roll);
   c.neck.rotation.set(-0.08 - lean * 0.4, -tw * 0.85, -roll * 0.5); // (eyes staying on the target)
-  // (the step: front foot forward into the throw, back foot pushing)
-  const st = release > 0 ? 1 : k;
+  grip(c, release > 0.12 ? null : 'throw'); // (in the hand until it's let go)
+}
+// (the step: front foot forward into the throw, back foot pushing; st 0..1)
+function stepLegs(c, st) {
   bendLeg(c.legL, c.kneeL, 0.45 * st, 0.25 * st);
   bendLeg(c.legR, c.kneeR, -0.25 * st, 0.35 * st);
-  grip(c, release > 0.12 ? null : 'throw'); // (in the hand until it's let go)
+  return 0;
 }
 
 // Hands up for a catch, thumbs (or pinkies) together: high for a lob, reaching, the chest up
 // and the eyes up on it; chest high for a bullet, the shoulders over it.
 export function catchPose(c, high) {
+  return fbPose(c, { upper: ['catch', high] });
+}
+function catchHands(c, high) {
   const y = high ? 2.06 : 1.42;
   const z = high ? 0.32 : 0.5;
-  bendSpine(c, high ? -0.18 : 0.12, 0, 0);
+  bendUpper(c, high ? -0.18 : 0.12, 0, 0);
   c.neck.rotation.set(high ? -0.6 : -0.1, 0, 0);
   reachArm(c, 'R', _a.set(-0.08, y, z), _b.set(-1, -0.4, -0.2), _c.set(0, 1, high ? 0.15 : 0.6), _d.set(0, 0, 1), 'group');
   reachArm(c, 'L', _a.set(0.08, y, z), _b.set(1, -0.4, -0.2), _c.set(0, 1, high ? 0.15 : 0.6), _d.set(0, 0, 1), 'group');
@@ -273,7 +310,10 @@ export function upsetPose(c, t) {
 // left, -1: his right), the near hand back and up behind the shoulder, the other across for it,
 // head turned back after it.
 export function reachBackPose(c, side) {
-  bendSpine(c, 0.1, 1.0 * side, 0.12 * side);
+  return fbPose(c, { upper: ['reachBack', side] });
+}
+function reachBackArms(c, side) {
+  bendUpper(c, 0.1, 1.0 * side, 0.12 * side);
   c.neck.rotation.set(-0.3, 0.9 * side, 0);
   const near = side > 0 ? 'L' : 'R';
   const far = side > 0 ? 'R' : 'L';
@@ -407,9 +447,12 @@ export const CATCHES = { pick: { T: 0.9, lead: 0.34 }, pickRun: { T: 0.7, lead: 
 // Jumping the route (k 0..1 over about 0.7 s): running, he drives his hands out in front at chest
 // height, takes it on the run and pulls it straight into the tuck. Upper body only: the legs run.
 export function pickUndercutPose(c, k) {
+  return fbPose(c, { upper: ['catchRun', k] });
+}
+function catchRunArms(c, k) {
   const e = ease(Math.min(1, k / 0.45));
   const g = ease(Math.max(0, (k - 0.45) / 0.55));
-  bendSpine(c, 0.32 - 0.1 * g, 0, 0);
+  bendUpper(c, 0.32 - 0.1 * g, 0, 0);
   c.neck.rotation.set(-0.35 + 0.2 * g, 0, 0);
   const z = 0.55 * e - 0.3 * g;
   const y = 1.32 - 0.15 * g;
@@ -421,10 +464,13 @@ export function pickUndercutPose(c, k) {
 // shoulders turned back toward it, head round looking for it, both hands up and back on that
 // side, then brought down into the tuck. Upper body only.
 export function pickShoulderPose(c, k, side = 1) {
+  return fbPose(c, { upper: ['catchShoulder', k, side] });
+}
+function catchShoulderArms(c, k, side = 1) {
   const e = ease(Math.min(1, k / 0.55));
   const g = ease(Math.max(0, (k - 0.55) / 0.45));
   const tw = (1 - g) * e;
-  bendSpine(c, 0.05, 0.65 * side * tw, 0.08 * side * tw);
+  bendUpper(c, 0.05, 0.65 * side * tw, 0.08 * side * tw);
   c.neck.rotation.set(-0.45 * tw, 0.9 * side * tw, 0);
   const x = 0.32 * side * (1 - g) + 0.06 * side;
   const y = 1.95 - 0.7 * g;
@@ -467,20 +513,25 @@ export function swatPose(c, k, side = 1) {
 // A receiver beaten to it (k 0..1 over about 0.7 s): both hands up for it, then they drop and
 // open out as it's gone, head going back. (Caught, he secures it into his chest: holdBall.)
 export function deniedPose(c, k) {
+  return fbPose(c, { upper: ['denied', k] });
+}
+function deniedArms(c, k) {
   const e = ease(Math.min(1, k / 0.45));
   const g = ease(Math.max(0, (k - 0.45) / 0.55));
-  bendSpine(c, -0.15 + 0.1 * g, 0, 0);
+  bendUpper(c, -0.15 + 0.1 * g, 0, 0);
   c.neck.rotation.set(-0.6 + 0.2 * g, 0, 0);
   const y = 2.0 - 0.7 * g;
   reachArm(c, 'L', _a.set(0.12 + 0.35 * g, y, 0.3), _b.set(1, -0.2, -0.2), null, null, 'group');
   reachArm(c, 'R', _a.set(-0.12 - 0.35 * g, y, 0.3), _b.set(-1, -0.2, -0.2), null, null, 'group');
   void e;
-  return -lowestPoint(c);
 }
 
 // Juked: caught leaning the wrong way, twisted, the arms out for balance.
 export function jukedPose(c, side = 1) {
-  bendSpine(c, -0.2, 0.4 * side, 0.3 * side);
+  return fbPose(c, { upper: ['juked', side] });
+}
+function jukedArms(c, side = 1) {
+  bendUpper(c, -0.2, 0.4 * side, 0.3 * side);
   c.neck.rotation.set(0.05, -0.45 * side, 0);
   c.armL.rotation.set(-1.7, 0, 0.6);
   c.armR.rotation.set(-0.6, 0, -0.7);
@@ -490,7 +541,10 @@ export function jukedPose(c, side = 1) {
 
 // A defender going up for the ball: stretched up after it on one arm, eyes on it.
 export function reachBall(c) {
-  bendSpine(c, -0.12, 0.15, 0.22);
+  return fbPose(c, { upper: ['reachBall'] });
+}
+function reachBallArms(c) {
+  bendUpper(c, -0.12, 0.15, 0.22);
   c.neck.rotation.set(-0.6, 0, 0);
   c.armL.rotation.set(-2.75, 0, 0.12);
   c.elbowL.rotation.set(-0.15, 0, 0);
@@ -537,16 +591,29 @@ const _q1 = new THREE.Quaternion();
 // faking the other way; a spin: low, the ball tucked, the head coming round first; a stiff-arm:
 // the free arm locked out ahead, palm out, the shoulder driving into it.
 export function jukePose(c, side, k, speed = 5) {
-  tuckCarry(c, speed);
+  return fbPose(c, { lower: ['plant', side, k], upper: ['juke', side, k, speed] });
+}
+// (the plant foot, loaded; the other leg runs on)
+function plantLeg(c, side, k) {
   const m = Math.sin(Math.PI * clamp01(k));
-  bendSpine(c, 0.2 + 0.1 * m, side * 0.25 * m, -side * 0.35 * m);
-  c.neck.rotation.set(-0.2, -side * 0.3 * m, side * 0.2 * m);
-  bendLeg(side > 0 ? c.legL : c.legR, side > 0 ? c.kneeL : c.kneeR, 0.5 * m, 0.9 * m); // (the plant foot, loaded)
+  bendLeg(side > 0 ? c.legL : c.legR, side > 0 ? c.kneeL : c.kneeR, 0.5 * m, 0.9 * m);
   (side > 0 ? c.legL : c.legR).rotation.z = side * 0.35 * m;
+  return 0;
+}
+function jukeArms(c, side, k, speed = 5) {
+  const m = Math.sin(Math.PI * clamp01(k));
+  tuckArm(c, speed);
+  c.spine.rotation.set(0, 0, 0); // (the move's own bend, not the carry's on top of it)
+  c.chest.rotation.set(0, 0, 0);
+  bendUpper(c, 0.2 + 0.1 * m, side * 0.25 * m, -side * 0.35 * m);
+  c.neck.rotation.set(-0.2, -side * 0.3 * m, side * 0.2 * m);
   c.armL.rotation.set(-0.5 - 0.6 * m, 0, 0.5 * m); // (the free arm out for balance)
 }
 export function spinPose(c, k) {
-  tuckCarry(c, 5);
+  return fbPose(c, { full: ['spin', k] });
+}
+function spinBody(c, k) {
+  tuckArm(c, 5);
   const m = Math.sin(Math.PI * clamp01(k));
   bendSpine(c, 0.3 + 0.1 * m, 0.3 * m, 0);
   c.neck.rotation.set(-0.3, 0.5 * m, 0); // (the head round first)
@@ -556,9 +623,90 @@ export function spinPose(c, k) {
   bendLeg(c.legR, c.kneeR, 0.3 * m, 0.9 * m);
 }
 export function stiffArmPose(c, k, speed = 5) {
-  tuckCarry(c, speed);
+  return fbPose(c, { upper: ['stiffArm', k, speed] });
+}
+function stiffArmArms(c, k, speed = 5) {
+  tuckArm(c, speed);
   const m = ease(clamp01(k / 0.3)) * (1 - ease(clamp01((k - 0.75) / 0.25)));
-  bendSpine(c, 0.25 + 0.1 * m, -0.4 * m, 0);
+  c.spine.rotation.set(0, 0, 0);
+  c.chest.rotation.set(0, 0, 0);
+  bendUpper(c, 0.25 + 0.1 * m, -0.4 * m, 0);
   c.neck.rotation.set(-0.3, 0.3 * m, 0);
   reachArm(c, 'L', _a.set(mix(0.3, 0.12, m), mix(1.15, 1.35, m), mix(0.2, 0.78, m)), _b.set(1, -0.6, -0.2), _c.set(0, 0.6, 1), _d.set(0, 0, -1), 'body');
+}
+
+// ---- The layers ----
+// Every football pose is either a lower body and an upper body put together, or a whole-body
+// move that takes both. You and everybody else are posed through fbPose, so a catch, a throw or
+// a carry goes with whatever the legs are doing, running, set, in a stance, in the pocket:
+//   lower   the legs, the lean at the waist and the height (what gets the feet on the grass).
+//           'run' leaves the legs to the walk/run cycle that's already on them.
+//   upper   the chest, the head and the arms (and where the ball is). Never the legs or the
+//           height; its bend adds onto the lower's lean (bendUpper).
+//   full    leaps, dives, falls, tackles, scoops, pick-ups and celebrations: the whole body.
+// fbPose(c, { lower: [name, ...args], upper: [name, ...args] }) or fbPose(c, { full: [...] });
+// returns the height change.
+export const LOWER = {
+  run: () => 0,
+  set: setLegs, // (standing set: feet shoulder width, alive on the toes)
+  pocket: pocketLegs, // (the pocket's base and its shuffle)
+  qbSet: qbSetLegs,
+  wrSet: wrSetLegs,
+  dbSet: dbSetLegs,
+  step: stepLegs, // (stepping into a throw)
+  plant: plantLeg, // (a juke's plant foot)
+};
+export const UPPER = {
+  huddle: huddleHands,
+  snap: snapHands,
+  wrReady,
+  dbReady,
+  hold: holdHands,
+  pocketHands,
+  tuck: tuckArm,
+  throw: throwArm,
+  catch: catchHands,
+  reachBack: reachBackArms,
+  catchRun: catchRunArms,
+  catchShoulder: catchShoulderArms,
+  denied: deniedArms,
+  juked: jukedArms,
+  reachBall: reachBallArms,
+  juke: jukeArms,
+  stiffArm: stiffArmArms,
+};
+export const FULL = {
+  leap: pickPose,
+  scoop: pickScoopPose,
+  swat: swatPose,
+  pickup: pickupPose,
+  layout: layoutPose,
+  tackled: tackledPose,
+  tackler: tacklerPose,
+  spin: spinBody,
+  griddy: griddyPose,
+  upset: upsetPose,
+};
+export function fbPose(c, L) {
+  c.spine.rotation.set(0, 0, 0);
+  c.chest.rotation.set(0, 0, 0);
+  if (L.full) return FULL[L.full[0]](c, ...L.full.slice(1)) || 0;
+  const y = L.lower ? LOWER[L.lower[0]](c, ...L.lower.slice(1)) || 0 : 0;
+  if (L.upper) UPPER[L.upper[0]](c, ...L.upper.slice(1));
+  return y;
+}
+// In the huddle: bent well over (whatever the legs had), hands on the knees.
+function huddleHands(c) {
+  bendSpine(c, 0.5, 0, 0);
+  c.armL.rotation.x = c.armR.rotation.x = -0.55;
+  c.elbowL.rotation.x = c.elbowR.rotation.x = -0.3;
+}
+// An upper-body bend, on top of the lower's lean (the same split as bendSpine).
+function bendUpper(c, x = 0, y = 0, z = 0) {
+  c.spine.rotation.x += x * 0.55;
+  c.spine.rotation.y += y * 0.4;
+  c.spine.rotation.z += z * 0.5;
+  c.chest.rotation.x += x * 0.45;
+  c.chest.rotation.y += y * 0.6;
+  c.chest.rotation.z += z * 0.5;
 }

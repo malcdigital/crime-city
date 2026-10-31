@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { lam, setShirt, bendLeg, bendSpine } from './character.js';
-import { CATCHES, pickUndercutPose, pickShoulderPose, pickScoopPose, pickPose, swatPose, deniedPose, tackledPose, tacklerPose, griddyPose, reachBackPose, qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, layoutPose, jukedPose, reachBall, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
+import { fbPose, CATCHES, POCKET_CLOSE, fbBallAt, fbBallQuat, PICK_T } from './footballpose.js';
 import { rand, dist, lerpAngle, pick } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
 
@@ -807,93 +807,96 @@ export class Football {
       }
       return f.seatY - 0.9;
     }
-    // (scooping a loose ball up off the grass)
-    if (f.pickT > 0) {
-      c.group.rotation.x = 0;
-      return 0.04 + pickupPose(c, 1 - f.pickT / PICK_T);
-    }
-    // (playing catch with you: the bench and the pair down the other end, fieldmodes.js)
-    // (a moment in the air with the ball: a pick, a swat, beaten to it, securing a catch)
-    const act = f.act && this.game.time - f.act.t0 < f.act.T ? f.act : null;
-    if (act) {
-      c.group.rotation.x = c.group.rotation.z = 0;
-      const k = (this.game.time - act.t0) / act.T;
-      if (act.kind === 'pick') {
-        c.group.userData.fbGrip = 'hands'; // (the ball in both hands, up at the top of the leap)
-        return 0.04 + pickPose(c, k);
-      }
-      if (act.kind === 'pickRun') {
-        // (jumping the route: the legs run on, the hands take it out front)
-        c.group.userData.fbGrip = 'hands';
-        pickUndercutPose(c, k);
-        return 0.04 + Math.abs(Math.sin(p.phase || 0)) * 0.03;
-      }
-      if (act.kind === 'pickShoulder') {
-        c.group.userData.fbGrip = 'hands';
-        pickShoulderPose(c, k, act.side);
-        return 0.04 + Math.abs(Math.sin(p.phase || 0)) * 0.03;
-      }
-      if (act.kind === 'pickScoop') {
-        c.group.userData.fbGrip = 'hands';
-        return 0.04 + pickScoopPose(c, k);
-      }
-      if (act.kind === 'swat') return 0.04 + swatPose(c, k, act.side);
-      if (act.kind === 'denied') return 0.04 + deniedPose(c, k);
-      if (act.kind === 'secure') {
-        // (the ball pulled in to the chest in both hands, then on into the tuck)
-        const y = holdBall(c, 0, false, this.t);
-        c.group.userData.fbGrip = 'hands';
-        return 0.04 + y;
-      }
-    } else if (f.act) f.act = null;
-    if (f.dance) {
-      c.group.rotation.x = 0;
-      return 0.04 + griddyPose(c, this.game.time - f.dance.t0); // (a touchdown: the Griddy)
-    }
-    const mp = this.match?.posePlayer?.(p, c);
-    if (mp != null) return mp;
-    let y = 0.04;
-    c.group.rotation.x = 0;
+    // The rest: a lower body and an upper body, or one whole-body move (footballpose.js fbPose),
+    // the same for you (gridiron.js late) and everyone.
+    c.group.rotation.x = c.group.rotation.z = 0;
     c.armL.rotation.z = c.armR.rotation.z = 0;
     c.group.userData.fbGrip = null;
+    const act = f.act && this.game.time - f.act.t0 < f.act.T ? f.act : null;
+    if (!act && f.act) f.act = null;
+    if (!act && !f.dance && !(f.pickT > 0)) {
+      const mp = this.match?.posePlayer?.(p, c); // (the bench, a pair playing catch: fieldmodes.js)
+      if (mp != null) return mp;
+    }
+    const L = this.layers(p, act);
+    const y = fbPose(c, L);
+    if (L.grip !== undefined) c.group.userData.fbGrip = L.grip;
+    return 0.04 + y;
+  }
+
+  // What he's doing with his legs and with his hands this frame (or the one move that takes his
+  // whole body): footballpose.js fbPose.
+  layers(p, act) {
+    const f = p.fb;
+    const b = this.ball;
+    const now = this.game.time;
+    const moving = (p.speed || 0) > 1.5;
+    // (scooping a loose ball up off the grass)
+    if (f.pickT > 0) return { full: ['pickup', 1 - f.pickT / PICK_T] };
+    // (a moment in the air with the ball: a pick or a catch, a swat, beaten to it, securing it)
+    if (act) {
+      const k = (now - act.t0) / act.T;
+      switch (act.kind) {
+        case 'pick': return { full: ['leap', k], grip: 'hands' }; // (high-pointed: both hands up at the top of the leap)
+        case 'pickRun': return { lower: ['run'], upper: ['catchRun', k], grip: 'hands' }; // (in stride: the legs run on)
+        case 'pickShoulder': return { lower: ['run'], upper: ['catchShoulder', k, act.side], grip: 'hands' };
+        case 'pickScoop': return { full: ['scoop', k], grip: 'hands' };
+        case 'swat': return { full: ['swat', k, act.side] };
+        case 'denied': return { lower: ['run'], upper: ['denied', k] };
+        case 'secure': return { lower: ['run'], upper: ['hold', 0], grip: 'hands' }; // (into the chest, then the tuck)
+      }
+    }
+    if (f.dance) return { full: ['griddy', now - f.dance.t0] }; // (a touchdown: the Griddy)
     // Down: a diving catch (laid out, then getting up) or brought down in a tackle.
     if (f.downT > 0) {
       const T = f.downLen || 1.1;
       const t = T - f.downT;
       const k = t < 0.25 ? t / 0.25 : f.downT < 0.35 ? f.downT / 0.35 : 1;
-      if (f.fall?.kind === 'tackled') return y + tackledPose(c, k, f.fall.from, f.fall.side);
-      if (f.fall?.kind === 'tackler') return y + tacklerPose(c, k);
-      return y + layoutPose(c, k, f.dive);
+      if (f.fall?.kind === 'tackled') return { full: ['tackled', k, f.fall.from, f.fall.side] };
+      if (f.fall?.kind === 'tackler') return { full: ['tackler', k] };
+      return { full: ['layout', k, f.dive] };
     }
     const set = this.phase === 'set' && p.speed === 0;
-    if (set) y = (f.role === 'qb' ? qbStance(c) : f.role === 'wr' || f.role === 'rb' ? wrStance(c) : f.role === 'db' || f.role === 'lb' ? dbStance(c) : 0) + 0.04; // (in their stance)
-    if (f.beatT > 0) jukedPose(c, f.jukeSide || 1); // (juked: off balance, twisted, arms out)
-    if (f.huddle && p.speed === 0) {
-      // (in the huddle: bent over, hands on the knees)
-      bendSpine(c, 0.5, 0, 0);
-      c.armL.rotation.x = c.armR.rotation.x = -0.55;
-      c.elbowL.rotation.x = c.elbowR.rotation.x = -0.3;
+    // (the legs: in his stance at the line, else whatever the run cycle has them doing)
+    let lower = ['run'];
+    let upper = null;
+    if (set) {
+      if (f.role === 'qb') [lower, upper] = [['qbSet'], ['snap']];
+      else if (f.role === 'wr' || f.role === 'rb') [lower, upper] = [['wrSet'], ['wrReady']];
+      else if (f.role === 'db' || f.role === 'lb') [lower, upper] = [['dbSet'], ['dbReady']];
     }
+    // (the hands: the ball first, then a huddle, then juked, then the stance's)
+    let hands = null;
     if (b) {
       if (b.holder === p) {
-        if (f.throwT > 0) throwPose(c, 1 - Math.max(0, f.throwT - 0.12) / 0.23, 0); // (winding up)
-        else if (p.speed > (f.role === 'qb' ? 4 : 0.5)) tuckCarry(c, p.speed); // (high and tight; a quarterback dropping back keeps two hands on it)
+        if (f.throwT > 0) {
+          const cock = 1 - Math.max(0, f.throwT - 0.12) / 0.23; // (winding up; on the move the legs keep going)
+          hands = ['throw', cock, 0];
+          if (!moving) lower = ['step', Math.min(1, cock) ** 2 * (3 - 2 * Math.min(1, cock))];
+        } else if (p.speed > (f.role === 'qb' ? 4 : 0.5)) hands = ['tuck', p.speed]; // (high and tight; a quarterback dropping back keeps two hands on it)
         else if (!set && f.role === 'qb' && p.speed < 1.8) {
           // (set in the pocket: side-on to where he's looking, shuffling when he moves; the same as you)
-          y = pocketStance(c, Math.sin(this.t * 1.6) * 0.5, this.t * 7, Math.min(1, p.speed / 1.4)) + 0.04;
-          c.group.rotation.y = p.heading - POCKET_CLOSE;
-        } else if (!set) y = holdBall(c, 0, p.speed < 0.6, this.t) + 0.04; // (two hands on it at the chest)
+          p.char.group.rotation.y = p.heading - POCKET_CLOSE;
+          lower = ['pocket', this.t * 7, Math.min(1, p.speed / 1.4)];
+          hands = ['pocketHands', Math.sin(this.t * 1.6) * 0.5];
+        } else if (!set) {
+          hands = ['hold', 0]; // (two hands on it at the chest)
+          if (p.speed < 0.6) lower = ['set', this.t];
+        }
       } else if (f.relT > 0) {
-        throwPose(c, 1, 1 - f.relT / 0.4); // (the throw and the follow-through)
+        hands = ['throw', 1, 1 - f.relT / 0.4]; // (the throw and the follow-through)
+        if (!moving) lower = ['step', 1];
       } else if (b.mode === 'flight' && b.to === p && b.T - b.t < 0.6) {
-        if (b.kind === 'pass' && f.reachBack) reachBackPose(c, f.reachBack); // (thrown behind him: twisting back for it)
-        else if (b.kind === 'pass') catchPose(c, b.style === 'lob' || b.p1[1] > 1.5);
-        else catchPose(c, false); // (a toss or a handoff: hands out at the chest)
+        if (b.kind === 'pass' && f.reachBack) hands = ['reachBack', f.reachBack]; // (thrown behind him: twisting back for it)
+        else if (b.kind === 'pass') hands = ['catch', b.style === 'lob' || b.p1[1] > 1.5];
+        else hands = ['catch', false]; // (a toss or a handoff: hands out at the chest)
       } else if ((f.role === 'db' || f.role === 'lb') && (this.phase === 'play' || this.match?.mode === 'drive') && b.mode === 'flight' && b.kind === 'pass') {
-        reachBall(c); // (going up for it)
+        hands = ['reachBall']; // (going up for it)
       }
     }
-    return y;
+    if (!hands && f.huddle && p.speed === 0) hands = ['huddle']; // (in the huddle: bent over, hands on the knees)
+    if (!hands && f.beatT > 0) hands = ['juked', f.jukeSide || 1]; // (juked: off balance, twisted, arms out)
+    return { lower, upper: hands || upper };
   }
 }
 

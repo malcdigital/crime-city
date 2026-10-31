@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeCharacter, animateWalk, crouchPose, crouchWalk, restPose, fallPose, lam } from './character.js';
 import { aimPose, lowReady, fightStance, markPunch, punchPose, markFlinch, flinchPose, markRecoil, reloadPose, kneelPose, FIGHT_STYLES, PUNCH_T } from './combatpose.js';
-import { qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, reachBackPose, pickPose, pickUndercutPose, pickShoulderPose, pickScoopPose, tackledPose, tacklerPose, griddyPose, upsetPose, layoutPose, jukedPose, reachBall, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat, pickupPose, PICK_T } from './footballpose.js';
+import { qbStance, wrStance, dbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, throwPose, catchPose, reachBackPose, pickPose, pickUndercutPose, pickShoulderPose, pickScoopPose, tackledPose, tacklerPose, griddyPose, upsetPose, layoutPose, jukedPose, reachBall, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat, pickupPose, PICK_T, fbPose } from './footballpose.js';
 import { shotForm, dribbleArm, hesiPush, handoff, dribbleFrom, HO_TOP, SPIN_REL, dribbleArms, pivotPose, fadePose, triplePose, anklePose } from './streetball.js';
 import { dunkPose, dunkPhase } from './dunkpose.js';
 import { markJump, jumpPose } from './blockpose.js';
@@ -77,6 +77,15 @@ function list(game) {
       throwPose(c, 1, Math.min(1, (t - 0.55) / 0.4));
       return { fball: 1 };
     }],
+    // (layers: the legs running, the hands doing something else: footballpose.js fbPose)
+    ['Football', 'Layers: throw on the run', 1.2, (c, t) => {
+      animateWalk(c, t * 7.85, 1);
+      const k = t / 1.2;
+      fbPose(c, { lower: ['run'], upper: k < 0.4 ? ['throw', k / 0.4, 0] : ['throw', 1, Math.min(1, (k - 0.4) / 0.45)] });
+      return { y: Math.abs(Math.sin(t * 7.85)) * 0.05, fball: k < 0.45 ? 1 : 0 };
+    }],
+    ['Football', 'Layers: hands up for a lob on the run', 1, (c, t) => { animateWalk(c, t * 7.85, 1); fbPose(c, { lower: ['run'], upper: ['catch', true] }); return { y: Math.abs(Math.sin(t * 7.85)) * 0.05 }; }],
+    ['Football', 'Layers: reaching back on the run', 1, (c, t) => { animateWalk(c, t * 7.85, 0.6); fbPose(c, { lower: ['run'], upper: ['reachBack', 1] }); return { y: Math.abs(Math.sin(t * 7.85)) * 0.03 }; }],
     ['Football', 'Receiver stance', 2, (c) => ({ y: wrStance(c) })],
     ['Football', 'Defender stance', 2, (c) => ({ y: dbStance(c) })],
     ['Football', 'Catch: high (a lob)', 1.4, (c) => { catchPose(c, true); return { fball: 'hands' }; }],

@@ -4,8 +4,9 @@ import { FieldModes } from './fieldmodes.js';
 import { QBChallenge, QBC_KEY } from './qbchallenge.js';
 import { DriveReads, DPLAYS, SACK_READ, DRIVE_KEY } from './drivereads.js';
 import { CFG } from './config.js';
-import { bendSpine } from './character.js';
-import { tackledPose, throwPose, layoutPose, qbStance, holdBall, pocketStance, POCKET_CLOSE, tuckCarry, jukePose, spinPose, stiffArmPose, fbBallAt, fbBallQuat } from './footballpose.js';
+import { fbPose, POCKET_CLOSE, fbBallAt, fbBallQuat } from './footballpose.js';
+
+const ease = (k) => k * k * (3 - 2 * k);
 
 // Quarterback a drive at Harbor Field (football.js runs the passing drill there).
 // - Join: walk onto the field while they're lining up; their quarterback offers you the ball.
@@ -568,65 +569,60 @@ export class Gridiron {
     c.armL.rotation.z = c.armR.rotation.z = 0;
     c.group.userData.fbGrip = null;
     c.group.rotation.z = 0;
+    // (one lower body and one upper body, or one whole-body move: footballpose.js fbPose, the
+    // same as everyone else's in football.js)
+    const sp = p.speed || 0;
+    const moving = sp > 1.5; // (on the move the legs keep running under a throw)
+    const throwL = (cock, release) => ({ lower: moving ? ['run'] : ['step', release > 0 ? 1 : ease(Math.min(1, cock))], upper: ['throw', cock, release] });
+    let L = null;
     if (this.downT > 0) {
       const t = 1.1 - this.downT;
       const k = t < 0.25 ? t / 0.25 : this.downT < 0.35 ? this.downT / 0.35 : 1;
       const F = this.youFall;
-      c.group.position.y += F ? tackledPose(c, k, F.from, F.side) : layoutPose(c, k, false); // (brought down: how depends where he hit you from)
+      c.group.position.y += fbPose(c, F ? { full: ['tackled', k, F.from, F.side] } : { full: ['layout', k, false] }); // (brought down: how depends where he hit you from)
       this.placeBallDown(c, b);
       return;
     }
     this.youFall = null;
     if (this.mode === 'drive' && this.dr?.acc) {
       // (the arm coming through while you time the tap: the ball leaves the hand at the middle)
-      throwPose(c, 1, Math.min(0.34, (this.dr.acc.n / 0.5) * 0.34));
-      c.group.userData.fbGrip = 'throw';
-      this.placeBall(c, b);
-      return;
-    }
-    if (this.mode && this.mode !== 'drive' && this.modeLate(c)) {
-      this.placeBall(c, b);
-      return;
-    }
-    if (this.dr?.huddle && (p.speed || 0) < 0.3) {
-      // (calling it in the huddle: bent over with them)
-      bendSpine(c, 0.45, 0, 0);
-      c.armL.rotation.x = c.armR.rotation.x = -0.5;
-      this.placeBall(c, b);
-      return;
-    }
-    if (this.state === 'line' && (p.speed || 0) < 0.3 && this.ready) {
-      c.group.position.y += qbStance(c);
-      this.placeBall(c, b);
-      return;
-    }
-    if (b.holder === 'you') {
+      L = { ...throwL(1, Math.min(0.34, (this.dr.acc.n / 0.5) * 0.34)), grip: 'throw' };
+    } else if (this.mode && this.mode !== 'drive' && (L = this.modeLayers(c))) {
+      // (the QB Challenge, playing catch: fieldmodes.js)
+    } else if (this.dr?.huddle && sp < 0.3) {
+      L = { lower: ['run'], upper: ['huddle'] }; // (calling it in the huddle: bent over with them)
+    } else if (this.state === 'line' && sp < 0.3 && this.ready) {
+      L = { lower: ['qbSet'], upper: ['snap'] };
+    } else if (b.holder === 'you') {
       if (this.dropping) {
         p.heading = Math.PI; // (backpedaling, facing downfield)
         c.group.rotation.y = p.heading;
       }
       const M = this.runMove;
-      const sp = p.speed || 0;
-      if (this.press) throwPose(c, Math.min(1, this.press.t / 0.15), 0);
-      else if (M && M.kind === 'juke') jukePose(c, M.side, M.t / M.T, sp);
+      if (this.press) L = throwL(Math.min(1, this.press.t / 0.15), 0);
+      else if (M && M.kind === 'juke') L = { lower: ['plant', M.side, M.t / M.T], upper: ['juke', M.side, M.t / M.T, sp] };
       else if (M && M.kind === 'spin') {
         // (a full turn through the tackle, toward the ball's side; the run carries on the same way)
         const k = Math.min(1, M.t / M.T);
-        spinPose(c, k);
+        L = { full: ['spin', k] };
         c.group.rotation.y = p.heading - Math.PI * 2 * (k * k * (3 - 2 * k));
-      } else if (M && M.kind === 'stiff') stiffArmPose(c, M.t / M.T, sp);
-      else if (this.scramble || (sp > 3 && !this.dropping)) tuckCarry(c, sp); // (high and tight; dropping back it stays in both hands)
-      else if (this.dropping) c.group.position.y += holdBall(c, 0, false, game.time); // (two hands on it, backpedaling)
+      } else if (M && M.kind === 'stiff') L = { lower: ['run'], upper: ['stiffArm', M.t / M.T, sp] };
+      else if (this.scramble || (sp > 3 && !this.dropping)) L = { lower: ['run'], upper: ['tuck', sp] }; // (high and tight; dropping back it stays in both hands)
+      else if (this.dropping) L = { lower: ['run'], upper: ['hold', 0] }; // (two hands on it, backpedaling)
       else if (this.mode === 'qbc' && this.qbc?.jk?.move) {
         const J = this.qbc.jk.move; // (the juke past the rusher: thrown toward the side you went)
-        jukePose(c, J.dir, J.t / 0.45, 4);
-      } else c.group.position.y += this.pocketPose(c, this.mode === 'qbc' ? this.qbcFace() : this.drFace()); // (set in the pocket: side-on, shuffling)
-      this.placeBall(c, b);
-    } else if (this.throwT > 0) throwPose(c, 1, 1 - this.throwT / 0.4); // (the follow-through)
+        L = { lower: ['plant', J.dir, J.t / 0.45], upper: ['juke', J.dir, J.t / 0.45, 4] };
+      } else L = this.pocketPose(c, this.mode === 'qbc' ? this.qbcFace() : this.drFace()); // (set in the pocket: side-on, shuffling)
+    } else if (this.throwT > 0) L = throwL(1, 1 - this.throwT / 0.4); // (the follow-through)
+    if (!L) return;
+    c.group.position.y += fbPose(c, L);
+    if (L.grip !== undefined) c.group.userData.fbGrip = L.grip;
+    this.placeBall(c, b);
   }
 
   // You in the pocket (the drive, the QB Challenge): side-on to where you're looking (face: the
   // yaw of the target), shuffling as you move, the feet stepping round as you turn to a new one.
+  // Returns the layers (fbPose).
   pocketPose(c, face) {
     const game = this.game;
     const p = game.player;
@@ -640,7 +636,7 @@ export class Gridiron {
     this.pkStep = (this.pkStep || 0) + moved * 5 + turn * dt * 14 + dt * 2;
     const moving = Math.min(1, (dt > 0 ? moved / dt : 0) / 1.4 + turn * 1.5);
     c.group.rotation.y = this.pkYaw - POCKET_CLOSE;
-    return pocketStance(c, 0, this.pkStep, moving);
+    return { lower: ['pocket', this.pkStep, moving], upper: ['pocketHands', 0] };
   }
 
   // Down with the ball: on the grass at your chest, wherever you're lying.
