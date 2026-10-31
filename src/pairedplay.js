@@ -144,6 +144,9 @@ export function startPairRim(name, A, B, { rim, at = 0, mirror = false, now = 0,
   if (clear && A.char && B.char) {
     b.clearOf = A.char;
     a.clearOf = B.char;
+    // ('all': the whole way through, not just the blend (scenes where only the hands are meant to
+    // meet, on the ball: the game's men aren't all built like the one it was authored on))
+    if (clear === 'all') a.clearAll = b.clearAll = true;
   }
   return { a, b, pair, start, ballAt };
 }
@@ -167,6 +170,33 @@ function drawnAt(pl, now) {
   const [x, z] = place(pl.origin, ...rootLerp(pl.clip, pl.start + (now - pl.t0), pl.mirror));
   const w = 1 - smooth(Math.min(1, (now - pl.t0) / pl.blend));
   return [x + pl.off[0] * w, z + pl.off[1] * w];
+}
+
+// (out of the other man: whatever of him is in the other man nudges him out, and the nudge is
+// kept (play.nudge) so the next frames start from there; keep: how much of it stays on)
+export function pushClear(c, play, keep = 1) {
+  if (!play?.clearOf) return;
+  play.nudge ||= [0, 0];
+  const skip = play.clearAll ? ['wristL', 'wristR'] : [];
+  for (let i = 0; i < 3; i++) {
+    c.group.updateMatrixWorld(true);
+    const o = overlap(play.clearOf, c, skip, skip, 0.06); // (a little room: he's checked against where the other man was drawn last)
+    if (!(o.depth > 0)) break;
+    let hx = o.push.x;
+    let hz = o.push.z;
+    let L = Math.hypot(hx, hz);
+    if (L < 1e-3) {
+      // (straight up or down: out away from him instead)
+      hx = c.group.position.x - play.clearOf.group.position.x;
+      hz = c.group.position.z - play.clearOf.group.position.z;
+      L = Math.hypot(hx, hz) || 1;
+    }
+    const d = o.depth + 0.01;
+    c.group.position.x += (hx / L) * d;
+    c.group.position.z += (hz / L) * d;
+    play.nudge[0] += ((hx / L) * d) / Math.max(keep, 0.2);
+    play.nudge[1] += ((hz / L) * d) / Math.max(keep, 0.2);
+  }
 }
 
 // One character posed from his play at time now. rise (0..1): back up off the turf. Returns
@@ -208,29 +238,18 @@ export function playClip(c, play, now, rise = 0) {
   }
   // (kept clear of the other man while blending in: whatever of him is in the other man (an arm
   // still on its way into the clip's pose) nudges him out, and the nudge goes as the blend does)
-  if (play.clearOf && w > 0) {
+  if (play.clearOf && (w > 0 || play.clearAll)) {
     play.nudge ||= [0, 0];
-    c.group.position.x += play.nudge[0] * w;
-    c.group.position.z += play.nudge[1] * w;
-    for (let i = 0; i < 3; i++) {
-      c.group.updateMatrixWorld(true);
-      const o = overlap(play.clearOf, c, [], [], 0.06); // (a little room: he's checked against where the other man was drawn last)
-      if (!(o.depth > 0)) break;
-      let hx = o.push.x;
-      let hz = o.push.z;
-      let L = Math.hypot(hx, hz);
-      if (L < 1e-3) {
-        // (straight up or down: out away from him instead)
-        hx = c.group.position.x - play.clearOf.group.position.x;
-        hz = c.group.position.z - play.clearOf.group.position.z;
-        L = Math.hypot(hx, hz) || 1;
-      }
-      const d = o.depth + 0.01;
-      c.group.position.x += (hx / L) * d;
-      c.group.position.z += (hz / L) * d;
-      play.nudge[0] += ((hx / L) * d) / Math.max(w, 0.2);
-      play.nudge[1] += ((hz / L) * d) / Math.max(w, 0.2);
+    // (during the blend the nudge goes as the blend does; all the way through, it eases off
+    // once they're clear)
+    const keep = play.clearAll ? 1 : w;
+    if (play.clearAll && w === 0) {
+      play.nudge[0] *= 0.9;
+      play.nudge[1] *= 0.9;
     }
+    c.group.position.x += play.nudge[0] * keep;
+    c.group.position.z += play.nudge[1] * keep;
+    pushClear(c, play, keep);
   }
   // (getting up: the joints back to standing, upright, feet on the turf)
   if (rise > 0) {

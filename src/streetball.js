@@ -12,7 +12,8 @@ import { markStripped, markScoop, scooping, strippedPose, scoopPose, markFoul, f
 import { readyPose, boxOutPose, markGrab, grabbing, grabPose } from './reboundpose.js';
 import { markPass, markCatch, passPose, passReset, passFrom, steerPass, handsAt, holdPose, catching, palmBall, twoHandBall } from './passpose.js';
 import { CFG } from './config.js';
-import { startPairRim, playClip } from './pairedplay.js';
+import { startPairRim, playClip, tackleKind, pushClear } from './pairedplay.js';
+import { reachPalm } from './paired/kit.js';
 
 const px0 = (p) => p.pos()[0];
 const pz0 = (p) => p.pos()[1];
@@ -150,6 +151,17 @@ const spinHeading = (mv, k) => mv.h0 - (mv.from || 1) * Math.PI * 2 * (k * k * (
 export const SPIN_REL = 0.7;
 // The paired moments: who ends up on the floor in each, and how long getting up takes.
 const PAIR_DOWN = { 'bb-poster': { defender: true } };
+// The hands on the ball in each one (actor: [hand, from, to], events or frames of the clip):
+// in the game the men aren't all built like the one it was authored on, so over those frames
+// (faded in and out over GRIP_FADE frames) the palm is put on the scene's ball wherever it is.
+const PAIR_GRIPS = {
+  'bb-poster': { dunker: ['R', 'takeoff', 'slam'] },
+  'bb-chasedown': { chaser: ['R', -3, 'pin', 3] },
+  'bb-rimblock': { shooter: ['R', 'takeoff', 'block'], blocker: ['L', -4, 'block', 1] },
+  'bb-block-behind': { shooter: ['R', 'takeoff', 'block'], blocker: ['L', -4, 'block', 1] },
+  'bb-block-side': { shooter: ['R', 'takeoff', 'block'], blocker: ['R', -4, 'block', 1] },
+};
+const GRIP_FADE = 3;
 const PAIR_RISE = 0.45;
 // Smoothing between poses (yours and his): every joint eases to where this frame's pose puts it
 // (about 0.1 s to settle), so moves, stances and shots blend instead of snapping.
@@ -3599,6 +3611,8 @@ export class Streetball {
     const yours = anchor === 'you' ? [S.a, nA] : [S.b, nB];
     const his = anchor === 'you' ? [S.b, nB] : [S.a, nA];
     yours[0].down = !!down[yours[1]];
+    yours[0].actor = yours[1];
+    his[0].actor = his[1];
     his[0].down = !!down[his[1]];
     this.scene = { you: yours[0], opp: his[0], S, t0: game.time };
     // (the ball on the scene's own track till its moment: through the rim, pinned on the glass)
@@ -3642,10 +3656,49 @@ export class Streetball {
     P.z = r.z;
     P.heading = r.heading;
     P.speed = 0;
+    this.sceneGrip(c, play, t);
+    pushClear(c, play, play.clearAll ? 1 : 0); // (a hand put on the ball mustn't put an arm in him)
+    // (where the grip left him: a stretch for the ball moves him a little)
+    P.x = r.x = c.group.position.x;
+    P.z = r.z = c.group.position.z;
+    r.y = c.group.position.y;
     smoothJoints(c, 1); // (the easing picks up from here when it's over)
     const s = c.group.userData.sm;
     s.g = { x: 0, z: 0 };
     return r;
+  }
+
+  // His palm on the scene's ball while the clip has it in his hand (PAIR_GRIPS), faded in and out.
+  sceneGrip(c, play, t) {
+    const S = this.scene?.S;
+    const g = PAIR_GRIPS[S?.pair.name]?.[play.actor];
+    if (!g || !S.pair.ball) return;
+    const ev = S.pair.events;
+    // ([hand, from, to] or [hand, frames before, event, frames after])
+    const [hand, a, b, c2] = g;
+    const [fa, fb] = g.length === 4 ? [ev[b] + a, ev[b] + c2] : [ev[a], ev[b]];
+    const f = t * S.pair.fps;
+    const w = Math.max(0, Math.min(1, (f - (fa - GRIP_FADE)) / GRIP_FADE, (fb + GRIP_FADE - f) / GRIP_FADE));
+    if (w <= 0) return;
+    const at = S.ballAt(Math.round(f));
+    if (!at) return;
+    const side = play.mirror ? (hand === 'R' ? 'L' : 'R') : hand;
+    const J = side === 'R' ? ['armR', 'elbowR', 'wristR'] : ['armL', 'elbowL', 'wristL'];
+    const before = J.map((j) => c[j].quaternion.clone());
+    c.group.updateMatrixWorld(true);
+    const ball = new THREE.Vector3(at.x, at.y, at.z);
+    const pole = new THREE.Vector3(side === 'R' ? -1 : 1, -0.5, 0);
+    reachPalm(c, side, ball, pole);
+    // (still short of it, a shorter man: the one going after it (the blocker, the chaser: a grip
+    // around a moment) stretches the rest of the way, a little; the ball's own man doesn't)
+    const miss = ball.clone().sub(palmBall(c, side, new THREE.Vector3()));
+    const L = miss.length();
+    if (L > 0.02 && g.length === 4) {
+      c.group.position.addScaledVector(miss, (Math.min(L, 0.3) / L) * w);
+      c.group.updateMatrixWorld(true);
+      reachPalm(c, side, ball, pole);
+    }
+    if (w < 1) J.forEach((j, i) => c[j].quaternion.slerp(before[i], 1 - w));
   }
 
   // The ball on a paired clip's own track (till the slam, the pin), whatever mode it's in;
@@ -3710,17 +3763,26 @@ export class Streetball {
     return this.playPair('bb-chasedown', shooter, 'release', !left, { lead: 0.1, blend: 0.25, clear: true, ballTill: 'pin', ballHold: 0.12 });
   }
 
-  // The block at the rim: a layup or a dunk met at the top by the man in front of him, swatted
-  // out (shooter: 'you' or 'opp'); off his right hand or (mirrored) his left. Only up close
-  // to the rim, with the blocker between him and it.
+  // A block on a layup or a dunk near the rim, from wherever the blocker is (shooter: 'you' or
+  // 'opp'; hand: his layup hand, +1 right): in front of him, met at the top at the rim
+  // (bb-rimblock); right behind him, taken off him on the way up (bb-block-behind); from the
+  // side, the help defender flying across (bb-block-side). Each mirrored for the other hand or
+  // the other side.
   rimBlock(shooter, hand = 1) {
     const rim = this.rim;
-    const [px, pz] = this.game.player.pos();
+    const p = this.game.player;
+    const [px, pz] = p.pos();
     const opp = this.opp;
-    const [sx, sz, bx, bz] = shooter === 'you' ? [px, pz, opp.x, opp.z] : [opp.x, opp.z, px, pz];
-    if (dist(sx, sz, rim.x, rim.z) > 3.2 || dist(sx, sz, bx, bz) > 2.4) return null;
-    if (dist(bx, bz, rim.x, rim.z) > dist(sx, sz, rim.x, rim.z) + 0.3) return null; // (he's not in front of him)
-    return this.playPair('bb-rimblock', shooter, 'block', hand < 0, { lead: 0.22, blend: 0.2, clear: true, ballTill: 'block', ballHold: 0.02 });
+    const [sx, sz, sh, bx, bz] = shooter === 'you' ? [px, pz, p.heading, opp.x, opp.z] : [opp.x, opp.z, opp.heading, px, pz];
+    if (dist(sx, sz, rim.x, rim.z) > 4 || dist(sx, sz, bx, bz) > 2.6) return null;
+    const { from, side } = tackleKind(sx, sz, sh, bx, bz);
+    const opts = { lead: 0.22, blend: 0.2, clear: 'all', ballTill: 'block', ballHold: 0.02 };
+    if (from === 'front') {
+      if (dist(sx, sz, rim.x, rim.z) > 3.2) return null;
+      return this.playPair('bb-rimblock', shooter, 'block', hand < 0, opts);
+    }
+    if (from === 'behind') return this.playPair('bb-block-behind', shooter, 'block', hand < 0, opts);
+    return this.playPair('bb-block-side', shooter, 'block', side > 0, opts); // (authored from his right)
   }
 
   // A block: the ball knocked out of the shooter's hands, away from the blocker's hand (from
