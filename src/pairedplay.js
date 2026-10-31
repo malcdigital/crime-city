@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { applyClip, alignedOrigin, JOINTS } from './paired.js';
+import { overlap } from './pairedcontact.js';
 
 // The paired animations in the game (authored together, exported apart: src/paired.js, the
 // clips in src/anims/paired/). A pair starts from wherever the two of them are:
@@ -97,7 +98,7 @@ export function startPair(name, A, B, { at = 0, mirror = false, now = 0, maxTurn
 // over the court), turned round it (up to maxTurn) so the anchor's start is on his side of it;
 // both men blended in from where they really are (blend seconds; blendB: the partner's). Also gives ballAt(f): the
 // scene's ball at frame f, in the world.
-export function startPairRim(name, A, B, { rim, at = 0, mirror = false, now = 0, maxTurn = 0.8, lead = LEAD, blend = 0.3, blendB = blend } = {}) {
+export function startPairRim(name, A, B, { rim, at = 0, mirror = false, now = 0, maxTurn = 0.8, lead = LEAD, blend = 0.3, blendB = blend, blendJ = null, clear = false } = {}) {
   const P = PAIRED[name];
   if (!P?.pair.rim) return null;
   const { pair, clips } = P;
@@ -128,14 +129,44 @@ export function startPairRim(name, A, B, { rim, at = 0, mirror = false, now = 0,
     const a = (M.heading ?? 0) - (o.yaw + rootAt(clip, start, mirror).yaw);
     return Math.atan2(Math.sin(a), Math.cos(a));
   };
-  const mk = (clip, origin, M, blend) => ({ name, clip, origin, mirror, start, t0: now, off: at0(clip, origin, M), yawOff: turnOf(clip, origin, M), from: M.char ? joints(M.char) : null, length: clip.length, blend });
+  const mk = (clip, origin, M, blend) => ({ name, clip, origin, mirror, start, t0: now, off: at0(clip, origin, M), yawOff: turnOf(clip, origin, M), from: M.char ? joints(M.char) : null, length: clip.length, blend, blendJ });
   const ballAt = (f) => {
     const b = pair.ball?.[Math.max(0, Math.min(pair.ball.length - 1, f))];
     if (!b) return null;
     const [x, z] = place(oA, mirror ? -b[0] : b[0], b[2]);
     return { x, y: oA.y + b[1], z };
   };
-  return { a: mk(clips[nA], oA, A, blend), b: mk(clips[nB], oB, B, blendB), pair, start, ballAt };
+  const a = mk(clips[nA], oA, A, blend);
+  const b = mk(clips[nB], oB, B, blendB);
+  b.around = { a, r0: [B.x - A.x, B.z - A.z] };
+  // (kept out of each other while they blend in: playClip; whichever's drawn second checks
+  // against the other as he is this frame)
+  if (clear && A.char && B.char) {
+    b.clearOf = A.char;
+    a.clearOf = B.char;
+  }
+  return { a, b, pair, start, ballAt };
+}
+
+// While they blend in, the partner comes from where he is to his place in the clip round the
+// anchor, not in a straight line: his bearing and distance from the anchor are each blended
+// (the shorter way round), so a chaser from right behind swings out round the shooter instead
+// of going through him.
+const smooth = (k) => k * k * (3 - 2 * k);
+function rootLerp(clip, t, mirror) {
+  const fr = Math.max(0, Math.min(clip.frames - 1, t * clip.fps));
+  const i = Math.floor(fr);
+  const n = Math.min(clip.frames - 1, i + 1);
+  const k = fr - i;
+  const x = clip.root[i][0] + (clip.root[n][0] - clip.root[i][0]) * k;
+  const z = clip.root[i][2] + (clip.root[n][2] - clip.root[i][2]) * k;
+  return [mirror ? -x : x, z];
+}
+// (where a play's man is drawn on the ground at now: his clip, plus what's left of his blend-in)
+function drawnAt(pl, now) {
+  const [x, z] = place(pl.origin, ...rootLerp(pl.clip, pl.start + (now - pl.t0), pl.mirror));
+  const w = 1 - smooth(Math.min(1, (now - pl.t0) / pl.blend));
+  return [x + pl.off[0] * w, z + pl.off[1] * w];
 }
 
 // One character posed from his play at time now. rise (0..1): back up off the turf. Returns
@@ -149,10 +180,57 @@ export function playClip(c, play, now, rise = 0) {
   const k = Math.min(1, (now - play.t0) / (play.blend || BLEND));
   const w = 1 - k * k * (3 - 2 * k);
   if (w > 0) {
-    c.group.position.x += play.off[0] * w;
-    c.group.position.z += play.off[1] * w;
+    if (play.around) {
+      // (round the anchor: from where he was off him to where the clip has him off him)
+      const [ax, az] = drawnAt(play.around.a, now);
+      const [r0x, r0z] = play.around.r0;
+      const rcx = c.group.position.x - ax;
+      const rcz = c.group.position.z - az;
+      const a0 = Math.atan2(r0x, r0z);
+      const ac = Math.atan2(rcx, rcz);
+      const da = Math.atan2(Math.sin(ac - a0), Math.cos(ac - a0));
+      const ang = a0 + da * (1 - w);
+      const rad = Math.hypot(r0x, r0z) * w + Math.hypot(rcx, rcz) * (1 - w);
+      c.group.position.x = ax + Math.sin(ang) * rad;
+      c.group.position.z = az + Math.cos(ang) * rad;
+    } else {
+      c.group.position.x += play.off[0] * w;
+      c.group.position.z += play.off[1] * w;
+    }
     if (play.yawOff) c.group.quaternion.premultiply(_q.setFromAxisAngle(_up, play.yawOff * w));
-    if (play.from) JOINTS.forEach((j, i) => c[j].quaternion.slerp(play.from[i], w));
+    if (play.from && !play.blendJ) JOINTS.forEach((j, i) => c[j].quaternion.slerp(play.from[i], w));
+  }
+  // (the joints can come into the clip's pose quicker than the body moves into its place)
+  if (play.from && play.blendJ) {
+    const kj = Math.min(1, (now - play.t0) / play.blendJ);
+    const wj = 1 - kj * kj * (3 - 2 * kj);
+    if (wj > 0) JOINTS.forEach((j, i) => c[j].quaternion.slerp(play.from[i], wj));
+  }
+  // (kept clear of the other man while blending in: whatever of him is in the other man (an arm
+  // still on its way into the clip's pose) nudges him out, and the nudge goes as the blend does)
+  if (play.clearOf && w > 0) {
+    play.nudge ||= [0, 0];
+    c.group.position.x += play.nudge[0] * w;
+    c.group.position.z += play.nudge[1] * w;
+    for (let i = 0; i < 3; i++) {
+      c.group.updateMatrixWorld(true);
+      const o = overlap(play.clearOf, c, [], [], 0.06); // (a little room: he's checked against where the other man was drawn last)
+      if (!(o.depth > 0)) break;
+      let hx = o.push.x;
+      let hz = o.push.z;
+      let L = Math.hypot(hx, hz);
+      if (L < 1e-3) {
+        // (straight up or down: out away from him instead)
+        hx = c.group.position.x - play.clearOf.group.position.x;
+        hz = c.group.position.z - play.clearOf.group.position.z;
+        L = Math.hypot(hx, hz) || 1;
+      }
+      const d = o.depth + 0.01;
+      c.group.position.x += (hx / L) * d;
+      c.group.position.z += (hz / L) * d;
+      play.nudge[0] += ((hx / L) * d) / Math.max(w, 0.2);
+      play.nudge[1] += ((hz / L) * d) / Math.max(w, 0.2);
+    }
   }
   // (getting up: the joints back to standing, upright, feet on the turf)
   if (rise > 0) {

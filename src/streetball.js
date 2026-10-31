@@ -3690,7 +3690,7 @@ export class Streetball {
     const S = shooter === 'you' ? { x: px, z: pz, heading: p.heading } : opp;
     const C = shooter === 'you' ? opp : { x: px, z: pz };
     const left = (C.x - S.x) * Math.cos(S.heading) - (C.z - S.z) * Math.sin(S.heading) >= 0;
-    return this.playPair('bb-chasedown', shooter, 'release', !left, { lead: 0.1, blend: 0.25, ballTill: 'pin', ballHold: 0.12 });
+    return this.playPair('bb-chasedown', shooter, 'release', !left, { lead: 0.1, blend: 0.25, clear: true, ballTill: 'pin', ballHold: 0.12 });
   }
 
   // A block: the ball knocked out of the shooter's hands, away from the blocker's hand (from
