@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { dist, rand, lerpAngle } from './util.js';
 import { CTYPES, GOLD, YD, G } from './fieldmodes.js';
 import { Scoreboard } from './scoreboard.js';
+import { POCKET_STICK } from './footballpose.js';
 
 // The QB Challenge at Harbor Field (mixed into Gridiron: gridiron.js), picked from the field's
 // menu. Three stages from the spot, with the throw meter (throwmeter.js: □ bullet, ✕ touch, △
@@ -227,7 +228,7 @@ export const QBChallenge = {
     const Q = this.qbc;
     if (!Q) return;
     const S = QBC_STAGES[i];
-    Object.assign(Q, { stage: i, t: -3, started: false, stageOver: false, ready: true, streak: 0, mult: 1, idx: 0, tp: 'wait', tT: 0, shot: SHOT_T, jk: null });
+    Object.assign(Q, { stage: i, t: -3, started: false, stageOver: false, ready: true, streak: 0, mult: 1, idx: 0, tp: 'wait', tT: 0, shot: SHOT_T, jk: null, home: false });
     // (the same distances for everyone, in a shuffled order)
     Q.queue = SETS[S.id].slice().sort(() => Math.random() - 0.5);
     this.press = null;
@@ -470,7 +471,36 @@ export const QBChallenge = {
       if (dir || flick) this.qbcJuke(dir || flick);
     }
     this.meterInput(dt, a, fire);
-    a.sprint = false; // (in the pocket you shuffle, you don't run)
+    a.sprint = false; // (in the pocket you shuffle in your stance, you don't run)
+    const m = Math.hypot(a.moveX, a.moveY);
+    if (m > POCKET_STICK) {
+      a.moveX *= POCKET_STICK / m;
+      a.moveY *= POCKET_STICK / m;
+    }
+    // (PRESSURE: after the throw, back to the spot, there by the time the camera's back on you:
+    // brisk while it's out with the ball, shuffling once you're in the picture)
+    if (Q.home && !(this.downT > 0)) {
+      const game = this.game;
+      const [px, pz] = game.player.pos();
+      const dx = Q.spot[0] - px;
+      const dz = Q.spot[1] - pz;
+      const d = Math.hypot(dx, dz);
+      if (d < 0.05 || (Q.cam && d < 0.3)) {
+        a.moveX = a.moveY = 0;
+        if (Q.cam) {
+          // (the last bit while the camera's away: exactly on it, stopped)
+          game.player.x = Q.spot[0];
+          game.player.z = Q.spot[1];
+          game.player.speed = 0;
+        } else if (!Q.camBack) Q.home = false;
+      } else {
+        const fx = Math.sin(game.camYaw);
+        const fz = Math.cos(game.camYaw);
+        const k = (Math.min(1, d / 0.6) * (Q.cam ? 1 : POCKET_STICK)) / d;
+        a.moveY = (dx * fx + dz * fz) * k;
+        a.moveX = (dx * -fz + dz * fx) * k;
+      }
+    }
     if (Q.jk?.move) a.moveX = a.moveY = 0;
     this.prevR = R.slice();
     this.prevFire = fire;
@@ -545,6 +575,7 @@ export const QBChallenge = {
     Q.tp = 'flight';
     Q.tT = 0;
     Q.throws++;
+    if (QBC_STAGES[Q.stage].id === 'juke') Q.home = true; // (back to the spot: qbcInput)
     this.throwT = 0.26;
     // (past 10 yards the camera follows the ball out to the target; a deep one that's going in
     // gets the slow motion for its last second too, not too often)
@@ -705,6 +736,7 @@ export const QBChallenge = {
   // (the throw at this target's settled, or it's gone: the ring goes down, the next comes up)
   qbcDone() {
     const Q = this.qbc;
+    if (QBC_STAGES[Q.stage]?.id === 'juke') Q.home = true; // (sacked or too slow: the next one from the spot too)
     Q.tp = 'done';
     Q.tT = 0;
     Q.ready = false;

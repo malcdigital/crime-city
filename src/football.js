@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { lam, setShirt, bendLeg, bendSpine } from './character.js';
-import { fbPose, CATCHES, POCKET_CLOSE, fbBallAt, fbBallQuat, PICK_T } from './footballpose.js';
+import { fbPose, CATCHES, POCKET_CLOSE, PocketFeet, fbBallAt, fbBallQuat, PICK_T } from './footballpose.js';
 import { rand, dist, lerpAngle, pick } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
 
@@ -882,8 +882,15 @@ export class Football {
         } else if (p.speed > (f.role === 'qb' ? 4 : 0.5)) hands = ['tuck', p.speed]; // (high and tight; a quarterback dropping back keeps two hands on it)
         else if (!set && f.role === 'qb' && p.speed < 1.8) {
           // (set in the pocket: side-on to where he's looking, shuffling when he moves; the same as you)
-          p.char.group.rotation.y = p.heading - POCKET_CLOSE;
-          lower = ['pocket', this.t * 7, Math.min(1, p.speed / 1.4)];
+          // (round to where he's looking in steps, not gliding: footballpose.js PocketFeet)
+          const F = (f.pkFeet ||= new PocketFeet());
+          const dt = Math.min(0.1, now - (f.pkT ?? now));
+          f.pkT = now;
+          const moved = f.pkP ? Math.hypot(p.x - f.pkP[0], p.z - f.pkP[1]) : 0;
+          f.pkP = [p.x, p.z];
+          const r = F.update(p.heading, moved, dt);
+          p.char.group.rotation.y = r.yaw - POCKET_CLOSE;
+          lower = ['pocket', r.step, r.moving];
           hands = ['pocketHands', Math.sin(this.t * 1.6) * 0.5];
         } else if (!set) {
           hands = ['hold', 0]; // (two hands on it at the chest)

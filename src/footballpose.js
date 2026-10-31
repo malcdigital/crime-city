@@ -147,6 +147,53 @@ function pocketLegs(c, step = 0, moving = 0) {
   return -lowestPoint(c);
 }
 
+// Turning in the pocket by steps, not by gliding round on the spot (you: gridiron.js pocketPose;
+// their quarterback: football.js). Each frame: where he wants to face (a yaw), how far he moved
+// and the time. Off by more than about 7°, he takes a step: up to 40° of the turn with one foot
+// (the one on the side he's turning to first, opening up), the body coming round with it, then
+// the next with the other foot, till he's square to it. Shuffling, the steps go with the
+// distance. Gives the yaw to stand at and the stepping phase / amount for pocketLegs.
+export const POCKET_STICK = 0.45; // (the stick in the pocket (the drive, the QB Challenge): a shuffle, about 1.9 m/s, not a walk)
+const TURN_MIN = 0.12;
+const TURN_MAX = 0.7;
+export class PocketFeet {
+  constructor() {
+    this.yaw = null;
+    this.step = 0;
+    this.turn = null;
+  }
+  update(face, moved, dt) {
+    if (this.yaw == null) this.yaw = face;
+    this.clock = (this.clock || 0) + dt;
+    const diff = Math.atan2(Math.sin(face - this.yaw), Math.cos(face - this.yaw));
+    if (!this.turn && Math.abs(diff) > TURN_MIN) {
+      const by = Math.sign(diff) * Math.min(Math.abs(diff), TURN_MAX);
+      // (the foot on the turning side first: +yaw turns him to his left, the left foot lifts on
+      // an even half of the stepping phase; carrying on round the same way, the other foot next)
+      const n = Math.round(this.step / Math.PI);
+      const even = ((n % 2) + 2) % 2 === 0;
+      const going = this.last && this.clock - this.last.at < 0.2 && Math.sign(this.last.by) === Math.sign(by);
+      const ph = going || (by > 0) === even ? n * Math.PI : (n + 1) * Math.PI;
+      this.turn = { from: this.yaw, by, t: 0, T: 0.13 + 0.12 * (Math.abs(by) / TURN_MAX), ph };
+    }
+    let lift = 0;
+    if (this.turn) {
+      const T = this.turn;
+      T.t += dt;
+      const k = Math.min(1, T.t / T.T);
+      this.yaw = T.from + T.by * ease(k);
+      this.step = T.ph + Math.PI * k; // (one foot up, round and down)
+      lift = 1;
+      if (k >= 1) {
+        this.turn = null;
+        this.last = { at: this.clock, by: T.by };
+      }
+    }
+    this.step += moved * 5; // (shuffling: a step every 30 cm or so)
+    return { yaw: this.yaw, step: this.step, moving: Math.min(1, (dt > 0 ? moved / dt : 0) / 1.4 + lift) };
+  }
+}
+
 // Running with it: high and tight (the ball against the ribs, the hand over its front tip, the
 // elbow clamped on it), leaning into the run (speed m/s), the head up.
 // (the five points of a good carry: the nose in the palm, fingers over the front tip, the ball

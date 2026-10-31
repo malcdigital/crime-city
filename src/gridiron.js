@@ -4,7 +4,7 @@ import { FieldModes } from './fieldmodes.js';
 import { QBChallenge, QBC_KEY } from './qbchallenge.js';
 import { DriveReads, DPLAYS, SACK_READ, DRIVE_KEY } from './drivereads.js';
 import { CFG } from './config.js';
-import { fbPose, POCKET_CLOSE, fbBallAt, fbBallQuat } from './footballpose.js';
+import { fbPose, POCKET_CLOSE, POCKET_STICK, PocketFeet, fbBallAt, fbBallQuat } from './footballpose.js';
 
 const ease = (k) => k * k * (3 - 2 * k);
 
@@ -277,6 +277,14 @@ export class Gridiron {
         this.dropping = true;
       } else this.dropping = false;
       if (this.press || this.dr.acc) a.moveX = a.moveY = 0; // (set your feet to throw)
+      else if (!this.dropping && !a.sprint) {
+        // (in the pocket you shuffle in your stance; sprint to break out of it)
+        const m = Math.hypot(a.moveX, a.moveY);
+        if (m > POCKET_STICK) {
+          a.moveX *= POCKET_STICK / m;
+          a.moveY *= POCKET_STICK / m;
+        }
+      }
     } else {
       this.press = null;
       this.meterInput(dt, a, fire); // (the meter's verdict, and time coming back to normal)
@@ -615,12 +623,11 @@ export class Gridiron {
         L = { full: ['spin', k] };
         c.group.rotation.y = p.heading - Math.PI * 2 * (k * k * (3 - 2 * k));
       } else if (M && M.kind === 'stiff') L = { lower: ['run'], upper: ['stiffArm', M.t / M.T, sp] };
-      else if (this.scramble || (sp > 3 && !this.dropping)) L = { lower: ['run'], upper: ['tuck', sp] }; // (high and tight; dropping back it stays in both hands)
-      else if (this.dropping) L = { lower: ['run'], upper: ['hold', 0] }; // (two hands on it, backpedaling)
+      else if (this.scramble || (sp > 2.6 && !this.dropping)) L = { lower: ['run'], upper: ['tuck', sp] }; // (out of the pocket, sprinting: high and tight)
       else if (this.mode === 'qbc' && this.qbc?.jk?.move) {
         const J = this.qbc.jk.move; // (the juke past the rusher: thrown toward the side you went)
         L = { lower: ['plant', J.dir, J.t / 0.45], upper: ['juke', J.dir, J.t / 0.45, 4] };
-      } else L = this.pocketPose(c, this.mode === 'qbc' ? this.qbcFace() : this.drFace()); // (set in the pocket: side-on, shuffling)
+      } else L = this.pocketPose(c, this.mode === 'qbc' ? this.qbcFace() : this.drFace()); // (in his stance, dropping back and in the pocket: side-on, shuffling, stepping round)
     } else if (this.throwT > 0) L = throwL(1, 1 - this.throwT / 0.4); // (the follow-through)
     if (!L) return;
     c.group.position.y += fbPose(c, L);
@@ -639,12 +646,11 @@ export class Gridiron {
     const [px, pz] = p.pos();
     const moved = this.pkP ? Math.hypot(px - this.pkP[0], pz - this.pkP[1]) : 0;
     this.pkP = [px, pz];
-    this.pkYaw = this.pkYaw == null ? face : this.pkYaw + Math.atan2(Math.sin(face - this.pkYaw), Math.cos(face - this.pkYaw)) * Math.min(1, dt * 7);
-    const turn = Math.abs(Math.atan2(Math.sin(face - this.pkYaw), Math.cos(face - this.pkYaw)));
-    this.pkStep = (this.pkStep || 0) + moved * 5 + turn * dt * 14 + dt * 2;
-    const moving = Math.min(1, (dt > 0 ? moved / dt : 0) / 1.4 + turn * 1.5);
-    c.group.rotation.y = this.pkYaw - POCKET_CLOSE;
-    return { lower: ['pocket', this.pkStep, moving], upper: ['pocketHands', 0] };
+    // (round to it in steps, not gliding: footballpose.js PocketFeet)
+    const F = (this.pkFeet ||= new PocketFeet());
+    const r = F.update(face, moved, dt);
+    c.group.rotation.y = r.yaw - POCKET_CLOSE;
+    return { lower: ['pocket', r.step, r.moving], upper: ['pocketHands', 0] };
   }
 
   // Down with the ball: on the grass at your chest, wherever you're lying.
