@@ -43,6 +43,7 @@ const BALL = {
 };
 
 const FOOTBALL = {
+  setting: 'meter',
   title: 'FOOTBALL',
   sections: [
     ['AT THE LINE', [
@@ -117,7 +118,7 @@ const CATCH = {
   setting: 'meter',
 };
 
-import { ThrowMeter, METER_STYLES } from './throwmeter.js';
+import { ThrowMeter, METER_STYLES, METER_SPEEDS } from './throwmeter.js';
 import { iconizeHTML } from './icons.js';
 
 export class MovesList {
@@ -151,7 +152,10 @@ export class MovesList {
       this.el.id = 'moves';
       this.el.addEventListener('pointerdown', (e) => {
         if (e.target === this.el || e.target.closest('.mv-x')) this.hide();
-        else if (e.target.closest('.mv-set')) {
+        else if (e.target.closest('.mv-speed')) {
+          this.game.cycleStyle('speed');
+          this.show();
+        } else if (e.target.closest('.mv-set')) {
           this.game.cycleStyle('meter');
           this.show();
         }
@@ -168,6 +172,10 @@ export class MovesList {
       const st = g.style?.meter || 'arc';
       const how2 = col === 1 ? 'tap to change' : col === 2 ? '◀ ▶ to change' : '← → or H to change';
       set = `<div class="mv-set">${`<div class="tm-preview">${ThrowMeter.preview(st)}</div>`}<span>Throw meter<small>${how2}</small></span><b>‹ ${METER_STYLES[st]} ›</b></div>`;
+      // (how fast it fills, by the throw's length: throwmeter.js meterRate)
+      const sp = g.style?.speed || 'slowShort';
+      const how3 = col === 1 ? 'tap to change' : col === 2 ? '▲ ▼ to change' : 'V to change';
+      set += `<div class="mv-set mv-speed"><span>Meter speed<small>${how3}</small></span><b>‹ ${METER_SPEEDS[sp]} ›</b></div>`;
     }
     this.el.innerHTML = `<div class="mv-card"><div class="mv-top"><span>${L.title} · MOVES</span><em>${iconizeHTML(how)}</em><button class="mv-x" aria-label="close">✕</button></div>${iconizeHTML(set)}<div class="mv-list">${rows}</div>${L.notes ? `<div class="mv-note">${iconizeHTML(esc(L.notes))}</div>` : ''}<div class="mv-foot">${close} · the game's paused</div></div>`;
     this.el.classList.remove('hidden');

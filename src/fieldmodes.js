@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { dist, rand, pick, lerpAngle } from './util.js';
 import { fbPose, fbBallAt, fbBallQuat, PICK_T } from './footballpose.js';
 import { bendLeg, bendSpine, reachArm } from './character.js';
-import { ThrowMeter, PERFECT } from './throwmeter.js';
+import { ThrowMeter, PERFECT, meterRate } from './throwmeter.js';
 import { HeatFx } from './heatfx.js';
 
 // The other games at Harbor Field (mixed into Gridiron: gridiron.js), picked from the field's
@@ -300,7 +300,7 @@ export const FieldModes = {
     } else if (can && !this.press) {
       for (const k of ['bullet', 'touch', 'lob']) {
         if (held[k] && !S.prevHeld[k]) {
-          this.press = { kind: k, t: 0 };
+          this.press = { kind: k, t: 0, pw: 0 };
           if (this.mode === 'drive') this.drPress(); // (the drive: who you went to, and when)
           break;
         }
@@ -309,13 +309,16 @@ export const FieldModes = {
     if (this.press) {
       // Power: hold, let go in the green.
       const P = this.press;
-      if (held[P.kind]) P.t += dt;
-      else {
+      const T = this.meterTarget();
+      const [px, pz] = game.player.pos();
+      const d = T ? dist(px, pz, T.x, T.z) : 10;
+      if (held[P.kind]) {
+        // (filling: at the speed for how far it's going, meterRate)
+        P.t += dt;
+        P.pw = Math.min(1, P.pw + (dt / FILL) * meterRate(game.style?.speed, d / YD));
+      } else {
         this.press = null;
-        const T = this.meterTarget();
-        const [px, pz] = game.player.pos();
-        const d = T ? dist(px, pz, T.x, T.z) : 10;
-        const pw = Math.min(1, P.t / FILL);
+        const pw = P.pw;
         const need = this.needFor(P.kind, d);
         const po = Math.abs(pw - need);
         const W = this.winFor(P.kind, need);
@@ -373,7 +376,7 @@ export const FieldModes = {
       const kind = this.press ? this.press.kind : S.acc.kind;
       const need = this.needFor(kind, S.acc ? S.acc.d : dist(px, pz, T.x, T.z));
       const W = this.winFor(kind, need);
-      st = { style, kind, v: this.press ? Math.min(1, this.press.t / FILL) : S.acc.power, lo: need - W, hi: need + W, n: S.acc ? S.acc.n : null, tap: null, label: S.acc ? 'TAP!' : '', labelClass: 'cue', fx: S.acc ? [S.acc.pwFx] : null, fxKey: S.acc?.key };
+      st = { style, kind, v: this.press ? this.press.pw : S.acc.power, lo: need - W, hi: need + W, n: S.acc ? S.acc.n : null, tap: null, label: S.acc ? 'TAP!' : '', labelClass: 'cue', fx: S.acc ? [S.acc.pwFx] : null, fxKey: S.acc?.key };
     } else if (S.last && game.time < S.last.until) st = { style, ...S.last };
     game.hud.sportFloat?.(null);
     if (!st) return tm.hide();

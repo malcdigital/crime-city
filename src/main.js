@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CFG, CRIMES, GANG_NAME } from './config.js';
 import { CourtMenu } from './courtmenu.js';
-import { METER_STYLES } from './throwmeter.js';
+import { METER_STYLES, METER_SPEEDS } from './throwmeter.js';
 import { ResultsCard } from './contest.js';
 import { Leaderboard } from './leaderboard.js';
 import { DiceManager } from './dice.js';
@@ -134,6 +134,7 @@ class Game {
     if (!PISTOL_STYLES[this.style.grip]) this.style.grip = 'two';
     if (!FIGHT_STYLES[this.style.fight]) this.style.fight = 'orthodox';
     if (!METER_STYLES[this.style.meter] || this.style.meterV !== 2) Object.assign(this.style, { meter: 'arc', meterV: 2 }); // (the arc is the default now)
+    if (!METER_SPEEDS[this.style.speed]) this.style.speed = 'slowShort'; // (the meter's speed by the throw's length: throwmeter.js)
     this.gpsLine = new GpsLine(THREE, this.scene);
     this.aircam = new AirCam(this);
     this.clipPlayer = new ClipPlayer();
@@ -1488,7 +1489,7 @@ class Game {
 
   // Your pistol grip or fight style, the next one along (saved).
   cycleStyle(which, step = 1) {
-    const list = Object.keys(which === 'grip' ? PISTOL_STYLES : which === 'meter' ? METER_STYLES : FIGHT_STYLES);
+    const list = Object.keys(which === 'grip' ? PISTOL_STYLES : which === 'meter' ? METER_STYLES : which === 'speed' ? METER_SPEEDS : FIGHT_STYLES);
     this.style[which] = list[(list.indexOf(this.style[which]) + step + list.length) % list.length];
     try {
       localStorage.setItem('crimecity.style.v1', JSON.stringify(this.style));
@@ -2390,6 +2391,10 @@ class Game {
       else if (this.moves.hasSetting() && (a.phoneLeft || a.phoneRight || this.input.hit?.("KeyH"))) {
         // (playing catch: ◀ ▶ / H picks the throw meter, right there in the list)
         this.cycleStyle("meter", a.phoneLeft ? -1 : 1);
+        this.moves.show();
+      } else if (this.moves.hasSetting() && (a.phoneUp || a.phoneDown || this.input.hit?.("KeyV"))) {
+        // (▲ ▼ / V: the meter's speed)
+        this.cycleStyle("speed", a.phoneUp ? -1 : 1);
         this.moves.show();
       }
     } else if (a.moves && !this.paused && this.pickupGame()) {
