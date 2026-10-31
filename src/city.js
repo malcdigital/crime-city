@@ -12,7 +12,7 @@ import {
   BLOCKS, GRAPH, STREETS, ROAD_CLASS, MAP, SEA, terrain, isWater, shoreDist, coastZ, insideRing, ringDist, districtAt,
 } from './worldplan.js';
 import { RAMPS, RING, RING_HALF, XT, XT_HALF, inHole, roundRect } from './fwyplan.js';
-import { SPECIAL, STORES, PLACES, STYLES } from './districts.js';
+import { SPECIAL, STORES, PLACES, STYLES, BANKS } from './districts.js';
 import { buildCourts, drawCourt, COURT_RESERVED } from './court.js';
 import { buildField, drawField, FIELD_RESERVED } from './field.js';
 import { buildPark, drawPark, PARK_RESERVED } from './playground.js';
@@ -1338,7 +1338,12 @@ export function buildCity(scene) {
     batch.add(flatPoly(p, 0.24), lawnMat);
   }
 
-  // Street trees along the sidewalks of the busier districts.
+  // Street trees along the sidewalks of the busier districts (none in front of a door you walk
+  // into: the stores, the banks, the gun shop, the garage).
+  const doors = [...BANKS.map((k) => k.block), PLACES.gunShop, PLACES.garage].filter(Boolean).map((k) => {
+    const f = frontages.get(k);
+    return f ? { x: f.x + f.nx * 1.6, z: f.z + f.nz * 1.6 } : frontPoint(k, k.sw + 1);
+  });
   for (const b of blocks) {
     if (b.lot || b.type === 'ramps' || b.type === 'plaza') continue;
     if (b.district === 'The Docks' || b.district === 'The Projects') continue;
@@ -1350,6 +1355,7 @@ export function buildCity(scene) {
         const z = s.az + s.uz * t - s.nz * 1.2;
         if (!clearOfRoads(x, z, 2)) continue;
         if (stores.some((st) => Math.hypot(st.x - x, st.z - z) < 9)) continue;
+        if (doors.some((d) => Math.hypot(d.x - x, d.z - z) < 9)) continue;
         if (b.buildings?.some((o) => pointInPoly(x, z, o.R))) continue;
         tree(x, z, 0.9);
       }
