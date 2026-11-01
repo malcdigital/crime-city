@@ -111,7 +111,7 @@ export class Shops {
     const scene = game.scene;
     // Places.
     // The gun shops (src/gunshops.js): you go inside each (src/interiors.js). this.gun: Iron Mike's.
-    this.gunShops = GUN_SHOPS.map((d, i) => ({ ...storefront(city, GUN_SHOP_BLOCKS[i]), ...d, i, color: '#c0392b', icon: 'A' }));
+    this.gunShops = GUN_SHOPS.map((d, i) => ({ ...storefront(city, GUN_SHOP_BLOCKS[i]), ...d, i, color: '#c0392b', icon: 'gun' }));
     this.gun = this.gunShops[0];
     this.garage = { ...storefront(city, PLACES.garage), name: "Lou's Mod Garage", color: '#16a085', icon: 'M' };
     this.safe = { ...storefront(city, PLACES.safehouse), name: 'Safehouse', color: '#5d6d7e', icon: 'S' };
@@ -303,7 +303,7 @@ export class Shops {
   // ---- Places, prompts and radar ----
   blips() {
     const out = [
-      ...this.gunShops.map((g) => [g.x, g.z, g.color, 'A']),
+      ...this.gunShops.map((g) => [g.x, g.z, g.color, 'gun']), // (a pistol: icons.js)
       [this.garage.x, this.garage.z, this.garage.color, 'M'],
       [this.safe.x, this.safe.z, this.safehouse ? '#2c3e50' : '#7f8c8d', 'S'],
     ];

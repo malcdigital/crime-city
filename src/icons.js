@@ -36,3 +36,24 @@ export function setRich(el, text) {
   if (hasArrows(text)) el.innerHTML = iconize(text);
   else el.textContent = text;
 }
+
+// The gun shops' map marker (each has its range inside): a pistol, not a letter. Blips that say
+// 'gun' get it (the map, the radar, the legend); drawn white on the blip's color.
+const GUN_PATH = 'M3 7h16.5l1 1.6v2.2h-6.6l-1 1.2h-2.2l-1.4 5.5H5.1l1.6-6.1H3z';
+let gunPath = null;
+export function drawGunGlyph(ctx, x, y, size, color = '#fff') {
+  gunPath ??= new Path2D(GUN_PATH);
+  ctx.save();
+  ctx.translate(x - (11.75 * size) / 24, y - (12.2 * size) / 24);
+  ctx.scale(size / 24, size / 24);
+  ctx.fillStyle = color;
+  ctx.fill(gunPath);
+  ctx.restore();
+}
+// (for HTML: the legend)
+export const GUN_SVG = `<svg viewBox="2 4 20 16" width="12" height="12" aria-hidden="true"><path d="${GUN_PATH}" fill="#fff"/></svg>`;
+// Draw a blip's text, or its icon.
+export function blipText(ctx, text, x, y, size) {
+  if (text === 'gun') drawGunGlyph(ctx, x, y, size * 1.5);
+  else ctx.fillText(text, x, y);
+}

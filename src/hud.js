@@ -5,7 +5,7 @@ import { drawHeli, drawSearchlight } from './heliicon.js';
 import { CFG, CRED_TIERS } from './config.js';
 import { GANGS } from './turf.js';
 import { WAR_LEVELS } from './market.js';
-import { setRich, iconize } from './icons.js';
+import { setRich, iconize, blipText } from './icons.js';
 
 const esc = (t) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
 
@@ -629,7 +629,7 @@ export class Hud {
       ctx.fill();
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 9px Arial';
-      ctx.fillText(text, bx, by + 0.5);
+      blipText(ctx, text, bx, by + 0.5, 9);
     };
     blip(city.chop.x, city.chop.z, '#e67e22', 'C');
     blip(city.station.x, city.station.z, '#2e6fd8', 'P');

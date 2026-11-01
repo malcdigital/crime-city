@@ -11,7 +11,7 @@ import { districtAt, streetAt } from './city.js';
 import { clamp, dist } from './util.js';
 import { tierOf } from './claim.js';
 import { gpsRoute, routeLength } from './gps.js';
-import { setRich } from './icons.js';
+import { setRich, blipText, GUN_SVG } from './icons.js';
 
 // Full-screen city map (touchpad / M). The game pauses while it's open.
 // Left stick / WASD / mouse drag pans the cursor, R2 / L2 / wheel zoom, ✕ / click sets or
@@ -245,7 +245,7 @@ export class MapView {
     add('blip', '#2e6fd8', 'P', 'Police station', city.station.x, city.station.z);
     add('blip', '#d63031', 'H', 'Hospital', city.hospital.x, city.hospital.z);
     add('blip', '#e67e22', 'C', 'Chop shop (sell cars)', city.chop.x, city.chop.z);
-    for (const g of S.gunShops) add('blip', g.color, 'A', `${g.name} (guns, range)`, g.x, g.z);
+    for (const g of S.gunShops) add('blip', g.color, 'gun', `${g.name} (guns, range)`, g.x, g.z);
     add('blip', S.garage.color, 'M', `${S.garage.name} (mods, respray)`, S.garage.x, S.garage.z);
     add('blip', S.safehouse ? '#2c3e50' : '#7f8c8d', 'S', S.safehouse ? 'Your safehouse' : 'Safehouse (for sale)', S.safe.x, S.safe.z);
     const stops = [...game.transit.shelters()].sort((p, q) => dist(p.sx, p.sz, px, pz) - dist(q.sx, q.sz, px, pz));
@@ -290,7 +290,7 @@ export class MapView {
       if (e.kind === 'heli') return '<span class="lg-heli">' + HELI_SVG + '</span>';
       if (e.kind === 'bus') return BUS_ICON;
       if (e.kind === 'you') return '<span class="lg-you">▲</span>';
-      return `<span class="lg-bl" style="background:${e.color}">${e.text}</span>`;
+      return `<span class="lg-bl" style="background:${e.color}">${e.text === 'gun' ? GUN_SVG : e.text}</span>`;
     };
     const html = entries.map((e) => {
       if (e.head) return `<div class="lg-head">${e.head}</div>`;
@@ -532,7 +532,7 @@ export class MapView {
       ctx.font = `bold ${Math.round(r * 1.1)}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(text, sx, sy + 0.5);
+      blipText(ctx, text, sx, sy + 0.5, r * 1.1);
     };
     ctx.font = 'bold 16px Arial';
     ctx.textAlign = 'center';
@@ -770,7 +770,7 @@ export class MapView {
     ctx.font = 'bold 16px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(glyph, sx, sy + 1);
+    blipText(ctx, glyph, sx, sy + 1, 16);
     // The label, above the marker (kept on screen).
     ctx.font = '600 13px Arial';
     const w = ctx.measureText(hit.label).width + 18;
