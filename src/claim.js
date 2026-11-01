@@ -92,7 +92,7 @@ function wallSpots(game, b) {
   };
   const spots = [];
   for (const w of b.buildings || []) {
-    if (!w.w || !w.d || w.w < 4 || w.d < 4 || w.shop) continue; // (not a gun shop: glass)
+    if (!w.w || !w.d || w.w < 4 || w.d < 4 || w.shop || w.removed) continue; // (not a gun shop: glass)
     const ux = Math.cos(w.ang);
     const uz = Math.sin(w.ang);
     const vx = -uz;

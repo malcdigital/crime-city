@@ -76,6 +76,16 @@ await run('raid + claim + war + drugs', () => { const L = []; try {
   L.push('banks ' + g.bank.banks.map(x => x.name + '@' + x.street).join(' · ') + ' · atms ' + g.bank.atms.length + ' · homes ' + g.bank.homes.map(h => h.name + ':' + h.district).join(', '));
   L.push('companies ' + g.economy.companies.map(c => c.name + '@' + c.street).join(' · '));
   L.push('gun ' + g.shops.gun.x.toFixed(0) + ',' + g.shops.gun.z.toFixed(0) + ' garage ' + g.shops.garage.x.toFixed(0) + ',' + g.shops.garage.z.toFixed(0));
+  {
+    // (buildings: on record with unique ids, editable in place: src/buildingedits.js)
+    const C = g.city;
+    const ids = new Set(C.buildings.map((r) => r.id));
+    const r = C.buildings.find((b) => b.shop === undefined && !b.removed && b.handle?.mesh);
+    const h0 = r.h;
+    const moved = C.editBuilding(r.id, { h: r.h0 + 5 }) && Math.abs(r.h - h0 - 5) < 0.01;
+    C.editBuilding(r.id, { h: r.h0 - 5 });
+    L.push(`buildings ${C.buildings.length} ids ${ids.size === C.buildings.length ? 'unique' : 'DUPLICATED'} · live edit ${moved ? 'ok' : 'FAILED'} · gun shops in place ${g.interiors.rooms.length}`);
+  }
   } catch (e) { L.push('ERROR ' + e.message + ' ' + e.stack.split('\n').slice(1, 4).join(' ')); } return L.join('\n'); });
 await run('map + gps', () => { const L = []; try {
   const g = window.__game; const p = g.player;

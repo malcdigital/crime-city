@@ -201,7 +201,7 @@ export class Props {
       if (!chance || b.type !== 'normal') continue;
       // The buildings standing on this block: tag the face toward the street.
       for (const o of b.buildings || []) {
-        if (!o.w || (o.h || 0) < 3.5 || o.nx === undefined || o.shop) continue; // (not a gun shop's glass)
+        if (!o.w || (o.h || 0) < 3.5 || o.nx === undefined || o.shop || o.removed) continue; // (not a gun shop's glass)
         if (rng() > chance) continue;
         const span = o.w;
         if (span < 5) continue;

@@ -15,6 +15,7 @@ import { RAMPS, RING, RING_HALF, XT, XT_HALF, inHole, roundRect } from './fwypla
 import { SPECIAL, STORES, PLACES, STYLES, BANKS, GUN_SHOP_BLOCKS } from './districts.js';
 import { buildCourts, drawCourt, COURT_RESERVED } from './court.js';
 import { windowRooms } from './winrooms.js';
+import { BUILDING_EDITS } from './buildingedits.js';
 import { buildField, drawField, FIELD_RESERVED } from './field.js';
 import { buildPark, drawPark, PARK_RESERVED } from './playground.js';
 import { buildLots, drawLots, LOT_RESERVED } from './lots.js';
@@ -173,7 +174,9 @@ function signTexture(text, bg, fg) {
 }
 
 // Static geometry, gathered per material and per chunk of the map, merged at the end
-// (few draw calls, and frustum culling still works chunk by chunk).
+// (few draw calls, and frustum culling still works chunk by chunk). add() returns a handle:
+// after flush() it knows its slice of the merged mesh (mesh, first vertex, vertex count), so a
+// piece can be rewritten in place later (rewrite: same vertex count) or hidden (collapse).
 class Batch {
   constructor(scene, chunk = 400) {
     this.scene = scene;
@@ -184,13 +187,43 @@ class Batch {
     geo.computeBoundingBox();
     const c = geo.boundingBox.getCenter(new THREE.Vector3());
     const key = `${mat.uuid}|${Math.floor(c.x / this.chunk)},${Math.floor(c.z / this.chunk)}|${cast}|${receive}`;
-    if (!this.groups.has(key)) this.groups.set(key, { mat, cast, receive, geos: [] });
+    if (!this.groups.has(key)) this.groups.set(key, { mat, cast, receive, geos: [], handles: [] });
+    const g = Batch.prep(geo, mat);
+    const grp = this.groups.get(key);
+    const handle = { mat, mesh: null, start: 0, count: g.attributes.position.count };
+    grp.geos.push(g);
+    grp.handles.push(handle);
+    return handle;
+  }
+  // (non-indexed, just the attributes every piece in a group has)
+  static prep(geo, mat) {
     const g = geo.index ? geo.toNonIndexed() : geo;
     for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv' && !(k === 'color' && mat.vertexColors)) g.deleteAttribute(k);
     if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array((g.attributes.position.count) * 2), 2));
     if (!g.attributes.normal) g.computeVertexNormals();
     g.clearGroups();
-    this.groups.get(key).geos.push(g);
+    return g;
+  }
+  // Put new geometry (the same number of vertices) where a piece was; null hides it.
+  static rewrite(handle, geo) {
+    const m = handle.mesh;
+    if (!m) return false;
+    const G = m.geometry;
+    const g = geo && Batch.prep(geo, handle.mat);
+    if (g && g.attributes.position.count !== handle.count) return false;
+    for (const [k, attr] of Object.entries(G.attributes)) {
+      const n = attr.itemSize;
+      const at = handle.start * n;
+      if (g) attr.array.set(g.attributes[k].array, at);
+      else if (k === 'position') attr.array.fill(0, at, at + handle.count * n); // (all to one point: nothing drawn)
+      else continue;
+      attr.clearUpdateRanges();
+      attr.addUpdateRange(at, handle.count * n);
+      attr.needsUpdate = true;
+    }
+    G.computeBoundingSphere();
+    G.computeBoundingBox();
+    return true;
   }
   mesh(geo, mat, x, y, z, ry = 0, opts) {
     geo.rotateY(ry);
@@ -205,6 +238,12 @@ class Batch {
       m.castShadow = g.cast;
       m.receiveShadow = g.receive;
       this.scene.add(m);
+      let at = 0;
+      for (const h of g.handles) {
+        h.mesh = m;
+        h.start = at;
+        at += h.count;
+      }
       for (const x of g.geos) x.dispose();
     }
     this.groups.clear();
@@ -876,40 +915,140 @@ export function buildCity(scene) {
 
   // ======== Building helpers ========
   // A box building: center, size, angle of its width (radians, x/z), base height.
-  const building = (cx, cz, w, d, h, mat, ang = 0, base = null) => {
-    if (base === null) {
-      // (on a hillside: stand on the lowest ground under it, as tall as ever above the highest,
-      // so it's never half buried in the slope)
-      base = 0.2;
-      const c = Math.cos(ang);
-      const s = Math.sin(ang);
-      const hs = [[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, j]) => heightAt(cx + (c * i * w - s * j * d) / 2, cz + (s * i * w + c * j * d) / 2));
-      const lo = Math.min(...hs);
-      const hi = Math.max(...hs);
-      if (hi > 0.05) {
-        base = lo - 0.1;
-        h += hi - lo;
-      }
+  // ======== Buildings: each one on record, by a stable id ========
+  // id: "<block key>#<n>" (its n-th building, in the order they're built). Edits in
+  // buildingedits.js are applied as each is built; city.editBuilding / removeBuilding change one
+  // while the game runs (its slice of the merged mesh rewritten in place, its collision box
+  // updated: cheap, no re-merge). A record: { id, block, cx, cz, w, d, h, ang, base, removed,
+  // box (its collision box), handle (its slice of the mesh), parts (things on it: neon, a roof) }.
+  const buildings = [];
+  const buildingById = new Map();
+  const builtOn = new Map(); // (block key -> how many so far)
+  let bKey = 'misc';
+  const editBox = (r, e) => {
+    if (e.remove) r.removed = true;
+    if (e.x !== undefined) r.cx = e.x;
+    if (e.z !== undefined) r.cz = e.z;
+    r.cx += e.dx || 0;
+    r.cz += e.dz || 0;
+    if (e.w) r.w = e.w;
+    if (e.d) r.d = e.d;
+    if (e.h) r.h0 = e.h;
+    if (e.ang !== undefined) r.ang = e.ang;
+    r.ang += e.turn || 0;
+  };
+  // (where it stands: on a hillside, on the lowest ground under it, as tall as ever above the
+  // highest, so it's never half buried in the slope)
+  const settle = (r) => {
+    r.h = r.h0;
+    if (!r.auto) return;
+    r.base = 0.2;
+    const c = Math.cos(r.ang);
+    const s = Math.sin(r.ang);
+    const hs = [[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, j]) => heightAt(r.cx + (c * i * r.w - s * j * r.d) / 2, r.cz + (s * i * r.w + c * j * r.d) / 2));
+    const lo = Math.min(...hs);
+    const hi = Math.max(...hs);
+    if (hi > 0.05) {
+      r.base = lo - 0.1;
+      r.h += hi - lo;
     }
-    const g = buildingGeo(w, h, d);
-    if (mat.win) {
+  };
+  const buildingGeoOf = (r) => {
+    const g = buildingGeo(r.w, r.h, r.d);
+    if (r.mat.win) {
       const n = g.attributes.position.count;
       const c = new Float32Array(n * 3);
       for (let i = 0; i < n; i++) {
-        c[i * 3] = mat.color.r;
-        c[i * 3 + 1] = mat.color.g;
-        c[i * 3 + 2] = mat.color.b;
+        c[i * 3] = r.mat.color.r;
+        c[i * 3 + 1] = r.mat.color.g;
+        c[i * 3 + 2] = r.mat.color.b;
       }
       g.setAttribute('color', new THREE.BufferAttribute(c, 3));
-      mat = WIN;
     }
-    g.rotateY(-ang);
-    g.translate(cx, base + h / 2, cz);
-    batch.add(g, mat, { cast: true, receive: true });
-    const box = base > 0.25 || base < 0.15 ? obb(cx, cz, w / 2, d / 2, ang, h, base) : obb(cx, cz, w / 2, d / 2, ang, base + h);
-    colliders.push(box);
-    los.push(box);
-    return box;
+    g.rotateY(-r.ang);
+    g.translate(r.cx, r.base + r.h / 2, r.cz);
+    return g;
+  };
+  const boxOf = (r) => (r.base > 0.25 || r.base < 0.15 ? obb(r.cx, r.cz, r.w / 2, r.d / 2, r.ang, r.h, r.base) : obb(r.cx, r.cz, r.w / 2, r.d / 2, r.ang, r.base + r.h));
+  // opts.solid false: bullets and the camera stop at it, you don't (you walk in under it).
+  const building = (cx, cz, w, d, h, mat, ang = 0, base = null, { solid = true } = {}) => {
+    const n = builtOn.get(bKey) || 0;
+    builtOn.set(bKey, n + 1);
+    const r = { id: `${bKey}#${n}`, block: bKey, cx, cz, w, d, h0: h, h, ang, base, auto: base === null, mat, solid, parts: [], removed: false };
+    const e = BUILDING_EDITS[r.id];
+    if (e) editBox(r, e);
+    settle(r);
+    buildings.push(r);
+    buildingById.set(r.id, r);
+    if (r.removed) return r;
+    r.handle = batch.add(buildingGeoOf(r), mat.win ? WIN : mat, { cast: true, receive: true });
+    r.box = boxOf(r);
+    if (solid) colliders.push(r.box);
+    los.push(r.box);
+    return r;
+  };
+  // Something on a building that goes where it goes: make(r) builds it (world space) from the
+  // building's record, again after a live edit.
+  const buildingPart = (r, mat, make, opts) => {
+    if (r.removed) return;
+    r.parts.push({ make, handle: batch.add(make(r), mat, opts) });
+  };
+  // (a gun shop's floors: its ground floor is interiors.js's rooms; it moves with its block)
+  const shopWarn = (r) => {
+    console.warn(`${r.id} is a gun shop: move it with GUN_SHOP_BLOCKS in districts.js`);
+    return false;
+  };
+  // The collision lists changed in place: their lookup grids are rebuilt next time.
+  const stale = () => {
+    for (const a of [colliders, los]) if (a.grid) a.grid = null;
+  };
+  const editBuilding = (id, e) => {
+    const r = buildingById.get(id);
+    if (!r || r.removed || !r.handle?.mesh) return false;
+    if (r.shop !== undefined) return shopWarn(r);
+    editBox(r, e);
+    if (r.removed) return removeBuilding(id, true);
+    settle(r);
+    Batch.rewrite(r.handle, buildingGeoOf(r));
+    for (const p of r.parts) Batch.rewrite(p.handle, p.make(r));
+    const b = boxOf(r);
+    delete r.box.ob;
+    Object.assign(r.box, b);
+    stale();
+    return true;
+  };
+  const removeBuilding = (id, already = false) => {
+    const r = buildingById.get(id);
+    if (!r || (r.removed && !already) || !r.handle?.mesh) return false;
+    if (r.shop !== undefined) return shopWarn(r);
+    r.removed = true;
+    Batch.rewrite(r.handle, null);
+    for (const p of r.parts) Batch.rewrite(p.handle, null);
+    for (const a of [colliders, los]) {
+      const k = a.indexOf(r.box);
+      if (k >= 0) a.splice(k, 1);
+    }
+    stale();
+    return true;
+  };
+  // The building nearest a point (default: where you're standing; within 15 m): its id and
+  // where it is.
+  const buildingAt = (x, z) => {
+    let best = null;
+    let bd = 15;
+    for (const r of buildings) {
+      if (r.removed || Math.abs(x - r.cx) > 60 || Math.abs(z - r.cz) > 60) continue;
+      const dx = x - r.cx;
+      const dz = z - r.cz;
+      const u = Math.abs(dx * Math.cos(r.ang) + dz * Math.sin(r.ang)) - r.w / 2;
+      const v = Math.abs(-dx * Math.sin(r.ang) + dz * Math.cos(r.ang)) - r.d / 2;
+      const d = Math.hypot(Math.max(0, u), Math.max(0, v));
+      if (d < bd) {
+        bd = d;
+        best = r;
+      }
+    }
+    return best;
   };
   const sign = (text, x, y, z, rotY, w, h, bg, fg = '#ffffff') => {
     const mat = new THREE.MeshBasicMaterial({ map: signTexture(text, bg, fg) });
@@ -1040,10 +1179,10 @@ export function buildCity(scene) {
       cx = s.mx - s.nx * (b.sw + setback + d / 2);
       cz = s.mz - s.nz * (b.sw + setback + d / 2);
     }
-    const ang = Math.atan2(s.uz, s.ux);
-    building(cx, cz, L, d, h, mat, ang);
+    const r = building(cx, cz, L, d, h, mat, Math.atan2(s.uz, s.ux));
+    ({ cx, cz, w: L, d, h } = r); // (as built: buildingedits.js may have moved it)
     const face = { x: cx + s.nx * (d / 2 + 0.06), z: cz + s.nz * (d / 2 + 0.06) };
-    return { cx, cz, w: L, d, h, ang, face, rotY: Math.atan2(s.nx, s.nz), R: rect4(cx, cz, L / 2, d / 2, s.ux, s.uz) };
+    return { cx, cz, w: L, d, h, ang: r.ang, face, rotY: Math.atan2(s.nx, s.nz), R: rect4(cx, cz, L / 2, d / 2, s.ux, s.uz), removed: r.removed };
   };
 
   // ======== Blocks ========
@@ -1054,6 +1193,7 @@ export function buildCity(scene) {
   const frontages = new Map(); // block -> the building on its front side (for storefronts)
   const hollows = []; // (the gun shops' buildings, their ground floors open: src/interiors.js)
   for (const b of blocks) {
+    bKey = b.key; // (its buildings' ids: buildingedits.js)
     if (!b.lot && b.type !== 'ramps' && !b.country) slabs.push(b.poly);
     const lot = b.lot ? b.poly : inset(b.poly, b.sw);
     b.inner = lot;
@@ -1222,20 +1362,35 @@ export function buildCity(scene) {
       const ang = Math.atan2(X[1], X[0]);
       const oy = groundY(ox - s.nx * 1, oz - s.nz * 1);
       const top = Math.max(10, height());
-      const upper = building(cx, cz, L1 - L0, Z1, top - SHOP_H, pickMat(), ang, oy + SHOP_H); // (the floors above)
-      colliders.splice(colliders.indexOf(upper), 1); // (up there: you walk in under them)
+      const upper = building(cx, cz, L1 - L0, Z1, top - SHOP_H, pickMat(), ang, oy + SHOP_H, { solid: false }); // (the floors above: you walk in under them)
+      upper.shop = gi; // (its ground floor is interiors.js's rooms: move the shop in districts.js, not here)
       placed.push({ R: rect4(cx, cz, (L1 - L0) / 2, Z1 / 2, X[0], X[1]), cx, cz, w: L1 - L0, d: Z1, ang, nx: s.nx, nz: s.nz, h: top, front: true, shop: true });
       hollows[gi] = { b, ox, oz, oy, nx: s.nx, nz: s.nz, h: top };
       frontages.set(b, { x: ox + s.nx * 0.3, z: oz + s.nz * 0.3, h: top, nx: s.nx, nz: s.nz, ux: X[0], uz: X[1], dd: -1, w: 14, y0: oy }); // (its wall's face, the door in it)
     }
     const kind = st.kind;
     const onPlace = (it, h, mat) => {
-      it.h = h;
-      building(it.cx, it.cz, it.w, it.d, h, mat, it.ang);
+      const r = building(it.cx, it.cz, it.w, it.d, h, mat, it.ang);
+      // (as built: buildingedits.js may have moved, turned, resized or removed it)
+      const turn = r.ang - it.ang;
+      if (turn) [it.nx, it.nz] = [it.nx * Math.cos(turn) - it.nz * Math.sin(turn), it.nx * Math.sin(turn) + it.nz * Math.cos(turn)];
+      Object.assign(it, { cx: r.cx, cz: r.cz, w: r.w, d: r.d, h: r.h, ang: r.ang, removed: r.removed, id: r.id });
+      it.R = rect4(r.cx, r.cz, r.w / 2, r.d / 2, Math.cos(r.ang), Math.sin(r.ang));
       if (kind === 'strip') {
-        const neon = new THREE.BoxGeometry(it.w * 0.85, 0.35, 0.15);
-        neon.rotateY(-it.ang);
-        batch.add(neon.translate(it.cx + it.nx * (it.d / 2 + 0.1), 3.6 + rng() * 2.5, it.cz + it.nz * (it.d / 2 + 0.1)), neonMats[Math.floor(rng() * neonMats.length)]);
+        // (a neon strip across its front: its height and color picked either way, so the rest of the city comes out the same)
+        const y = 3.6 + rng() * 2.5;
+        const nm = neonMats[Math.floor(rng() * neonMats.length)];
+        const nx = it.nx;
+        const nz = it.nz;
+        const turn0 = r.ang;
+        buildingPart(r, nm, (b) => {
+          const t = b.ang - turn0;
+          const fx = nx * Math.cos(t) - nz * Math.sin(t);
+          const fz = nx * Math.sin(t) + nz * Math.cos(t);
+          const neon = new THREE.BoxGeometry(b.w * 0.85, 0.35, 0.15);
+          neon.rotateY(-b.ang);
+          return neon.translate(b.cx + fx * (b.d / 2 + 0.1), b.base - 0.2 + y, b.cz + fz * (b.d / 2 + 0.1));
+        });
       }
     };
     const gapCover = (x, z, ux, uz) => {
@@ -1259,12 +1414,14 @@ export function buildCity(scene) {
       const ang = Math.atan2(s.uz, s.ux);
       const hgt = height();
       const base = b.padY - 0.6;
-      building(cx, cz, w, d, hgt + 0.6, pickMat(), ang, base);
-      const roof = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4);
-      roof.rotateY(Math.PI / 4);
-      roof.scale(w * 1.08, 2.6, d * 1.08);
-      roof.rotateY(-ang);
-      batch.add(roof.translate(cx, base + hgt + 0.6 + 1.3, cz), roofMat, { cast: true });
+      const house = building(cx, cz, w, d, hgt + 0.6, pickMat(), ang, base);
+      buildingPart(house, roofMat, (r) => {
+        const roof = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4);
+        roof.rotateY(Math.PI / 4);
+        roof.scale(r.w * 1.08, 2.6, r.d * 1.08);
+        roof.rotateY(-r.ang);
+        return roof.translate(r.cx, r.base + r.h + 1.3, r.cz);
+      }, { cast: true });
       if (b.type === 'store') {
         const rotY = Math.atan2(s.nx, s.nz);
         const signMesh = sign(b.store.toUpperCase(), cx + s.nx * (d / 2 + 0.06), b.padY + 4, cz + s.nz * (d / 2 + 0.06), rotY, 10, 1.6, '#27ae60');
@@ -1303,7 +1460,7 @@ export function buildCity(scene) {
         onPlace(it, height() * tall, pickMat());
         const fs = b.frontSide;
         // The building nearest the middle of the front side is the block's storefront.
-        if (Math.abs(it.nx - fs.nx) < 0.2 && Math.abs(it.nz - fs.nz) < 0.2) {
+        if (!it.removed && Math.abs(it.nx - fs.nx) < 0.2 && Math.abs(it.nz - fs.nz) < 0.2) {
           const prev = frontages.get(b);
           const dd = Math.hypot(it.cx - fs.mx, it.cz - fs.mz);
           if (!prev || (prev.dd !== undefined && dd < prev.dd)) {
@@ -1357,6 +1514,7 @@ export function buildCity(scene) {
   // Quarry, junkyard, lookout.
   for (const b of blocks) {
     if (b.type !== 'place') continue;
+    bKey = b.key;
     const y = b.padY;
     if (b.special === 'quarry') {
       for (let k = 0; k < 7; k++) addCover(b.cx + rr(-25, 25), b.cz + rr(-25, 25), rr(2, 4), rr(2, 4), rr(1.2, 2.4), 0x8a8478);
@@ -1710,6 +1868,7 @@ export function buildCity(scene) {
     get markings() { return markings; },
     nodes, edges: GRAPH.edges, nearestNode, blockAt, groundY, paved, heightAt, roadY, drawMap, size: MAP, hilly: true,
     storefront, frontPoint, edgeAt, streetAt, onPier, hollows,
+    buildings, buildingById, editBuilding, removeBuilding, buildingAt: (x, z) => (x === undefined ? buildingAt(...(globalThis.__game?.player.pos() || [0, 0])) : buildingAt(x, z)),
     byKey: new Map(blocks.map((b) => [b.key, b])),
     reserved: [...COURT_RESERVED, ...FIELD_RESERVED, ...PARK_RESERVED, ...LOT_RESERVED], // (ground kept clear of signs and poles: the courts, lots, field, park)
   };
