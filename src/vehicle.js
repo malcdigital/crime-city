@@ -5,21 +5,21 @@ import { clamp, lerp, wrapAngle } from './util.js';
 import { carModel, driverGeometry, trimMat, glassMat, insideMat, setInsideNight } from './carmodels.js';
 
 export const VTYPES = {
-  sedan: { armor: 5, w: 2.0, l: 4.4, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 30, accel: 9, brake: 20, rev: 8, value: 900, label: 'Sedan',
+  sedan: { armor: 5, w: 1.86, l: 4.65, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 30, accel: 9, brake: 20, rev: 8, value: 900, label: 'Sedan',
     colors: [0x2a4d8f, 0x8f2a2a, 0xd0d0d0, 0x333333, 0x2f6b4f, 0xc9a227, 0x7a7a7a] },
-  sports: { armor: 4, w: 2.0, l: 4.3, h: 0.75, cab: [1.7, 0.55, 1.8, -0.35], max: 44, accel: 14, brake: 24, rev: 8, value: 2500, label: 'Sports car',
+  sports: { armor: 4, w: 1.88, l: 4.3, h: 0.75, cab: [1.7, 0.55, 1.8, -0.35], max: 44, accel: 14, brake: 24, rev: 8, value: 2500, label: 'Sports car',
     colors: [0xd61f1f, 0xf2c40f, 0x111111, 0x1f6fd6] },
-  van: { armor: 6, w: 2.2, l: 5.0, h: 1.9, cab: null, max: 24, accel: 7, brake: 16, rev: 7, value: 700, label: 'Van',
+  van: { armor: 6, w: 2.02, l: 5.4, h: 1.9, cab: null, max: 24, accel: 7, brake: 16, rev: 7, value: 700, label: 'Van',
     colors: [0xffffff, 0x5d6d7e, 0xa04000] },
-  police: { armor: 6, w: 2.0, l: 4.6, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 40, accel: 13, brake: 24, rev: 9, value: 1500, label: 'Police cruiser',
+  police: { armor: 6, w: 1.92, l: 4.9, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 40, accel: 13, brake: 24, rev: 9, value: 1500, label: 'Police cruiser',
     colors: [0x151515] },
-  taxi: { armor: 5, w: 2.0, l: 4.5, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 30, accel: 9, brake: 20, rev: 8, value: 800, label: 'Taxi',
+  taxi: { armor: 5, w: 1.9, l: 4.75, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 30, accel: 9, brake: 20, rev: 8, value: 800, label: 'Taxi',
     colors: [0xf2c200] },
-  bus: { armor: 9, w: 2.5, l: 10.5, h: 2.5, cab: null, max: 20, accel: 4.5, brake: 12, rev: 4, value: 600, label: 'Bus',
+  bus: { armor: 9, w: 2.55, l: 11.8, h: 2.8, cab: null, max: 20, accel: 4.5, brake: 12, rev: 4, value: 600, label: 'Bus',
     colors: [0x1f7a4d, 0x2a5aa8] },
-  delivery: { armor: 7, w: 2.3, l: 6.2, h: 2.4, cab: null, max: 22, accel: 6, brake: 14, rev: 6, value: 650, label: 'Box truck',
+  delivery: { armor: 7, w: 2.4, l: 7.0, h: 2.9, cab: null, max: 22, accel: 6, brake: 14, rev: 6, value: 650, label: 'Box truck',
     colors: [0xf4f4f4, 0x7b4a24, 0xd8d8d0] },
-  swat: { armor: 10, w: 2.4, l: 5.4, h: 1.9, cab: null, max: 32, accel: 10, brake: 20, rev: 7, value: 2200, label: 'SWAT van',
+  swat: { armor: 10, w: 2.4, l: 5.9, h: 2.2, cab: null, max: 32, accel: 10, brake: 20, rev: 7, value: 2200, label: 'SWAT van',
     colors: [0x1b1f24] },
 };
 

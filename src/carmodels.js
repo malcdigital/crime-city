@@ -495,7 +495,8 @@ function van(t, s) {
   };
 }
 
-// A box truck: a cab with its own hood, then the box.
+// A box truck: a cab with its own hood, then the box (3.35 m tall, like a real 16-26 ft box).
+const BOX_TOP = 3.35;
 function truck(t) {
   const L = t.l / 2;
   const W = t.w / 2;
@@ -515,7 +516,7 @@ function truck(t) {
   for (const sx of [1, -1]) paint.push(bar([sx * hwB, belt, L - 0.15], [sx * hwR, roof, L - 0.45], 0.08, 0, 0.1));
   // (the box)
   const box0 = cabBack - 0.15;
-  paint.push(loft([[box0, 0.75], [box0, 3.0], [-L, 3.0], [-L, 0.75]], W));
+  paint.push(loft([[box0, 0.75], [box0, BOX_TOP], [-L, BOX_TOP], [-L, 0.75]], W));
   const glass = [loft(green, hwG, { caps: false })];
   const trim = [];
   trim.push(box(1.0, 0.2, Math.abs(box0 - 0.1 - -L), 0, 0.6, (box0 - 0.1 - L) / 2, BLACK)); // (the frame under the box)
@@ -523,7 +524,7 @@ function truck(t) {
   trim.push(box(t.w, 0.12, 0.12, 0, 0.7, -L - 0.05, DARK));
   trim.push(box(t.w * 0.6, 0.3, 0.05, 0, 0.88, L + 0.03, 0x101114));
   trim.push(box(0.52, 0.12, 0.02, 0, 0.62, L + 0.1, PLATE));
-  trim.push(box(0.03, 2.2, 0.03, 0, 1.9, -L - 0.02, BLACK));
+  trim.push(box(0.03, BOX_TOP - 0.8, 0.03, 0, (BOX_TOP + 0.8) / 2, -L - 0.02, BLACK));
   for (const sx of [1, -1]) {
     trim.push(box(0.1, 0.32, 0.1, sx * (W + 0.18), belt + 0.3, L - 0.35, BLACK));
     // (the rear wheels' fenders)
@@ -533,7 +534,7 @@ function truck(t) {
   inside.push(...cabin({ hwIn: hwB - 0.08, belt, dashZ: L - 0.35, seatZ: cabBack + 0.55, driverX: 0.5, color: 0x3a3b3e, seats: 2, floor: 0.6, wheelY: belt + 0.02, roof, wsTop: L - 0.45 }));
   inside.push(box(hwB * 2, roof - 0.6, 0.05, 0, (roof + 0.6) / 2, cabBack + 0.12, DARK));
   return {
-    paint, glass, trim, inside, green, hwG, hwBody, belt, roof: 3.0,
+    paint, glass, trim, inside, green, hwG, hwBody, belt, roof: BOX_TOP,
     door: { hinge: L - 0.2, len: L - 0.25 - cabBack, bottom: 0.5, top: belt, x: W - 0.03 },
     wheels: { z: [fz, rz], x: W - 0.14, r: 0.45, w: 0.28 },
     lights: { head: [[W - 0.28, 0.98, L + 0.03]], tail: [[W - 0.15, 0.85, -L - 0.03]] },
@@ -551,7 +552,7 @@ function bus(t) {
   const fz = L - 2.3;
   const rz = -L + 2.7;
   const belt = 1.25;
-  const roof = 2.6;
+  const roof = 2.85; // (3.15 m over the roof cap: a city bus)
   const prof = [...sill(L, 0.32, [[fz, 0.58, 0.48], [rz, 0.58, 0.48]]), [L, 0.45], [L + 0.02, belt], [-L - 0.02, belt], [-L, 0.45]];
   const hw = W - 0.03;
   const paint = [loft(prof, hw)];
@@ -605,7 +606,7 @@ const SPECS = {
   sports: (t) => car(t, { hood: 0.72, belt: 0.86, roof: 1.3, trunk: 0.9, wsBase: 0.62, roofF: -0.08, roofR: -0.62, rearBase: -1.5, bPillar: -0.62, seatZ: -0.5, noseY: 0.55, doors4: false, floor: 0.36, seatH: 0.72, inside: 0x1a1a1a, spoiler: true, mirror: 0x111111 }),
   van: (t) => van(t, { belt: 1.25, roof: 2.18, hood: 1.05, wsTop: 1.25, cabBack: 0.3, inside: 0x3a3b3e }),
   swat: (t) => van(t, {
-    belt: 1.3, roof: 2.25, hood: 1.15, wsTop: 1.75, cabBack: 0.7, inside: 0x1b1d20, bumper: 0x0c0c0c,
+    belt: 1.3, roof: 2.5, hood: 1.15, wsTop: 1.75, cabBack: 0.7, inside: 0x1b1d20, bumper: 0x0c0c0c,
     extra: (tt) => [box(tt.w + 0.04, 0.12, tt.l - 1.2, 0, 0.9, -0.4, 0x0c0c0c), box(tt.w * 0.7, 0.12, 0.12, 0, 0.75, tt.l / 2 + 0.12, 0x0c0c0c)],
   }),
   delivery: truck,

@@ -322,9 +322,11 @@ export class TrafficDriver {
         }
         continue;
       }
-      if (Math.abs(ox) > 15 || Math.abs(oz) > 15) continue;
-      if (fwd > 0 && fwd < 15 && lat < 2.6) {
-        const v = Math.max(0, (fwd - 6.5) * 1.3);
+      if (Math.abs(ox) > 22 || Math.abs(oz) > 22) continue;
+      // (the gap's bumper to bumper: a bus stops as far behind a car as a car does)
+      const span = (c.halfLen || 2.3) + (o.halfLen || 2.3);
+      if (fwd > 0 && fwd < 10.5 + span && lat < 2.6) {
+        const v = Math.max(0, (fwd - span - 1.9) * 1.3);
         if (v < worst) {
           worst = v;
           this.blockedBy = o;

@@ -541,7 +541,7 @@ class Game {
       onCar = null;
       let best = 7;
       for (const v of this.vehicles) {
-        if (v.removed || !v.type || v.type.l > 7) continue;
+        if (v.removed || !v.type || v.type.l > 6.5) continue; // (cars and vans: not trucks or buses)
         const d = dist(v.x, v.z, px, pz);
         if (d < best) {
           best = d;
@@ -552,7 +552,7 @@ class Game {
     }
     if (kind === 'car' && onCar) {
       onCar.speed = 0;
-      if (onCar.type.l > 7) kind = 'ground';
+      if (onCar.type.l > 6.5) kind = 'ground';
     }
     const cops = officers.map((o) => {
       if (o.state === 'inCar') {

@@ -257,7 +257,7 @@ export function raycast(game, ox, oy, oz, dx, dy, dz, maxT, ignore = null, solid
     const loz = ex * s + ez * c;
     const ldx = dx * c - dz * s;
     const ldz = dx * s + dz * c;
-    const t = rayBox(lox, oy, loz, ldx, dy, ldz, -v.type.w / 2, (v.y || 0) + 0.2, -v.type.l / 2, v.type.w / 2, (v.y || 0) + 1.9, v.type.l / 2);
+    const t = rayBox(lox, oy, loz, ldx, dy, ldz, -v.type.w / 2, (v.y || 0) + 0.2, -v.type.l / 2, v.type.w / 2, (v.y || 0) + (v.model?.roof || 1.9), v.type.l / 2); // (up to its roof: a bus or a box truck is tall)
     if (t !== null && t < best.t) best = { t, type: 'car', target: v };
   }
   // The police helicopter.
