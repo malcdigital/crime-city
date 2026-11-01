@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { gunModel, ammoModel, vestModel } from './gunmodels.js';
+import { gunModel, ammoModel, vestModel, magModel } from './gunmodels.js';
 import { PHONE } from './quality.js';
 
 // The gun shop's carousel stage (shops.js): the item you're looking at, turning slowly under a
@@ -54,7 +54,18 @@ export class ShopPreview {
     const holder = new THREE.Group();
     const inner = new THREE.Group();
     holder.add(inner);
-    if (p.gun) inner.add(gunModel(p.gun));
+    if (p.gun && p.mag) {
+      // (the gun, and the magazine beside it, big enough to see)
+      const gm = gunModel(p.gun);
+      gm.scale.setScalar(0.8);
+      gm.position.set(-0.05, 0.04, -0.06);
+      inner.add(gm);
+      const mm = magModel(p.gun, p.mag);
+      const L = gm.userData.length || 0.22;
+      mm.scale.setScalar(Math.max(1.4, L * 2.2));
+      mm.position.set(L * 0.35, 0.02, 0.1);
+      inner.add(mm);
+    } else if (p.gun) inner.add(gunModel(p.gun));
     else if (p.ammo) {
       const gm = gunModel(p.ammo);
       gm.position.set(0, 0.06, -0.05);

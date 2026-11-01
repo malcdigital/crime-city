@@ -20,6 +20,19 @@ export const WEAPONS = [
 // the one in your hand. Ammo is kept per gun type, even for guns you aren't carrying.
 const byId = (id) => WEAPONS.find((w) => w.id === id);
 
+// Bigger magazines (the gun shops sell them: shops.js): per gun, what fits it, how many rounds,
+// what it does to the reload. One is fitted at a time (the gun's own when none is).
+export const MAGS = {
+  pistol: [{ id: 'ext', name: 'Extended mag', cap: 20, reload: 1.05, price: 350 }, { id: 'stick', name: 'Stick mag', cap: 33, reload: 1.15, price: 900 }],
+  revolver: [{ id: 'speed', name: 'Speed loader', cap: 6, reload: 0.5, price: 450 }],
+  mpistol: [{ id: 'ext', name: 'Extended mag', cap: 50, reload: 1.05, price: 700 }, { id: 'drum', name: 'Drum', cap: 75, reload: 1.3, price: 1600 }],
+  smg: [{ id: 'ext', name: 'Extended mag', cap: 45, reload: 1.05, price: 800 }, { id: 'drum', name: 'Drum', cap: 100, reload: 1.35, price: 2000 }],
+  shotgun: [{ id: 'ext', name: 'Extended tube', cap: 8, reload: 1.15, price: 600 }, { id: 'drum', name: 'Drum mag', cap: 20, reload: 1.4, price: 2200 }],
+  rifle: [{ id: 'ext', name: 'Extended mag', cap: 45, reload: 1.05, price: 1000 }, { id: 'drum', name: 'Drum', cap: 100, reload: 1.4, price: 2600 }],
+  ak: [{ id: 'ext', name: 'Extended mag', cap: 45, reload: 1.05, price: 1000 }, { id: 'drum', name: 'Drum', cap: 75, reload: 1.35, price: 2600 }],
+  hunting: [{ id: 'ext', name: 'Extended box', cap: 10, reload: 1.1, price: 900 }],
+};
+
 export class Arsenal {
   constructor() {
     this.slots = ['pistol', null];
@@ -32,6 +45,32 @@ export class Arsenal {
     };
     this.cool = 0;
     this.reloadT = 0;
+    this.mags = {}; // gun id -> the magazines you own for it (ids)
+    this.magOn = {}; // gun id -> the one fitted (or none: its own)
+  }
+
+  // The magazine fitted to a gun (or null), its capacity, its reload time.
+  magOf(id) {
+    return (MAGS[id] || []).find((m) => m.id === this.magOn[id]) || null;
+  }
+
+  cap(id) {
+    return this.magOf(id)?.cap ?? byId(id).mag;
+  }
+
+  reloadTime(id) {
+    return byId(id).reload * (this.magOf(id)?.reload ?? 1);
+  }
+
+  // Fit a magazine you own (null: the gun's own). Rounds that don't fit go back in the reserve.
+  fitMag(id, magId) {
+    this.magOn[id] = magId;
+    const am = this.ammo[id];
+    const c = this.cap(id);
+    if (am.mag > c) {
+      am.reserve += am.mag - c;
+      am.mag = c;
+    }
   }
 
   current() {
@@ -91,8 +130,8 @@ export class Arsenal {
     const w = this.current();
     if (w.melee || this.reloadT > 0) return false;
     const am = this.ammo[w.id];
-    if (am.mag >= w.mag || am.reserve <= 0) return false;
-    this.reloadT = w.reload;
+    if (am.mag >= this.cap(w.id) || am.reserve <= 0) return false;
+    this.reloadT = this.reloadTime(w.id);
     return true;
   }
 
@@ -103,7 +142,7 @@ export class Arsenal {
       if (this.reloadT <= 0) {
         const w = this.current();
         const am = this.ammo[w.id];
-        const take = Math.min(w.mag - am.mag, am.reserve);
+        const take = Math.min(this.cap(w.id) - am.mag, am.reserve);
         am.mag += take;
         am.reserve -= take;
         this.reloadT = 0;

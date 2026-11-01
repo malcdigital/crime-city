@@ -171,7 +171,7 @@ export class Inventory {
       g.hud.toast(`Dropped your ${gunName(id)}`);
     } else if (it.type === 'ammo') {
       const w = WEAPONS.find((q) => q.id === it.id);
-      const n = all ? it.count : Math.min(it.count, w.mag);
+      const n = all ? it.count : Math.min(it.count, ar.cap(w.id));
       const am = ar.ammo[it.id];
       const fromReserve = Math.min(am.reserve, n);
       am.reserve -= fromReserve;

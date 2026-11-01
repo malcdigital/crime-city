@@ -3,7 +3,7 @@ import { GUN_SHOPS } from './gunshops.js';
 import * as THREE from 'three';
 import { CFG, CRED_TIERS } from './config.js';
 import { tierOf } from './claim.js';
-import { WEAPONS } from './weapons.js';
+import { WEAPONS, MAGS } from './weapons.js';
 import { GANG_GUNS } from './gang.js';
 import { GANGS } from './turf.js';
 import { dist, pick } from './util.js';
@@ -39,10 +39,10 @@ const GUN_STOCK = [
 const ARMOR_PRICE = 500;
 // Crew gear: guns in two steps, and vests.
 const CREW_GUNS = [
-  { price: 3000, name: 'SMGs & shotguns', detail: 'No more pistols: every homie carries an SMG or a shotgun' },
-  { price: 7500, name: 'Assault rifles', detail: 'Every homie carries an assault rifle' },
+  { price: 7500, name: 'SMGs & shotguns', detail: 'No more pistols: every homie carries an SMG or a shotgun' },
+  { price: 18000, name: 'Assault rifles', detail: 'Every homie carries an assault rifle' },
 ];
-const CREW_VEST = { price: 4000, name: 'Crew vests', detail: 'Your homies take 40% less damage' };
+const CREW_VEST = { price: 9000, name: 'Crew vests', detail: 'Your homies take 40% less damage' };
 // Mod garage, per car. Three levels each.
 const MODS = {
   engine: { name: 'Engine', prices: [800, 1600, 3000], detail: (l) => `+${l * 7}% top speed, +${l * 12}% acceleration` },
@@ -55,7 +55,7 @@ const PAINTS = [0x1c1c1c, 0xf2f2f2, 0xb71c1c, 0x0d47a1, 0x1b5e20, 0xf9a825, 0x4a
 
 const money = (n) => `$${n.toLocaleString('en-US')}`;
 // The gun shop's categories (its menu is a carousel per category).
-const CATS = [['guns', 'Guns'], ['ammo', 'Ammo'], ['armor', 'Armor'], ['crew', 'Crew']];
+const CATS = [['guns', 'Guns'], ['ammo', 'Ammo'], ['mags', 'Mags'], ['armor', 'Armor'], ['crew', 'Crew']];
 // A gun's numbers as bars, against the best in the game.
 const GUNS = WEAPONS.filter((w) => !w.melee);
 const STAT = {
@@ -212,6 +212,8 @@ export class Shops {
     } else if (CFG.START_ALL_GUNS) ar.slots = ['rifle', 'shotgun'];
     ar.refresh();
     if (s.ammo) for (const [id, v] of Object.entries(s.ammo)) if (ar.ammo[id]) Object.assign(ar.ammo[id], v);
+    if (s.mags) ar.mags = s.mags;
+    if (s.magOn) ar.magOn = s.magOn;
     this.bag.visible = this.stash > 0;
     this.safeSign.material.color.set(this.safehouse ? 0xffffff : 0x888888);
   }
@@ -221,7 +223,7 @@ export class Shops {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
         stash: this.stash, unpaid: this.unpaid, payT: this.payT, safehouse: this.safehouse, city2: true, crewGuns: this.crewGuns,
-        crewVest: this.crewVest, armor: Math.round(this.game.armor), slots: ar.slots, active: ar.active, ammo: ar.ammo,
+        crewVest: this.crewVest, armor: Math.round(this.game.armor), slots: ar.slots, active: ar.active, ammo: ar.ammo, mags: ar.mags, magOn: ar.magOn,
       }));
     } catch {
       // Storage unavailable.
@@ -535,7 +537,7 @@ export class Shops {
         can: have ? 'Owned' : true,
         buy: () => {
           ar.give(w.id);
-          ar.ammo[w.id].mag = w.mag;
+          ar.ammo[w.id].mag = ar.cap(w.id);
           ar.ammo[w.id].reserve += s.ammo;
         },
       });
@@ -545,6 +547,23 @@ export class Shops {
         detail: `${have ? `Carrying ${am.mag + am.reserve}.` : `For the ${w.name} (you don't carry one).`} A box of ${s.ammo} rounds.`,
         can: true, buy: () => (am.reserve += s.ammo),
       });
+      // (bigger magazines for it: buy one and it's fitted; one you own fits for free, or comes off)
+      for (const m of MAGS[w.id] || []) {
+        const own = (ar.mags[w.id] || []).includes(m.id);
+        const on = ar.magOn[w.id] === m.id;
+        const how = m.cap > w.mag ? `Holds ${m.cap} rounds instead of ${w.mag}` : `Same ${m.cap} rounds`;
+        const rl = m.reload < 1 ? `reloads ${Math.round((1 - m.reload) * 100)}% faster` : m.reload > 1.2 ? 'heavier: slower to reload' : 'a touch slower to reload';
+        list.push({
+          cat: 'mags', label: `${w.name} · ${m.name}`, price: own ? 0 : price(m.price), weapon: w, magCap: m.cap, preview: { gun: w.id, mag: m.id },
+          detail: `${how}, ${rl}.${have ? '' : ` (You don't carry a ${w.name}.)`}${own ? (on ? ' Fitted.' : ' Yours: fit it for free.') : ''}`,
+          buyText: on ? 'TAKE IT OFF' : own ? 'FIT IT' : null,
+          can: true,
+          buy: () => {
+            if (!own) (ar.mags[w.id] ||= []).push(m.id);
+            ar.fitMag(w.id, on ? null : m.id);
+          },
+        });
+      }
     }
     list.push({
       cat: 'armor', label: 'Body armor', price: ARMOR_PRICE, preview: { armor: 1 },
@@ -653,7 +672,7 @@ export class Shops {
     // (a gun's numbers as bars; ammo shows the gun it's for)
     const w = it.weapon;
     q('.car-stats').innerHTML = w ? Object.entries(STAT).map(([k, f]) => {
-      const v = Math.max(0.06, f(w) / STAT_MAX[k]);
+      const v = Math.min(1, Math.max(0.06, (k === 'Magazine' && it.magCap ? it.magCap : f(w)) / STAT_MAX[k]));
       return `<div class="st"><span>${k}</span><b><i style="width:${Math.round(v * 100)}%"></i></b></div>`;
     }).join('') : '';
     q('.car-stats').classList.toggle('none', !w);
@@ -661,7 +680,7 @@ export class Shops {
     const off = it.can !== true;
     const poor = !off && !game.bank.canPay(it.price);
     const b = q('.car-buy');
-    b.textContent = off ? it.can : `BUY · ${it.priceText ?? money(it.price)}`;
+    b.textContent = off ? it.can : it.buyText || `BUY · ${it.priceText ?? money(it.price)}`;
     b.className = `car-buy${off ? ' off' : ''}${poor ? ' poor' : ''}`;
     q('.car-dots').innerHTML = items.map((_, i) => `<i class="${i === m.i ? 'on' : ''}"></i>`).join('');
     this.lastFrame = performance.now();

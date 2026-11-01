@@ -193,3 +193,33 @@ export function vestModel(color = 0x2f3b2a, mat = lambert) {
   g.userData.length = 0.5;
   return g;
 }
+
+// A magazine for a gun (shops.js MAGS): a stick, a longer stick, a drum, a speed loader.
+export function magModel(gunId, magId, mat = lambert) {
+  const g = new THREE.Group();
+  const add = (geo, c, x, y, z, rz = 0, rx = 0) => {
+    const m = new THREE.Mesh(geo, mat(c));
+    m.position.set(x, y, z);
+    m.rotation.set(rx, 0, rz);
+    g.add(m);
+  };
+  const pistolish = gunId === 'pistol' || gunId === 'mpistol';
+  if (magId === 'speed') {
+    add(new THREE.CylinderGeometry(0.032, 0.032, 0.018, 12), 0x2a2a2a, 0, 0, 0, 0, Math.PI / 2);
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      add(new THREE.CylinderGeometry(0.0065, 0.0065, 0.04, 8), 0xc9a24a, Math.cos(a) * 0.019, Math.sin(a) * 0.019, 0.02, 0, Math.PI / 2);
+    }
+  } else if (magId === 'drum') {
+    const r = gunId === 'shotgun' ? 0.07 : pistolish ? 0.045 : 0.06;
+    for (const z of [-0.025, 0.025]) add(new THREE.CylinderGeometry(r, r, 0.04, 20), 0x1c1c1c, 0, -r - 0.03, z, 0, Math.PI / 2);
+    add(new THREE.BoxGeometry(0.03, 0.06, 0.028), 0x1c1c1c, 0, 0, 0);
+  } else {
+    const len = magId === 'stick' ? 0.24 : gunId === 'hunting' ? 0.07 : pistolish ? 0.16 : 0.22;
+    const curve = gunId === 'ak';
+    add(new THREE.BoxGeometry(0.03, len, gunId === 'shotgun' ? 0.03 : 0.024), curve ? 0x2a1a10 : 0x1c1c1c, curve ? 0.02 : 0, -len / 2, 0, curve ? -0.2 : 0);
+    add(new THREE.BoxGeometry(0.034, 0.014, 0.028), 0x111111, curve ? 0.04 : 0, -len, 0);
+    add(new THREE.BoxGeometry(0.02, 0.008, 0.012), 0xc9a24a, 0, 0.004, 0); // (the top round)
+  }
+  return g;
+}
