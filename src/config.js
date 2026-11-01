@@ -68,7 +68,7 @@ export const CFG = {
   MARKET_HOT: true,
   // Testing switch: force what happens on drug runs ('raid', 'chase', 'both', 'clean'), or null
   // for the normal random roll.
-  TEST_INCIDENT: 'raid',
+  TEST_INCIDENT: null,
   // Testing switch: the next street sale is to an undercover cop (once, then it switches itself off).
   TEST_STING: true,
   // Testing switch: force the next patrol stop to be a 'dirty' or 'clean' cop (null: random).

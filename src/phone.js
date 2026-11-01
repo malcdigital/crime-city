@@ -84,6 +84,8 @@ export class Phone {
   open(app) {
     this.app = app;
     this.rowSel = 0;
+    this.bodyHtml = null;
+    this.el.body.scrollTop = 0; // (a new app starts at its top)
     this.render();
   }
 
@@ -223,6 +225,7 @@ export class Phone {
         const n = this.rows().length;
         if (n && (a.phoneUp || a.phoneLeft)) this.rowSel = (this.rowSel - 1 + n) % n;
         if (n && (a.phoneDown || a.phoneRight)) this.rowSel = (this.rowSel + 1) % n;
+        this.selMoved = true; // (the buttons moved the selection: scroll it into view)
       }
       this.render();
     }
@@ -276,8 +279,18 @@ export class Phone {
     if (this.app === 'messages') game.hud.unreadTexts = 0;
     const rows = this.rows();
     this.rowSel = Math.min(this.rowSel, Math.max(0, rows.length - 1));
-    body.innerHTML = rows.map((r, i) => `<div class="ph-row${i === this.rowSel ? ' sel' : ''}${r.off ? ' off' : ''}${r.head ? ' head' : ''}" data-i="${i}"><span>${iconizeHTML(esc(r.label))}</span><b>${esc(r.right || '')}</b></div>`).join('');
+    // (only rewritten when something changed, and where you'd scrolled to is kept: the live
+    // refresh never throws you back to the top; only the D-pad / arrows scroll to the
+    // selected row)
+    const html = rows.map((r, i) => `<div class="ph-row${i === this.rowSel ? ' sel' : ''}${r.off ? ' off' : ''}${r.head ? ' head' : ''}" data-i="${i}"><span>${iconizeHTML(esc(r.label))}</span><b>${esc(r.right || '')}</b></div>`).join('');
+    if (html !== this.bodyHtml) {
+      const top = body.scrollTop;
+      body.innerHTML = html;
+      body.scrollTop = top;
+      this.bodyHtml = html;
+    }
     detail.textContent = rows[this.rowSel] ? rows[this.rowSel].detail || '' : '';
-    body.querySelector('.ph-row.sel')?.scrollIntoView({ block: 'nearest' });
+    if (this.selMoved) body.querySelector('.ph-row.sel')?.scrollIntoView({ block: 'nearest' });
+    this.selMoved = false;
   }
 }
