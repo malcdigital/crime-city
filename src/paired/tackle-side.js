@@ -20,10 +20,12 @@ const R = {
   roll: curve([[0, 0], [TC, 0], [0.5, 0.35], [0.7, 1.15], [TD, 1.42], [1.6, 1.42]]),
 };
 const T = {
-  x: curve([[0, 3.3], [TC, 0.82], [0.5, 0.2], [0.7, -0.25], [TD, -0.42], [1.6, -0.46]]),
-  z: curve([[0, -0.12], [TC, 0], [0.5, 0.55], [0.7, 0.9], [TD, 1.02], [1.6, 1.06]]),
-  y: curve([[0, 0], [0.55, 0.04], [0.75, 0.24], [TD, 0.3], [0.95, 0.27], [1.6, 0.28]]),
-  pitch: curve([[0, 0.12], [TC, 0.25], [0.5, 0.6], [0.7, 1.15], [TD, 1.33], [1.6, 1.33]]),
+  // (his shoulder into the ribs with his head across in front of him, driving through him, then
+  // down on top of him: his chest on the runner's middle, his feet still on the turf behind)
+  x: curve([[0, 3.3], [TC, 1.08], [0.5, 0.52], [0.7, 0.0], [TD, -0.3], [1.6, -0.34]]),
+  z: curve([[0, 0.38], [TC, 0.48], [0.5, 0.98], [0.7, 1.22], [TD, 1.3], [1.6, 1.32]]),
+  y: curve([[0, 0], [0.55, 0.06], [0.75, 0.36], [TD, 0.5], [1.6, 0.48]]),
+  pitch: curve([[0, 0.12], [TC, 0.25], [0.5, 0.55], [0.7, 0.95], [TD, 1.1], [1.6, 1.1]]),
 };
 
 export default {
@@ -33,7 +35,7 @@ export default {
   actors: ['runner', 'tackler'],
   events: { contact: Math.round(TC * 30), down: Math.round(TD * 30) },
   props: { runner: { ball: 'tuck' } },
-  contact: { move: 'tackler', against: 'runner', skip: { tackler: ['wristL', 'wristR'] }, tol: 0.015 },
+  contact: { move: 'tackler', against: 'runner', skip: { tackler: ['wristL', 'wristR', 'elbowL', 'elbowR', 'armL', 'armR'] }, tol: 0.015, axes: [1, 0.8, 0.25], relax: true }, // (his arms are meant to be round him; pushed back along his line or up onto him, not off to the side, and no further than each frame needs)
   pose(t, { runner: a, tackler: b }, adjust = {}) {
     // ---- The runner ----
     root(a, R.x(t), R.y(t), R.z(t), 0, 0.12 * ramp(t, TC, 0.7), R.roll(t));
@@ -46,7 +48,7 @@ export default {
     // the legs knocked out sideways)
     const hit = jointsOf(a, () => {
       fbPose(a, { lower: ['run'], upper: ['tuck', 6] });
-      bendSpine(a, 0.2, -0.25, -0.45);
+      bendSpine(a, 0.2, -0.25, 0.45);
       a.neck.rotation.set(0.1, 0.2, 0.35);
       a.armL.rotation.set(-1.2, 0, 1.6);
       a.elbowL.rotation.set(-0.5, 0, 0);
@@ -75,8 +77,8 @@ export default {
     });
     const drive = jointsOf(b, () => {
       animateWalk(b, t * 12, 0.6);
-      bendSpine(b, 0.6, 0.3, 0);
-      b.neck.rotation.set(-0.4, 0.5, 0); // (the head across in front of him)
+      bendSpine(b, 0.6, 0, 0);
+      b.neck.rotation.set(-0.4, 0, 0); // (the head across in front of him: he's that side of him)
     });
     const land = jointsOf(b, () => {
       tacklerPose(b, 1);

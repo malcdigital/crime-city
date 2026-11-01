@@ -118,12 +118,52 @@ export function bakePaired(def, chars) {
           const o = measure(f);
           const sink = below(chars[C.move]);
           if (o.depth <= tol && sink <= tol) break;
-          if (o.depth > tol) A[f].addScaledVector(o.push, 0.8);
+          if (o.depth > tol) {
+            // (axes: how much of the push to take on each world axis (a tackler pushed back along
+            // his own line or up onto the man, not slid off sideways); what's taken off one axis
+            // made up on the others, so the push still gets him clear)
+            const p = o.push.clone();
+            if (C.axes) {
+              const L = p.length();
+              p.multiply(new THREE.Vector3(...C.axes));
+              if (p.lengthSq() > 1e-8) p.setLength(L);
+              else p.set(0, L, 0);
+            }
+            A[f].addScaledVector(p, 0.8);
+          }
           if (sink > tol) A[f].y += sink;
           A[f].y = Math.max(0, A[f].y);
         }
       }
       smooth(A);
+    }
+    // (relax: no more push than each frame needs: the push carried on from the frames before
+    // cut back as far as it'll go and still be clear)
+    if (C.relax) {
+      for (let f = 0; f < frames; f++) {
+        const full = A[f].clone();
+        for (const k of [0, 0.2, 0.4, 0.6, 0.8]) {
+          A[f].copy(full).multiplyScalar(k);
+          if (measure(f).depth <= tol && below(chars[C.move]) <= tol) break;
+          A[f].copy(full);
+        }
+      }
+      // (smoothed again, then anything that's back in pushed clear again)
+      smooth(A);
+      for (let f = 0; f < frames; f++) {
+        for (let it = 0; it < 24; it++) {
+          const o = measure(f);
+          if (o.depth <= tol) break;
+          const p = o.push.clone();
+          if (C.axes) {
+            const L = p.length();
+            p.multiply(new THREE.Vector3(...C.axes));
+            if (p.lengthSq() > 1e-8) p.setLength(L);
+            else p.set(0, L, 0);
+          }
+          A[f].addScaledVector(p, 0.8);
+        }
+      }
     }
     // (no lift the overlap doesn't need: feet back on the turf wherever that's still clear)
     for (let f = 0; f < frames; f++) {

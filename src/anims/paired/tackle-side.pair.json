@@ -19,9 +19,9 @@
     },
     "tackler": {
       "pos": [
-        3.4828,
+        3.3,
         0,
-        1.6543
+        2.18
       ],
       "yaw": -1.5708
     }
@@ -29,20 +29,20 @@
   "events": {
     "contact": 9,
     "down": 26,
-    "touch": 10
+    "touch": 11
   },
   "clips": {
     "runner": "tackle-side.runner.json",
     "tackler": "tackle-side.tackler.json"
   },
   "contact": {
-    "worstCm": 1.4231,
-    "atFrame": 9,
+    "worstCm": 1.4903,
+    "atFrame": 29,
     "tolCm": 1.5,
     "framesOver": 0,
     "underTurfCm": {
       "runner": 0,
-      "tackler": 1.1116
+      "tackler": 6.9516
     }
   }
 }
