@@ -8,6 +8,8 @@ import { GANG_GUNS } from './gang.js';
 import { GANGS } from './turf.js';
 import { dist, pick } from './util.js';
 import { streetAt, SHOP_H } from './city.js';
+import { ShopPreview } from './shoppreview.js';
+import { dirIcon } from './icons.js';
 
 // Money in and money out.
 // In: every block Green Street holds pays every 10 minutes of play, more the higher your street
@@ -52,6 +54,18 @@ const RESPRAY_PRICE = 300;
 const PAINTS = [0x1c1c1c, 0xf2f2f2, 0xb71c1c, 0x0d47a1, 0x1b5e20, 0xf9a825, 0x4a148c, 0x37474f, 0xe65100, 0x00838f];
 
 const money = (n) => `$${n.toLocaleString('en-US')}`;
+// The gun shop's categories (its menu is a carousel per category).
+const CATS = [['guns', 'Guns'], ['ammo', 'Ammo'], ['armor', 'Armor'], ['crew', 'Crew']];
+// A gun's numbers as bars, against the best in the game.
+const GUNS = WEAPONS.filter((w) => !w.melee);
+const STAT = {
+  Damage: (w) => w.dmg * (w.pellets || 1),
+  'Fire rate': (w) => 1 / w.rate,
+  Accuracy: (w) => 1 / w.aimSpread,
+  Range: (w) => w.range,
+  Magazine: (w) => w.mag,
+};
+const STAT_MAX = Object.fromEntries(Object.entries(STAT).map(([k, f]) => [k, Math.max(...GUNS.map(f))]));
 // A gun's numbers in a line: what it hits for, how fast, how many, how far.
 export function specLine(w) {
   const rpm = Math.round(60 / w.rate);
@@ -378,14 +392,34 @@ export class Shops {
     const el = document.createElement('div');
     el.id = 'shop';
     el.className = 'hidden';
-    el.innerHTML = `<div class="shop-box"><div class="shop-head"><span class="shop-title"></span><span class="shop-cash"></span></div><div class="shop-list"></div><div class="shop-detail"></div><div class="shop-help"></div></div>`;
+    el.innerHTML = `<div class="shop-box"><div class="shop-head"><span class="shop-title"></span><span class="shop-cash"></span></div>`
+      + `<div class="shop-car"><div class="car-tabs"></div><div class="car-stage"><canvas class="car-view"></canvas><button class="car-prev" aria-label="Previous">${dirIcon('left', 22)}</button><button class="car-next" aria-label="Next">${dirIcon('right', 22)}</button><div class="car-count"></div></div>`
+      + `<div class="car-info"><div class="car-name"></div><div class="car-stats"></div><div class="car-detail"></div></div><div class="car-buyrow"><div class="car-dots"></div><button class="car-buy"></button></div></div>`
+      + `<div class="shop-list"></div><div class="shop-detail"></div><div class="shop-help"></div></div>`;
     document.body.appendChild(el);
     this.el = el;
     el.addEventListener('mousemove', (e) => {
       const row = e.target.closest('.shop-row');
       if (row && this.menu) this.select(+row.dataset.i);
     });
+    this.preview = new ShopPreview(el.querySelector('.car-view'));
+    // (the carousel: tabs, arrows, buy, a swipe across the stage)
+    el.querySelector('.car-tabs').addEventListener('click', (e) => {
+      const t = e.target.closest('[data-t]');
+      if (t && this.menu) this.setTab(+t.dataset.t);
+    });
+    el.querySelector('.car-prev').addEventListener('click', () => this.step(-1));
+    el.querySelector('.car-next').addEventListener('click', () => this.step(1));
+    el.querySelector('.car-buy').addEventListener('click', () => this.buy());
+    const stage = el.querySelector('.car-stage');
+    let sx = null;
+    stage.addEventListener('pointerdown', (e) => (sx = e.clientX));
+    stage.addEventListener('pointerup', (e) => {
+      if (sx !== null && Math.abs(e.clientX - sx) > 40) this.step(e.clientX < sx ? 1 : -1);
+      sx = null;
+    });
     el.addEventListener('click', (e) => {
+      if (e.target.closest('.shop-car')) return;
       const row = e.target.closest('.shop-row');
       if (row && this.menu) {
         // Touchscreen: first tap selects (read the details), second tap buys.
@@ -401,6 +435,7 @@ export class Shops {
   openGun(shop, focus = null) {
     this.open('gun');
     this.menu.shop = shop;
+    this.menu.tab = 0;
     if (focus) {
       const k = this.items().findIndex((it) => it.gun === focus);
       if (k >= 0) this.menu.i = k;
@@ -413,7 +448,10 @@ export class Shops {
     this.menu = { kind, i: 0 };
     if (game.input.locked) game.input.unlock();
     this.el.classList.remove('hidden');
-    this.el.querySelector('.shop-help').textContent = game.input.touchMode ? 'Tap to choose, tap again to buy · ○: leave' : game.input.mode === 'pad' ? 'D-pad ↑↓: choose · ✕: buy · ○: leave' : '↑↓ / W S: choose · Enter / click: buy · Esc: leave';
+    this.el.querySelector('.shop-help').textContent = kind === 'gun'
+      ? (game.input.touchMode ? 'Swipe or tap the arrows · tap a category · BUY · tap outside to leave' : game.input.mode === 'pad' ? 'D-pad ◀ ▶: browse · L1 / R1 or ↑↓: category · ✕: buy · ○: leave' : '← → / A D: browse · Q / R or ↑↓: category · Enter / click BUY · Esc: leave')
+      : game.input.touchMode ? 'Tap to choose, tap again to buy · ○: leave' : game.input.mode === 'pad' ? 'D-pad ↑↓: choose · ✕: buy · ○: leave' : '↑↓ / W S: choose · Enter / click: buy · Esc: leave';
+    this.el.classList.toggle('carousel', kind === 'gun');
     this.render();
   }
 
@@ -441,48 +479,8 @@ export class Shops {
     if (this.menu.custom) return this.menu.custom();
     if (this.menu.kind === 'custom') return [];
     if (this.menu.kind === 'gun') {
-      const list = [];
-      list.push({
-        label: 'Body armor', price: ARMOR_PRICE, detail: 'Soaks up most of the damage you take until it wears out',
-        can: game.armor >= 100 ? 'Already full' : true, buy: () => (game.armor = 100),
-      });
-      // (this shop's racks, at its prices)
-      const shop = this.menu.shop || this.gun;
-      const mult = shop.mult || 1;
-      const price = (n) => Math.round((n * mult) / 10) * 10;
-      for (const id of shop.stock || GUN_STOCK.map((s) => s.id)) {
-        const s0 = GUN_STOCK.find((x) => x.id === id);
-        const s = { ...s0, price: price(s0.price), ammoPrice: price(s0.ammoPrice) };
-        const w = WEAPONS.find((x) => x.id === s.id);
-        const have = ar.has(w.id);
-        if (!have) {
-          const out = ar.wouldReplace(w.id);
-          const outName = out ? WEAPONS.find((x) => x.id === out).name : null;
-          list.push({
-            label: out ? `${w.name} (swap out your ${outName})` : w.name, price: s.price,
-            detail: `${specLine(w)}. ${out ? `You carry two guns: this replaces the ${outName} in your hand. ` : ''}Comes with ${s.ammo} rounds.`,
-            gun: w.id,
-            can: true,
-            buy: () => {
-              ar.give(w.id);
-              ar.ammo[w.id].mag = w.mag;
-              ar.ammo[w.id].reserve += s.ammo;
-            },
-          });
-        }
-        {
-          const am = ar.ammo[w.id];
-          list.push({
-            label: `${w.name} ammo ×${s.ammo}`, price: s.ammoPrice, detail: `Carrying ${am.mag + am.reserve}`,
-            can: true, buy: () => (am.reserve += s.ammo),
-          });
-        }
-      }
-      const cg = CREW_GUNS[this.crewGuns];
-      if (cg) list.push({ label: `Crew guns: ${cg.name}`, price: cg.price, detail: cg.detail, can: true, buy: () => this.crewGuns++ });
-      else list.push({ label: 'Crew guns: maxed', price: 0, detail: 'Your homies all carry assault rifles', can: 'Owned', buy: () => {} });
-      list.push({ label: CREW_VEST.name, price: CREW_VEST.price, detail: CREW_VEST.detail, can: this.crewVest ? 'Owned' : true, buy: () => (this.crewVest = true) });
-      return list;
+      const tab = CATS[this.menu.tab || 0][0];
+      return this.gunItems().filter((it) => it.cat === tab);
     }
     // Garage: mods for the car you're in.
     const v = game.player.vehicle;
@@ -503,6 +501,71 @@ export class Shops {
       buy: () => this.respray(v),
     });
     return list;
+  }
+
+  // Everything at a gun shop, in its categories: { cat, label, price, detail, can, buy(),
+  // preview (what the carousel shows), weapon (for its numbers) }.
+  gunItems() {
+    const game = this.game;
+    const ar = game.arsenal;
+    const list = [];
+    // (this shop's racks, at its prices)
+    const shop = this.menu.shop || this.gun;
+    const mult = shop.mult || 1;
+    const price = (n) => Math.round((n * mult) / 10) * 10;
+    for (const id of shop.stock || GUN_STOCK.map((s) => s.id)) {
+      const s0 = GUN_STOCK.find((x) => x.id === id);
+      const s = { ...s0, price: price(s0.price), ammoPrice: price(s0.ammoPrice) };
+      const w = WEAPONS.find((x) => x.id === s.id);
+      const have = ar.has(w.id);
+      const out = have ? null : ar.wouldReplace(w.id);
+      const outName = out ? WEAPONS.find((x) => x.id === out).name : null;
+      list.push({
+        cat: 'guns', label: w.name, price: s.price, gun: w.id, weapon: w, preview: { gun: w.id },
+        detail: have ? 'You carry this one.' : `${out ? `You carry two guns: this replaces your ${outName}. ` : ''}Comes with ${s.ammo} rounds.`,
+        can: have ? 'Owned' : true,
+        buy: () => {
+          ar.give(w.id);
+          ar.ammo[w.id].mag = w.mag;
+          ar.ammo[w.id].reserve += s.ammo;
+        },
+      });
+      const am = ar.ammo[w.id];
+      list.push({
+        cat: 'ammo', label: `${w.name} ammo ×${s.ammo}`, price: s.ammoPrice, ammoFor: w.id, weapon: w, preview: { ammo: w.id },
+        detail: `${have ? `Carrying ${am.mag + am.reserve}.` : `For the ${w.name} (you don't carry one).`} A box of ${s.ammo} rounds.`,
+        can: true, buy: () => (am.reserve += s.ammo),
+      });
+    }
+    list.push({
+      cat: 'armor', label: 'Body armor', price: ARMOR_PRICE, preview: { armor: 1 },
+      detail: `Soaks up most of the damage you take until it wears out. You're at ${Math.round(game.armor)}%.`,
+      can: game.armor >= 100 ? 'Already full' : true, buy: () => (game.armor = 100),
+    });
+    const cg = CREW_GUNS[this.crewGuns];
+    if (cg) list.push({ cat: 'crew', label: `Crew guns: ${cg.name}`, price: cg.price, detail: cg.detail, preview: { crew: this.crewGuns ? 'rifle' : 'smg' }, can: true, buy: () => this.crewGuns++ });
+    else list.push({ cat: 'crew', label: 'Crew guns: maxed', price: 0, detail: 'Your homies all carry assault rifles', preview: { crew: 'rifle' }, can: 'Owned', buy: () => {} });
+    list.push({ cat: 'crew', label: CREW_VEST.name, price: CREW_VEST.price, detail: CREW_VEST.detail, preview: { crew: 'vest' }, can: this.crewVest ? 'Owned' : true, buy: () => (this.crewVest = true) });
+    return list;
+  }
+
+  // The carousel: the next or previous item, another category.
+  step(d) {
+    if (!this.menu) return;
+    const n = this.items().length;
+    if (!n) return;
+    this.menu.dir = d;
+    this.menu.i = (this.menu.i + d + n) % n;
+    this.game.sfx.click?.();
+    this.render();
+  }
+
+  setTab(t) {
+    if (!this.menu || this.menu.tab === t) return;
+    this.menu.tab = (t + CATS.length) % CATS.length;
+    this.menu.i = 0;
+    this.menu.dir = 1;
+    this.render();
   }
 
   respray(v) {
@@ -548,11 +611,52 @@ export class Shops {
 
   // Game paused while a menu is open.
   updateMenu(a) {
+    if (this.menu?.kind === 'gun') {
+      const now = performance.now();
+      this.preview.frame(Math.min(0.1, (now - (this.lastFrame || now)) / 1000));
+      this.lastFrame = now;
+      if (a.menuLeft) this.step(-1);
+      if (a.menuRight) this.step(1);
+      if (a.menuUp || a.menuTabPrev) this.setTab(this.menu.tab - 1);
+      if (a.menuDown || a.menuTabNext) this.setTab(this.menu.tab + 1);
+      if (a.menuOk) this.buy();
+      if (a.menuBack) this.close();
+      return;
+    }
     const n = this.items().length;
     if (a.menuUp) this.select((this.menu.i - 1 + n) % n);
     if (a.menuDown) this.select((this.menu.i + 1) % n);
     if (a.menuOk) this.buy();
     if (a.menuBack) this.close();
+  }
+
+  renderCarousel(items) {
+    const game = this.game;
+    const m = this.menu;
+    const q = (c) => this.el.querySelector(c);
+    const all = this.gunItems();
+    q('.car-tabs').innerHTML = CATS.map(([k, name], t) => `<button data-t="${t}" class="${t === m.tab ? 'on' : ''}">${name}<small>${all.filter((it) => it.cat === k).length}</small></button>`).join('');
+    const it = items[m.i];
+    if (!it) return;
+    this.preview.show(it.preview, m.dir || 1);
+    q('.car-count').textContent = `${m.i + 1} / ${items.length}`;
+    q('.car-name').textContent = it.label;
+    // (a gun's numbers as bars; ammo shows the gun it's for)
+    const w = it.weapon;
+    q('.car-stats').innerHTML = w ? Object.entries(STAT).map(([k, f]) => {
+      const v = Math.max(0.06, f(w) / STAT_MAX[k]);
+      return `<div class="st"><span>${k}</span><b><i style="width:${Math.round(v * 100)}%"></i></b></div>`;
+    }).join('') : '';
+    q('.car-stats').classList.toggle('none', !w);
+    q('.car-detail').textContent = it.detail;
+    const off = it.can !== true;
+    const poor = !off && !game.bank.canPay(it.price);
+    const b = q('.car-buy');
+    b.textContent = off ? it.can : `BUY · ${it.priceText ?? money(it.price)}`;
+    b.className = `car-buy${off ? ' off' : ''}${poor ? ' poor' : ''}`;
+    q('.car-dots').innerHTML = items.map((_, i) => `<i class="${i === m.i ? 'on' : ''}"></i>`).join('');
+    this.lastFrame = performance.now();
+    this.preview.frame(0);
   }
 
   render() {
@@ -563,6 +667,7 @@ export class Shops {
     const place = m.kind === 'gun' ? m.shop || this.gun : this.garage;
     this.el.querySelector('.shop-title').textContent = m.title || place.name;
     this.el.querySelector('.shop-cash').textContent = `Cash ${money(game.cash)} · Bank ${money(game.bank.balance)}`;
+    if (m.kind === 'gun') return this.renderCarousel(items);
     this.el.querySelector('.shop-list').innerHTML = items.map((it, i) => {
       const off = it.can !== true;
       const poor = !off && !game.bank.canPay(it.price);

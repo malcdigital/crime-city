@@ -229,6 +229,10 @@ export class Input {
     a.start = this.btnHit(PAD.CROSS) || this.btnHit(PAD.OPTIONS);
     a.menuUp = this.hit('ArrowUp') || this.hit('KeyW') || this.btnHit(PAD.UP);
     a.menuDown = this.hit('ArrowDown') || this.hit('KeyS') || this.btnHit(PAD.DOWN);
+    a.menuLeft = this.hit('ArrowLeft') || this.hit('KeyA') || this.btnHit(PAD.LEFT);
+    a.menuRight = this.hit('ArrowRight') || this.hit('KeyD') || this.btnHit(PAD.RIGHT);
+    a.menuTabPrev = this.hit('KeyQ') || this.btnHit(PAD.L1); // (a shop's categories: shops.js)
+    a.menuTabNext = this.hit('KeyR') || this.hit('Tab') || this.btnHit(PAD.R1);
     a.menuOk = this.hit('Enter') || this.hit('Space') || this.hit('KeyE') || this.btnHit(PAD.CROSS);
     a.menuBack = this.hit('Escape') || this.hit('Backspace') || this.btnHit(PAD.CIRCLE) || this.btnHit(PAD.OPTIONS);
     a.dealYes = this.hit('KeyE') || this.btnHit(PAD.CROSS);

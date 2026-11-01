@@ -4,6 +4,9 @@ import { WEAPONS } from './weapons.js';
 import { pick } from './util.js';
 import { signTexture, specLine, gunPrice } from './shops.js';
 import { SHOP_FOOT, SHOP_H } from './city.js';
+import { DoorSet, doorLeaf } from './doors.js';
+import { gunModel as gunModelOf } from './gunmodels.js';
+const gunModel = (id) => gunModelOf(id, imat); // (they glow a little, like the rest inside)
 
 // Interiors: places you walk into. For now the gun shops (src/gunshops.js), each the ground floor
 // of a real building in the city (city.js builds the floors above and leaves this one open:
@@ -56,37 +59,6 @@ const IMATS = new Map();
 function imat(color) {
   if (!IMATS.has(color)) IMATS.set(color, new THREE.MeshLambertMaterial({ color }));
   return IMATS.get(color);
-}
-
-// A gun to look at (on the wall, in a case): a few boxes in its colors, laid along +x.
-function gunModel(id) {
-  const g = new THREE.Group();
-  const dark = 0x1c1c1c;
-  const box = (w, h, d, x, y, z, c) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), imat(c));
-    m.position.set(x, y, z);
-    g.add(m);
-    return m;
-  };
-  const C = { pistol: dark, revolver: 0x9aa0a6, mpistol: 0x262626, smg: 0x2a2a2a, shotgun: 0x5a3d22, rifle: 0x2b2f26, ak: 0x6b4423, hunting: 0x5a3d22 }[id] || dark;
-  if (id === 'pistol' || id === 'revolver' || id === 'mpistol') {
-    const L = id === 'revolver' ? 0.32 : 0.24;
-    box(L, 0.06, 0.035, 0, 0.03, 0, id === 'revolver' ? C : dark); // (the slide / barrel)
-    box(0.06, 0.11, 0.032, -L / 2 + 0.05, -0.05, 0, id === 'revolver' ? 0x4a2f1c : dark); // (the grip)
-    if (id === 'revolver') box(0.07, 0.06, 0.05, -0.03, 0.02, 0, 0x7d8288); // (the cylinder)
-    if (id === 'mpistol') box(0.03, 0.14, 0.028, 0.0, -0.09, 0, dark); // (the long mag)
-  } else {
-    const L = { smg: 0.55, shotgun: 0.95, rifle: 0.9, ak: 0.88, hunting: 1.12 }[id] || 0.8;
-    box(L * 0.55, 0.07, 0.04, L * 0.12, 0.02, 0, id === 'ak' || id === 'shotgun' || id === 'hunting' ? dark : C); // (the receiver)
-    box(L * 0.4, 0.025, 0.025, L * 0.55, 0.035, 0, dark); // (the barrel)
-    box(L * 0.3, 0.09, 0.038, -L * 0.3, 0.0, 0, C); // (the stock)
-    box(0.04, 0.09, 0.03, 0.02, -0.06, 0, dark); // (the grip)
-    if (id === 'ak') box(0.05, 0.13, 0.03, L * 0.16, -0.08, 0, 0x2a2a2a); // (the curved mag, near enough)
-    if (id === 'rifle' || id === 'smg') box(0.04, 0.12, 0.03, L * 0.15, -0.07, 0, dark);
-    if (id === 'hunting') box(L * 0.28, 0.05, 0.05, L * 0.12, 0.09, 0, 0x111111); // (the scope)
-    if (id === 'shotgun') box(L * 0.25, 0.05, 0.04, L * 0.35, -0.02, 0, 0x4a3420); // (the pump)
-  }
-  return g;
 }
 
 // A paper target: a dark silhouette with scoring rings, on a white sheet (0.62 × 1.0 m).
@@ -204,6 +176,14 @@ export class Interiors {
     // A box in a frame (the store's or the range's: x0..x1, y0..y1, z0..z1). solid: you can't
     // walk through it; stops: bullets (and the camera) don't either; front: part of the front
     // wall (it fades for the cutaway, the camera goes through it).
+    // (its doors: swing doors you push through, doors.js)
+    r.doors = new DoorSet();
+    const hang = (hinge, dir, opts, front = false) => {
+      const mats = [];
+      const d = r.doors.add(root, { hinge, dir, width: 0.88, height: opts.h, leaf: (w, h) => doorLeaf(w, h, { ...opts, mats }) });
+      if (front) d.pivot.traverse((m) => m.isMesh && r.front.push(m));
+      return d;
+    };
     const box = (x0, x1, y0, y1, z0, z1, color, { solid = false, stops = solid, mat = null, frame = root, front = false } = {}) => {
       let m = mat || (typeof color === 'number' ? imat(color) : color);
       if (front) {
@@ -282,6 +262,13 @@ export class Interiors {
     // The wall between the store and the range, the door through it.
     wall(false, 0, ZB - 0.18, SX, SX + 0.3, [[SIDE_DOOR[0], SIDE_DOOR[1], 0, 2.5]], L.walls, { solid: true });
     box(SX - 0.04, SX + 0.34, 2.5, 2.6, SIDE_DOOR[0] - 0.1, SIDE_DOOR[1] + 0.1, L.trim);
+    // The doors: a pair of glass doors at the front, a pair of solid ones into the range.
+    const glassDoor = { h: 2.55, glass: 0xa9cfe0, frame: 0x1f1f1f };
+    hang([-DOOR, -0.15], [1, 0], glassDoor, true);
+    hang([DOOR, -0.15], [-1, 0], glassDoor, true);
+    const backDoor = { h: 2.45, panel: L.trim, frame: 0x1f1f1f };
+    hang([SX + 0.15, SIDE_DOOR[0]], [0, 1], backDoor);
+    hang([SX + 0.15, SIDE_DOOR[1]], [0, -1], backDoor);
     box(SX - 0.25, SX - 0.02, 2.75, 3.15, (SIDE_DOOR[0] + SIDE_DOOR[1]) / 2 - 0.5, (SIDE_DOOR[0] + SIDE_DOOR[1]) / 2 + 0.5, null, {
       mat: new THREE.MeshBasicMaterial({ map: signTexture('RANGE', '#1b1b1b', '#ffd23f') }),
     }).rotation.y = -Math.PI / 2;
@@ -435,6 +422,14 @@ export class Interiors {
     const C = this.challenge;
     if (C && (r !== C.room || this.laneAt(...this.rangeLocal(r, p.x, p.z)) !== C.lane)) this.stopChallenge(false, 'You left your lane: challenge over');
     if (!near || nd > SEE) return;
+    // (its doors: whoever's walking through pushes them)
+    const pushers = [];
+    if (!p.vehicle) pushers.push(p);
+    for (const c of game.characters()) {
+      if (c.alive === false || c.vehicle || Math.abs(c.x - near.cx) > 25 || Math.abs(c.z - near.cz) > 25) continue;
+      pushers.push(c);
+    }
+    near.doors.update(dt, pushers);
     this.clerkPose(near, dt);
     // (the targets: up or down, swinging there)
     for (const l of near.lanes) {
