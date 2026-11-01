@@ -700,6 +700,7 @@ export function carModel(typeName, t) {
     lights: s.lights,
     seat: s.seat,
     green: s.green, // (the cabin's side outline, [z, y] front to back: the windshield, the roof, the back)
+    roofHw: s.hwG ? s.hwG(99) : t.w / 2, // (half the width across the top of the door openings)
     door: null,
   };
   // The doors: a panel (the body's color) from the hinge back, its window above it (the

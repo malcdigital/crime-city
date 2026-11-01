@@ -59,6 +59,7 @@ export function doorSpot(v, side = -1) {
     doorX: D.x,
     lean: seat.lean || 0.12,
     green: M.green || null,
+    roofHw: M.roofHw ?? W - 0.2,
   };
 }
 
@@ -76,6 +77,22 @@ function handTo(c, side, wx, wy, wz, pole = new THREE.Vector3(side === 'L' ? 1 :
   c.group.updateMatrixWorld(true);
   const local = c.group.worldToLocal(_v.set(wx, wy, wz));
   reachArm(c, side, local, pole, null, null, 'group');
+}
+
+// Back to standing straight, arms included (restPose leaves the arms' swing as it was, and a
+// hand that's let go of something mustn't stay up where it was).
+function rest(c) {
+  restPose(c);
+  for (const j of ['armL', 'armR', 'elbowL', 'elbowR', 'wristL', 'wristR']) c[j].rotation.set(0, 0, 0);
+}
+// Both hands on the wheel (the driver's seat), or in the lap.
+function handsOnWheel(c, F, S, only = null) {
+  if (S.wheelZ == null || S.sx < 0) return;
+  for (const [hd, dx] of [['L', 0.17], ['R', -0.17]]) {
+    if (only && hd !== only) continue;
+    const [wx, wz] = F.w(S.seat[0] + dx, S.wheelZ - 0.06);
+    handTo(c, hd, wx, F.y + S.belt + 0.04, wz, new THREE.Vector3(hd === 'L' ? 1 : -1, -1, 0));
+  }
 }
 
 // The common runner: a length, a time, a step(t) that poses; update(dt) -> done.
@@ -111,6 +128,13 @@ function doorPoint(v, side, lx, ly, lz) {
   d.pivot.rotation.y = d.angle;
   d.pivot.updateMatrixWorld(true);
   return d.pivot.localToWorld(_d.set(lx, ly, lz)).clone();
+}
+// Where a hand takes hold of the door frame, up by the roof: just inside the top of the opening,
+// low enough that the hand (it points up past the wrist) stays under the roof; on a tall van, the
+// grab handle on the pillar at shoulder height instead. [x, y, z] in the car's frame.
+function frameGrip(S, z) {
+  if (S.green) z = Math.min(z, S.green[1][0] - 0.12); // (back from the windshield pillar, under the flat of the roof)
+  return [S.sx * (S.roofHw - 0.04), Math.min(ceiling(S, z) - 0.18, S.belt + 0.5), z];
 }
 // A hand on a world point: the wrist just off it (the hand hangs below the wrist).
 function gripAt(c, side, p, up = 0.05) {
@@ -248,7 +272,7 @@ export function enterCar(c, v, side = -1, { from = null, groundY = null, fromDuc
   let closed = false;
   const sc0 = new Scene(T.end - t0, (tt) => {
     const t = tt + t0;
-    restPose(c);
+    rest(c);
     let x;
     let z;
     let y = gy;
@@ -296,11 +320,11 @@ export function enterCar(c, v, side = -1, { from = null, groundY = null, fromDuc
     if (seatK > 0) {
       if (!fit) {
         // (worked out once, sitting square in the seat)
-        restPose(c);
+        rest(c);
         place(c, seatX, seatY, seatZ, faceFwd);
         sitPose(c, 1);
         fit = fitSeat(c, v, S);
-        restPose(c);
+        rest(c);
         place(c, x, y, z, yaw);
         sitPose(c, 1);
         bendSpine(c, bend, 0, 0);
@@ -316,13 +340,16 @@ export function enterCar(c, v, side = -1, { from = null, groundY = null, fromDuc
       if (p) gripAt(c, hand, p);
     }
     if (t >= T.step - 0.1 && t < T.sit + 0.1) {
-      const [rx, rz] = F.w(sx * (S.doorX - 0.05), S.hinge - S.len * 0.15);
-      handTo(c, far === 'L' ? 'L' : 'R', rx, F.y + S.roof - 0.06, rz);
+      const [gx, gy2, gz] = frameGrip(S, S.hinge - S.len * 0.15);
+      const [rx, rz] = F.w(gx, gz);
+      handTo(c, far === 'L' ? 'L' : 'R', rx, F.y + gy2, rz);
     }
     if (!none && t >= T.close - 0.1 && t < T.shut + 0.05) {
       const p = doorPoint(v, side, -sx * 0.1, S.belt - 0.33, -S.len * 0.55);
       if (p) gripAt(c, hand, p, 0.04);
     }
+    // (round to the wheel: hands on it, the near one once the door's pulled shut)
+    if (seatK > 0.7) handsOnWheel(c, F, S, none || t >= T.shut + 0.05 ? null : far);
     if (!opened && t >= T.open) {
       opened = true;
       v.openDoor(side, 0);
@@ -362,7 +389,7 @@ export function exitCar(c, v, side = -1, { groundY = null, onDone = null } = {})
   const T = { open: 0.12, swing: 0.55, up: 1.1, step: 1.55 };
   let opened = false;
   const s = new Scene(T.step, (t) => {
-    restPose(c);
+    rest(c);
     let x;
     let z;
     let y;
@@ -401,11 +428,11 @@ export function exitCar(c, v, side = -1, { groundY = null, onDone = null } = {})
     place(c, x, y, z, yaw);
     if (!fit) {
       // (worked out once, sitting square in the seat)
-      restPose(c);
+      rest(c);
       place(c, seatX, seatY, seatZ, faceFwd);
       sitPose(c, 1);
       fit = fitSeat(c, v, S);
-      restPose(c);
+      rest(c);
       place(c, x, y, z, yaw);
       if (t < T.up) sitPose(c, t < T.swing ? 1 : 1 - ease(seg(t, T.swing, T.up)));
     }
@@ -413,13 +440,20 @@ export function exitCar(c, v, side = -1, { groundY = null, onDone = null } = {})
     c.neck.rotation.set(Math.max(0, bend) * 0.3, 0, 0);
     seatFit(c, fit, seatK);
     if (t < T.up && seatK < 0.5) bend = underRoof(c, v, S, bend, 1);
-    // (a hand on the door as it opens, then on the roof edge to push up and out)
+    // (hands on the wheel, the near one to the door; then on the door frame to push up and out)
+    if (t < 0.3) handsOnWheel(c, F, S, none ? null : hand === 'L' ? 'R' : 'L');
     if (!none && t < T.swing) {
       const p = doorPoint(v, side, -sx * 0.1, S.belt - 0.33, -S.len * 0.55);
       if (p) gripAt(c, hand, p, 0.04);
     } else if (t < T.up + 0.05) {
-      const [rx, rz] = F.w(sx * (S.doorX - 0.05), S.hinge - S.len * 0.2);
-      handTo(c, hand, rx, F.y + S.roof - 0.06, rz);
+      const [gx, gy2, gz] = frameGrip(S, S.hinge - S.len * 0.2);
+      const [rx, rz] = F.w(gx, gz);
+      handTo(c, hand, rx, F.y + gy2, rz);
+      // (the other hand pushing off the seat's edge)
+      if (t >= T.swing && t < T.up - 0.15) {
+        const [ex, ez] = F.w(sx * (S.seat[0] + 0.22), S.seat[2] + 0.1);
+        handTo(c, hand === 'L' ? 'R' : 'L', ex, F.y + S.seat[1] + 0.08, ez);
+      }
     }
     if (!opened && t >= T.open) {
       opened = true;
@@ -497,7 +531,7 @@ export function jackCar(j, victim, v, side = -1, { from = null, groundY = null, 
     }
     // The jacker.
     if (t < T.enter) {
-      restPose(j);
+      rest(j);
       let x = sxw;
       let z = szw;
       let yaw = faceCar;
