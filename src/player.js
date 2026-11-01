@@ -14,6 +14,7 @@ const _aim = new THREE.Vector3();
 export class Player {
   constructor(game, x, z) {
     this.game = game;
+    this.look = { shirt: 0x1e7d32, pants: 0x1b1b1b, skin: 0x8d5524, hair: 0x1e7d32 }; // (in a car: vehicle.js shows you at the wheel in these)
     this.char = makeCharacter({ shirt: 0x1e7d32, pants: 0x1b1b1b, skin: 0x8d5524, bandana: 0x1e7d32 });
     setHeight(this.char, PLAYER_H); // (5'10")
     game.scene.add(this.char.group);
@@ -407,6 +408,7 @@ export class Player {
   enter(vehicle) {
     this.vehicle = vehicle;
     vehicle.driver = 'player';
+    vehicle.driverLook = this.look;
     vehicle.playerUsed = true;
     this.crouched = false;
     this.lowProfile = false;
@@ -438,6 +440,7 @@ export class Player {
     this.x = r.x;
     this.z = r.z;
     v.driver = null;
+    v.driverLook = null;
     v.runaway = true;
     v.openDoor(-1, 1.6);
     this.vehicle = null;
@@ -592,6 +595,7 @@ export class Player {
     this.high = !!v.high;
     this.hy = v.y;
     v.driver = null;
+    v.driverLook = null;
     v.openDoor(-1, 0.9);
     this.vehicle = null;
     this.speed = 0;

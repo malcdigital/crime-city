@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { lam } from './character.js';
 import { pushCircle } from './collision.js';
 import { clamp, lerp, wrapAngle } from './util.js';
+import { carModel, driverGeometry, trimMat, glassMat } from './carmodels.js';
 
 export const VTYPES = {
   sedan: { armor: 5, w: 2.0, l: 4.4, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 30, accel: 9, brake: 20, rev: 8, value: 900, label: 'Sedan',
@@ -26,6 +27,15 @@ export const VTYPES = {
 // slide = sliding grip as a share of the peak (fTractionCurveMin / Max), peak = slip angle of
 // peak grip in radians (from fTractionCurveLateral), bias = front share of grip
 // (fTractionBiasFront; a little under 0.5 keeps the rear planted).
+// A driver's look, when nobody's said who it is: a cop's uniform, or anyone.
+const SKINS = [0x8d5524, 0xc68642, 0xe0ac69, 0x5c3a1e, 0xf1c27d, 0x3b2414];
+const SHIRTS = [0x2c3e50, 0x7f8c8d, 0xc0392b, 0x2980b9, 0x27ae60, 0xecf0f1, 0x8e44ad, 0x1b1b1b, 0xd35400];
+export function randomLook(typeName) {
+  const pick = (a) => a[Math.floor(Math.random() * a.length)];
+  if (typeName === 'police' || typeName === 'swat') return { skin: pick(SKINS), shirt: typeName === 'swat' ? 0x1b1f24 : 0x1f3a6b, pants: 0x14213d, hair: 0x1a1a1a };
+  return { skin: pick(SKINS), shirt: pick(SHIRTS), pants: pick([0x1b1b1b, 0x2b3a55, 0x4a4a4a, 0x6b5a45]), hair: pick([0x1a1a1a, 0x3b2a1a, 0x6b4a2a]) };
+}
+
 const HANDLING = {
   sedan: { max: 1.95, slide: 0.86, peak: 0.16, bias: 0.48 },
   sports: { max: 2.3, slide: 0.88, peak: 0.15, bias: 0.48 },
@@ -37,8 +47,6 @@ const HANDLING = {
   delivery: { max: 1.45, slide: 0.83, peak: 0.17, bias: 0.47 },
 };
 
-const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 10);
-wheelGeo.rotateZ(Math.PI / 2);
 const lightGeo = new THREE.BoxGeometry(0.4, 0.18, 0.06);
 // Car lights. Headlights and taillights come on after dark (setCarNight, from daynight.js);
 // brake lights show whenever a driver is on the brakes or holding the car still. At night a
@@ -163,116 +171,96 @@ export class Vehicle {
   build() {
     const g = this.group;
     const t = this.type;
-    const body = new THREE.Mesh(new THREE.BoxGeometry(t.w, t.h, t.l), lam(this.color));
-    body.position.y = 0.35 + t.h / 2;
+    const M = carModel(this.typeName, t); // (src/carmodels.js: shared by every car of its type)
+    this.model = M;
+    const body = new THREE.Mesh(M.paint, lam(this.color));
     body.castShadow = true;
     g.add(body);
-    if (t.cab) {
-      const [cw, ch, cl, cz] = t.cab;
-      const cab = new THREE.Mesh(new THREE.BoxGeometry(cw, ch, cl), lam(0x1d2630));
-      cab.position.set(0, 0.35 + t.h + ch / 2, cz);
-      cab.castShadow = true;
-      g.add(cab);
-    } else {
-      const glass = new THREE.Mesh(new THREE.PlaneGeometry(t.w * 0.85, 0.7), lam(0x1d2630));
-      glass.position.set(0, 0.35 + t.h - 0.5, t.l / 2 + 0.01);
+    const trim = new THREE.Mesh(M.trim, trimMat);
+    trim.castShadow = true;
+    g.add(trim);
+    if (M.glass) {
+      const glass = new THREE.Mesh(M.glass, glassMat);
+      glass.renderOrder = 2;
       g.add(glass);
     }
-    if (this.typeName === 'taxi') {
-      // Roof sign and a checker band.
-      const sign = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.3, 0.35), new THREE.MeshBasicMaterial({ color: 0xfff6c0 }));
-      sign.position.set(0, 0.35 + t.h + t.cab[1] + 0.15, -0.2);
-      g.add(sign);
-      const band = new THREE.Mesh(new THREE.BoxGeometry(t.w + 0.02, 0.16, t.l * 0.6), lam(0x111111));
-      band.position.set(0, 0.35 + t.h * 0.75, 0);
-      g.add(band);
-    }
-    if (this.typeName === 'bus') {
-      // Window band down both sides, a destination sign, and a white roof.
-      const win = new THREE.Mesh(new THREE.BoxGeometry(t.w + 0.02, 0.8, t.l * 0.82), lam(0x1d2630));
-      win.position.set(0, 0.35 + t.h * 0.68, -0.2);
-      g.add(win);
-      const roof = new THREE.Mesh(new THREE.BoxGeometry(t.w - 0.1, 0.12, t.l - 0.2), lam(0xe8e8e8));
-      roof.position.set(0, 0.35 + t.h + 0.06, 0);
-      g.add(roof);
-      const dest = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.28, 0.05), new THREE.MeshBasicMaterial({ color: 0xffb020 }));
-      dest.position.set(0, 0.35 + t.h - 0.2, t.l / 2 + 0.02);
-      g.add(dest);
-    }
-    if (this.typeName === 'delivery') {
-      // Low cab in front of the box.
-      const stripe = new THREE.Mesh(new THREE.BoxGeometry(t.w + 0.02, 0.3, t.l * 0.6), lam(this.color === 0x7b4a24 ? 0xf1c40f : 0xc0392b));
-      stripe.position.set(0, 0.35 + t.h * 0.55, -0.6);
-      g.add(stripe);
-    }
-    if (this.typeName === 'swat') {
-      const band = new THREE.Mesh(new THREE.BoxGeometry(t.w + 0.02, 0.35, t.l * 0.7), lam(0x2d3e58));
-      band.position.set(0, 0.35 + t.h * 0.45, -0.3);
-      g.add(band);
+    if (this.typeName === 'swat' || this.typeName === 'police') {
       this.lightR = new THREE.MeshBasicMaterial({ color: 0x550000 });
       this.lightB = new THREE.MeshBasicMaterial({ color: 0x000055 });
-      const top = 0.35 + t.h + 0.1;
-      const lr = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.18, 0.35), this.lightR);
-      lr.position.set(-0.45, top, t.l / 2 - 0.6);
-      const lb = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.18, 0.35), this.lightB);
-      lb.position.set(0.45, top, t.l / 2 - 0.6);
-      g.add(lr, lb);
+      const top = M.roof + 0.11;
+      const z = this.typeName === 'swat' ? t.l / 2 - 1.1 : -0.25;
+      const base = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.06, 0.38), lam(0x222222));
+      base.position.set(0, top - 0.11, z);
+      const lr = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.16, 0.34), this.lightR);
+      lr.position.set(0.38, top, z);
+      const lb = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.16, 0.34), this.lightB);
+      lb.position.set(-0.38, top, z);
+      g.add(base, lr, lb);
+      if (this.typeName === 'police') this.livery = [base, lr, lb];
     }
-    if (this.typeName === 'police') {
-      const stripe = new THREE.Mesh(new THREE.BoxGeometry(t.w + 0.02, 0.45, 2.0), lam(0xf2f2f2));
-      stripe.position.set(0, 0.35 + t.h / 2, 0.1);
-      g.add(stripe);
-      this.lightR = new THREE.MeshBasicMaterial({ color: 0x550000 });
-      this.lightB = new THREE.MeshBasicMaterial({ color: 0x000055 });
-      const top = 0.35 + t.h + t.cab[1] + 0.1;
-      const lr = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.18, 0.35), this.lightR);
-      lr.position.set(-0.4, top, -0.2);
-      const lb = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.18, 0.35), this.lightB);
-      lb.position.set(0.4, top, -0.2);
-      g.add(lr, lb);
-      this.livery = [stripe, lr, lb];
-    }
-    // Front doors on hinges (every car). The car faces +z, so its right side is local -x.
-    // side: -1 = driver (left), +1 = passenger (right).
+    // Front doors on hinges, with their windows. The car faces +z, so its right side is local
+    // -x. side: -1 = driver (left, +x), +1 = passenger (right).
     this.doors = {};
-    const doorLen = this.typeName === 'sports' ? 1.25 : 1.1;
-    const hingeZ = t.cab ? t.l * 0.12 + 0.05 : t.l / 2 - 0.85;
     const doorColor = this.typeName === 'police' ? 0xf2f2f2 : this.color;
-    for (const side of [-1, 1]) {
-      const pivot = new THREE.Group();
-      pivot.position.set(-side * (t.w / 2 + 0.03), 0.35 + t.h / 2 + 0.05, hingeZ);
-      const door = new THREE.Mesh(new THREE.BoxGeometry(0.07, Math.min(t.h * 0.95 + 0.35, 1.5), doorLen), lam(doorColor));
-      door.position.set(0, 0.1, -doorLen / 2);
-      door.castShadow = true;
-      pivot.add(door);
-      // Window strip on the door.
-      const win = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.3, doorLen * 0.8), lam(0x1d2630));
-      win.position.set(0, t.h * 0.5 + 0.12, -doorLen / 2 - 0.05);
-      if (t.cab) pivot.add(win);
-      g.add(pivot);
-      this.doors[side] = { pivot, angle: 0, target: 0, len: doorLen, closeT: 0 };
+    if (M.door) {
+      for (const side of [-1, 1]) {
+        const sx = -side;
+        const pivot = new THREE.Group();
+        pivot.position.set(sx * M.door.x, 0, M.door.hinge);
+        const panel = new THREE.Mesh(M.door.panel[sx], lam(doorColor));
+        panel.castShadow = true;
+        pivot.add(panel);
+        if (M.door.glass[sx]) {
+          const gl = new THREE.Mesh(M.door.glass[sx], glassMat);
+          gl.renderOrder = 2;
+          pivot.add(gl);
+        }
+        g.add(pivot);
+        this.doors[side] = { pivot, angle: 0, target: 0, len: M.door.len, closeT: 0 };
+      }
     }
     this.heads = [];
     this.tails = [];
+    const [hx, hy, hz] = M.lights.head[0];
+    const [tx, ty, tz] = M.lights.tail[0];
     for (const sx of [-1, 1]) {
       const hl = new THREE.Mesh(lightGeo, headOffMat);
-      hl.position.set(sx * (t.w / 2 - 0.35), 0.35 + t.h * 0.6, t.l / 2 + 0.01);
+      hl.position.set(sx * hx, hy, hz);
       const tl = new THREE.Mesh(lightGeo, tailOffMat);
-      tl.position.set(sx * (t.w / 2 - 0.35), 0.35 + t.h * 0.6, -t.l / 2 - 0.01);
+      tl.position.set(sx * tx, ty, tz);
       g.add(hl, tl);
       this.heads.push(hl);
       this.tails.push(tl);
-      for (const sz of [-1, 1]) {
-        const w = new THREE.Mesh(wheelGeo, lam(0x151515));
+      for (const wz of M.wheels.z) {
+        const w = new THREE.Mesh(M.wheel, trimMat);
         w.rotation.order = 'YXZ';
-        w.position.set(sx * (t.w / 2 - 0.02), 0.38, sz * (t.l / 2 - 0.85));
-        w.userData.front = sz > 0;
+        w.position.set(sx * M.wheels.x, M.wheels.r, wz);
+        w.castShadow = true;
+        w.userData.front = wz > 0;
         w.userData.left = sx > 0; // local +x is the car's left side
         w.userData.flat = false;
+        w.userData.r = M.wheels.r;
         g.add(w);
         this.wheels.push(w);
       }
     }
+    this.driverMesh = null;
+  }
+
+  // Whoever's at the wheel, seen through the glass (src/carmodels.js driverGeometry): you in
+  // your colors, a cop in uniform, anyone else in their own. look: { skin, shirt, pants, hair }.
+  showDriver() {
+    const on = !!this.driver && !this.exploded;
+    if (on) {
+      const look = this.driverLook || (this.ownLook ??= randomLook(this.typeName));
+      if (this.driverMesh?.userData.look !== look) {
+        if (this.driverMesh) this.group.remove(this.driverMesh);
+        this.driverMesh = new THREE.Mesh(driverGeometry(look, this.model.seat, this.model.seat.wheelZ), trimMat);
+        this.driverMesh.userData.look = look;
+        this.group.add(this.driverMesh);
+      }
+    }
+    if (this.driverMesh && this.driverMesh.visible !== on) this.driverMesh.visible = on;
   }
 
   // Light on the road (night only) and the light bar's wash. Built once per car.
@@ -341,6 +329,7 @@ export class Vehicle {
   openDoor(side, autoClose = 0) {
     if (!this.doors || this.exploded) return;
     const d = this.doors[side];
+    if (!d) return; // (a bus: no swinging doors)
     d.target = side * 1.05;
     d.closeT = autoClose;
   }
@@ -459,7 +448,7 @@ export class Vehicle {
     const s = Math.sin(this.heading);
     const lx = w.position.x;
     const lz = w.position.z;
-    return [this.x + lx * c + lz * s, (this.y || 0) + 0.38, this.z - lx * s + lz * c];
+    return [this.x + lx * c + lz * s, (this.y || 0) + (w.userData.r || 0.38), this.z - lx * s + lz * c];
   }
 
   // Shoot out a tire: it sags, and the car gets slower and pulls to that side.
@@ -468,7 +457,7 @@ export class Vehicle {
     if (!w || w.userData.flat) return false;
     w.userData.flat = true;
     w.scale.set(1, 0.6, 0.6);
-    w.position.y = 0.24;
+    w.position.y = (w.userData.r || 0.38) * 0.63;
     return true;
   }
 
@@ -822,7 +811,7 @@ export class Vehicle {
     this.group.rotation.set(-this.pitch, this.heading, this.roll);
     for (const w of this.wheels) {
       const spin = !w.userData.front && this.rearSpin > 0 ? this.rearSpin : this.speed;
-      if (!w.userData.flat) w.rotation.x += (spin * dt) / 0.38;
+      if (!w.userData.flat) w.rotation.x += (spin * dt) / (w.userData.r || 0.38);
       else w.rotation.x = 0; // a flat tire is squashed at the bottom, not spinning
       if (w.userData.front) w.rotation.y = -this.steerVis; // positive steer is a right turn
     }
@@ -843,6 +832,7 @@ export class Vehicle {
       this.lightB.color.setHex(this.siren ? (on ? 0x000055 : 0x2050ff) : 0x000055);
     }
     this.updateLights(dt);
+    this.showDriver();
     this.crash = Math.max(0, this.crash - dt * 20);
   }
 

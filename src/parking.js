@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CFG } from './config.js';
 import { Vehicle, VTYPES } from './vehicle.js';
+import { carModel, trimMat } from './carmodels.js';
 import { mulberry32, dist } from './util.js';
 import { GFX } from './quality.js';
 import { STUBS, inHole } from './fwyplan.js';
@@ -86,22 +87,26 @@ export class Parking {
     }
   }
 
+  // One pair of instanced meshes per type (src/carmodels.js: the body in each car's color, the
+  // rest in one piece), as many as there are spots of that type.
   makeMeshes() {
-    const MAX = 900;
-    const unit = new THREE.BoxGeometry(1, 1, 1);
-    const wheel = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 8);
-    wheel.rotateZ(Math.PI / 2);
-    const body = new THREE.InstancedMesh(unit, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAX);
-    const cab = new THREE.InstancedMesh(unit, new THREE.MeshLambertMaterial({ color: 0x1d2630 }), MAX);
-    const wheels = new THREE.InstancedMesh(wheel, new THREE.MeshLambertMaterial({ color: 0x151515 }), MAX * 4);
-    body.castShadow = true;
-    cab.castShadow = true;
-    for (const m of [body, cab, wheels]) {
-      m.count = 0;
-      m.frustumCulled = false;
-      this.game.scene.add(m);
+    this.mesh = {};
+    const counts = {};
+    for (const s of this.spots) counts[s.type] = (counts[s.type] || 0) + 1;
+    for (const [type, n] of Object.entries(counts)) {
+      const M = carModel(type, VTYPES[type]);
+      const MAX = Math.min(n, 900);
+      const paint = new THREE.InstancedMesh(M.standin.paint, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAX);
+      const rest = new THREE.InstancedMesh(M.standin.rest, trimMat, MAX);
+      paint.castShadow = true;
+      rest.castShadow = true;
+      for (const m of [paint, rest]) {
+        m.count = 0;
+        m.frustumCulled = false;
+        this.game.scene.add(m);
+      }
+      this.mesh[type] = { paint, rest, MAX, n: 0 };
     }
-    this.mesh = { body, cab, wheels, MAX };
   }
 
   // Which stand-ins to draw, around where you are now.
@@ -109,69 +114,43 @@ export class Parking {
     const [px, pz] = this.game.player.pos();
     if (!force && this.built && dist(px, pz, this.built[0], this.built[1]) < 30) return;
     this.built = [px, pz];
-    const { body, cab, wheels, MAX } = this.mesh;
     const m4 = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const v = new THREE.Vector3();
-    const sc = new THREE.Vector3();
+    const one = new THREE.Vector3(1, 1, 1);
     const up = new THREE.Vector3(0, 1, 0);
     const col = new THREE.Color();
-    let n = 0;
-    for (const s of this.spots) s.idx = -1;
+    for (const M of Object.values(this.mesh)) M.n = 0;
     for (const s of this.spots) {
-      if (n >= MAX) break;
+      s.idx = -1;
       if (s.car || s.gone >= 0) continue;
       if (Math.abs(s.x - px) > SHOW || Math.abs(s.z - pz) > SHOW) continue;
-      const t = VTYPES[s.type];
+      const M = this.mesh[s.type];
+      if (!M || M.n >= M.MAX) continue;
       q.setFromAxisAngle(up, s.heading);
-      sc.set(t.w, t.h, t.l);
-      v.set(s.x, 0.35 + t.h / 2, s.z);
-      body.setMatrixAt(n, m4.compose(v, q, sc));
-      body.setColorAt(n, col.setHex(s.color));
-      if (t.cab) {
-        const [cw, ch, cl, cz] = t.cab;
-        sc.set(cw, ch, cl);
-        v.set(s.x + Math.sin(s.heading) * cz, 0.35 + t.h + ch / 2, s.z + Math.cos(s.heading) * cz);
-      } else {
-        // Vans: a windshield band across the front.
-        sc.set(t.w * 0.86, 0.6, 0.1);
-        const f = t.l / 2 + 0.02;
-        v.set(s.x + Math.sin(s.heading) * f, 0.35 + t.h - 0.45, s.z + Math.cos(s.heading) * f);
-      }
-      cab.setMatrixAt(n, m4.compose(v, q, sc));
-      sc.set(1, 1, 1);
-      let k = 0;
-      for (const sx of [-1, 1]) {
-        for (const sz of [-1, 1]) {
-          const lx = sx * (t.w / 2 - 0.02);
-          const lz = sz * (t.l / 2 - 0.85);
-          const c = Math.cos(s.heading);
-          const si = Math.sin(s.heading);
-          v.set(s.x + lx * c + lz * si, 0.38, s.z - lx * si + lz * c);
-          wheels.setMatrixAt(n * 4 + k++, m4.compose(v, q, sc));
-        }
-      }
-      s.idx = n++;
+      m4.compose(v.set(s.x, 0, s.z), q, one);
+      M.paint.setMatrixAt(M.n, m4);
+      M.rest.setMatrixAt(M.n, m4);
+      M.paint.setColorAt(M.n, col.setHex(s.color));
+      s.idx = M.n++;
     }
-    body.count = cab.count = n;
-    wheels.count = n * 4;
-    body.instanceMatrix.needsUpdate = true;
-    if (body.instanceColor) body.instanceColor.needsUpdate = true;
-    cab.instanceMatrix.needsUpdate = true;
-    wheels.instanceMatrix.needsUpdate = true;
+    for (const M of Object.values(this.mesh)) {
+      M.paint.count = M.rest.count = M.n;
+      M.paint.instanceMatrix.needsUpdate = true;
+      M.rest.instanceMatrix.needsUpdate = true;
+      if (M.paint.instanceColor) M.paint.instanceColor.needsUpdate = true;
+    }
   }
 
   // Hide one stand-in (its real car is out).
   hide(s) {
     if (s.idx < 0) return;
     const zero = new THREE.Matrix4().makeScale(0, 0, 0);
-    const { body, cab, wheels } = this.mesh;
-    body.setMatrixAt(s.idx, zero);
-    cab.setMatrixAt(s.idx, zero);
-    for (let k = 0; k < 4; k++) wheels.setMatrixAt(s.idx * 4 + k, zero);
-    body.instanceMatrix.needsUpdate = true;
-    cab.instanceMatrix.needsUpdate = true;
-    wheels.instanceMatrix.needsUpdate = true;
+    const M = this.mesh[s.type];
+    M.paint.setMatrixAt(s.idx, zero);
+    M.rest.setMatrixAt(s.idx, zero);
+    M.paint.instanceMatrix.needsUpdate = true;
+    M.rest.instanceMatrix.needsUpdate = true;
     s.idx = -1;
   }
 
