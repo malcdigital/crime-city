@@ -443,8 +443,30 @@ export class Hud {
       el.id = 'strip';
       el.className = 'hidden';
       document.getElementById('hud').appendChild(el);
+      // (on a phone, or with the mouse: tap an item to pick it, tap a tab to open or close it)
+      el.addEventListener('pointerdown', (e) => {
+        const inv = this.stripInv;
+        const hit = e.target.closest('[data-t],[data-s]');
+        if (!inv || !hit) return;
+        e.preventDefault();
+        const T = inv.constructor.TOP;
+        if (hit.dataset.s !== undefined) inv.sub = +hit.dataset.s;
+        else {
+          const i = +hit.dataset.t;
+          if (T[i].group && inv.group === T[i].group) inv.group = null;
+          else {
+            inv.top = i;
+            inv.group = null;
+            if (T[i].group) inv.openTab();
+          }
+        }
+        const now = T[inv.top];
+        inv.sel = inv.group ? now.items[inv.sub] : now.group ? -1 : now.flat;
+      });
     }
+    this.stripInv = inv;
     el.classList.toggle('hidden', !inv.open);
+    document.body.classList.toggle('strip-on', inv.open); // (the news pop-up keeps out of its way: style.css)
     if (!inv.open) return;
     const ars = game.arsenal;
     const inf = CFG.INFINITE_AMMO;
@@ -463,19 +485,20 @@ export class Hud {
       if (it.type === 'cash') return `<div class="st cash${s}"><div class="st-top">Cash</div><div class="st-cash">$${game.cash.toLocaleString('en-US')}</div><div class="st-sub">Armor ${Math.round(game.armor || 0)}</div></div>`;
       return `<div class="st small drug d-${it.kind}${it.count ? '' : ' none'}${s}"><div class="st-top">Drugs</div><div class="st-name">${cap(it.kind)}</div><div class="st-sub">${it.count}</div></div>`;
     };
+    const tag = (html, k, v) => html.replace('<div class="st', `<div data-${k}="${v}" class="st`);
     const top = TOP.map((t, i) => {
       const here = i === inv.top;
-      if (!t.group) return tile(items[t.flat], here && !inv.group);
+      if (!t.group) return tag(tile(items[t.flat], here && !inv.group), 't', i);
       const inside = t.items.map((k) => items[k]);
       const total = inside.reduce((n, it) => n + it.count, 0);
       const kinds = inside.filter((it) => it.count > 0).length;
       const open = inv.group === t.group;
-      return `<div class="st tab${here && !inv.group ? ' sel' : ''}${open ? ' open' : ''}${total ? '' : ' none'}"><div class="st-top">${t.name} ${open ? '▾' : '▸'}</div><div class="st-name">${kinds} type${kinds === 1 ? '' : 's'}</div><div class="st-sub">${total}</div></div>`;
+      return `<div data-t="${i}" class="st tab${here && !inv.group ? ' sel' : ''}${open ? ' open' : ''}${total ? '' : ' none'}"><div class="st-top">${t.name} ${open ? '▾' : '▸'}</div><div class="st-name">${kinds} type${kinds === 1 ? '' : 's'}</div><div class="st-sub">${total}</div></div>`;
     }).join('');
     let sub = '';
     if (inv.group) {
       const t = TOP[inv.top];
-      sub = `<div class="st-row st-open">${t.items.map((k, j) => tile(items[k], j === inv.sub)).join('')}</div>`;
+      sub = `<div class="st-row st-open">${t.items.map((k, j) => tag(tile(items[k], j === inv.sub), 's', j)).join('')}</div>`;
     }
     el.innerHTML = `${sub}<div class="st-row">${top}</div><div class="st-hint">${inv.hint()}</div>`;
   }

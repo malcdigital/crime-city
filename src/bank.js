@@ -5,6 +5,9 @@ import { storefront, signTexture } from './shops.js';
 import { streetAt, districtAt } from './city.js';
 import { GANGS } from './turf.js';
 import { dist } from './util.js';
+import { WEAPONS } from './weapons.js';
+
+const GUN_ROOM = 10; // (guns a home's stash holds)
 
 // Where your money lives.
 // - Cash on you: what plugs take (they don't do wires), and what you lose when opps drop you
@@ -89,9 +92,9 @@ export class Bank {
       const f = storefront(city, h.block);
       const s = sign(f, 'FOR SALE', Math.min(f.h - 1, 4.2), 6, 1.4, '#7f8c8d');
       ring(f.x, f.z, 0xf5b041);
-      return { ...h, x: f.x, z: f.z, owned: false, stash: 0, sign: s, district: districtAt(f.x, f.z), street: streetAt(f.x, f.z) };
+      return { ...h, x: f.x, z: f.z, owned: false, stash: 0, guns: [], sign: s, district: districtAt(f.x, f.z), street: streetAt(f.x, f.z) };
     });
-    this.safeHome = { id: 'safe', name: 'Safehouse', stash: 0, get owned() { return game.shops.safehouse; }, get x() { return game.shops.safe.x; }, get z() { return game.shops.safe.z; } };
+    this.safeHome = { id: 'safe', name: 'Safehouse', stash: 0, guns: [], get owned() { return game.shops.safehouse; }, get x() { return game.shops.safe.x; }, get z() { return game.shops.safe.z; } };
     this.load();
   }
 
@@ -112,11 +115,13 @@ export class Bank {
       this.days = s.days || 0;
       this.feeDay = s.feeDay || 0;
       this.safeHome.stash = s.safeStash || 0;
+      this.safeHome.guns = s.safeGuns || [];
       for (const h of this.homes) {
         const o = s.homes?.[h.id];
         if (o) {
           h.owned = !!o.owned;
           h.stash = o.stash || 0;
+          h.guns = o.guns || [];
         }
       }
     } catch {
@@ -128,8 +133,8 @@ export class Bank {
   save() {
     try {
       const homes = {};
-      for (const h of this.homes) homes[h.id] = { owned: h.owned, stash: h.stash };
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ balance: this.balance, atmUsed: this.atmUsed, days: this.days, feeDay: this.feeDay, safeStash: this.safeHome.stash, homes }));
+      for (const h of this.homes) homes[h.id] = { owned: h.owned, stash: h.stash, guns: h.guns };
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ balance: this.balance, atmUsed: this.atmUsed, days: this.days, feeDay: this.feeDay, safeStash: this.safeHome.stash, safeGuns: this.safeHome.guns, homes }));
     } catch {
       // Storage unavailable.
     }
@@ -373,13 +378,14 @@ export class Bank {
     const list = [
       ...this.amounts(game.cash, 'Stash', put).map((it) => ({ ...it, detail: 'No fees, open any time. A stash can get robbed — more likely when a gang has beef with you.' })),
       ...this.amounts(h.stash, 'Take', take).map((it) => ({ ...it, detail: '' })),
+      ...this.gunItems(h),
     ];
     const P = game.property;
     if (h.owed > 0) {
       list.push({ label: `Pay what you owe (${money(h.owed)})`, price: 0, priceText: '', detail: 'Back taxes and bills. Two weeks behind and the city seizes the property.', can: true, buy: () => P.payOwed(h) });
     }
     list.push({
-      label: `Sell it (${money(P.sellPrice(h))})`, price: 0, priceText: '', detail: `Market price ${money(P.price(h))}, less ${money(P.salesTax(P.price(h)))} sales tax. ${P.why(h)}. Take your stash first — it goes with the place.`, can: true,
+      label: `Sell it (${money(P.sellPrice(h))})`, price: 0, priceText: '', detail: `Market price ${money(P.price(h))}, less ${money(P.salesTax(P.price(h)))} sales tax. ${P.why(h)}. Take your stash first — it goes with the place.`, can: h.guns?.length ? 'Take your guns out first' : true,
       buy: () => {
         const price = P.price(h);
         const get = P.sellPrice(h);
@@ -410,6 +416,54 @@ export class Bank {
         },
       });
     }
+    return list;
+  }
+
+  // Guns in a home's stash: put the ones you're carrying away, take them back out (into a free
+  // slot, or swapped for the one in your hand). Up to GUN_ROOM a home. They're safe there: a
+  // robbery takes cash, and the cops can't hold what you weren't carrying.
+  gunItems(h) {
+    const game = this.game;
+    const ar = game.arsenal;
+    h.guns ||= [];
+    const name = (id) => WEAPONS.find((w) => w.id === id)?.name || id;
+    const done = (msg) => {
+      ar.refresh();
+      game.hud.toast(msg);
+      game.save();
+      game.shops.save?.();
+      this.save();
+    };
+    const list = [];
+    ar.slots.forEach((id, i) => {
+      if (!id) return;
+      list.push({
+        label: `Stash your ${name(id)}`, price: 0, priceText: '', can: h.guns.length >= GUN_ROOM ? 'Stash is full' : true,
+        detail: `Leave it here (room for ${GUN_ROOM}). Your ammo and mags for it stay yours. Guns in a stash are safe from robbers and from the cops.`,
+        buy: () => {
+          if (ar.slots[i] !== id) return;
+          ar.slots[i] = null;
+          if (ar.active === i && ar.slots[1 - i]) ar.active = 1 - i;
+          h.guns.push(id);
+          done(`Stashed your ${name(id)}. ${h.name}: ${h.guns.length} gun${h.guns.length === 1 ? '' : 's'}`);
+        },
+      });
+    });
+    h.guns.forEach((id, k) => {
+      const out = ar.wouldReplace(id);
+      list.push({
+        label: `Take the ${name(id)}${out ? ` (swap for your ${name(out)})` : ''}`, price: 0, priceText: '',
+        can: ar.has(id) ? 'You have one on you' : true,
+        detail: out ? `Both hands are full: your ${name(out)} goes in the stash in its place.` : 'Into a free slot.',
+        buy: () => {
+          if (h.guns[k] !== id || ar.has(id)) return;
+          h.guns.splice(k, 1);
+          const back = ar.give(id);
+          if (back) h.guns.push(back);
+          done(`Took the ${name(id)}${back ? `, left your ${name(back)}` : ''}`);
+        },
+      });
+    });
     return list;
   }
 

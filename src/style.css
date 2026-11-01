@@ -308,6 +308,7 @@ body.touch #bigmap .lg-row.layer { padding-top: 7px; padding-bottom: 7px; }
 
 #strip { position: absolute; left: 50%; bottom: 236px; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); pointer-events: none; text-shadow: none; }
 @media (max-width: 640px) { #strip { bottom: auto; top: 140px; } #strip .st { min-width: 0; } #strip .weap { width: auto; min-width: 120px; } }
+body.strip-on #phone-toast { display: none; }
 #strip .st-row { display: flex; gap: 6px; align-items: stretch; flex-wrap: wrap; justify-content: center; }
 #strip .st-name { overflow: hidden; text-overflow: ellipsis; }
 #strip .st { min-width: 92px; padding: 7px 10px 8px; border-radius: 8px; background: rgba(14,18,26,.86); border: 2px solid rgba(255,255,255,.12); }
@@ -423,7 +424,10 @@ body.touch #bigmap .lg-row.layer { padding-top: 7px; padding-bottom: 7px; }
 #touch .tz { position: absolute; pointer-events: auto; touch-action: none; }
 #touch .tz-left { left: 0; top: 26%; bottom: 0; width: 42%; }
 #touch .tz-right { right: 0; top: 18%; bottom: 0; width: 58%; }
-#touch[data-ctx="none"] .tz, #touch[data-ctx="phone"] .tz, #touch[data-ctx="menu"] .tz, #touch[data-ctx="strip"] .tz-left { display: none; }
+#touch[data-ctx="none"] .tz, #touch[data-ctx="phone"] .tz, #touch[data-ctx="menu"] .tz, #touch[data-ctx="strip"] .tz { display: none; }
+#strip .st { pointer-events: auto; cursor: pointer; }
+/* (the GUN button: a little ▲ over it, for swipe up = your inventory) */
+#touch[data-ctx="foot"] .tb-weapon::before { content: '▲'; position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font-size: 10px; line-height: 1; color: #fff; opacity: .75; text-shadow: 0 1px 2px rgba(0,0,0,.8); pointer-events: none; }
 #touch[data-ctx="map"] .tz { display: none; } /* the map itself takes drags, pinches and taps */
 #bigmap canvas { touch-action: none; }
 #touch .stick { position: absolute; width: 124px; height: 124px; margin: -62px 0 0 -62px; border-radius: 50%; background: rgba(255,255,255,.1); border: 2px solid rgba(255,255,255,.35); pointer-events: none; }
@@ -1266,3 +1270,15 @@ body.board3pt-on #sport .sb { display: none; }
 
 /* The range challenge's board in a narrow window: under the top-left info, not over it. */
 @media (max-width: 900px) { body.ranging:not(.touch) #sport { top: 92px; } }
+/* (short phone screens: smaller tiles, so the strip stays clear of the GIVE / DROP buttons) */
+@media (max-height: 340px) {
+  #strip .st-cash { font-size: 14px; margin-top: 0; }
+  #strip .st { padding: 3px 7px 4px; min-width: 0; }
+  #strip .weap { width: auto; min-width: 96px; }
+  #strip .st-top { font-size: 8px; }
+  #strip .st-name { font-size: 12px; margin-top: 0; }
+  #strip .st-sub { font-size: 10px; margin-top: 0; }
+  #strip .st-row { gap: 4px; }
+  #strip .st-open { margin-bottom: 3px; padding: 3px; }
+  #strip .st-hint { display: none; } /* (the buttons say GIVE / DROP / CLOSE) */
+}

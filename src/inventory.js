@@ -221,6 +221,7 @@ export class Inventory {
   }
 
   hint() {
+    if (this.game.input.touchMode) return `Tap an item · ✕ give · □ drop · hold for all${this.group ? ' · tap the tab to close it' : ''} · GUN closes`;
     const pad = this.game.input.mode === 'pad';
     if (this.sel < 0) return pad ? 'D-pad ← → choose · ✕ or ↑ open · tap L1 to swap weapons' : '← → choose · E or ↑ open · tap Tab to swap weapons';
     const close = this.group ? (pad ? ' · ↓ close' : ' · ↓ close') : '';
