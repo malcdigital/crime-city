@@ -129,7 +129,14 @@ export function startPairRim(name, A, B, { rim, at = 0, mirror = false, now = 0,
     const a = (M.heading ?? 0) - (o.yaw + rootAt(clip, start, mirror).yaw);
     return Math.atan2(Math.sin(a), Math.cos(a));
   };
-  const mk = (clip, origin, M, blend) => ({ name, clip, origin, mirror, start, t0: now, off: at0(clip, origin, M), yawOff: turnOf(clip, origin, M), from: M.char ? joints(M.char) : null, length: clip.length, blend, blendJ });
+  // (and how high he really is off the scene's floor, against the clip at the start: in the
+  // air already (a jump under way) he's blended down to it, not snapped)
+  const yOff = (clip, origin, M) => {
+    if (!M.char) return 0;
+    const f = Math.max(0, Math.min(clip.frames - 1, Math.round(start * clip.fps)));
+    return M.char.group.position.y - (origin.y + clip.root[f][1]);
+  };
+  const mk = (clip, origin, M, blend) => ({ name, clip, origin, mirror, start, t0: now, off: at0(clip, origin, M), offY: yOff(clip, origin, M), yawOff: turnOf(clip, origin, M), from: M.char ? joints(M.char) : null, length: clip.length, blend, blendJ });
   const ballAt = (f) => {
     const b = pair.ball?.[Math.max(0, Math.min(pair.ball.length - 1, f))];
     if (!b) return null;
@@ -227,6 +234,7 @@ export function playClip(c, play, now, rise = 0) {
       c.group.position.x += play.off[0] * w;
       c.group.position.z += play.off[1] * w;
     }
+    if (play.offY) c.group.position.y += play.offY * w;
     if (play.yawOff) c.group.quaternion.premultiply(_q.setFromAxisAngle(_up, play.yawOff * w));
     if (play.from && !play.blendJ) JOINTS.forEach((j, i) => c[j].quaternion.slerp(play.from[i], w));
   }

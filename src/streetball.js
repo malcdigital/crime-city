@@ -3015,7 +3015,9 @@ export class Streetball {
           this.approaching = true;
         }
       } else if (s.type === 'dunk') {
-        // Up: from here to the rim.
+        // Up: from here to the rim. With him really in the way, sometimes you go up through him
+        // (the posterizer, from the takeoff: it counts at its own slam).
+        if (!s.oop && !this.scene && this.posterTry('you')) return;
         this.startDunk(0);
         this.you.dunk.rise = s.T - s.t;
       } else if (s.type === 'layup' && s.t < s.T) {
@@ -3527,8 +3529,10 @@ export class Streetball {
     const [px, pz] = game.player.pos();
     const { w, lv } = this.windowNow();
     this.shot = null;
+    const poster = this.forcePoster; // (the posterizer's slam: posterTry)
+    this.forcePoster = false;
     // His chase-down: trailing you on a layup or a dunk and up in time, he pins it on the glass.
-    if ((s.type === 'layup' || s.type === 'dunk') && (hp.jumpT || 0) > 0 && hp.chase && dist(px, pz, opp.x, opp.z) < 2.6) {
+    if (!poster && (s.type === 'layup' || s.type === 'dunk') && (hp.jumpT || 0) > 0 && hp.chase && dist(px, pz, opp.x, opp.z) < 2.2) {
       hp.chase = false;
       if (Math.random() < (s.type === 'dunk' ? 0.25 : 0.4) * (this.r / 75)) {
         if (this.you.dunk) this.you.dunk.hangs = false;
@@ -3542,17 +3546,16 @@ export class Streetball {
     let green = false;
     if (s.type === 'dunk') {
       // At the rim: a contact dunk if he's there.
-      const contact = lv >= 3;
-      if (contact && Math.random() < 0.15 * (this.r / 75)) {
+      const contact = poster || lv >= 3;
+      if (!poster && contact && Math.random() < 0.15 * (this.r / 75)) {
         this.rimBlock('you', this.you.dunk?.hand ?? 1); // (met at the rim)
         return this.swatted(px, pz, `${opp.ballName} STUFFED the dunk!`, 'you', opp.x, opp.z);
       }
-      make = Math.random() < (contact ? 0.6 : s.oop ? 0.88 : 0.95);
+      make = poster || Math.random() < (contact ? 0.6 : s.oop ? 0.88 : 0.95);
       const name = { two: 'Two-hand slam!', one: 'One-hand jam!', windmill: 'WINDMILL!', tomahawk: 'Tomahawk!' }[this.you.dunk?.style] || 'Slam!';
-      grade = make ? (contact ? 'POSTERIZED HIM!' : s.oop ? `ALLEY-OOP! ${name}` : name) : 'Rimmed it out';
+      grade = make ? (poster ? 'POSTERIZED HIM!' : contact ? `${name} Through contact` : s.oop ? `ALLEY-OOP! ${name}` : name) : 'Rimmed it out';
       game.shakeCamera?.(make ? 0.14 : 0.07, 0.4); // (the rim rattles)
       if (this.you.dunk) this.you.dunk.hangs = make; // (hang on the rim after a make)
-      if (make && contact && !s.oop) this.posterize('you'); // (right on top of him: the posterizer)
     } else {
       const m = Math.abs(e) - w / 2;
       const fire = this.onFire('you');
@@ -3740,16 +3743,50 @@ export class Streetball {
     return true;
   }
 
-  // The posterizer: a dunk that went in with the other one right there under it (dunker: 'you'
-  // or 'opp'), from whichever side of the lane he came down.
-  posterize(dunker) {
+  // The posterizer, decided at the takeoff (dunker: 'you' or 'opp'): only with the other man
+  // really in his way (between him and the rim, close in under it, square to him, on his feet),
+  // and even then not every time: about a third, better if he's gone up to meet him. Then the
+  // scene plays from the takeoff (both still on the floor, so it blends in clean) and the dunk
+  // counts at its own slam. True if it's on.
+  posterTry(dunker) {
     const rim = this.rim;
-    const [px, pz] = this.game.player.pos();
-    const [x, z] = dunker === 'you' ? [px, pz] : [this.opp.x, this.opp.z];
-    const [ox, oz] = dunker === 'you' ? [this.opp.x, this.opp.z] : [px, pz];
-    if (dist(x, z, ox, oz) > 2.6) return null;
+    const p = this.game.player;
+    const [px, pz] = p.pos();
+    const opp = this.opp;
+    const hp = opp.hp;
+    const Y = this.you;
+    const [x, z, ox, oz] = dunker === 'you' ? [px, pz, opp.x, opp.z] : [opp.x, opp.z, px, pz];
+    const down = dunker === 'you' ? hp.fallT > 0 || hp.beatT > 0.2 : Y.fallT > 0 || Y.beatT > 0.2;
+    if (down || this.solo || this.t33 || this.t3) return false;
+    const dR = dist(x, z, rim.x, rim.z);
+    const dO = dist(ox, oz, rim.x, rim.z);
+    const d = dist(x, z, ox, oz);
+    // (between him and the rim: closer to it than he is, and square in front of him)
+    const ahead = ((ox - x) * (rim.x - x) + (oz - z) * (rim.z - z)) / ((d || 1) * (dR || 1));
+    if (dO > 1.8 || dO > dR - 0.2 || d < 0.5 || d > 2.4 || ahead < 0.75) return false;
+    const contesting = dunker === 'you' ? (hp.jumpT || 0) > 0 || hp.handsUp : (Y.jumpT || 0) > 0 || Y.handsUp;
+    if (Math.random() > (contesting ? 0.6 : 0.3)) return false;
     const lateral = (x - rim.x) * rim.dz - (z - rim.z) * rim.dx; // (along the rim's own +x)
-    return this.playPair('bb-poster', dunker, 'contact', lateral > 0, { lead: 0.12, blend: 0.25, blendB: 0.15, ballTill: 'slam' });
+    const S = this.playPair('bb-poster', dunker, 'takeoff', lateral > 0, { lead: 0, blend: 0.3, blendB: 0.35, ballTill: 'slam' });
+    if (!S) return false;
+    // (the slam: the dunk counts there)
+    const at = this.game.time + S.pair.events.slam / S.pair.fps - S.start;
+    if (dunker === 'you') {
+      this.forcePoster = true;
+      this.scene.fire = { at, fn: () => this.shot && this.resolveYou(0) };
+    } else {
+      hp.forcePoster = true;
+      hp.state = 'shoot'; // (still his shot: resolveHim reads it)
+      hp.shot = 'dunk';
+      this.scene.fire = {
+        at,
+        fn: () => {
+          if (this.has === 'opp') this.resolveHim(opp, hp);
+          Object.assign(hp, { state: 'read', t: 0, jump: 0, next: 0.4 }); // (that shot's done)
+        },
+      };
+    }
+    return true;
   }
 
   // The chase-down: the shooter ('you' or 'opp') caught from behind, pinned on the glass.
@@ -3760,7 +3797,7 @@ export class Streetball {
     const S = shooter === 'you' ? { x: px, z: pz, heading: p.heading } : opp;
     const C = shooter === 'you' ? opp : { x: px, z: pz };
     const left = (C.x - S.x) * Math.cos(S.heading) - (C.z - S.z) * Math.sin(S.heading) >= 0;
-    return this.playPair('bb-chasedown', shooter, 'release', !left, { lead: 0.1, blend: 0.25, clear: true, ballTill: 'pin', ballHold: 0.12 });
+    return this.playPair('bb-chasedown', shooter, 'release', !left, { lead: 0.2, blend: 0.25, blendB: 0.5, clear: true, ballTill: 'pin', ballHold: 0.12 }); // (the chaser's further back than the clip has him: a longer blend, never a lunge)
   }
 
   // A block on a layup or a dunk near the rim, from wherever the blocker is (shooter: 'you' or
@@ -3776,7 +3813,7 @@ export class Streetball {
     const [sx, sz, sh, bx, bz] = shooter === 'you' ? [px, pz, p.heading, opp.x, opp.z] : [opp.x, opp.z, opp.heading, px, pz];
     if (dist(sx, sz, rim.x, rim.z) > 4 || dist(sx, sz, bx, bz) > 2.6) return null;
     const { from, side } = tackleKind(sx, sz, sh, bx, bz);
-    const opts = { lead: 0.22, blend: 0.2, clear: 'all', ballTill: 'block', ballHold: 0.02 };
+    const opts = { lead: 0.26, blend: 0.25, blendB: 0.35, clear: 'all', ballTill: 'block', ballHold: 0.02 };
     if (from === 'front') {
       if (dist(sx, sz, rim.x, rim.z) > 3.2) return null;
       return this.playPair('bb-rimblock', shooter, 'block', hand < 0, opts);
@@ -3936,7 +3973,7 @@ export class Streetball {
     // A chase-down: trailing him on a layup or a dunk, running, you get up from behind and pin it
     // on the glass (a longer reach, and clean more often than a block from behind).
     const chase = (hp.shot === 'layup' || hp.shot === 'dunk') && game.player.speed > 3.2 && this.trailing(px, pz, opp.x, opp.z);
-    if (d > (chase ? 2.6 : 1.8)) return;
+    if (d > (chase ? 2.2 : 1.8)) return; // (a chase-down from close behind: not a lunge from way back)
     const timing = Math.abs(hp.t - hp.rel) < (chase ? 0.25 : 0.2) ? 1 : 0.5;
     const base = { jumper: 0.35, layup: 0.45, floater: 0.4, dunk: 0.2 }[hp.shot] || 0.3;
     if (chase) {
@@ -3977,6 +4014,12 @@ export class Streetball {
     // does too (hoops.js: g.match). Twice ran everything (clocks, flights) at double speed.
     if (this.stepAt === game.time) return;
     this.stepAt = game.time;
+    // (a paired moment's own moment: the posterizer's slam counts there)
+    const F = this.scene?.fire;
+    if (F && game.time >= F.at) {
+      this.scene.fire = null;
+      F.fn();
+    }
     const b = this.g.ball;
     const H = this.H;
     const opp = this.opp;
@@ -5011,6 +5054,11 @@ export class Streetball {
         const r = dist(p.x, p.z, hp.appr.tx, hp.appr.tz);
         return r > 0.05 ? { tx: hp.appr.tx, tz: hp.appr.tz, speed: Math.min(8, r / Math.max(0.04, a0 - hp.t)) } : { speed: 0 };
       }
+      // (up: with you really in his way, sometimes he goes up through you: the posterizer)
+      if (!hp.posterChecked) {
+        hp.posterChecked = true;
+        if (!this.scene && this.posterTry('opp')) return { speed: 0 };
+      }
       const t = hp.t - a0;
       const R = hp.rel - a0;
       const H = 0.95 + reachLift(p.char);
@@ -5196,6 +5244,8 @@ export class Streetball {
     hp.shot = type;
     hp.dunkAt = null;
     hp.dStyle = pick(['two', 'two', 'one', 'one', 'windmill', 'tomahawk']); // (if it's a dunk)
+    hp.posterChecked = false;
+    hp.forcePoster = false;
     // A fadeaway: always off a step-back, sometimes when you're right on him.
     const [qx, qz] = this.game.player.pos();
     hp.fade = type === 'jumper' && (stepback || (dist(p.x, p.z, qx, qz) < 1.6 && Math.random() < 0.4));
@@ -5248,7 +5298,9 @@ export class Streetball {
     const d = dist(p.x, p.z, this.rim.x, this.rim.z);
     const r = this.r;
     let make;
-    if (hp.shot === 'dunk') make = Math.random() < (lv >= 3 ? 0.6 : 0.95);
+    const poster = hp.shot === 'dunk' && hp.forcePoster; // (the posterizer's slam: posterTry)
+    hp.forcePoster = false;
+    if (hp.shot === 'dunk') make = poster || Math.random() < (lv >= 3 ? 0.6 : 0.95);
     else {
       // The same green windows as yours. His timing's off by a random amount that depends on
       // his rating (typically ~90 ms at 60 OVR, ~60 ms at 90), and it's green when that lands
@@ -5273,7 +5325,6 @@ export class Streetball {
       const b = this.g.ball;
       b.y = Math.max(b.y, this.rim.y + 0.15);
       this.launch(make, 'opp', pts, 0.14);
-      const poster = make && lv >= 3 && !(Y.fallT > 0) && this.posterize('opp');
       game.hud.toast(make ? (poster ? `${p.ballName} POSTERIZED YOU` : `${p.ballName} throws it down`) : `${p.ballName} rims out the dunk`, make ? '#ff8080' : '#7ee081');
       game.shakeCamera?.(make ? 0.07 : 0.04, 0.3);
     } else this.launch(make, 'opp', pts, 0, hp.shot);
