@@ -162,6 +162,18 @@ export class Hud {
       $('hud').classList.toggle('field', onField);
     }
     this.set('phone-clock', this.clock());
+    // (in a 1-on-1, 33 or the 3-point contest, or their intros: no texts or headlines popping up
+    // over the game; they still land in the phone, read them after)
+    const S = game.sport;
+    const quiet = !!(S?.active && (S.t3 || S.t33 || !S.solo)) || !!game.contestCine?.open || !!game.matchup?.open;
+    if (quiet !== this.quiet) {
+      this.quiet = quiet;
+      $('phone-hint').classList.toggle('hidden', quiet);
+      if (quiet) {
+        this.phoneToastT = 0;
+        $('phone-toast').classList.add('hidden');
+      }
+    }
     if (this.phoneToastT > 0) {
       this.phoneToastT -= dt;
       if (this.phoneToastT <= 0) $('phone-toast').classList.add('hidden');
@@ -295,8 +307,8 @@ export class Hud {
     item._kind = kind;
     if (cat === 'crime') this.unreadCrime = (this.unreadCrime || 0) + 1;
     else this.unreadNews = (this.unreadNews || 0) + 1;
-    if (!this.phoneOpen) {
-      this.unread++;
+    if (!this.phoneOpen) this.unread++;
+    if (!this.phoneOpen && !this.quiet) {
       $('pt-icon').textContent = cat === 'crime' ? '!' : 'N';
       $('pt-icon').style.background = cat === 'crime' ? '#1f3a93' : '';
       $('pt-app').textContent = cat === 'crime' ? 'CRIME REPORTS' : 'CITY NEWS';
@@ -316,8 +328,8 @@ export class Hud {
     this.texts.unshift({ from, msg, time });
     if (this.texts.length > 40) this.texts.pop();
     this.unreadTexts = (this.unreadTexts || 0) + 1;
-    if (!this.phoneOpen) {
-      this.unread++;
+    if (!this.phoneOpen) this.unread++;
+    if (!this.phoneOpen && !this.quiet) {
       $('pt-icon').textContent = '✉';
       $('pt-icon').style.background = '#34c759';
       $('pt-app').textContent = from.toUpperCase();
