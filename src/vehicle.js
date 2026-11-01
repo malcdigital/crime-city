@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { lam } from './character.js';
 import { pushCircle } from './collision.js';
 import { clamp, lerp, wrapAngle } from './util.js';
-import { carModel, driverGeometry, trimMat, glassMat } from './carmodels.js';
+import { carModel, driverGeometry, trimMat, glassMat, insideMat, setInsideNight } from './carmodels.js';
 
 export const VTYPES = {
   sedan: { armor: 5, w: 2.0, l: 4.4, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 30, accel: 9, brake: 20, rev: 8, value: 900, label: 'Sedan',
@@ -126,6 +126,7 @@ function barTexture() {
 
 // 0 = full day, 1 = full night.
 export function setCarNight(k) {
+  setInsideNight(k);
   NIGHT = k;
   headMat.color.setRGB(0.85 + 0.15 * k, 0.83 + 0.15 * k, 0.72 + 0.2 * k);
   tailMat.color.setRGB(0.43 + 0.4 * k, 0.1 + 0.03 * k, 0.08 + 0.03 * k);
@@ -178,7 +179,7 @@ export class Vehicle {
     g.add(body);
     const trim = new THREE.Mesh(M.trim, trimMat);
     trim.castShadow = true;
-    g.add(trim);
+    g.add(trim, new THREE.Mesh(M.inside, insideMat)); // (the cabin: seats, dash, wheel, floor)
     if (M.glass) {
       const glass = new THREE.Mesh(M.glass, glassMat);
       glass.renderOrder = 2;
@@ -209,7 +210,7 @@ export class Vehicle {
         pivot.position.set(sx * M.door.x, 0, M.door.hinge);
         const panel = new THREE.Mesh(M.door.panel[sx], lam(doorColor));
         panel.castShadow = true;
-        pivot.add(panel);
+        pivot.add(panel, new THREE.Mesh(M.door.trim[sx], trimMat)); // (the door card inside, the handle outside)
         if (M.door.glass[sx]) {
           const gl = new THREE.Mesh(M.door.glass[sx], glassMat);
           gl.renderOrder = 2;
