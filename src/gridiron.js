@@ -25,6 +25,7 @@ const ease = (k) => k * k * (3 - 2 * k);
 // - Walk off the field, get in a car or have the police after you and you forfeit. If they
 //   scatter (trouble nearby), it's called off and the bet comes back.
 const YD = 0.9144;
+const HASH = 3; // (the hash marks: this far either side of the middle (field.js paints them there))
 const BETS = [0, 50, 100, 250, 500];
 const NAMES = ['Coach', 'Big Lou', 'Tre', 'Marcus', 'Deebo', 'Junior', 'Bam'];
 const DOWNS = ['1st', '2nd', '3rd', '4th'];
@@ -173,6 +174,7 @@ export class Gridiron {
     fb.match = this;
     this.goal = S.goal0;
     this.los = this.goal + from * YD;
+    this.ballX = S.field.cx; // (across: where the ball's spotted, between the hashes)
     this.first = this.los - 10 * YD;
     this.down = 0;
     this.snaps = 0; // (plays run: quitting before the first one gets your money back)
@@ -428,19 +430,19 @@ export class Gridiron {
       if (b.holder === 'you') {
         // Scrambling past the line.
         if (pz < this.los) this.scramble = true;
-        if (pz <= this.goal) return this.touchdown('you');
+        if (b.z <= this.goal) return this.touchdown('you'); // (the ball breaking the plane of the goal line)
         // (in reach: as close as the tackle that'd come from where he is meets you: pairedplay.js)
         const tackler = this.defenders().find((q) => !(q.fb.downT > 0) && !(q.fb.beatT > 0) && dist(q.x, q.z, px, pz) < Math.max(0.9, tackleReach(px, pz, game.player.heading, q.x, q.z) - 0.05));
         if (this.scramble && tackler && !(this.runMove?.kind === 'spin' && Math.random() < 0.5)) {
           this.drRes = { kind: 'run' };
           const fall = fb.tackle(null, tackler);
           this.downT = fall?.downT || 1.1; // (you hit the turf too: the paired tackle's length)
-          return this.over(pz);
+          return this.downing('you', fall);
         }
         if (!this.scramble && !this.dr.acc && this.t > SACK_READ) {
           this.drRes = { kind: 'sack', why: this.drTold() };
           this.downT = 1.1;
-          return this.over(Math.min(this.los + 4 * YD, fb.site.field.z1 - 1));
+          return this.over(b.z, b.x); // (down where he goes down: the ball where it is)
         }
       }
     } else if (this.state === 'tip') {
@@ -450,18 +452,29 @@ export class Gridiron {
       if (!this.active) return;
     } else if (this.state === 'run') {
       const h = b.holder;
-      if (!h || h === 'you') return this.over(this.los);
-      if (h.z <= this.goal) return this.touchdown(h);
+      if (!h || h === 'you') return this.over(null);
+      if (b.z <= this.goal) return this.touchdown(h); // (the ball breaking the plane)
       const tackler = this.defenders().find((q) => !(q.fb.downT > 0) && !(q.fb.beatT > 0) && dist(q.x, q.z, h.x, h.z) < Math.max(1.0, tackleReach(h.x, h.z, h.heading, q.x, q.z) - 0.05));
       const F = fb.site.field;
       if (h.x < F.x0 || h.x > F.x1) {
-        this.drRes = { kind: 'complete', why: `Out of bounds at the ${this.yardLine(h.z)} · ${this.drTold()}` };
-        return this.over(h.z);
+        // (out of bounds: spotted where the ball went out, on the near hash)
+        this.drRes = { kind: 'complete', why: `Out of bounds at the ${this.yardLine(b.z)} · ${this.drTold()}` };
+        return this.over(b.z, b.x);
       }
-      if (tackler) fb.tackle(h, tackler);
-      if (tackler || this.t > 7 || (h.fb.runTo && dist(h.x, h.z, ...h.fb.runTo) < 0.6)) {
-        return this.over(h.z);
+      if (tackler) return this.downing(h, fb.tackle(h, tackler));
+      if (this.t > 7 || (h.fb.runTo && dist(h.x, h.z, ...h.fb.runTo) < 0.6)) return this.over(b.z, b.x); // (gives himself up)
+    } else if (this.state === 'downing') {
+      // Tackled: he's not down till he's down. The ball's spot is its forward progress: the
+      // furthest toward the goal it got before he went down (falling forward gains it; being
+      // driven back doesn't lose it), and if that's over the goal line, it's a touchdown.
+      const D = this.spotting;
+      const holder = b.holder === 'you' ? 'you' : b.holder;
+      if (holder === D.who && b.z < D.z) {
+        D.z = b.z;
+        D.x = b.x;
       }
+      if (D.z <= this.goal) return this.touchdown(D.who);
+      if (game.time >= D.at) return this.over(D.z, D.x);
     } else if (this.state === 'dead') {
       // A beat to see how it ended, then the result wipes across the screen; under it the ball
       // comes back to you and everyone's lined up for the next one (the defense in a new
@@ -526,8 +539,27 @@ export class Gridiron {
     if (!fbBallQuat(p.char, b.mesh.quaternion)) b.mesh.rotation.set(0, p.heading, 0); // (tucked: along the forearm)
   }
 
-  // The play's over: spot it (null: incomplete, back where it was) and count the down.
-  over(z) {
+  // Tackled (who: 'you' or him; fall: football.js tackle's): the play goes on till he's down
+  // (the tackle's own 'down' moment), the ball's forward progress kept (the 'downing' state).
+  downing(who, fall) {
+    const b = this.fb.ball;
+    this.state = 'downing';
+    this.spotting = { who, z: b.z, x: b.x, at: this.game.time + (fall?.downIn ?? 0.45) };
+    this.scramble = false;
+    this.press = null;
+    this.runMove = null;
+  }
+
+  // Across, where the next one's spotted: where the ball was downed if that's between the hash
+  // marks, the nearer hash if it's outside them (or out of bounds).
+  hashSpot(x) {
+    const cx = this.fb.site.field.cx;
+    return Math.max(cx - HASH, Math.min(cx + HASH, x));
+  }
+
+  // The play's over: spot it and count the down. z, x: where the ball's spotted (its forward
+  // progress); z null: incomplete (or no one has it), back where it was snapped from.
+  over(z, x = null) {
     const game = this.game;
     const fb = this.fb;
     this.state = 'dead';
@@ -541,7 +573,10 @@ export class Gridiron {
     fb.phase = 'dead';
     fb.t = 0;
     const was = this.los;
-    if (z != null) this.los = Math.max(this.goal + YD, Math.min(fb.site.field.z1 - 1, z));
+    if (z != null) {
+      this.los = Math.max(this.goal + YD, Math.min(fb.site.field.z1 - 1, z));
+      if (x != null) this.ballX = this.hashSpot(x);
+    }
     let first = false;
     if (this.los <= this.first + 0.01) {
       first = true;

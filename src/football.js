@@ -405,6 +405,8 @@ export class Football {
       const down = S.a.length - S.a.start + RISE_T;
       S.a.down = S.b.down = true;
       fall.downT = down;
+      // (how long till he's down: the clip's own 'down' moment, from where it starts)
+      fall.downIn = S.pair.events.down != null ? Math.max(0.1, S.pair.events.down / S.pair.fps - S.a.start) : 0.6;
       Object.assign(tackler.fb, { dive: false, diveTo: null, downT: down, downLen: down, pclip: S.b });
       if (R?.fb) Object.assign(R.fb, { dive: false, downT: down, downLen: down, fall, pclip: S.a });
       else if (this.game.gridiron) Object.assign(this.game.gridiron, { youFall: fall, youClip: S.a });
@@ -423,6 +425,7 @@ export class Football {
     }
     if (R?.fb) Object.assign(R.fb, { dive: false, downT: 1.3, downLen: 1.3, fall });
     else this.game.gridiron && (this.game.gridiron.youFall = fall); // (you: gridiron late())
+    fall.downIn = 0.6; // (the plain fall: about this long till he's down)
     return fall;
   }
 

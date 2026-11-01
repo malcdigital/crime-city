@@ -146,7 +146,7 @@ export const DriveReads = {
     // The defense already lined up; your receivers and you in a huddle behind the line (it
     // breaks as the intro cuts in behind you: drStep), then the intro.
     this.drSetAll();
-    const H = [F.cx, this.los + 7];
+    const H = [this.ballX ?? F.cx, this.los + 7];
     this.dr.huddle = { t: 0, c: H };
     fb.wrs.slice(0, 3).forEach((w, k) => {
       const a = [-Math.PI / 2, Math.PI, Math.PI / 2][k]; // (west, north, east of the middle; you're south)
@@ -198,7 +198,12 @@ export const DriveReads = {
     if (fb.phase === 'set') fb.phase = 'reset'; // (a new call: everyone gets set again before the snap)
     const form = FORMS[P.form];
     // (the receivers left to right as you look downfield, so ◀ ▶ go the way they look)
-    D.slots = form.at.map(([x, off], k) => ({ k, x: F.cx + x * D.side, z: this.los + off, route: P.routes[k] }));
+    // (lined up on the ball, wherever it's spotted across (between the hashes); off a hash, a
+    // formation that's all to one side goes to the wide side of the field, and nobody lines up
+    // out of bounds)
+    const cx = this.ballX ?? F.cx;
+    if (Math.abs(cx - F.cx) > 0.5 && form.at.every(([x]) => x > 0)) D.side = cx < F.cx ? 1 : -1;
+    D.slots = form.at.map(([x, off], k) => ({ k, x: Math.max(F.x0 + 1.2, Math.min(F.x1 - 1.2, cx + x * D.side)), z: this.los + off, route: P.routes[k] }));
     D.order = D.slots.slice().sort((a, b) => a.x - b.x).map((s) => s.k);
     fb.wrs.slice(0, 3).forEach((w, k) => {
       w.fb.home = [D.slots[k].x, D.slots[k].z];
@@ -220,8 +225,8 @@ export const DriveReads = {
     D.lock = null;
     D.last = null;
     // (the pre-snap scan: your eyes from man to man, left to right, starting straight downfield)
-    const left = D.order.filter((k) => D.slots[k].x < F.cx);
-    const right = D.order.filter((k) => D.slots[k].x >= F.cx);
+    const left = D.order.filter((k) => D.slots[k].x < cx);
+    const right = D.order.filter((k) => D.slots[k].x >= cx);
     D.scanList = [...left, null, ...right];
     D.scanI = left.length;
     this.drPlayArt();
@@ -751,7 +756,7 @@ export const DriveReads = {
     this.heatHit(b.x, Math.max(1, b.y), b.z); // (in rhythm, on fire: fieldmodes.js)
     if (dove) {
       if (b.z <= this.goal) return this.touchdown(w);
-      return this.over(w.z);
+      return this.over(b.z, b.x); // (down where he caught it: the ball's spot)
     }
     fb.phase = 'run';
     fb.t = 0;
@@ -802,7 +807,7 @@ export const DriveReads = {
     const cine = !!game.driveCine?.open; // (the intro: no play art, no numbers, no ring)
     dd.mesh.material.opacity += ((on ? 0.9 : 0) - dd.mesh.material.opacity) * Math.min(1, dt * 6);
     dd.mesh.visible = dd.mesh.material.opacity > 0.02;
-    dd.mesh.position.set(fb.site.field.cx + (D.side || 1) * -6.5, 0.066, this.los - 3.2);
+    dd.mesh.position.set((this.ballX ?? fb.site.field.cx) + (D.side || 1) * -6.5, 0.066, this.los - 3.2);
     if (this.drArt) this.drArt.visible = on && !cine;
     // The read numbers over the receivers (and the man you're on, bigger, with a ring).
     const reading = this.drReading() || (this.state === 'play' && fb.ball.holder === 'you' && !this.scramble);
@@ -854,7 +859,7 @@ export const DriveReads = {
   drSpot() {
     const H = this.dr?.huddle;
     if (H) return [H.c[0], H.c[1] + 1.05]; // (in the huddle, its south side)
-    return [this.fb.site.field.cx, this.los + 3.2];
+    return [this.ballX ?? this.fb.site.field.cx, this.los + 3.2];
   },
   // Everyone straight to his spot for the next play (under the transition): the receivers and
   // backs at their homes, set; you behind the center looking downfield.
@@ -871,7 +876,7 @@ export const DriveReads = {
     this.downT = 0;
     this.throwT = 0;
     const p = game.player;
-    [p.x, p.z] = [fb.site.field.cx, this.los + 3.2];
+    [p.x, p.z] = [this.ballX ?? fb.site.field.cx, this.los + 3.2];
     p.heading = game.camYaw = Math.PI;
     this.pkYaw = null;
   },
