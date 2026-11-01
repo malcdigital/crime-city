@@ -374,10 +374,9 @@ class Game {
     }
   }
 
-  // Where you are on the map: inside a shop (src/interiors.js), its front door.
+  // Where you are on the map.
   mapPos() {
-    const r = this.interiors?.inside;
-    return r ? [r.shop.x, r.shop.z] : this.player.pos();
+    return this.player.pos();
   }
 
   // Everyone who can be shot, hit or run over. (Not the children at the playground: they can't
@@ -1806,7 +1805,7 @@ class Game {
 
     // A pickup game at the courts: no weapons while you're playing.
     if (this.pickupGame()) return;
-    // Inside (src/interiors.js): its doors, its clerk, its cases, its lanes; guns out only in a lane.
+    // Inside a gun shop (src/interiors.js): its clerk, its cases, its lanes; guns out only in a lane.
     if (this.interiors.inside) {
       this.interiors.interact(a);
       if (!this.interiors.armed()) {
@@ -1992,6 +1991,7 @@ class Game {
     let free = len;
     for (const b of this.city.los) {
       if (Math.abs((b.minX + b.maxX) / 2 - ox) > 60 || Math.abs((b.minZ + b.maxZ) / 2 - oz) > 60) continue;
+      if (b.cut && this.interiors?.camThrough(b)) continue; // (a shop's front wall, from inside: the cutaway)
       const t = rayHitBox(ox, oy, oz, ddx / len, ddy / len, ddz / len, b, 0.25);
       if (t !== null && t < free) free = t;
     }
@@ -2068,7 +2068,7 @@ class Game {
     this.sun.target.position.set(tx, ty, tz);
     if (this.cine) this.cineCamera(dt);
     if (this.travel.active) this.travel.camera(); // riding a taxi or bus: the cut scene's shots
-    this.interiors?.camera(this.camera); // (inside: the camera stays in the room)
+    this.interiors?.camera(this.camera); // (inside: under the ceiling; the front wall fades when it's out behind you)
   }
 
   // Police holding you at gunpoint: they won't fire for a while unless you shoot. Stand

@@ -7,7 +7,7 @@ import { WEAPONS } from './weapons.js';
 import { GANG_GUNS } from './gang.js';
 import { GANGS } from './turf.js';
 import { dist, pick } from './util.js';
-import { streetAt } from './city.js';
+import { streetAt, SHOP_H } from './city.js';
 
 // Money in and money out.
 // In: every block Green Street holds pays every 10 minutes of play, more the higher your street
@@ -126,22 +126,24 @@ export class Shops {
     const sh = city.crewHome;
     this.stashAt = { x: sh.x + sh.ux * 1.1 - sh.nx * 3.2, z: sh.z + sh.uz * 1.1 - sh.nz * 3.2 }; // the duffel bag on the bench
     // Shop signs and doors.
-    const front = (p, text, bg) => {
+    const front = (p, text, bg, door = true, y = Math.min(p.h - 1, 4.4)) => {
       const g = p.group(scene);
       const sign = new THREE.Mesh(new THREE.PlaneGeometry(9, 1.7), new THREE.MeshBasicMaterial({ map: signTexture(text, bg, '#fff') }));
-      sign.position.set(0, Math.min(p.h - 1, 4.4), -0.07);
+      sign.position.set(0, y, -0.07);
       sign.rotation.y = Math.PI;
       g.add(sign);
-      const door = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 3), new THREE.MeshLambertMaterial({ color: 0x2a2a2a }));
-      door.position.set(0, 1.7, -0.06);
-      door.rotation.y = Math.PI;
-      g.add(door);
+      if (door) {
+        const d = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 3), new THREE.MeshLambertMaterial({ color: 0x2a2a2a }));
+        d.position.set(0, 1.7, -0.06);
+        d.rotation.y = Math.PI;
+        g.add(d);
+      }
       return sign;
     };
-    for (const g of this.gunShops) front(g, g.sign, g.signBg);
+    for (const g of this.gunShops) front(g, g.sign, g.signBg, false, SHOP_H + 1.2); // (their doors are open: you walk in; the sign over the windows)
     front(this.garage, "LOU'S MOD GARAGE", '#0e6655');
     this.safeSign = front(this.safe, 'SAFEHOUSE', '#2c3e50');
-    // Ground rings: walk-in (gun shop, safehouse) and drive-in (garage).
+    // Ground rings: walk-in (safehouse) and drive-in (garage).
     const ring = (x, z, r, color) => {
       const m = new THREE.Mesh(new THREE.RingGeometry(r * 0.82, r, 36), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, depthWrite: false }));
       m.rotation.x = -Math.PI / 2;
@@ -149,7 +151,7 @@ export class Shops {
       scene.add(m);
       return m;
     };
-    this.rings = [...this.gunShops.map((g) => ring(g.x, g.z, 1.2, 0xe74c3c)), ring(this.safe.x, this.safe.z, 1.2, 0xbdc3c7), ring(this.garage.x, this.garage.z, this.garage.r, 0x1abc9c)];
+    this.rings = [ring(this.safe.x, this.safe.z, 1.2, 0xbdc3c7), ring(this.garage.x, this.garage.z, this.garage.r, 0x1abc9c)];
     // The stash: a duffel bag on the bench, only there when there's money in it.
     const bag = new THREE.Group();
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.75, 10), new THREE.MeshLambertMaterial({ color: 0x1b2631 }));
@@ -341,17 +343,6 @@ export class Shops {
     if (this.stash > 0 && dist(px, pz, this.stashAt.x, this.stashAt.z) < 1.8) {
       game.prompt = `Press ${key} to grab ${money(this.stash)} from the stash`;
       if (pressed) this.collect();
-      return true;
-    }
-    // (a gun shop's door: you go inside: src/interiors.js)
-    const gs = this.gunShops.find((g) => dist(px, pz, g.x, g.z) < 1.6);
-    if (gs) {
-      if (game.stars > 0) {
-        game.prompt = `${gs.name} won't let you in with the cops on you`;
-        return true;
-      }
-      game.prompt = `Press ${key} to go inside ${gs.name}`;
-      if (pressed) game.interiors?.enter(gs.i);
       return true;
     }
     if (dist(px, pz, this.safe.x, this.safe.z) < 1.6) {

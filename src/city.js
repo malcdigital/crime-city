@@ -12,8 +12,9 @@ import {
   BLOCKS, GRAPH, STREETS, ROAD_CLASS, MAP, SEA, terrain, isWater, shoreDist, coastZ, insideRing, ringDist, districtAt,
 } from './worldplan.js';
 import { RAMPS, RING, RING_HALF, XT, XT_HALF, inHole, roundRect } from './fwyplan.js';
-import { SPECIAL, STORES, PLACES, STYLES, BANKS } from './districts.js';
+import { SPECIAL, STORES, PLACES, STYLES, BANKS, GUN_SHOP_BLOCKS } from './districts.js';
 import { buildCourts, drawCourt, COURT_RESERVED } from './court.js';
+import { windowRooms } from './winrooms.js';
 import { buildField, drawField, FIELD_RESERVED } from './field.js';
 import { buildPark, drawPark, PARK_RESERVED } from './playground.js';
 import { buildLots, drawLots, LOT_RESERVED } from './lots.js';
@@ -125,6 +126,11 @@ function windowTexture(rng) {
   t.glow = make(c2);
   return t;
 }
+
+// A gun shop's ground floor in its own frame (src/interiors.js): x from L0 to L1 along the street
+// (the store -7..7, the range on past it), z 0..Z1 in from the street; SHOP_H: its ceiling.
+export const SHOP_FOOT = [-7.3, 28.3, 14.6];
+export const SHOP_H = 4.3;
 
 // Box with window UVs scaled to its size, so windows stay the same size on every building.
 function buildingGeo(w, h, d) {
@@ -628,7 +634,7 @@ export function buildCity(scene) {
   const windowMats = [];
   // One material for every windowed building (fewer draw calls): each building's color is
   // painted into its vertices.
-  const WIN = new THREE.MeshLambertMaterial({ vertexColors: true, map: winTex, emissive: 0x000000, emissiveMap: winTex.glow });
+  const WIN = windowRooms(new THREE.MeshLambertMaterial({ vertexColors: true, map: winTex, emissive: 0x000000, emissiveMap: winTex.glow })); // (a room behind every window: winrooms.js)
   windowMats.push(WIN);
   const winMat = (color) => ({ win: true, color: new THREE.Color(color) });
   const matCache = {};
@@ -1046,6 +1052,7 @@ export function buildCity(scene) {
   const plazas = [];
   const rampLawns = []; // ramp land: grass at street level
   const frontages = new Map(); // block -> the building on its front side (for storefronts)
+  const hollows = []; // (the gun shops' buildings, their ground floors open: src/interiors.js)
   for (const b of blocks) {
     if (!b.lot && b.type !== 'ramps' && !b.country) slabs.push(b.poly);
     const lot = b.lot ? b.poly : inset(b.poly, b.sw);
@@ -1185,6 +1192,42 @@ export function buildCity(scene) {
       },
     };
     if (!b.lot) specials[b.type]?.();
+    // A gun shop (src/interiors.js builds its ground floor: the store, the range beside it):
+    // one building on the middle of the front, the floors above it solid, the ground floor
+    // left open for the rooms. Its frame: the store's door at the origin (on the front wall,
+    // the ground's height), x along the street (the range's way), z in from the street.
+    const gi = b.lot ? -1 : GUN_SHOP_BLOCKS.indexOf(b);
+    if (gi >= 0) {
+      const s = b.frontSide;
+      const X = [-s.nz, s.nx]; // (the frame's x: what +x in a Group turned atan2(-nx, -nz) points at)
+      const [L0, L1, Z1] = SHOP_FOOT;
+      const in0 = b.sw + 0.3; // (the front wall on the lot's edge, like its neighbours)
+      let ox = s.mx - s.nx * in0 - X[0] * (L0 + L1) / 2;
+      let oz = s.mz - s.nz * in0 - X[1] * (L0 + L1) / 2;
+      const mid = (L0 + L1) / 2;
+      const at = (k) => [ox + X[0] * (mid + k) - s.nx * (Z1 / 2 - 0.3), oz + X[1] * (mid + k) - s.nz * (Z1 / 2 - 0.3)];
+      // (slid along the street if it has to be, to clear the streets round the block)
+      let k = 0;
+      for (const t of [0, 3, -3, 6, -6, 9, -9, 12, -12]) {
+        const [cx, cz] = at(t);
+        const R = rect4(cx, cz, (L1 - L0) / 2, Z1 / 2, X[0], X[1]);
+        if (R.every(([x, z]) => pointInPoly(x, z, lot)) && footClear(R)) {
+          k = t;
+          break;
+        }
+      }
+      ox += X[0] * k;
+      oz += X[1] * k;
+      const [cx, cz] = at(0).map((v, j) => v + X[j] * k);
+      const ang = Math.atan2(X[1], X[0]);
+      const oy = groundY(ox - s.nx * 1, oz - s.nz * 1);
+      const top = Math.max(10, height());
+      const upper = building(cx, cz, L1 - L0, Z1, top - SHOP_H, pickMat(), ang, oy + SHOP_H); // (the floors above)
+      colliders.splice(colliders.indexOf(upper), 1); // (up there: you walk in under them)
+      placed.push({ R: rect4(cx, cz, (L1 - L0) / 2, Z1 / 2, X[0], X[1]), cx, cz, w: L1 - L0, d: Z1, ang, nx: s.nx, nz: s.nz, h: top, front: true, shop: true });
+      hollows[gi] = { b, ox, oz, oy, nx: s.nx, nz: s.nz, h: top };
+      frontages.set(b, { x: ox + s.nx * 0.3, z: oz + s.nz * 0.3, h: top, nx: s.nx, nz: s.nz, ux: X[0], uz: X[1], dd: -1, w: 14, y0: oy }); // (its wall's face, the door in it)
+    }
     const kind = st.kind;
     const onPlace = (it, h, mat) => {
       it.h = h;
@@ -1233,7 +1276,7 @@ export function buildCity(scene) {
       if (rng() < 0.7) tree(cx - s.nx * (d / 2 + 4) + s.ux * rr(-6, 6), cz - s.nz * (d / 2 + 4) + s.uz * rr(-6, 6));
       continue;
     }
-    if (kind === 'civic' && b.type === 'normal') {
+    if (kind === 'civic' && b.type === 'normal' && gi < 0) {
       const f = frontBuilding(b, Math.min(48, b.frontSide.len * 0.6), Math.min(34, Math.sqrt(b.area) * 0.45), height(), pickMat(), 6);
       const s = b.frontSide;
       batch.mesh(new THREE.BoxGeometry(f.w * 0.6, 0.5, 3), lam(0xd8d2c4), f.face.x + s.nx * 1.5, 0.45, f.face.z + s.nz * 1.5, -f.ang);
@@ -1666,7 +1709,7 @@ export function buildCity(scene) {
     windowMats, colliders, los, crates, blocks, stores, chop, station, hospital, gangHome, crewHome, spawn,
     get markings() { return markings; },
     nodes, edges: GRAPH.edges, nearestNode, blockAt, groundY, paved, heightAt, roadY, drawMap, size: MAP, hilly: true,
-    storefront, frontPoint, edgeAt, streetAt, onPier,
+    storefront, frontPoint, edgeAt, streetAt, onPier, hollows,
     byKey: new Map(blocks.map((b) => [b.key, b])),
     reserved: [...COURT_RESERVED, ...FIELD_RESERVED, ...PARK_RESERVED, ...LOT_RESERVED], // (ground kept clear of signs and poles: the courts, lots, field, park)
   };

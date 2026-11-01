@@ -104,6 +104,7 @@ export const START_TURF = {
   crew: turfAround(PLACES.crewHome, 5),
   vipers: turfAround(pick(281, 1118, { free: false }), 6),
 };
+for (const t of Object.values(START_TURF)) taken.add(BLOCKS.find((b) => b.key === t.home)); // (a gang's home is theirs: no shop there)
 
 // City Bank branches (open 9 AM to 6 PM): { block, name }.
 export const BANKS = [

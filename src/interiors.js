@@ -1,51 +1,69 @@
 import * as THREE from 'three';
 import { makeCharacter, setHeight, lam } from './character.js';
 import { WEAPONS } from './weapons.js';
-import { MAP } from './worldplan.js';
-import { dist, pick } from './util.js';
+import { pick } from './util.js';
 import { signTexture, specLine, gunPrice } from './shops.js';
+import { SHOP_FOOT, SHOP_H } from './city.js';
 
-// Interiors: places you walk into. For now the gun shops (src/gunshops.js): a store up front
-// (a counter with the clerk behind it, a wall of guns behind him, glass cases down both walls)
-// and an indoor range out back (three lanes, paper targets at 5, 9 and 15 m).
+// Interiors: places you walk into. For now the gun shops (src/gunshops.js), each the ground floor
+// of a real building in the city (city.js builds the floors above and leaves this one open:
+// city.hollows). A store at the front door (a counter with the clerk behind it, a wall of guns
+// behind him, glass cases on the walls, windows on the street) and, through a door in its side
+// wall, an indoor range beside it (three lanes, paper targets at 5, 9 and 15 m).
 //
-// Each room is built off the edge of the map (past MAP, out of sight of the city): you go in
-// through the shop's door (a quick fade) and come back out the same door. While you're in,
-// the floor is the room's (city.groundY), its walls stop you and your bullets (city.colliders,
-// city.los), the camera stays inside it, the light is the room's (daynight.js), and nothing
-// from outside comes in.
+// No loading, no fade: you walk in through the open door, and anyone after you can too. Its
+// walls stop you and your bullets (city.colliders, city.los), the floor is its own (city.groundY),
+// the camera stays under its ceiling, and when the camera's out on the street behind you the
+// front wall fades away (the cutaway: main.js lets the camera through it).
 //
 // The store: walk up to the counter and talk to the clerk to buy (shops.js openGun: his racks,
 // his prices); stand at a glass case for a gun's numbers, and ask him about it (the menu opens
-// on it). No guns out in the store; in a range lane you can shoot. A lane: free practice (the
-// targets stand, every hit leaves a hole and its score) or, with USE, the challenge: 30 seconds
-// of targets popping up one or two at a time, points by the ring times the distance; your best
-// with each gun is kept, and a new best pays. Range ammo is on the house.
+// on it). Guns away in the store (unless the cops are after you); in a range lane you can shoot.
+// A lane: free practice (the targets stand, every hit leaves a hole and its score) or, with USE,
+// the challenge: 30 seconds of targets popping up one or two at a time, points by the ring times
+// the distance; your best with each gun is kept, and a new best pays. Range ammo is on the house.
 
-// The room, in its own frame: x across (-W..W), z in from the front door (0) to the back (D).
+// The store, in the shop's frame (city.js SHOP_FOOT): x across (-W..SX), z in from the front
+// door (0) to its back wall (BACK); the stockroom behind that.
 const W = 7;
-const D = 32;
-const H = 4;
-const PART = 11; // (the wall between the store and the range)
-const DOOR_X = [3.4, 5.4]; // (the door through it)
+const SX = 6.85; // (the wall between the store and the range: SX..SX + 0.3)
+const BACK = 11;
+const H = 4; // (the ceiling)
+const [FX0, FX1, FZ] = SHOP_FOOT; // (the whole building: x FX0..FX1, z -0.3..FZ - 0.3)
+const ZB = FZ - 0.3; // (the back of the building)
+const DOOR = 0.9; // (the front door: -DOOR..DOOR)
+const SIDE_DOOR = [4.4, 6.2]; // (the door into the range, in the side wall)
 const COUNTER = { x0: -5, x1: 2, z0: 7, z1: 7.8, h: 1.05 };
 const CLERK = { x: -1.5, z: 9 };
+// The range, in its own frame: x across (-W..W), z down the lanes from the wall it shares with
+// the store (PART) to the berm at the end (D). In the shop's frame: x = RX + z, z = RC - x.
+const PART = 11;
+const RX = SX + 0.3 - PART;
+const RC = 7;
+const D = FX1 - 0.3 - RX;
 const LANES = [-4.6, 0, 4.6];
-const BOOTH = [11.3, 15.0]; // (where you stand in a lane: room behind you for the camera)
+const BOOTH = [12.6, 15.0]; // (the booths: a walkway behind them, room behind you for the camera)
 const BENCH = 15.0;
 const STAND_Z = 14.4;
 const TARGET_Z = [STAND_Z + 5, STAND_Z + 9, STAND_Z + 15]; // (5, 9 and 15 m from where you stand)
 const CHALLENGE_T = 30;
 const BEST_KEY = 'crimecity.range.v1';
+const SEE = 85; // (closer than this, its rooms are drawn: you can see in the windows)
 
-const _v = new THREE.Vector3();
+// The shops' own materials: lit from inside (a glow that's stronger after dark: update), not
+// by the point lights a room would need (every light costs every pixel in the city).
+const IMATS = new Map();
+function imat(color) {
+  if (!IMATS.has(color)) IMATS.set(color, new THREE.MeshLambertMaterial({ color }));
+  return IMATS.get(color);
+}
 
 // A gun to look at (on the wall, in a case): a few boxes in its colors, laid along +x.
 function gunModel(id) {
   const g = new THREE.Group();
   const dark = 0x1c1c1c;
   const box = (w, h, d, x, y, z, c) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), lam(c));
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), imat(c));
     m.position.set(x, y, z);
     g.add(m);
     return m;
@@ -115,12 +133,12 @@ function ringScore(dx, y) {
   return { pts: r < 0.06 ? 10 : r < 0.13 ? 8 : r < 0.2 ? 6 : r < 0.28 ? 4 : 2, head: false };
 }
 
+
 export class Interiors {
   constructor(game) {
     this.game = game;
     this.rooms = [];
     this.inside = null;
-    this.fade = null;
     this.challenge = null;
     this.best = {};
     try {
@@ -129,81 +147,167 @@ export class Interiors {
       this.best = {};
     }
     const city = game.city;
-    for (const shop of game.shops.gunShops) this.rooms.push(this.buildGunShop(shop, this.rooms.length));
-    // (the rooms' floors: level, at their own height, wherever the hills would put it)
+    game.shops.gunShops.forEach((shop, i) => {
+      const h = city.hollows?.[i];
+      if (h) this.rooms.push(this.buildGunShop(shop, h));
+    });
+    // (its floors: level, its own height, wall to wall)
     const g0 = city.groundY;
     city.groundY = (x, z) => {
-      for (const r of this.rooms) if (x > r.ox - W - 1 && x < r.ox + W + 1 && z > r.oz - 1 && z < r.oz + D + 1) return r.oy;
+      for (const r of this.rooms) {
+        if (Math.abs(x - r.cx) > 20 || Math.abs(z - r.cz) > 20) continue;
+        const [lx, lz] = this.local(r, x, z);
+        if (lx > FX0 && lx < FX1 && lz > -0.3 && lz < ZB) return r.oy + 0.02;
+      }
       return g0(x, z);
     };
-    // (the black between outside and in)
-    const f = document.createElement('div');
-    f.id = 'fade';
-    document.body.appendChild(f);
-    this.fadeEl = f;
+    this.glowAt = -1;
   }
 
-  // ---- Building a gun shop ----
-  buildGunShop(shop, i) {
+  // A point in the shop's frame (x along the front, z in from the door), and back.
+  local(r, x, z) {
+    const dx = x - r.ox;
+    const dz = z - r.oz;
+    return [dx * r.X[0] + dz * r.X[1], -(dx * r.nx + dz * r.nz)];
+  }
+  world(r, lx, lz) {
+    return [r.ox + r.X[0] * lx - r.nx * lz, r.oz + r.X[1] * lx - r.nz * lz];
+  }
+
+  // ---- Building a gun shop: in its building (city.hollows: where it is, which way it faces) ----
+  buildGunShop(shop, hol) {
     const game = this.game;
     const scene = game.scene;
     const city = game.city;
-    // (off the map's east edge, one after another down it, well apart)
-    const r = { shop, i, ox: MAP + 260 + i * 60, oz: 200, oy: 0, cases: [], lanes: [] };
+    const r = { shop, i: shop.i, ox: hol.ox, oz: hol.oz, oy: hol.oy, nx: hol.nx, nz: hol.nz, X: [-hol.nz, hol.nx], cases: [], lanes: [], front: [], papers: [], greeted: false };
+    const [ccx, ccz] = this.world(r, (FX0 + FX1) / 2, ZB / 2);
+    r.cx = ccx;
+    r.cz = ccz;
+    // (the frame: +x along the front, +z in from the street; the range's turned a quarter, its
+    // lanes running on along the street)
     const root = new THREE.Group();
     root.position.set(r.ox, r.oy, r.oz);
+    root.rotation.y = Math.atan2(-r.nx, -r.nz);
     scene.add(root);
     r.root = root;
+    const rg = new THREE.Group();
+    rg.position.set(RX, 0, RC);
+    rg.rotation.y = Math.PI / 2;
+    root.add(rg);
+    root.updateMatrixWorld(true);
+    r.rangeInv = rg.matrixWorld.clone().invert();
     const L = shop.look;
-    const W2 = (lx, lz) => [r.ox + lx, r.oz + lz];
-    // A box in the room's frame (x0..x1, y0..y1, z0..z1); solid: you can't walk through it,
-    // stops: bullets don't either.
-    const box = (x0, x1, y0, y1, z0, z1, color, { solid = false, stops = solid, mat = null } = {}) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), mat || lam(color));
-      m.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
-      root.add(m);
-      const [ax, az] = W2(x0, z0);
-      const [bx, bz] = W2(x1, z1);
-      const b = { minX: ax, maxX: bx, minZ: az, maxZ: bz, h: r.oy + y1, y0: r.oy + y0 };
-      if (solid) city.colliders.push(b);
-      if (stops) city.los.push(b);
-      return m;
+    const outside = lam(0x4a4440); // (the ground floor's outside walls: lit like the street)
+    const glass = new THREE.MeshLambertMaterial({ color: 0xb8d8e8, transparent: true, opacity: 0.28, depthWrite: false });
+    const _p = new THREE.Vector3();
+    const _q = new THREE.Vector3();
+    // A box in a frame (the store's or the range's: x0..x1, y0..y1, z0..z1). solid: you can't
+    // walk through it; stops: bullets (and the camera) don't either; front: part of the front
+    // wall (it fades for the cutaway, the camera goes through it).
+    const box = (x0, x1, y0, y1, z0, z1, color, { solid = false, stops = solid, mat = null, frame = root, front = false } = {}) => {
+      let m = mat || (typeof color === 'number' ? imat(color) : color);
+      if (front) {
+        const own = [...IMATS.values()].includes(m);
+        m = m.clone();
+        m.userData = { glow: own }; // (its own copy, to fade; it glows like the rest inside)
+      }
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), m);
+      mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+      frame.add(mesh);
+      if (front) r.front.push(mesh);
+      if (solid || stops) {
+        frame.updateMatrixWorld(true);
+        frame.localToWorld(_p.set((x0 + x1) / 2, 0, (z0 + z1) / 2));
+        frame.localToWorld(_q.set((x0 + x1) / 2 + 1, 0, (z0 + z1) / 2)).sub(_p);
+        const a = Math.atan2(_q.z, _q.x);
+        const c = Math.abs(Math.cos(a));
+        const s = Math.abs(Math.sin(a));
+        const hx = (x1 - x0) / 2;
+        const hz = (z1 - z0) / 2;
+        const ex = c * hx + s * hz;
+        const ez = s * hx + c * hz;
+        const b = { minX: _p.x - ex, maxX: _p.x + ex, minZ: _p.z - ez, maxZ: _p.z + ez, h: y1 - y0, y0: r.oy + y0 };
+        if (Math.min(c, s) > 1e-4) b.ob = { cx: _p.x, cz: _p.z, hx, hz, c: Math.cos(a), s: Math.sin(a) };
+        b.room = r;
+        if (front) b.cut = r; // (main.js: the camera goes through it from inside)
+        if (solid) city.colliders.push(b);
+        if (stops) city.los.push(b);
+      }
+      return mesh;
     };
-    // Floor, ceiling and the shell.
-    box(-W, W, -0.1, 0, 0, PART, L.floor); // (the store's floor)
-    box(-W, W, -0.1, 0, PART, D, 0x55565a); // (the range: concrete)
-    const ceil = box(-W, W, H, H + 0.1, 0, D, 0xd9d6cf);
-    ceil.material.side = THREE.DoubleSide;
-    const T = 0.3;
-    box(-W - T, -W, 0, H, 0, D, L.walls, { solid: true });
-    box(W, W + T, 0, H, 0, D, L.walls, { solid: true });
-    box(-W, W, 0, H, -T, 0, L.walls, { solid: true }); // (the front, the door in it)
-    box(-W, W, 0, H, D, D + T, 0x3b3328, { solid: true }); // (the back: a berm behind the targets)
-    // (the partition between the store and the range, the door in it)
-    box(-W, DOOR_X[0], 0, H, PART - 0.15, PART + 0.15, L.walls, { solid: true });
-    box(DOOR_X[1], W, 0, H, PART - 0.15, PART + 0.15, L.walls, { solid: true });
-    box(DOOR_X[0], DOOR_X[1], 2.6, H, PART - 0.15, PART + 0.15, L.walls, { solid: true });
-    box(DOOR_X[0] + 0.1, DOOR_X[1] - 0.1, 2.5, 2.6, PART - 0.17, PART + 0.17, L.trim);
-    // (trim along the walls, and the front door)
-    for (const [x0, x1, z0, z1] of [[-W, -W + 0.05, 0, PART], [W - 0.05, W, 0, PART], [-W, W, 0.0, 0.05]]) box(x0, x1, 0, 0.18, z0, z1, L.trim);
-    box(-0.8, 0.8, 0, 2.5, 0.0, 0.06, 0x2a2a2a); // (the door, from inside)
-    box(-0.85, 0.85, 0.005, 0.02, 0.3, 1.3, 0x3a3f46); // (the mat)
-    // (the lights: panels in the ceiling, and tubes over the lanes)
+    // A wall along x (z0..z1 thick) or along z (x0..x1 thick) with openings cut in it:
+    // holes [a0, a1, y0, y1] along it.
+    const wall = (alongX, a0, a1, t0, t1, holes, color, opts = {}) => {
+      const piece = (p0, p1, y0, y1, o = opts) => {
+        if (p1 - p0 < 1e-3 || y1 - y0 < 1e-3) return;
+        if (alongX) box(p0, p1, y0, y1, t0, t1, color, o);
+        else box(t0, t1, y0, y1, p0, p1, color, o);
+      };
+      let at = a0;
+      for (const [h0, h1, y0, y1] of [...holes].sort((p, q) => p[0] - q[0])) {
+        piece(at, h0, 0, SHOP_H);
+        piece(h0, h1, 0, y0);
+        // (over a doorway: it stops bullets, but you walk under it)
+        piece(h0, h1, y1, SHOP_H, y0 > 0 || !opts.solid ? opts : { ...opts, solid: false, stops: true });
+        at = h1;
+      }
+      piece(at, a1, 0, SHOP_H);
+    };
+
+    // ---- The shell ----
+    // The front: the store's glass and its door, then the range's blank wall. Outside, a dark
+    // storefront; inside, the store's walls.
+    const WIN = [[-6.5, -1.5, 0.75, 2.9], [1.5, 6.4, 0.75, 2.9]];
+    const DOORWAY = [-DOOR, DOOR, 0, 2.6];
+    const storeFront = { solid: true, front: true };
+    wall(true, FX0, SX + 0.3, -0.3, -0.12, [...WIN, DOORWAY], 0x2c2826, storeFront);
+    wall(true, -W, SX, -0.12, 0, [...WIN, DOORWAY], L.walls, storeFront);
+    for (const [x0, x1, y0, y1] of WIN) {
+      box(x0, x1, y0, y1, -0.2, -0.16, null, { mat: glass, solid: true, stops: false, front: true });
+      box(x0, x1, y0 - 0.08, y0, -0.34, 0.02, L.trim, { front: true }); // (the sill)
+    }
+    box(-DOOR - 0.1, DOOR + 0.1, 2.6, 2.75, -0.34, 0.02, L.trim, { front: true }); // (the door frame)
+    for (const s of [-1, 1]) box(s * DOOR - 0.06, s * DOOR + 0.06, 0, 2.6, -0.34, 0.02, L.trim, { front: true });
+    wall(true, SX + 0.3, FX1, -0.3, -0.12, [], outside, { solid: true });
+    wall(true, SX + 0.3, FX1 - 0.3, -0.12, 0, [], 0x6d6e72, { stops: true });
+    // The left side, the back and the far end.
+    wall(false, -0.3, ZB, FX0, FX0 + 0.18, [], outside, { solid: true });
+    wall(false, 0, BACK, FX0 + 0.18, -W, [], L.walls);
+    wall(true, FX0, FX1, ZB - 0.18, ZB, [], outside, { solid: true });
+    wall(true, SX + 0.3, FX1 - 0.3, ZB - 0.3, ZB - 0.18, [], 0x6d6e72);
+    wall(false, -0.3, ZB, FX1 - 0.18, FX1, [], outside, { solid: true });
+    // (the stockroom behind the store: closed off)
+    box(-W, SX, 0, SHOP_H, BACK, ZB - 0.18, 0x5a5048, { solid: true });
+    box(-W, SX, 0, SHOP_H, BACK - 0.02, BACK, L.walls);
+    // The wall between the store and the range, the door through it.
+    wall(false, 0, ZB - 0.18, SX, SX + 0.3, [[SIDE_DOOR[0], SIDE_DOOR[1], 0, 2.5]], L.walls, { solid: true });
+    box(SX - 0.04, SX + 0.34, 2.5, 2.6, SIDE_DOOR[0] - 0.1, SIDE_DOOR[1] + 0.1, L.trim);
+    box(SX - 0.25, SX - 0.02, 2.75, 3.15, (SIDE_DOOR[0] + SIDE_DOOR[1]) / 2 - 0.5, (SIDE_DOOR[0] + SIDE_DOOR[1]) / 2 + 0.5, null, {
+      mat: new THREE.MeshBasicMaterial({ map: signTexture('RANGE', '#1b1b1b', '#ffd23f') }),
+    }).rotation.y = -Math.PI / 2;
+    // Floors and the ceiling.
+    box(-W, SX, -0.1, 0.02, 0, BACK, L.floor);
+    box(-DOOR, DOOR, -0.1, 0.02, -0.3, 0, L.trim); // (the threshold)
+    box(SX, SX + 0.3, -0.1, 0.02, SIDE_DOOR[0], SIDE_DOOR[1], L.trim);
+    box(FX0 + 0.18, FX1 - 0.18, H, SHOP_H, -0.12, ZB - 0.18, 0xd9d6cf);
+    // (trim along the floor, the mat at the door)
+    box(-W, -W + 0.05, 0, 0.18, 0, BACK, L.trim);
+    box(-W, SX, 0, 0.18, BACK - 0.05, BACK, L.trim);
+    box(-0.85, 0.85, 0.02, 0.035, 0.3, 1.3, 0x3a3f46);
+    // (the lights: panels in the ceiling)
     const glow = new THREE.MeshBasicMaterial({ color: 0xfff6e0 });
     for (const z of [2.5, 6, 9.5]) for (const x of [-4, 0, 4]) box(x - 0.7, x + 0.7, H - 0.04, H - 0.01, z - 0.35, z + 0.35, 0, { mat: glow });
-    for (const z of [12.5, 16, 21, 26, 30.5]) box(-W + 0.4, W - 0.4, H - 0.05, H - 0.01, z - 0.06, z + 0.06, 0, { mat: glow });
     // (a sign over the wall of guns)
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 0.98), new THREE.MeshBasicMaterial({ map: signTexture(shop.sign, shop.signBg, '#fff') }));
-    sign.position.set(-2.5, 3.35, PART - 0.16);
+    sign.position.set(-2.5, 3.35, BACK - 0.03);
     sign.rotation.y = Math.PI;
     root.add(sign);
     // The counter: wood below, glass on top (guns inside), the register.
     box(COUNTER.x0, COUNTER.x1, 0, 0.92, COUNTER.z0, COUNTER.z1, L.trim, { solid: true });
-    const glass = new THREE.MeshLambertMaterial({ color: 0xb8d8e8, transparent: true, opacity: 0.28, depthWrite: false });
     box(COUNTER.x0, COUNTER.x1, 0.92, COUNTER.h, COUNTER.z0, COUNTER.z1, 0, { mat: glass });
     box(1.0, 1.5, COUNTER.h, COUNTER.h + 0.28, 7.2, 7.6, 0x2b2b2b); // (the register)
     // (the gate at the end of the counter: staff only)
-    box(COUNTER.x1, COUNTER.x1 + 0.12, 0, 1.0, COUNTER.z0, PART - 0.15, L.trim, { solid: true });
+    box(COUNTER.x1, COUNTER.x1 + 0.12, 0, 1.0, COUNTER.z0, BACK, L.trim, { solid: true });
     box(COUNTER.x0 - 2.0, COUNTER.x0, 0, 1.0, COUNTER.z0, COUNTER.z0 + 0.12, L.trim, { solid: true });
     // (guns under the counter glass)
     shop.stock.slice(0, 4).forEach((id, k) => {
@@ -213,177 +317,151 @@ export class Interiors {
       root.add(m);
     });
     // The wall of guns behind the counter: a pegboard, everything he stocks, two rows.
-    box(-6.6, 1.6, 0.9, 3.0, PART - 0.2, PART - 0.15, 0x9a8a6e);
+    box(-6.6, 1.6, 0.9, 3.0, BACK - 0.06, BACK - 0.02, 0x9a8a6e);
     shop.stock.forEach((id, k) => {
       const m = gunModel(id);
       m.rotation.y = Math.PI; // (facing the store)
       const row = k % 2;
       const col = Math.floor(k / 2);
-      m.position.set(-5.6 + col * 2.4 + row * 1.0, 2.45 - row * 0.85, PART - 0.24);
+      m.position.set(-5.6 + col * 2.4 + row * 1.0, 2.45 - row * 0.85, BACK - 0.1);
       m.scale.setScalar(1.25);
       root.add(m);
     });
-    // Glass cases down both walls, a gun in each (the shop's stock round them).
-    const caseSpots = [[-6.1, 3.0, 1], [-6.1, 5.4, 1], [6.1, 3.0, -1], [6.1, 5.4, -1]];
+    // Glass cases on the walls, a gun in each (the shop's stock round them): two on the left,
+    // one on the right (the range's door's there too).
+    const caseSpots = [[-6.1, 3.0, 1], [-6.1, 5.4, 1], [SX - 0.75, 2.4, -1]];
     caseSpots.forEach(([x, z, side], k) => {
       const id = shop.stock[k % shop.stock.length];
       box(x - 0.55, x + 0.55, 0, 0.85, z - 0.95, z + 0.95, L.trim, { solid: true });
       box(x - 0.55, x + 0.55, 0.85, 1.25, z - 0.95, z + 0.95, 0, { mat: glass });
       box(x - 0.5, x + 0.5, 0.85, 0.87, z - 0.9, z + 0.9, 0x5c1a1a); // (the felt)
       const m = gunModel(id);
-      m.rotation.set(-Math.PI / 2, 0, Math.PI / 2 * side);
+      m.rotation.set(-Math.PI / 2, 0, (Math.PI / 2) * side);
       m.position.set(x, 0.9, z);
       root.add(m);
       // (where you stand to look at it: in front of the case)
       r.cases.push({ id, x: x + side * 1.1, z, gx: x, gz: z });
     });
     // (a bench, a poster or two: it's lived in)
-    box(-3.2, -1.2, 0, 0.45, 0.6, 1.0, 0x4a3a2a, { solid: true });
-    for (const [x, c] of [[-6.94, 0xb03a2e], [6.94, 0x2e5ab0]]) {
-      const p = box(x - 0.01, x + 0.01, 1.6, 2.6, 7.5, 8.3, c);
-      p.material = lam(c);
-    }
-    // The clerk, behind the counter.
+    box(-3.4, -1.6, 0, 0.45, 0.6, 1.0, 0x4a3a2a, { solid: true });
+    for (const [x, c, z] of [[-W + 0.01, 0xb03a2e, 7.9], [SX - 0.01, 0x2e5ab0, 8.4]]) box(x - 0.01, x + 0.01, 1.6, 2.6, z - 0.4, z + 0.4, c);
+    // The clerk, behind the counter, facing the door.
     const ck = shop.clerk;
     const c = makeCharacter({ ...ck.look, female: !!ck.female });
     setHeight(c, ck.height || 1.8);
-    c.group.position.set(r.ox + CLERK.x, r.oy, r.oz + CLERK.z);
-    c.group.rotation.y = Math.PI; // (facing the door)
-    scene.add(c.group);
+    c.group.position.set(CLERK.x, 0, CLERK.z);
+    c.group.rotation.y = Math.PI;
+    root.add(c.group);
     r.clerk = { c, t: Math.random() * 10, talkT: 0 };
-    // ---- The range ----
+
+    // ---- The range (its own frame) ----
+    const R = { frame: rg };
+    box(-W, W, -0.1, 0.02, PART, D, 0x55565a, R); // (concrete)
+    box(-W, W, 0, SHOP_H, D - 0.02, D, 0x3b3328, R); // (the berm behind the targets)
+    for (const z of [12.5, 16, 21, 26, 30.5]) box(-W + 0.4, W - 0.4, H - 0.05, H - 0.01, z - 0.06, z + 0.06, 0, { ...R, mat: glow });
     // (the booths: partitions between the lanes, the bench in front of you, numbers over them)
-    for (const x of [-2.3, 2.3]) box(x - 0.06, x + 0.06, 0, 2.3, BOOTH[0], BENCH + 0.6, 0x6d6e72, { solid: true });
-    box(-W, W, 0, 1.0, BENCH, BENCH + 0.6, 0x5a4a3a, { solid: true }); // (the bench: no further)
-    // (a rail across the ceiling the targets hang from... stands on the floor, near enough)
+    for (const x of [-2.3, 2.3]) box(x - 0.06, x + 0.06, 0, 2.3, BOOTH[0], BENCH + 0.6, 0x6d6e72, { ...R, solid: true });
+    box(-W, W, 0, 1.0, BENCH, BENCH + 0.6, 0x5a4a3a, { ...R, solid: true }); // (the bench: no further)
     LANES.forEach((lx, li) => {
-      const lane = { i: li, x: lx, targets: [], holes: [] };
+      const lane = { i: li, x: lx, targets: [] };
       TARGET_Z.forEach((tz, k) => {
         // (staggered across the lane, so the near one doesn't hide the far ones)
         const ox = [-0.95, 0.2, 1.05][k];
         const pivot = new THREE.Group();
         pivot.position.set(lx + ox, 0, tz);
-        root.add(pivot);
-        const pole = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.95, 0.05), lam(0x2a2a2a));
+        rg.add(pivot);
+        const pole = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.95, 0.05), imat(0x2a2a2a));
         pole.position.set(0, 0.47, 0.02);
         pivot.add(pole);
-        const paper = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 1.0), new THREE.MeshLambertMaterial({ map: targetTexture(), side: THREE.DoubleSide }));
+        const paper = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 1.0), new THREE.MeshLambertMaterial({ map: targetTexture(), side: THREE.DoubleSide, emissiveMap: targetTexture() }));
+        r.papers.push(paper.material);
         paper.position.set(0, 1.45, 0);
         paper.rotation.y = Math.PI; // (facing the booths)
         pivot.add(paper);
         lane.targets.push({ pivot, paper, z: tz, ox, up: 1, goal: 1, holes: [] });
       });
       // (the lane number over the booth)
-      const n = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.45), new THREE.MeshBasicMaterial({ map: signTexture(`${li + 1}`, '#222', '#ffd23f') }));
-      n.position.set(lx, 3.3, BOOTH[0] + 0.02);
+      const n = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.36), new THREE.MeshBasicMaterial({ map: signTexture(`${li + 1}`, '#222', '#ffd23f') }));
+      n.position.set(lx, 3.78, BOOTH[0] + 0.02); // (up by the ceiling: out of your sights)
       n.rotation.y = Math.PI;
-      root.add(n);
+      rg.add(n);
       r.lanes.push(lane);
     });
-    // (the range's floor stripe where you stand)
-    for (const lx of LANES) box(lx - 1.6, lx + 1.6, 0.001, 0.012, BENCH - 0.18, BENCH - 0.05, 0xffd23f);
+    for (const lx of LANES) box(lx - 1.6, lx + 1.6, 0.02, 0.032, BENCH - 0.18, BENCH - 0.05, 0xffd23f, R); // (where you stand)
     return r;
-  }
-
-  // ---- Coming and going ----
-  enter(i) {
-    if (this.fade || this.inside) return;
-    const game = this.game;
-    const r = this.rooms[i];
-    if (!r) return;
-    this.startFade(() => {
-      const p = game.player;
-      p.x = r.ox;
-      p.z = r.oz + 1.4;
-      this.lightUp(true);
-      p.heading = 0; // (facing in)
-      p.vx = p.vz = 0;
-      game.camYaw = 0;
-      game.camPitch = 0.1;
-      this.inside = r;
-      this.lastLane = null;
-      this.clearHoles(r);
-      for (const l of r.lanes) for (const t of l.targets) t.goal = t.up = 1;
-      game.hud.toast(`${r.shop.clerk.name}: "${pick(r.shop.clerk.hi)}"`, '#ffd479');
-    });
-  }
-
-  leave() {
-    if (this.fade || !this.inside) return;
-    const game = this.game;
-    const r = this.inside;
-    this.stopChallenge(false);
-    this.startFade(() => {
-      const s = r.shop;
-      const p = game.player;
-      // (out the door, on the sidewalk, facing the street)
-      p.x = s.x + s.nx * 0.9;
-      p.z = s.z + s.nz * 0.9;
-      p.heading = Math.atan2(s.nx, s.nz);
-      p.vx = p.vz = 0;
-      game.camYaw = p.heading;
-      this.inside = null;
-      this.lightUp(false);
-      const mm = document.getElementById('minimap');
-      if (mm) mm.style.visibility = '';
-      if (game.dayNight) game.dayNight.night = -1; // (the outside light again: daynight.js)
-    });
-  }
-
-  // Indoor light: from all round (the sky's light from below too: the ceiling and the
-  // undersides aren't left in the dark), the same any time of day; back to outside's after.
-  lightUp(on) {
-    const h = this.game.hemi;
-    if (!h) return;
-    if (on) {
-      this.hemi0 ??= { sky: h.color.clone(), ground: h.groundColor.clone() };
-      h.color.set(0xfff4e2);
-      h.groundColor.set(0xb9ae9c);
-    } else if (this.hemi0) {
-      h.color.copy(this.hemi0.sky);
-      h.groundColor.copy(this.hemi0.ground);
-    }
-  }
-
-  startFade(fn) {
-    this.fade = { t: 0, fn, done: false };
   }
 
   // ---- Every frame (main.js) ----
   update(dt) {
     const game = this.game;
-    // (the fade: to black, the move, back in)
-    if (this.fade) {
-      const F = this.fade;
-      F.t += dt;
-      if (!F.done && F.t >= 0.22) {
-        F.done = true;
-        F.fn();
+    const p = game.player;
+    const cam = game.camera.position;
+    // (which shop you're in, and which room: the store or the range)
+    const was = this.inside;
+    this.inside = null;
+    let near = null;
+    let nd = Infinity;
+    for (const r of this.rooms) {
+      const d = Math.hypot(cam.x - r.cx, cam.z - r.cz);
+      const show = d < SEE;
+      if (r.root.visible !== show) r.root.visible = show;
+      if (d < nd) {
+        nd = d;
+        near = r;
       }
-      const a = F.t < 0.22 ? F.t / 0.22 : Math.max(0, 1 - (F.t - 0.3) / 0.25);
-      this.fadeEl.style.opacity = a.toFixed(3);
-      if (F.t > 0.6) {
-        this.fade = null;
-        this.fadeEl.style.opacity = '0';
-      }
+      if (p.vehicle || p.high || Math.abs(p.x - r.cx) > 20 || Math.abs(p.z - r.cz) > 20) continue;
+      const [lx, lz] = this.local(r, p.x, p.z);
+      if (lz < 0 || lz > ZB || lx < -W || lx > FX1) continue;
+      this.inside = r;
+      r.part = lx < SX + 0.15 ? 'store' : 'range';
+      r.lx = lx;
+      r.lz = lz;
     }
+    this.glow();
     const r = this.inside;
-    for (const room of this.rooms) {
-      if (room !== r && room.clerk.c.group.visible) room.clerk.c.group.visible = false;
+    if (r !== was) {
+      if (was) this.cut(was, false, 1);
+      // (in the door: the clerk says hello, once a visit)
+      if (r && !r.greeted) {
+        r.greeted = true;
+        r.clerk.talkT = 1.2;
+        game.hud.toast(`${r.shop.clerk.name}: "${pick(r.shop.clerk.hi)}"`, '#ffd479');
+      }
     }
-    if (!r) return;
-    r.clerk.c.group.visible = true;
-    const mm = document.getElementById('minimap');
-    if (mm && mm.style.visibility !== 'hidden') mm.style.visibility = 'hidden'; // (no map in here)
-    this.clerkPose(r, dt);
+    for (const room of this.rooms) {
+      if (room !== r && room.greeted && Math.hypot(p.x - room.cx, p.z - room.cz) > 40) room.greeted = false;
+    }
+    // (the challenge is in your lane: step out of it and it's over)
+    const C = this.challenge;
+    if (C && (r !== C.room || this.laneAt(...this.rangeLocal(r, p.x, p.z)) !== C.lane)) this.stopChallenge(false, 'You left your lane: challenge over');
+    if (!near || nd > SEE) return;
+    this.clerkPose(near, dt);
     // (the targets: up or down, swinging there)
-    for (const l of r.lanes) {
+    for (const l of near.lanes) {
       for (const t of l.targets) {
         t.up += Math.sign(t.goal - t.up) * Math.min(Math.abs(t.goal - t.up), dt * 7);
         t.pivot.rotation.x = (1 - t.up) * (Math.PI / 2) * 0.98; // (down: flat, top away from you)
       }
     }
     if (this.challenge) this.challengeStep(dt);
+  }
+
+  // The lights inside: the rooms' materials glow (more after dark, when there's less light
+  // from outside to see by).
+  glow() {
+    const n = Math.max(0, this.game.dayNight?.night ?? 0);
+    if (Math.abs(n - this.glowAt) < 0.01) return;
+    this.glowAt = n;
+    const k = 0.2 + 0.6 * n;
+    for (const m of IMATS.values()) m.emissive.copy(m.color).multiplyScalar(k);
+    for (const r of this.rooms) for (const m of r.papers) m.emissive.setScalar(k);
+    for (const r of this.rooms) for (const f of r.front) if (f.material.userData.glow) f.material.emissive.copy(f.material.color).multiplyScalar(k);
+  }
+
+  // A world point in the range's frame (x across the lanes, z down them).
+  rangeLocal(r, x, z) {
+    const [lx, lz] = this.local(r, x, z);
+    return [RC - lz, lx - RX];
   }
 
   // The clerk: leaning on the counter, watching you, a gesture while he talks.
@@ -396,10 +474,9 @@ export class Interiors {
     const p = game.player;
     const talking = K.talkT > 0 || game.shops.menu?.shop === r.shop;
     // (his head to you, if you're in the store)
-    const dx = p.x - c.group.position.x;
-    const dz = p.z - c.group.position.z;
-    const inStore = p.z - r.oz < PART;
-    const want = inStore ? Math.atan2(dx, dz) - c.group.rotation.y : 0;
+    const [lx, lz] = this.local(r, p.x, p.z);
+    const inStore = this.inside === r && r.part === 'store';
+    const want = inStore ? Math.atan2(lx - CLERK.x, lz - CLERK.z) - Math.PI : 0;
     const yaw = Math.atan2(Math.sin(want), Math.cos(want));
     const br = Math.sin(K.t * 1.6) * 0.02; // (breathing)
     c.spine.rotation.set(0.12 + br, Math.max(-0.5, Math.min(0.5, yaw * 0.3)), 0);
@@ -420,44 +497,37 @@ export class Interiors {
   }
 
   // ---- Inside: what USE does, what the prompt says (main.js handleInteractions). True while
-  // you're inside; armed(): whether your guns are out (in a lane) ----
+  // you're inside; armed(): whether your guns are out ----
   interact(a) {
     const game = this.game;
     const r = this.inside;
-    if (!r || this.fade) return !!r;
+    if (!r) return false;
     const p = game.player;
     const key = game.input.label('interact');
     const pressed = a.interactHeld && !game.interactWasHeld;
-    const lx = p.x - r.ox;
-    const lz = p.z - r.oz;
-    // (the front door)
-    if (lz < 1.6 && Math.abs(lx) < 1.2) {
-      game.prompt = `Press ${key} to leave ${r.shop.name}`;
-      if (pressed) this.leave();
-      return true;
-    }
-    // (the clerk, across the counter)
-    if (lz > COUNTER.z0 - 1.6 && lz < COUNTER.z0 && lx > COUNTER.x0 && lx < COUNTER.x1) {
-      game.prompt = `Press ${key} to talk to ${r.shop.clerk.name}`;
-      if (pressed) this.talk(r);
-      return true;
-    }
-    // (a glass case: its gun's numbers; ask him about it)
-    const cs = r.cases.find((k) => Math.hypot(lx - k.x, lz - k.z) < 0.9);
-    if (cs) {
-      const w = WEAPONS.find((x) => x.id === cs.id);
-      game.prompt = `Press ${key} to look at the ${w.name} · $${gunPrice(w.id, r.shop).toLocaleString('en-US')} · ${specLine(w)}`;
-      if (pressed) this.talk(r, w.id);
+    if (r.part === 'store') {
+      const lx = r.lx;
+      const lz = r.lz;
+      // (the clerk, across the counter)
+      if (lz > COUNTER.z0 - 1.6 && lz < COUNTER.z0 && lx > COUNTER.x0 && lx < COUNTER.x1) {
+        game.prompt = `Press ${key} to talk to ${r.shop.clerk.name}`;
+        if (pressed) this.talk(r);
+        return true;
+      }
+      // (a glass case: its gun's numbers; ask him about it)
+      const cs = r.cases.find((k) => Math.hypot(lx - k.x, lz - k.z) < 0.9);
+      if (cs) {
+        const w = WEAPONS.find((x) => x.id === cs.id);
+        game.prompt = `Press ${key} to look at the ${w.name} · $${gunPrice(w.id, r.shop).toLocaleString('en-US')} · ${specLine(w)}`;
+        if (pressed) this.talk(r, w.id);
+      }
       return true;
     }
     // (a lane)
-    const lane = this.laneAt(lx, lz);
+    const lane = this.laneAt(...this.rangeLocal(r, p.x, p.z));
     if (lane) {
       const w = game.arsenal.current();
-      if (this.challenge) {
-        if (this.challenge.lane !== lane) this.stopChallenge(false);
-        return true;
-      }
+      if (this.challenge) return true;
       const best = this.best[w.id] || 0;
       const last = this.lastHit && game.time - this.lastHit.at < 2.5 ? ` · last: ${this.lastHit.pts}${this.lastHit.head ? ' (head)' : ''} at ${this.lastHit.m} m` : '';
       if (w.melee) game.prompt = `Lane ${lane.i + 1}: get a gun out to shoot (range ammo's free)${last}`;
@@ -465,27 +535,26 @@ export class Interiors {
         game.prompt = `Press ${key} to start the 30-second challenge with the ${w.name} (best ${best}) · or just shoot${last}`;
         if (pressed) this.startChallenge(lane);
       }
-      return true;
     }
     return true;
   }
 
-  // Your guns are out only in a lane.
+  // Your guns are out only in a lane (or with the cops after you).
   armed() {
     const r = this.inside;
-    if (!r) return true;
-    const p = this.game.player;
-    return !!this.laneAt(p.x - r.ox, p.z - r.oz);
+    if (!r || this.game.stars > 0) return true;
+    return r.part === 'range' && !!this.laneAt(...this.rangeLocal(r, this.game.player.x, this.game.player.z));
   }
 
   // Free ammo at the range.
   freeAmmo() {
-    return !!this.inside && this.armed();
+    const r = this.inside;
+    return !!r && r.part === 'range' && this.armed();
   }
 
   laneAt(lx, lz) {
     const r = this.inside;
-    if (!r || lz < BOOTH[0] - 0.2 || lz > BENCH + 0.1) return null;
+    if (!r || r.part !== 'range' || lz < BOOTH[0] - 0.2 || lz > BENCH + 0.1) return null;
     return r.lanes.find((l) => Math.abs(lx - l.x) < 2.2) || null;
   }
 
@@ -509,18 +578,18 @@ export class Interiors {
   // target this ray hits before t, or null ----
   rangeShot(ox, oy, oz, dx, dy, dz, maxT) {
     const r = this.inside;
-    if (!r || dz <= 1e-4) return null;
-    const lx0 = ox - r.ox;
-    const ly0 = oy - r.oy;
-    const lz0 = oz - r.oz;
+    if (!r || r.part !== 'range') return null;
+    const o = new THREE.Vector3(ox, oy, oz).applyMatrix4(r.rangeInv);
+    const d = new THREE.Vector3(dx, dy, dz).transformDirection(r.rangeInv);
+    if (d.z <= 1e-4) return null;
     let best = null;
     for (const l of r.lanes) {
       for (const t of l.targets) {
         if (t.up < 0.85) continue;
-        const tt = (t.z - lz0) / dz;
+        const tt = (t.z - o.z) / d.z;
         if (tt <= 0 || tt >= maxT || (best && tt >= best.t)) continue;
-        const x = lx0 + dx * tt - l.x - t.ox;
-        const y = ly0 + dy * tt;
+        const x = o.x + d.x * tt - l.x - t.ox;
+        const y = o.y + d.y * tt;
         if (Math.abs(x) > 0.31 || y < 0.95 || y > 1.95) continue;
         best = { t: tt, lane: l, target: t, x, y, wx: ox + dx * tt, wy: oy + dy * tt, wz: oz + dz * tt };
       }
@@ -541,9 +610,11 @@ export class Interiors {
   }
 
   clearHoles(r) {
-    for (const l of r.lanes) for (const t of l.targets) {
-      for (const h of t.holes) t.paper.remove(h);
-      t.holes = [];
+    for (const l of r.lanes) {
+      for (const t of l.targets) {
+        for (const h of t.holes) t.paper.remove(h);
+        t.holes = [];
+      }
     }
   }
 
@@ -557,7 +628,7 @@ export class Interiors {
       t.goal = 0;
       t.live = false;
     }
-    this.challenge = { lane, wid: w.id, wname: w.name, t: -2.5, score: 0, hits: 0, shown: 0, next: 0.4 };
+    this.challenge = { lane, room: this.inside, wid: w.id, wname: w.name, t: -2.5, score: 0, hits: 0, shown: 0, next: 0.4 };
     document.body.classList.add('ranging'); // (its board: style.css)
   }
 
@@ -624,7 +695,7 @@ export class Interiors {
       return;
     }
     const prev = this.best[C.wid] || 0;
-    const name = this.inside?.shop.clerk.name;
+    const name = C.room?.shop.clerk.name;
     if (C.score > prev) {
       this.best[C.wid] = C.score;
       try {
@@ -646,18 +717,39 @@ export class Interiors {
     return { label: 'stop the range challenge', quit: () => this.stopChallenge(false, 'Challenge called off') };
   }
 
-  // The camera stays in the room (main.js, after it's placed).
+  // The front wall, see-through (the cutaway) or not; k: how far (eased by the caller).
+  cut(r, on, k = 0.2) {
+    r.cutA ??= 1;
+    r.cutA += ((on ? 0.12 : 1) - r.cutA) * k;
+    const a = r.cutA;
+    for (const m of r.front) {
+      const mat = m.material;
+      const base = mat.userData.a0 ?? (mat.userData.a0 = mat.opacity);
+      const want = base * a;
+      if (Math.abs(mat.opacity - want) < 1e-3) continue;
+      mat.opacity = want;
+      const see = a < 0.995 || base < 1;
+      if (mat.transparent !== see) {
+        mat.transparent = see;
+        mat.depthWrite = !see;
+        mat.needsUpdate = true;
+      }
+    }
+  }
+
+  // The camera may go out through this box (main.js): the store's front wall, from inside.
+  camThrough(b) {
+    return b.cut === this.inside && this.inside?.part === 'store';
+  }
+
+  // The camera inside (main.js, after it's placed): under the ceiling; out on the street behind
+  // you (it went through the front wall: main.js), the front wall fades.
   camera(cam) {
     const r = this.inside;
     if (!r) return;
     const p = cam.position;
-    p.x = Math.max(r.ox - W + 0.25, Math.min(r.ox + W - 0.25, p.x));
-    p.y = Math.max(r.oy + 0.3, Math.min(r.oy + H - 0.2, p.y));
-    p.z = Math.max(r.oz + 0.25, Math.min(r.oz + D - 0.25, p.z));
-    // (and not through the wall between the store and the range: the side you're on)
-    const pz = this.game.player.z - r.oz;
-    const lz = p.z - r.oz;
-    if (pz < PART && lz > PART - 0.4) p.z = r.oz + PART - 0.4;
-    if (pz >= PART && lz < PART + 0.4) p.z = r.oz + PART + 0.4;
+    p.y = Math.max(r.oy + 0.4, Math.min(r.oy + H - 0.25, p.y));
+    const [, lz] = this.local(r, p.x, p.z);
+    this.cut(r, r.part === 'store' && lz < 0.1);
   }
 }
