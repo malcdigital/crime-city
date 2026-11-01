@@ -1182,7 +1182,11 @@ export function buildCity(scene) {
     const r = building(cx, cz, L, d, h, mat, Math.atan2(s.uz, s.ux));
     ({ cx, cz, w: L, d, h } = r); // (as built: buildingedits.js may have moved it)
     const face = { x: cx + s.nx * (d / 2 + 0.06), z: cz + s.nz * (d / 2 + 0.06) };
-    return { cx, cz, w: L, d, h, ang: r.ang, face, rotY: Math.atan2(s.nx, s.nz), R: rect4(cx, cz, L / 2, d / 2, s.ux, s.uz), removed: r.removed };
+    // (its forecourt: from the sidewalk to its front, a bit wider than it, kept clear of other
+    // buildings; the station's patrol cars roll out across it)
+    const yc = (b.sw + setback / 2);
+    const yard = setback > 2 ? rect4(s.mx - s.nx * yc + (cx - (s.mx - s.nx * (b.sw + setback + d / 2))), s.mz - s.nz * yc + (cz - (s.mz - s.nz * (b.sw + setback + d / 2))), L / 2 + 4, setback / 2 + 0.4, s.ux, s.uz) : null;
+    return { cx, cz, w: L, d, h, ang: r.ang, face, rotY: Math.atan2(s.nx, s.nz), R: rect4(cx, cz, L / 2, d / 2, s.ux, s.uz), removed: r.removed, yard };
   };
 
   // ======== Blocks ========
@@ -1280,6 +1284,14 @@ export function buildCity(scene) {
         const pad = new THREE.CylinderGeometry(4, 4, 0.08, 24);
         batch.mesh(pad, lam(0x2c3e50), f.cx, 14.24, f.cz);
         batch.mesh(new THREE.BoxGeometry(2.4, 0.1, 0.5), lam(0xf1c40f), f.cx, 14.3, f.cz);
+        // (a flagpole out on the forecourt, by the corner of the building)
+        const sd = b.frontSide;
+        const px = f.face.x + sd.nx * 6 + sd.ux * (f.w / 2 - 2);
+        const pz = f.face.z + sd.nz * 6 + sd.uz * (f.w / 2 - 2);
+        batch.mesh(new THREE.CylinderGeometry(0.07, 0.1, 10, 8), lam(0xd0d3d6), px, 5, pz, 0, { cast: true });
+        batch.mesh(new THREE.CylinderGeometry(0.5, 0.6, 0.4, 12), lam(0x8e8e8a), px, 0.2, pz);
+        batch.mesh(new THREE.BoxGeometry(0.04, 1.1, 1.8), lam(0x1c2f5a), px + sd.ux * 0.95, 9.3, pz + sd.uz * 0.95, -Math.atan2(sd.uz, sd.ux) + Math.PI / 2);
+        colliders.push(obb(px, pz, 0.5, 0.5, 0, 1.1));
         placed.push(f);
       },
       cityhall: () => {
@@ -1442,6 +1454,8 @@ export function buildCity(scene) {
       placed.push(f);
       frontages.set(b, { x: f.face.x, z: f.face.z, h: f.h, nx: s.nx, nz: s.nz, ux: s.ux, uz: s.uz });
     }
+    // (the forecourts in front of the set-back buildings: nothing else built on them)
+    for (const f of [...placed]) if (f.yard) placed.push({ R: f.yard, yard: true });
     const opts = {
       city: { w: [14, 26], d: [14, 24], gap: 2 },
       towers: { w: [22, 34], d: [20, 30], gap: 3 },
