@@ -70,7 +70,7 @@ export const CFG = {
   // for the normal random roll.
   TEST_INCIDENT: null,
   // Testing switch: the next street sale is to an undercover cop (once, then it switches itself off).
-  TEST_STING: true,
+  TEST_STING: false,
   // Testing switch: force the next patrol stop to be a 'dirty' or 'clean' cop (null: random).
   TEST_DIRTY_COP: null,
 };
