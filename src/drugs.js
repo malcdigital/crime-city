@@ -1239,7 +1239,7 @@ export class Drugs {
   }
 
   blips() {
-    return this.plugs.map((p) => [p.x, p.z, this.run && this.run.plug === p.id ? '#e0b000' : '#6c3483', 'D']);
+    return this.plugs.map((p) => [p.x, p.z, this.run && this.run.plug === p.id ? '#e0b000' : '#6c3483', 'plug']);
   }
 }
 

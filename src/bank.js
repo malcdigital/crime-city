@@ -420,8 +420,8 @@ export class Bank {
 
   // ---- Map ----
   blips() {
-    const out = this.banks.map((b) => [b.x, b.z, this.open() ? '#1e8449' : '#566573', 'B']);
-    for (const h of this.homes) out.push([h.x, h.z, h.owned ? '#d4ac0d' : '#7f8c8d', '⌂']);
+    const out = this.banks.map((b) => [b.x, b.z, this.open() ? '#1e8449' : '#566573', 'bank']);
+    for (const h of this.homes) out.push([h.x, h.z, h.owned ? '#d4ac0d' : '#7f8c8d', 'home']);
     return out;
   }
 
@@ -430,10 +430,10 @@ export class Bank {
   }
 
   legend(add) {
-    for (const b of this.banks) add('blip', this.open() ? '#1e8449' : '#566573', 'B', `${b.name} (${this.open() ? 'open' : `closed · ${this.hours()}`})`, b.x, b.z);
+    for (const b of this.banks) add('blip', this.open() ? '#1e8449' : '#566573', 'bank', `${b.name} (${this.open() ? 'open' : `closed · ${this.hours()}`})`, b.x, b.z);
     const t = [...this.atms].sort((p, q) => dist(p.x, p.z, ...this.game.player.pos()) - dist(q.x, q.z, ...this.game.player.pos()))[0];
     if (t) add('dot', '#5dade2', '', `ATMs · ${this.atms.length} (nearest)`, t.x, t.z);
-    for (const h of this.homes) add('blip', h.owned ? '#d4ac0d' : '#7f8c8d', '⌂', h.owned ? `Your ${h.name.toLowerCase()} · stash ${money(h.stash)}` : `${h.name} for sale · ${money(this.game.property.price(h))}`, h.x, h.z);
+    for (const h of this.homes) add('blip', h.owned ? '#d4ac0d' : '#7f8c8d', 'home', h.owned ? `Your ${h.name.toLowerCase()} · stash ${money(h.stash)}` : `${h.name} for sale · ${money(this.game.property.price(h))}`, h.x, h.z);
   }
 }
 

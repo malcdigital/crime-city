@@ -6,12 +6,14 @@ const MARGIN = 0; // (the map is the whole world)
 import { DISTRICTS, districtCenter } from './districts.js';
 import { drawHeli, drawSearchlight } from './heliicon.js';
 import { CFG, CRED_TIERS } from './config.js';
+import { PHONE } from './quality.js';
 import { GANGS } from './turf.js';
 import { districtAt, streetAt } from './city.js';
 import { clamp, dist } from './util.js';
 import { tierOf } from './claim.js';
 import { gpsRoute, routeLength } from './gps.js';
-import { setRich, blipText, GUN_SVG } from './icons.js';
+import { setRich, blipText, iconSVG, drawMapIcon } from './icons.js';
+import { MapArt, LOD } from './mapart.js';
 
 // Full-screen city map (touchpad / M). The game pauses while it's open.
 // Left stick / WASD / mouse drag pans the cursor, R2 / L2 / wheel zoom, ✕ / click sets or
@@ -38,6 +40,9 @@ const BUS_ICON = '<span class="lg-bus"><svg viewBox="0 0 14 14" width="14" heigh
 // A tiny helicopter for the legend.
 const HELI_SVG = '<svg width="18" height="18" viewBox="-10 -10 20 20"><rect x="-0.9" y="2" width="1.8" height="7" fill="#1c2a44" stroke="#fff" stroke-width="1"/><rect x="-2.6" y="7.6" width="5.2" height="1.4" fill="#1c2a44" stroke="#fff" stroke-width="1"/><ellipse cx="0" cy="-0.5" rx="3.6" ry="5" fill="#1c2a44" stroke="#fff" stroke-width="1"/><circle cx="-2.2" cy="1.5" r="1.1" fill="#ff3b3b"/><circle cx="2.2" cy="1.5" r="1.1" fill="#3b7bff"/><path d="M-8 -8L8 8M-8 8L8 -8" stroke="#fff" stroke-width="1.3"/></svg>';
 
+// The layers you can switch off (in the legend, 1-6 on a keyboard).
+const LAYERS = [['turf', 'Turf (gangs, bases, claims)'], ['shops', 'Shops (guns, garage, chop shop, stores)'], ['business', 'Business (plugs, stash, kingpins)'], ['money', 'Money (banks, ATMs, homes, companies)'], ['transit', 'Bus stops'], ['police', 'Police']];
+
 export class MapView {
   constructor(game) {
     this.game = game;
@@ -52,6 +57,25 @@ export class MapView {
       <div class="bm-help"></div>`;
     document.body.appendChild(this.el);
     this.canvas = this.el.querySelector('canvas');
+    // The map itself (mapart.js); the radar gets the same picture, sharper.
+    this.art = new MapArt(game);
+    {
+      const bg = game.hud.mapBg;
+      bg.width = bg.height = PHONE ? 1536 : 2048;
+      const g = bg.getContext('2d');
+      const k = bg.width / 1600;
+      g.save();
+      g.scale(k, k);
+      this.art.draw(g, k, { lod: 1 });
+      g.restore();
+    }
+    // Layers you can switch off (the legend's first rows; 1-6 on a keyboard): remembered.
+    this.layers = { turf: true, shops: true, business: true, money: true, transit: true, police: true };
+    try {
+      Object.assign(this.layers, JSON.parse(localStorage.getItem('crimecity.maplayers') || '{}'));
+    } catch {
+      // Storage unavailable.
+    }
     // The legend can be opened and closed (L / △, or click the tab); remembered between visits.
     try {
       this.legendOpen = localStorage.getItem('crimecity.legend') !== 'closed';
@@ -101,7 +125,11 @@ export class MapView {
     });
     this.el.querySelector('.bm-legend').addEventListener('click', (e) => {
       const r = e.target.closest('.lg-row');
-      if (r && +r.dataset.i >= 0) this.jumpTo(+r.dataset.i);
+      if (r && +r.dataset.i >= 0) {
+        const e = this.pickable?.[+r.dataset.i];
+        if (e?.kind === 'layer') this.toggleLayer(e.key);
+        else this.jumpTo(+r.dataset.i);
+      }
     });
     // Touch: drag with one finger to pan, pinch with two to zoom, tap to set a waypoint.
     const fingers = new Map();
@@ -155,6 +183,7 @@ export class MapView {
     const game = this.game;
     this.open = true;
     this.el.classList.remove('hidden');
+    this.art.buildBuildings(); // (in case any were moved or taken down: city.editBuilding)
     const [px, pz] = game.mapPos();
     this.cx = 1600 / 2;
     this.cz = 1600 / 2;
@@ -200,8 +229,8 @@ export class MapView {
     }
     const heat = this.heat ? `${this.heat} prices` : 'prices';
     setRich(this.el.querySelector('.bm-help'), pad
-      ? `Left stick: move · D-pad ↑↓: go to a place · △: ${this.legendOpen ? 'hide' : 'show'} legend · □: ${heat} · R2 / L2: zoom · ✕: waypoint · ○: close`
-      : `WASD / drag: move · ↑↓ / legend: go to a place · L: ${this.legendOpen ? 'hide' : 'show'} legend · H: ${heat} · Wheel: zoom · Enter / click: waypoint · M / Esc: close`);
+      ? `Left stick: move · D-pad ↑↓: go to a place or a layer (✕ switches it) · △: ${this.legendOpen ? 'hide' : 'show'} legend · □: ${heat} · R2 / L2: zoom · ✕: waypoint · ○: close`
+      : `WASD / drag: move · ↑↓ / legend: go to a place · 1-6: layers · L: ${this.legendOpen ? 'hide' : 'show'} legend · H: ${heat} · Wheel: zoom · Enter / click: waypoint · M / Esc: close`);
   }
 
   hide() {
@@ -222,6 +251,8 @@ export class MapView {
     const out = [];
     const head = (t) => out.push({ head: t });
     const add = (kind, color, text, label, x, z) => out.push({ kind, color, text, label, x, z });
+    head('Layers');
+    for (const [k, name] of LAYERS) out.push({ kind: 'layer', key: k, on: this.layers[k], label: name, x: null, z: null });
     head('You');
     add('you', '#fff', '➤', 'You', px, pz);
     if (this.waypoint) add('pin', '#ffd23f', '', 'Waypoint', ...this.waypoint);
@@ -242,12 +273,12 @@ export class MapView {
     add('blip', '#8e24aa', 'K', `${GANGS.kings.name} hangout`, city.gangHome.x, city.gangHome.z);
     const vh = T.homeBlock('vipers');
     if (vh) add('blip', '#ff7a1a', 'V', `${GANGS.vipers.name} home`, vh.cx, vh.cz);
-    add('blip', '#2e6fd8', 'P', 'Police station', city.station.x, city.station.z);
-    add('blip', '#d63031', 'H', 'Hospital', city.hospital.x, city.hospital.z);
-    add('blip', '#e67e22', 'C', 'Chop shop (sell cars)', city.chop.x, city.chop.z);
+    add('blip', '#2e6fd8', 'police', 'Police station', city.station.x, city.station.z);
+    add('blip', '#d63031', 'hospital', 'Hospital', city.hospital.x, city.hospital.z);
+    add('blip', '#e67e22', 'chop', 'Chop shop (sell cars)', city.chop.x, city.chop.z);
     for (const g of S.gunShops) add('blip', g.color, 'gun', `${g.name} (guns, range)`, g.x, g.z);
-    add('blip', S.garage.color, 'M', `${S.garage.name} (mods, respray)`, S.garage.x, S.garage.z);
-    add('blip', S.safehouse ? '#2c3e50' : '#7f8c8d', 'S', S.safehouse ? 'Your safehouse' : 'Safehouse (for sale)', S.safe.x, S.safe.z);
+    add('blip', S.garage.color, 'wrench', `${S.garage.name} (mods, respray)`, S.garage.x, S.garage.z);
+    add('blip', S.safehouse ? '#2c3e50' : '#7f8c8d', 'safe', S.safehouse ? 'Your safehouse' : 'Safehouse (for sale)', S.safe.x, S.safe.z);
     const stops = [...game.transit.shelters()].sort((p, q) => dist(p.sx, p.sz, px, pz) - dist(q.sx, q.sz, px, pz));
     COURT_SITES.forEach((c, i) => add('swatch', '#365f8f', '', `${c.name} (basketball${i ? '' : ', parking'})`, c.x, c.z));
     if (game.city.footballField) add('swatch', '#4a8a42', '', 'Harbor Field (football, parking)', FIELD_SITE.x, FIELD_SITE.z);
@@ -260,8 +291,8 @@ export class MapView {
     head('Gang bases');
     game.bases.legend(add);
     head('Business');
-    if (S.stash > 0) add('blip', '#27ae60', '$', `Turf stash · $${S.stash.toLocaleString('en-US')}`, S.stashAt.x, S.stashAt.z);
-    for (const p of D.plugs) add('blip', p.dead ? '#555' : '#6c3483', 'D', p.dead ? `Plug (${p.product}): dead, replaced soon` : `Plug: ${p.name} (${p.product})`, p.x, p.z);
+    if (S.stash > 0) add('blip', '#27ae60', 'cash', `Turf stash · $${S.stash.toLocaleString('en-US')}`, S.stashAt.x, S.stashAt.z);
+    for (const p of D.plugs) add('blip', p.dead ? '#555' : '#6c3483', 'plug', p.dead ? `Plug (${p.product}): dead, replaced soon` : `Plug: ${p.name} (${p.product})`, p.x, p.z);
     for (const k of game.market.kingpinSpots()) add('blip', '#111', '♛', `${GANGS[k.g].name} kingpin`, k.x, k.z);
     for (const st of city.stores) add('text', st.cooldown > 0 ? '#777' : '#2ecc71', '$', `${st.name} (rob it)${st.cooldown > 0 ? ' · robbed' : ''}`, st.x, st.z);
     for (const [x, z, col, txt] of T.claimMarks()) add('blip', col, txt, txt === 'T' ? 'Claim: wall to tag' : 'Claim: shop owner', x, z);
@@ -278,7 +309,7 @@ export class MapView {
 
   legend() {
     const entries = this.legendEntries();
-    const pickable = entries.filter((e) => !e.head && e.x !== null);
+    const pickable = entries.filter((e) => !e.head && (e.x !== null || e.kind === 'layer'));
     this.entries = entries;
     this.legendSel = Math.min(this.legendSel ?? 0, pickable.length - 1);
     const sel = pickable[this.legendSel];
@@ -290,12 +321,13 @@ export class MapView {
       if (e.kind === 'heli') return '<span class="lg-heli">' + HELI_SVG + '</span>';
       if (e.kind === 'bus') return BUS_ICON;
       if (e.kind === 'you') return '<span class="lg-you">▲</span>';
-      return `<span class="lg-bl" style="background:${e.color}">${e.text === 'gun' ? GUN_SVG : e.text}</span>`;
+      if (e.kind === 'layer') return `<span class="lg-chk${e.on ? ' on' : ''}">${e.on ? '✓' : ''}</span>`;
+      return `<span class="lg-bl" style="background:${e.color}">${iconSVG(e.text, 12) || e.text}</span>`;
     };
     const html = entries.map((e) => {
       if (e.head) return `<div class="lg-head">${e.head}</div>`;
       const i = pickable.indexOf(e);
-      return `<div class="lg-row${e === sel && this.legendActive ? ' sel' : ''}${i < 0 ? ' off' : ''}" data-i="${i}">${icon(e)}<span class="lg-l">${e.label}</span></div>`;
+      return `<div class="lg-row${e === sel && this.legendActive ? ' sel' : ''}${i < 0 ? ' off' : ''}${e.kind === 'layer' ? ` layer${e.on ? '' : ' hid'}` : ''}" data-i="${i}">${icon(e)}<span class="lg-l">${e.label}</span></div>`;
     }).join('');
     if (html !== this.legendHtml) {
       this.legendHtml = html;
@@ -306,12 +338,51 @@ export class MapView {
     this.pickable = pickable;
   }
 
+  // Turf's stripes in a gang's color (the same size on screen at any zoom).
+  hatch(color, s) {
+    this.hatches ??= new Map();
+    let p = this.hatches.get(color);
+    if (!p) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 10;
+      const g = c.getContext('2d');
+      g.fillStyle = color;
+      g.globalAlpha = 0.16;
+      g.fillRect(0, 0, 10, 10);
+      g.globalAlpha = 0.5;
+      g.strokeStyle = color;
+      g.lineWidth = 2.2;
+      g.beginPath();
+      for (const o of [-10, 0, 10]) {
+        g.moveTo(o, 10);
+        g.lineTo(o + 10, 0);
+      }
+      g.stroke();
+      p = this.ctx.createPattern(c, 'repeat');
+      this.hatches.set(color, p);
+    }
+    p.setTransform?.(new DOMMatrix().scale(1 / s));
+    return p;
+  }
+
+  // A layer on or off (the legend's Layers rows; 1-6 on a keyboard).
+  toggleLayer(k) {
+    this.layers[k] = !this.layers[k];
+    try {
+      localStorage.setItem('crimecity.maplayers', JSON.stringify(this.layers));
+    } catch {
+      // Storage unavailable.
+    }
+    this.legendHtml = '';
+  }
+
   // Jump the cursor (and the view) to a legend entry.
   jumpTo(i) {
     const e = this.pickable && this.pickable[i];
     if (!e) return;
     this.legendSel = i;
     this.legendActive = true;
+    if (e.kind === 'layer') return;
     this.cursor = [e.x, e.z];
     this.cx = e.x;
     this.cz = e.z;
@@ -342,7 +413,7 @@ export class MapView {
 
   zoomAt(f, sx, sy) {
     const [wx, wz] = this.toWorld(sx, sy);
-    this.scale = clamp(this.scale * f, this.fit(), this.fit() * 6);
+    this.scale = clamp(this.scale * f, this.fit(), Math.max(this.fit() * 6, 6)); // (close enough for every building)
     // Keep the point under the mouse where it was.
     this.cx = wx - (sx - innerWidth / 2) / this.scale;
     this.cz = wz - (sy - innerHeight / 2) / this.scale;
@@ -437,7 +508,12 @@ export class MapView {
     }
     const zoom = game.input.btnVal(7) - game.input.btnVal(6);
     if (Math.abs(zoom) > 0.1) this.zoomAt(Math.exp(zoom * dt * 2), ...this.toScreen(...this.cursor));
-    if (a.mapWaypoint) this.toggleWaypoint(...this.cursor);
+    const selLayer = this.legendActive && this.pickable?.[this.legendSel]?.kind === 'layer' ? this.pickable[this.legendSel] : null;
+    if (a.mapWaypoint) {
+      if (selLayer) this.toggleLayer(selLayer.key);
+      else this.toggleWaypoint(...this.cursor);
+    }
+    LAYERS.forEach(([k], i) => game.input.hit?.(`Digit${i + 1}`) && this.toggleLayer(k));
     this.draw();
   }
 
@@ -458,28 +534,31 @@ export class MapView {
     ctx.translate(innerWidth / 2, innerHeight / 2);
     ctx.scale(s, s);
     ctx.translate(-this.cx, -this.cz);
-    // City background (same picture as the minimap).
-    const bg = game.hud.mapBg;
-    const span = 1600 + MARGIN * 2;
-    ctx.drawImage(bg, -MARGIN, -MARGIN, span, span);
-    // Turf.
-    for (const t of game.turfWars.view()) {
-      ctx.globalAlpha = 0.33;
-      ctx.fillStyle = t.color;
-      fillTurf(ctx, t.blocks);
-      ctx.globalAlpha = 0.95;
-      ctx.strokeStyle = t.color;
-      ctx.lineWidth = 2.5 / s;
-      strokeTurf(ctx, t.blocks, game.city.blocks);
+    // The city (mapart.js): more of it the closer you zoom.
+    const lod = LOD(s);
+    this.art.draw(ctx, s, { lod });
+    const L = this.layers;
+    // Turf: each gang's blocks striped in its color, with a solid edge (the streets show
+    // through).
+    if (L.turf) {
+      for (const t of game.turfWars.view()) {
+        ctx.fillStyle = this.hatch(t.color, s);
+        fillTurf(ctx, t.blocks);
+        ctx.globalAlpha = 0.95;
+        ctx.strokeStyle = t.color;
+        ctx.lineWidth = 2.5 / s;
+        strokeTurf(ctx, t.blocks, game.city.blocks);
+        ctx.globalAlpha = 1;
+      }
+      ctx.globalAlpha = 0.55;
+      for (const w of game.turfWars.wars) {
+        const b = w.block;
+        const def = w.defender || w.responder;
+        ctx.fillStyle = Math.floor(performance.now() / 300) % 2 ? GANGS[w.attacker].color : def ? GANGS[def].color : '#fff';
+        fillBlocks(ctx, [b]);
+      }
+      ctx.globalAlpha = 1;
     }
-    ctx.globalAlpha = 0.55;
-    for (const w of game.turfWars.wars) {
-      const b = w.block;
-      const def = w.defender || w.responder;
-      ctx.fillStyle = Math.floor(performance.now() / 300) % 2 ? GANGS[w.attacker].color : def ? GANGS[def].color : '#fff';
-      fillBlocks(ctx, [b]);
-    }
-    ctx.globalAlpha = 1;
     // Drug price heat (cycle with □ / H): blue = cheap there, red = sells high.
     const heat = this.heat ? game.market : null;
     if (heat) {
@@ -500,7 +579,7 @@ export class MapView {
       ctx.setLineDash([]);
     }
     // Police search area.
-    if (game.stars > 0 && game.searching && game.lastKnown) {
+    if (L.police && game.stars > 0 && game.searching && game.lastKnown) {
       ctx.fillStyle = 'rgba(255,80,80,.15)';
       ctx.strokeStyle = 'rgba(255,80,80,.8)';
       ctx.lineWidth = 2 / s;
@@ -511,7 +590,9 @@ export class MapView {
     }
     ctx.restore();
 
-    // Icons, drawn at screen size.
+    // Markers, drawn at screen size. Each has an importance (3: always, big; 2: places; 1: the
+    // small stuff, only once you're in a little) and a layer. Zoomed out, the ones crowded
+    // together become one with a count; zoomed in they're nudged apart and named.
     const dot = (x, z, r, fill) => {
       const [sx, sy] = this.toScreen(x, z);
       ctx.fillStyle = fill;
@@ -519,45 +600,126 @@ export class MapView {
       ctx.arc(sx, sy, r, 0, Math.PI * 2);
       ctx.fill();
     };
-    const blip = (x, z, color, text, r = 11) => {
-      const [sx, sy] = this.toScreen(x, z);
-      ctx.fillStyle = color;
-      ctx.strokeStyle = 'rgba(0,0,0,.6)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(sx, sy, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = '#fff';
-      ctx.font = `bold ${Math.round(r * 1.1)}px Arial`;
+    const marks = [];
+    const mark = (x, z, color, text, imp = 2, layer = null) => {
+      if (layer && !L[layer]) return;
+      if (imp === 1 && lod === 0) return;
+      marks.push({ x, z, color, text, imp, r: imp === 3 ? 13 : imp === 2 ? 11 : 8 });
+    };
+    mark(city.chop.x, city.chop.z, '#e67e22', 'chop', 2, 'shops');
+    mark(city.station.x, city.station.z, '#2e6fd8', 'police', 2, 'police');
+    mark(city.hospital.x, city.hospital.z, '#d63031', 'hospital', 2);
+    mark(city.gangHome.x, city.gangHome.z, '#8e24aa', 'K', 3, 'turf');
+    mark(city.crewHome.x, city.crewHome.z, '#2e7d32', 'G', 3);
+    const vh = game.turfWars.homeBlock('vipers');
+    if (vh) mark(vh.cx, vh.cz, '#ff7a1a', 'V', 3, 'turf');
+    for (const [x, z, col, txt] of game.turfWars.claimMarks()) mark(x, z, col, txt, 3);
+    for (const [x, z, col, txt] of game.shops.blips()) mark(x, z, col, txt, txt === 'safe' ? 3 : 2, txt === 'safe' ? null : txt === 'cash' ? 'business' : 'shops');
+    for (const [x, z, col, txt] of game.drugs.blips()) mark(x, z, col, txt, 2, 'business');
+    for (const [x, z, col, txt] of game.bank.blips()) mark(x, z, col, txt, txt === 'home' ? 1 : 2, 'money');
+    for (const [x, z, col, txt] of game.economy.blips()) mark(x, z, col, txt, 1, 'money');
+    for (const [x, z, col, txt] of game.bases.blips()) mark(x, z, col, txt, 2, 'turf');
+    for (const k of game.market.kingpinSpots()) mark(k.x, k.z, '#111', '♛', 2, 'business');
+    const tc = game.testCar;
+    if (tc && !tc.removed && !tc.exploded && game.player.vehicle !== tc) mark(tc.x, tc.z, '#1e88e5', 'V', 1);
+    for (const v of game.backup.cars()) mark(v.x, v.z, '#2ecc71', 'B', 2);
+    // (names for them, from the legend: shown beside them close up)
+    const names = new Map();
+    for (const e of this.entries || []) if (e.x != null && e.label) names.set(`${Math.round(e.x)},${Math.round(e.z)}`, e.label.replace(/\s*\(.*\)$/, '').replace(/ · .*$/, ''));
+    // (place them: most important first)
+    marks.sort((p, q) => q.imp - p.imp);
+    const placed = [];
+    const mergeR = lod === 0 ? 24 : lod === 1 ? 14 : 0;
+    for (const m of marks) {
+      let [sx, sy] = this.toScreen(m.x, m.z);
+      if (sx < -30 || sx > innerWidth + 30 || sy < -30 || sy > innerHeight + 30) continue;
+      const near = placed.find((o) => Math.hypot(o.sx - sx, o.sy - sy) < Math.max(mergeR, (o.r + m.r) * (mergeR ? 0.9 : 0)));
+      if (near && m.imp < 3 && near.imp >= m.imp && mergeR) {
+        near.count = (near.count || 1) + 1;
+        continue;
+      }
+      // (close up: nudged round so they don't sit on each other)
+      for (let k = 0; k < 6 && placed.some((o) => Math.hypot(o.sx - sx, o.sy - sy) < o.r + m.r); k++) {
+        const a = k * 2.1;
+        sx += Math.cos(a) * (m.r + 4);
+        sy += Math.sin(a) * (m.r + 4);
+      }
+      placed.push({ ...m, sx, sy, name: names.get(`${Math.round(m.x)},${Math.round(m.z)}`) });
+    }
+    // The small things: stores (shops), ATMs (money), bus stops (transit), not from far off.
+    if (lod >= 1) {
+      ctx.font = 'bold 15px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      blipText(ctx, text, sx, sy + 0.5, r * 1.1);
-    };
-    ctx.font = 'bold 16px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    for (const st of city.stores) {
-      const [sx, sy] = this.toScreen(st.x, st.z);
-      ctx.fillStyle = st.cooldown > 0 ? '#777' : '#2ecc71';
-      ctx.fillText('$', sx, sy);
+      if (L.shops) {
+        for (const st of city.stores) {
+          const [sx, sy] = this.toScreen(st.x, st.z);
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = 'rgba(0,0,0,.7)';
+          ctx.strokeText('$', sx, sy);
+          ctx.fillStyle = st.cooldown > 0 ? '#888' : '#2ecc71';
+          ctx.fillText('$', sx, sy);
+        }
+      }
+      if (L.money) for (const t of game.bank.atmSpots()) dot(t.x, t.z, 4, '#5dade2');
     }
-    blip(city.chop.x, city.chop.z, '#e67e22', 'C');
-    blip(city.station.x, city.station.z, '#2e6fd8', 'P');
-    blip(city.hospital.x, city.hospital.z, '#d63031', 'H');
-    blip(city.gangHome.x, city.gangHome.z, '#8e24aa', 'K');
-    blip(city.crewHome.x, city.crewHome.z, '#2e7d32', 'G');
-    for (const [x, z, col, txt] of game.turfWars.claimMarks()) blip(x, z, col, txt, 9);
-    for (const [x, z, col, txt] of [...game.shops.blips(), ...game.drugs.blips(), ...game.bank.blips(), ...game.economy.blips(), ...game.bases.blips()]) blip(x, z, col, txt);
-    for (const t of game.bank.atmSpots()) dot(t.x, t.z, 4, '#5dade2');
-    if (!this.picker) for (const st of game.transit.shelters()) drawBusStop(ctx, ...this.toScreen(st.sx, st.sz), 7);
-    for (const k of game.market.kingpinSpots()) blip(k.x, k.z, '#111', '♛', 10);
-    const tc = game.testCar;
-    if (tc && !tc.removed && !tc.exploded && game.player.vehicle !== tc) blip(tc.x, tc.z, '#1e88e5', 'V', 9);
+    if (!this.picker && L.transit && lod >= 1) for (const st of game.transit.shelters()) drawBusStop(ctx, ...this.toScreen(st.sx, st.sz), lod >= 2 ? 8 : 6);
+    // (the markers, a count on the merged ones; their names close up)
+    const taken = [];
+    for (const m of placed) {
+      ctx.fillStyle = m.color;
+      ctx.strokeStyle = 'rgba(0,0,0,.65)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(m.sx, m.sy, m.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      if (m.imp === 3) {
+        ctx.strokeStyle = 'rgba(255,255,255,.85)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${Math.round(m.r * 1.1)}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      blipText(ctx, m.text, m.sx, m.sy + 0.5, m.r * 1.1);
+      if (m.count > 1) {
+        const bx = m.sx + m.r * 0.8;
+        const by = m.sy - m.r * 0.8;
+        ctx.fillStyle = '#ffd23f';
+        ctx.beginPath();
+        ctx.arc(bx, by, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#111';
+        ctx.font = 'bold 10px Arial';
+        ctx.fillText(`${m.count}`, bx, by + 0.5);
+      }
+      taken.push([m.sx - m.r, m.sy - m.r, m.sx + m.r, m.sy + m.r]);
+    }
+    if (lod >= 2) {
+      ctx.textAlign = 'left';
+      for (const m of placed) {
+        if (!m.name) continue;
+        ctx.font = '700 11px Arial';
+        const w = ctx.measureText(m.name).width;
+        const box = [m.sx + m.r + 3, m.sy - 8, m.sx + m.r + 7 + w, m.sy + 8];
+        if (taken.some((t) => box[0] < t[2] && box[2] > t[0] && box[1] < t[3] && box[3] > t[1])) continue;
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(10,12,16,.9)';
+        ctx.strokeText(m.name, box[0] + 2, m.sy + 0.5);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(m.name, box[0] + 2, m.sy + 0.5);
+        taken.push(box);
+      }
+      ctx.textAlign = 'center';
+    }
+    // Street, freeway and district names, round everything above (mapart.js).
+    if (!heat) this.art.labels(ctx, s, (x, z) => this.toScreen(x, z), innerWidth, innerHeight, taken);
+    // Moving things: your crew, the cops, the gangs chasing you.
     for (const m of game.crew.following) if (m.alive && m.state !== 'inCar') dot(m.x, m.z, 4, '#7ee081');
-    for (const v of game.backup.cars()) blip(v.x, v.z, '#2ecc71', 'B', 9);
     const flash = Math.floor(performance.now() / 250) % 2 === 0;
-    for (const u of game.police.units) dot(u.car.x, u.car.z, u.kind === 'swat' ? 6 : 5, flash ? '#ff3b3b' : '#3b7bff');
+    if (L.police) for (const u of game.police.units) dot(u.car.x, u.car.z, u.kind === 'swat' ? 6 : 5, flash ? '#ff3b3b' : '#3b7bff');
     for (const r of game.turfWars.rides) {
       if (r.mode !== 'chase' || r.done) continue;
       const g = r.riders[0] && GANGS[r.riders[0].gangId];
@@ -574,10 +736,10 @@ export class MapView {
         else ctx.moveTo(sx, sy);
       });
       ctx.strokeStyle = 'rgba(0,0,0,.6)';
-      ctx.lineWidth = Math.max(6, s * 4 + 3);
+      ctx.lineWidth = Math.min(11, Math.max(6, s * 4 + 3));
       ctx.stroke();
       ctx.strokeStyle = '#ffd23f';
-      ctx.lineWidth = Math.max(3.5, s * 4);
+      ctx.lineWidth = Math.min(7, Math.max(3.5, s * 4));
       ctx.stroke();
     }
     if (this.waypoint) {
@@ -592,8 +754,25 @@ export class MapView {
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      // (how far by road, and about how long: driving or on foot)
+      if (this.route) {
+        const m = routeLength(this.route);
+        const sp = game.player.vehicle ? 16 : 5.5;
+        const sec = m / sp;
+        const t = `${m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m / 10) * 10} m`} · ${sec < 60 ? `${Math.max(5, Math.round(sec / 5) * 5)} s` : `${Math.round(sec / 60)} min`}`;
+        ctx.font = '800 12px Arial';
+        const w = ctx.measureText(t).width + 14;
+        ctx.fillStyle = 'rgba(10,12,16,.88)';
+        ctx.beginPath();
+        ctx.roundRect(wx - w / 2, wy - 50, w, 20, 6);
+        ctx.fill();
+        ctx.fillStyle = '#ffd23f';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(t, wx, wy - 39.5);
+      }
     }
-    // You: an arrow pointing the way you face.
+    // You: the way you're looking, lit up, and an arrow pointing the way you face.
     {
       const [px, pz] = game.mapPos();
       const v = game.player.vehicle;
@@ -601,7 +780,18 @@ export class MapView {
       const [sx, sy] = this.toScreen(px, pz);
       ctx.save();
       ctx.translate(sx, sy);
-      ctx.rotate(-h + Math.PI);
+      const look = v ? v.heading : game.camYaw ?? h;
+      ctx.rotate(-look + Math.PI);
+      const cone = ctx.createRadialGradient(0, 0, 4, 0, 0, 46);
+      cone.addColorStop(0, 'rgba(255,255,255,.4)');
+      cone.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = cone;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, 46, -Math.PI / 2 - 0.5, -Math.PI / 2 + 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.rotate(look - h);
       ctx.fillStyle = '#fff';
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 2;
@@ -617,7 +807,7 @@ export class MapView {
     }
     // Police helicopter on top (it's above everything).
     const heli = game.police.heli;
-    if (heli && !heli.removed) {
+    if (heli && !heli.removed && this.layers.police) {
       const [hx, hy] = this.toScreen(heli.x, heli.z);
       if (heli.beam && heli.beam.visible) {
         const [sx, sy] = this.toScreen(heli.aim[0], heli.aim[1]);
@@ -642,17 +832,7 @@ export class MapView {
       ctx.lineTo(sx, sy + 16);
       ctx.stroke();
     }
-    if (!heat) {
-      // District names, faint, so you can tell where you are.
-      ctx.font = `800 ${Math.round(Math.max(11, Math.min(20, this.scale * 30)))}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = 'rgba(255,255,255,.28)';
-      for (const d of DISTRICTS) {
-        const [sx, sy] = this.toScreen(...districtCenter(d));
-        ctx.fillText(d.toUpperCase(), sx, sy);
-      }
-    }
+    this.drawCompass(ctx);
     if (heat) {
       const base = { weed: 40, pills: 85, coke: 190 }[this.heat];
       ctx.font = 'bold 15px Arial';
@@ -672,6 +852,63 @@ export class MapView {
     this.legend();
     if (this.picker) this.drawPicker(ctx);
     else this.drawHover(ctx);
+  }
+
+  // North (up the map) and a scale bar, down in the corner.
+  drawCompass(ctx) {
+    const touch = this.game.input.touchMode;
+    // (down in the corner; up by the legend's tab when the legend's down the left side)
+    const lr = this.legendOpen ? this.el.querySelector('.bm-legend').getBoundingClientRect() : null;
+    const top = lr && lr.left < 120 && lr.width > 0;
+    const x = top ? 136 : 34;
+    const y = top ? 31 : innerHeight - (touch ? 96 : 70);
+    ctx.save();
+    if (top) {
+      ctx.translate(x, y);
+      ctx.scale(0.7, 0.7);
+      ctx.translate(-x, -y);
+    }
+    ctx.fillStyle = 'rgba(10,12,16,.82)';
+    ctx.strokeStyle = 'rgba(255,255,255,.35)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(x, y, 20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#e74c3c';
+    ctx.beginPath();
+    ctx.moveTo(x, y - 15);
+    ctx.lineTo(x + 6, y);
+    ctx.lineTo(x - 6, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#dfe3e8';
+    ctx.beginPath();
+    ctx.moveTo(x, y + 15);
+    ctx.lineTo(x + 6, y);
+    ctx.lineTo(x - 6, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = '900 10px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('N', x, y - 27);
+    // (a bar a round number of meters long, about 90 px)
+    const nice = [10, 20, 25, 50, 100, 200, 250, 500, 1000];
+    const m = nice.find((n) => n * this.scale >= 70) || 1000;
+    const w = m * this.scale;
+    const bx = x + 32;
+    const by = y + 8;
+    ctx.fillStyle = 'rgba(10,12,16,.82)';
+    ctx.fillRect(bx - 6, by - 20, w + 12, 28);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(bx, by, w, 3);
+    ctx.fillRect(bx, by - 5, 2, 8);
+    ctx.fillRect(bx + w - 2, by - 5, 2, 8);
+    ctx.font = '700 11px Arial';
+    ctx.fillText(m >= 1000 ? '1 km' : `${m} m`, bx + w / 2, by - 9);
+    ctx.restore();
   }
 
   // Picking a stop: the map dims, the stops stand out, and the one under the cursor is labeled.

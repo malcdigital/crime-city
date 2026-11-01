@@ -318,10 +318,10 @@ export class Shops {
   blips() {
     const out = [
       ...this.gunShops.map((g) => [g.x, g.z, g.color, 'gun']), // (a pistol: icons.js)
-      [this.garage.x, this.garage.z, this.garage.color, 'M'],
-      [this.safe.x, this.safe.z, this.safehouse ? '#2c3e50' : '#7f8c8d', 'S'],
+      [this.garage.x, this.garage.z, this.garage.color, 'wrench'],
+      [this.safe.x, this.safe.z, this.safehouse ? '#2c3e50' : '#7f8c8d', 'safe'],
     ];
-    if (this.stash > 0) out.push([this.stashAt.x, this.stashAt.z, '#27ae60', '$']);
+    if (this.stash > 0) out.push([this.stashAt.x, this.stashAt.z, '#27ae60', 'cash']);
     return out;
   }
 

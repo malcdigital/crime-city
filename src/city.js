@@ -1868,6 +1868,7 @@ export function buildCity(scene) {
     get markings() { return markings; },
     nodes, edges: GRAPH.edges, nearestNode, blockAt, groundY, paved, heightAt, roadY, drawMap, size: MAP, hilly: true,
     storefront, frontPoint, edgeAt, streetAt, onPier, hollows,
+    ribbons, piers, terrainImg, drawSites: (ctx, s) => { drawCourt(ctx, s); drawField(ctx, s); drawPark(ctx, s); drawLots(ctx, s); }, // (the map: mapart.js)
     buildings, buildingById, editBuilding, removeBuilding, buildingAt: (x, z) => (x === undefined ? buildingAt(...(globalThis.__game?.player.pos() || [0, 0])) : buildingAt(x, z)),
     byKey: new Map(blocks.map((b) => [b.key, b])),
     reserved: [...COURT_RESERVED, ...FIELD_RESERVED, ...PARK_RESERVED, ...LOT_RESERVED], // (ground kept clear of signs and poles: the courts, lots, field, park)

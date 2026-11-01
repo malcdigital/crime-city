@@ -265,11 +265,11 @@ export class Economy {
 
   // ---- Map and phone ----
   blips() {
-    return this.companies.map((c) => [c.x, c.z, c.owned ? c.color : '#566573', '◆']);
+    return this.companies.map((c) => [c.x, c.z, c.owned ? c.color : '#566573', 'biz']);
   }
 
   legend(add) {
-    for (const c of this.companies) add('blip', c.owned ? c.color : '#566573', '◆', `${c.name}${c.owned ? ' (yours)' : ` · ${money(this.price(c))}`}`, c.x, c.z);
+    for (const c of this.companies) add('blip', c.owned ? c.color : '#566573', 'biz', `${c.name}${c.owned ? ' (yours)' : ` · ${money(this.price(c))}`}`, c.x, c.z);
   }
 
   rows() {

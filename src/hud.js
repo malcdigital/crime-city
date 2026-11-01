@@ -545,7 +545,7 @@ export class Hud {
     ctx.fillRect(0, 0, 200, 200);
 
     // City background, rotated around the player.
-    const sb = 1024 / (game.city.size + MARGIN * 2);
+    const sb = this.mapBg.width / (game.city.size + MARGIN * 2);
     ctx.save();
     ctx.translate(C, C);
     ctx.rotate(rot);
@@ -631,9 +631,9 @@ export class Hud {
       ctx.font = 'bold 9px Arial';
       blipText(ctx, text, bx, by + 0.5, 9);
     };
-    blip(city.chop.x, city.chop.z, '#e67e22', 'C');
-    blip(city.station.x, city.station.z, '#2e6fd8', 'P');
-    blip(city.hospital.x, city.hospital.z, '#d63031', 'H');
+    blip(city.chop.x, city.chop.z, '#e67e22', 'chop');
+    blip(city.station.x, city.station.z, '#2e6fd8', 'police');
+    blip(city.hospital.x, city.hospital.z, '#d63031', 'hospital');
     blip(city.gangHome.x, city.gangHome.z, '#8e24aa', 'K');
     blip(city.crewHome.x, city.crewHome.z, '#2e7d32', 'G');
     for (const [x, z, col, txt] of game.turfWars.claimMarks()) blip(x, z, col, txt);
