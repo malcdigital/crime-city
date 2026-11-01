@@ -103,8 +103,14 @@ export class Justice {
     p.stopRolling?.();
     const charges = { ...this.charges };
     this.arrest = { charges, t: 0 };
+    // (staged: the cops play the arrest out first, main.js arrestScenes; BUSTED once you're cuffed)
+    if (opts.staged) return;
     this.cuff();
-    game.hud.busted(true, `Arrested: ${this.sheet(charges)}`);
+    this.showBusted();
+  }
+
+  showBusted() {
+    if (this.arrest) this.game.hud.busted(true, `Arrested: ${this.sheet(this.arrest.charges)}`);
   }
 
   // Cuffed: hands behind your back, an officer at your back.

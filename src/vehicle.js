@@ -251,7 +251,7 @@ export class Vehicle {
   // Whoever's at the wheel, seen through the glass (src/carmodels.js driverGeometry): you in
   // your colors, a cop in uniform, anyone else in their own. look: { skin, shirt, pants, hair }.
   showDriver() {
-    const on = !!this.driver && !this.exploded;
+    const on = !!this.driver && !this.exploded && !this.jacking && this.driver !== 'entering';
     if (on) {
       const look = this.driverLook || (this.ownLook ??= randomLook(this.typeName));
       if (this.driverMesh?.userData.look !== look) {

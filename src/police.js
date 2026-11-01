@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { exitCar } from './carscenes.js';
 import { aimPose, flinchPose, fallFace, markFlinch, kneelPose } from './combatpose.js';
 import { CFG } from './config.js';
 import { Vehicle } from './vehicle.js';
@@ -78,8 +79,14 @@ export class Officer {
     this.z = c.z + fx * side * w - fz * back;
     this.state = 'chase';
     this.char.group.visible = true;
-    // Swing the door open on the way out (it stays open in a gunfight).
-    c.openDoor(side, this.game.lethal ? 0 : 1.2);
+    // Out the front doors: opening it, legs out, up and out (carscenes.js, the same as you);
+    // the ones in the back just step out. (It stays open in a gunfight.)
+    if (!back && c.model) {
+      this.scene = exitCar(this.char, c, side, { groundY: this.game.city.groundY });
+      this.scene.update(0);
+      [this.x, this.z] = this.scene.pos;
+      if (this.game.lethal) c.openDoor(side, 0);
+    } else c.openDoor(side, this.game.lethal ? 0 : 1.2);
   }
 
   knockDown(fromX, fromZ, fling = 0) {
@@ -108,6 +115,16 @@ export class Officer {
   }
 
   update(dt) {
+    if (this.scene) {
+      // (getting out of the car: carscenes.js moves him till he's out)
+      const done = this.scene.update(dt);
+      [this.x, this.z] = this.scene.pos;
+      this.heading = this.scene.yaw;
+      if (done || this.state === 'dead') {
+        this.scene = null;
+        this.char.group.rotation.set(0, this.heading, 0);
+      } else return;
+    }
     if (this.state === 'inCar' || this.state === 'dead') {
       if (this.state === 'dead') this.place();
       return;

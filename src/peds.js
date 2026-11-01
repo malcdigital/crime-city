@@ -12,11 +12,12 @@ const SHIRTS = [0xe74c3c, 0x3498db, 0xf1c40f, 0x9b59b6, 0xecf0f1, 0x1abc9c, 0xe6
 const PANTS = [0x2c3e50, 0x1b1b1b, 0x5d4037, 0x34495e, 0x7f8c8d, 0x1f3a5f];
 
 export class Ped {
-  constructor(game, block, corner, female) {
+  constructor(game, block, corner, female, char = null) {
     this.game = game;
-    this.char = makePerson({ shirt: pick(SHIRTS), pants: pick(PANTS), skin: pick(SKIN_TONES), female }); // (a woman about half the time)
+    // (char: someone already made, e.g. the driver you dragged out of his car)
+    this.char = char || makePerson({ shirt: pick(SHIRTS), pants: pick(PANTS), skin: pick(SKIN_TONES), female }); // (a woman about half the time)
     this.female = this.char.female;
-    game.scene.add(this.char.group);
+    if (!char) game.scene.add(this.char.group);
     this.dir = Math.random() < 0.5 ? 1 : -1;
     // Where on the sidewalks: heading for walk point `pt` (see sidewalk.js), from `prev`.
     const W = game.city.walk;
@@ -189,6 +190,7 @@ export class Ped {
       this.t -= dt;
       if (this.t <= 0) {
         setDown(this.char, false);
+        this.state = 'walk'; // (up again: scare() and startBrawl() pass over anyone still 'down')
         // (a tough one gets back up for another round, once; the rest run)
         const [qx, qz] = game.player.pos();
         if (this.tough && (this.rounds || 0) < 2 && !game.player.vehicle && dist(this.x, this.z, qx, qz) < 8) this.startBrawl();
@@ -543,9 +545,9 @@ export class PedManager {
   }
 
   // Add a ped at a spot (e.g. a driver pulled out of a car).
-  addAt(x, z, female) {
+  addAt(x, z, female, char = null) {
     const W = this.game.city.walk;
-    const p = new Ped(this.game, W.pts[0].b, 0, female);
+    const p = new Ped(this.game, W.pts[0].b, 0, female, char);
     p.x = x;
     p.z = z;
     p.resumeWalking();

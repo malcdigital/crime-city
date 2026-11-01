@@ -23,6 +23,7 @@ import { noteCrime } from './safety.js';
 import { Pursuit, LOW_RANGE } from './pursuit.js';
 import { StopScene } from './stopscene.js';
 import { Justice } from './jail.js';
+import { arrestScene } from './arrestscenes.js';
 import { Parking } from './parking.js';
 import { Props } from './props.js';
 import { Enforcement } from './enforcement.js';
@@ -55,6 +56,14 @@ import { markRecoil, markFlinch, PUNCH_T, FIGHT_STYLES, PISTOL_STYLES } from './
 import { stepFalls } from './character.js';
 import { Shops } from './shops.js';
 import { Interiors } from './interiors.js';
+import { enterCar, exitCar, jackCar } from './carscenes.js';
+import { makePerson, restPose } from './character.js';
+// (back on your feet after a scene: upright, the joints at rest)
+const restoreStanding = (c) => {
+  restPose(c);
+  for (const j of ['legL', 'legR', 'kneeL', 'kneeR', 'armL', 'armR', 'elbowL', 'elbowR', 'wristL', 'wristR']) c[j].rotation.set(0, 0, 0);
+  c.group.rotation.set(0, c.group.rotation.y, 0);
+};
 import { Drugs } from './drugs.js';
 import { Bank } from './bank.js';
 import { PropertyMarket } from './property.js';
@@ -493,18 +502,95 @@ class Game {
     this.president.win(3, 'Arrests');
     const [bx, bz] = this.player.pos();
     this.endStory(`Suspect arrested on ${streetAt(bx, bz)}`, bx, bz, 'info', true);
-    // Cuffed, then booked at the precinct (jail.js): bail, a lawyer, or the time.
-    this.justice.start(opts);
+    // The cops take you (arrestscenes.js), then you're booked at the precinct (jail.js): bail,
+    // a lawyer, or the time.
+    const car = this.player.vehicle;
+    const stars = this.stars;
+    const cops = this.arrestCops();
+    this.justice.start({ ...opts, staged: cops.length > 0 });
+    this.arrestS = cops.length ? this.arrestPlay(opts, car, stars, cops) : null;
     if (opts.bribery) this.hud.news(`Suspect charged with trying to bribe an officer on ${streetAt(bx, bz)}`, 'info');
     if (opts.resisting) this.hud.news(`Suspect charged with resisting arrest after scuffle with officer on ${streetAt(bx, bz)}`, 'info');
-    this.bustedT = 3.2;
+    this.bustedT = this.arrestS ? this.arrestS.len + 1.8 : 3.2;
     this.drugs.onBusted();
     this.clearWanted();
     this.robbing = null;
     this.save();
   }
 
+  // The cops who take you: the nearest few on foot (or still in their cars close by: they get
+  // out), the closest first.
+  arrestCops() {
+    const [px, pz] = this.player.pos();
+    const list = this.police.officers().filter((o) => (o.standing || o.state === 'inCar') && dist(o.x, o.z, px, pz) < 40);
+    list.sort((p, q) => dist(p.x, p.z, px, pz) - dist(q.x, q.z, px, pz));
+    return list.slice(0, 4);
+  }
+
+  // How it goes: you fought them (beaten), you were in a car (slammed on it), a big chase
+  // (slammed on a car close by, or on the ground), or you gave up (quiet).
+  arrestPlay(opts, car, stars, officers) {
+    const p = this.player;
+    p.scene = null; // (caught mid-way into a car: the cops have you now)
+    const [px, pz] = p.pos();
+    let kind = 'quiet';
+    let onCar = car && car.type && !car.removed ? car : null;
+    if (opts.resisting) kind = 'beaten';
+    else if (onCar) kind = 'car';
+    else if (stars >= 3) {
+      onCar = null;
+      let best = 7;
+      for (const v of this.vehicles) {
+        if (v.removed || !v.type || v.type.l > 7) continue;
+        const d = dist(v.x, v.z, px, pz);
+        if (d < best) {
+          best = d;
+          onCar = v;
+        }
+      }
+      kind = onCar ? 'car' : 'ground';
+    }
+    if (kind === 'car' && onCar) {
+      onCar.speed = 0;
+      if (onCar.type.l > 7) kind = 'ground';
+    }
+    const cops = officers.map((o) => {
+      if (o.state === 'inCar') {
+        // (out of the car: from beside it)
+        const c = o.unit.car;
+        const [fx, fz] = c.forward();
+        o.x = c.x + fz * (c.type.w / 2 + 0.8);
+        o.z = c.z - fx * (c.type.w / 2 + 0.8);
+        o.state = 'chase';
+        c.openDoor?.(1, 1.2);
+      }
+      o.scene = null;
+      o.script = null;
+      o.char.group.visible = true;
+      o.char.group.position.set(o.x, this.city.groundY(o.x, o.z), o.z);
+      return { c: o.char, o };
+    });
+    const lines = { quiet: '"Turn around. Hands behind your back."', car: '"On the car! Don\'t you move!"', ground: '"Get down! Get on the ground!"', beaten: '"Stop resisting!"' };
+    if (!opts.resisting) this.hud.toast(lines[kind], '#ff8080');
+    const S = arrestScene(kind, p.char, cops, {
+      car: kind === 'car' ? onCar : null,
+      groundY: this.city.groundY,
+      onSlam: () => this.shakeCamera(0.35, 0.3),
+    });
+    S.kind = kind;
+    S.officers = officers;
+    S.update(0);
+    [p.x, p.z] = S.pos;
+    return S;
+  }
+
   afterBust() {
+    if (this.arrestS) {
+      this.arrestS.clear();
+      restoreStanding(this.player.char);
+      for (const o of this.arrestS.officers) restoreStanding(o.char);
+      this.arrestS = null;
+    }
     if (this.justice.book()) return; // (booking: the menu takes it from here)
     this.hud.busted(false);
     this.respawnAt(this.shops.respawnPoint() || this.city.station);
@@ -539,6 +625,8 @@ class Game {
   }
 
   respawnAt(place) {
+    this.player.scene = null; // (whatever scene you were in: carscenes.js, arrests)
+    this.player.sceneCar = null;
     if (this.player.vehicle) this.player.exit();
     this.player.stopRolling();
     this.crew.sendHome();
@@ -1419,11 +1507,11 @@ class Game {
         for (const o of d.officers) o.dismount(-1);
         this.crime('stealCopCar', v.x, v.z);
       } else {
+        // A carjacking: you drag the driver out by the collar and throw him down, then get in.
         d.active = false;
-        const [fx, fz] = v.forward();
-        const ped = this.peds.addAt(v.x + fz * 2.8, v.z - fx * 2.8); // thrown out the driver door
-        ped.scare(this.player.x, this.player.z);
+        v.speed = 0;
         this.crime('carjack', v.x, v.z);
+        return this.jackScene(v);
       }
     } else if ((v.typeName === 'police' || v.typeName === 'swat') && !v.exploded) {
       this.crime('stealCopCar', v.x, v.z);
@@ -1435,7 +1523,50 @@ class Game {
     }
     v.siren = false;
     this.lockTarget = null;
-    this.player.enter(v);
+    // (walking to the door, opening it, getting in: carscenes.js)
+    const p = this.player;
+    p.scene = enterCar(p.char, v, -1, { from: [p.x, p.z], groundY: this.city.groundY, onDone: () => p.enter(v) });
+    p.sceneCar = v;
+  }
+
+  // Pulling the driver out and taking the car (carscenes.js jackCar).
+  jackScene(v) {
+    const p = this.player;
+    const look = v.ownLook || {};
+    const victim = makePerson({ shirt: look.shirt, pants: look.pants, skin: look.skin }, 0.3);
+    this.scene.add(victim.group);
+    v.jacking = true; // (the driver you see through the glass is this one now)
+    this.lockTarget = null;
+    p.scene = jackCar(p.char, victim, v, -1, {
+      from: [p.x, p.z],
+      groundY: this.city.groundY,
+      onPulled: (x, z, yaw) => {
+        // (he's a ped now, the same one: down a moment, then up and running)
+        const ped = this.peds.addAt(x, z, victim.female, victim);
+        ped.heading = yaw;
+        ped.state = 'down';
+        ped.t = 1.4;
+        ped.jacked = true;
+        ped.threat = [p.x, p.z];
+        v.jacking = false;
+      },
+      onDone: () => {
+        v.jacking = false;
+        p.enter(v);
+      },
+    });
+    p.sceneCar = v;
+  }
+
+  // Out of the car, on foot (carscenes.js exitCar): the door, the legs, up and out.
+  exitScene() {
+    const p = this.player;
+    const v = p.vehicle;
+    if (!v) return;
+    p.exit();
+    p.scene = exitCar(p.char, v, -1, { groundY: this.city.groundY });
+    p.sceneCar = v;
+    p.scene.update(0);
   }
 
   // The pause menu on a controller: the D-pad moves the highlight to the nearest button that
@@ -1748,7 +1879,7 @@ class Game {
       this.progress = this.drugs.progress;
     }
 
-    if (p.busy) return; // tumbling / getting up
+    if (p.busy || p.scene) return; // tumbling / getting up / getting in or out of a car
     if (p.vehicle) {
       const v = p.vehicle;
       // Getting out: stopped -> step out; 30 mph or less -> brake hard to a stop first;
@@ -1756,7 +1887,7 @@ class Game {
       if (a.enter && !p.exitStop) {
         const mph = Math.abs(v.speed) * 2.237;
         if (mph < 2) {
-          p.exit();
+          this.exitScene();
           return;
         }
         if (mph <= 30) p.exitStop = true;
@@ -2515,6 +2646,16 @@ class Game {
 
     if (this.bustedT > 0 || this.wastedT > 0) {
       if (this.bustedT > 0) {
+        const A = this.arrestS;
+        if (A) {
+          // (the arrest playing out; BUSTED once it's done)
+          const done = A.update(dt);
+          [this.player.x, this.player.z] = A.pos;
+          if (done && !A.shown) {
+            A.shown = true;
+            this.justice.showBusted();
+          }
+        }
         this.bustedT -= dt;
         if (this.bustedT <= 0) this.afterBust();
       } else {
@@ -2590,10 +2731,23 @@ class Game {
           v.speed = 0;
           v.lat = 0;
           p.exitStop = false;
-          p.exit();
+          this.exitScene();
         }
       } else v.update(dt, { throttle: a.throttle, steer: a.steer, handbrake: a.handbrake, burnout: a.gas && a.brakeHeld, gas: a.gas, brake: a.brakeHeld }, this.city.colliders);
       if (p.vehicle) this.tireFx(v, dt);
+    } else if (p.scene) {
+      // In a scene (getting in or out of a car, a carjacking): it moves you.
+      const done = p.scene.update(dt);
+      [p.x, p.z] = p.scene.pos;
+      p.heading = p.scene.yaw;
+      if (done) {
+        p.scene = null;
+        p.sceneCar = null;
+        if (!p.vehicle) {
+          restoreStanding(p.char);
+          p.sync();
+        }
+      }
     } else if (p.busy) {
       p.updateRolling(dt);
     } else {
