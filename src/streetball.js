@@ -3794,13 +3794,15 @@ export class Streetball {
     b.holder = null;
     if (pinned) {
       const rim = this.rim;
-      b.x = rim.x - rim.dx * 0.3 + rand(-0.3, 0.3) * rim.dz;
-      b.z = rim.z - rim.dz * 0.3 - rand(-0.3, 0.3) * rim.dx;
-      b.y = rim.y + 0.45;
+      // (on the glass off to one side of the rim, never over it: it comes off outside the hoop)
+      const side = (Math.random() < 0.5 ? -1 : 1) * rand(0.42, 0.55);
+      b.x = rim.x - rim.dx * 0.3 + side * rim.dz;
+      b.z = rim.z - rim.dz * 0.3 - side * rim.dx;
+      b.y = rim.y + 0.32;
       // (a chase-down clip playing: it goes on up to the glass on the clip's track and comes off
       // there, under his hand: sceneBall)
-      b.vx = rim.dx * rand(1.2, 2.2);
-      b.vz = rim.dz * rand(1.2, 2.2);
+      b.vx = rim.dx * rand(1.2, 2.2) + Math.sign(side) * rim.dz * 0.6; // (out, and away from the rim)
+      b.vz = rim.dz * rand(1.2, 2.2) - Math.sign(side) * rim.dx * 0.6;
       b.vy = -0.5;
     } else {
       b.y = Math.max(b.y, 2);

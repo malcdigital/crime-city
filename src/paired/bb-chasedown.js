@@ -15,11 +15,13 @@ const TO = 0.86; // (the shooter's takeoff)
 const RL = 1.08; // (the release)
 const PIN = 1.3; // (pinned on the glass)
 const H = 0.55; // (how high a layup gets the shooter's feet)
-const HC = 1.1; // (and the chaser's)
+const HC = 1.25; // (and the chaser's)
 
 // (the ball: where it's pinned, on the face of the board just above the rim, right of centre)
-const PX = 0.04;
-const PY = 3.08;
+// (high on the glass, off to the side of the rim on the shooter's side, beside the square, not
+// over the rim: it comes off the board outside the hoop, never through it)
+const PX = 0.44;
+const PY = 3.36;
 const PZ = -0.25;
 
 const S = {
@@ -29,7 +31,7 @@ const S = {
   pitch: curve([[0, 0.1], [TO, 0.18], [RL, 0.05], [1.5, 0.05], [2.2, 0]]),
 };
 const C = {
-  x: curve([[0, -0.6], [0.9, -0.5], [PIN, -0.2], [1.6, -0.45], [2.2, -0.6]]),
+  x: curve([[0, -0.65], [0.9, -0.66], [1.12, -0.52], [PIN, 0.0], [1.6, -0.3], [2.2, -0.45]]), // (wide past him, then across to the glass)
   z: curve([[0, 9.7], [0.5, 5.5], [0.98, 1.85], [PIN, -0.02], [1.55, -0.3], [1.8, -0.45], [2.2, -0.55]]),
   y: (t) => (t < 0.98 ? 0 : t < PIN ? HC * Math.sin(((t - 0.98) / (PIN - 0.98)) * Math.PI * 0.5) : HC * Math.max(0, 1 - ((t - PIN) / 0.4) ** 2)),
   pitch: curve([[0, 0.25], [0.98, 0.3], [PIN, 0.12], [1.6, 0.15], [2.2, 0.05]]),
@@ -49,11 +51,12 @@ function ballAt(t, a, from) {
   const s = t - PIN;
   if (s < 0.12) return _p.set(PX, PY, PZ); // (pinned)
   const u = s - 0.12;
+  // (off the glass: down and away from the rim, out to the side and back over the court)
   const y = PY - 4.9 * u * u;
-  if (y > 0.12) return _p.set(PX + 0.3 * u, y, PZ + 1.4 * u);
+  if (y > 0.12) return _p.set(PX + 0.7 * u, y, PZ + 1.3 * u);
   const tb = Math.sqrt((PY - 0.12) / 4.9);
   const v = u - tb;
-  return _p.set(PX + 0.3 * u, 0.12 + Math.max(0, 2.2 * v - 4.9 * v * v), PZ + 1.4 * u);
+  return _p.set(PX + 0.7 * u, 0.12 + Math.max(0, 2.2 * v - 4.9 * v * v), PZ + 1.3 * u);
 }
 
 // (where it leaves his hand: over his right shoulder at the top, from his root at the release)
@@ -75,7 +78,7 @@ export default {
   rim: { x: 0, y: 2.99, z: 0, yaw: 0 },
   events: { release: Math.round(RL * 30), pin: Math.round(PIN * 30) },
   props: { shooter: { ball: 'track' } },
-  contact: { move: 'chaser', against: 'shooter', skip: { chaser: ['wristR', 'elbowR'], shooter: ['wristR', 'elbowR'] }, tol: 0.015 },
+  contact: { move: 'chaser', against: 'shooter', skip: { chaser: ['wristR', 'elbowR', 'armR'], shooter: ['wristR', 'elbowR'] }, tol: 0.015, axes: [0.05, 1, 0.08], relax: true }, // (pushed up over him, not back behind him or off to the side, where he couldn't get to the glass)
   pose(t, { shooter: a, chaser: b }, adjust = {}) {
     // ---- The shooter: in down the lane, up, the ball off his right hand to the glass ----
     root(a, S.x(t), S.y(t), S.z(t), Math.PI, S.pitch(t));
@@ -97,6 +100,15 @@ export default {
     // (the right hand up under it to the release, laying it up)
     const lay = ramp(t, TO, RL - 0.04) * (1 - ramp(t, RL + 0.05, RL + 0.3));
     if (lay > 0) reachArm(a, 'R', TOP, new THREE.Vector3(-1, -0.3, 0), null, null, 'group');
+    // (the other hand up by his head as he goes up, guarding it, then down by his side: never out
+    // to his left, where the chaser's coming past)
+    const guard = ramp(t, TO - 0.1, TO + 0.12) * (1 - ramp(t, 1.9, 2.2));
+    if (guard > 0) {
+      a.group.updateMatrixWorld(true);
+      const cur = a.group.worldToLocal(a.wristL.getWorldPosition(new THREE.Vector3()));
+      const hold = new THREE.Vector3(0.12, 1.45, 0.25).lerp(new THREE.Vector3(0.3, 0.95, 0.02), ramp(t, RL + 0.1, RL + 0.5));
+      reachArm(a, 'L', cur.lerp(hold, guard), new THREE.Vector3(1, -0.4, -0.2), null, null, 'group');
+    }
     a.group.updateMatrixWorld(true);
     let ball;
     if (t < TO - 0.05) ball = twoHandBall(a, _b).clone();
