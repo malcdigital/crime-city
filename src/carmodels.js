@@ -698,6 +698,7 @@ export function carModel(typeName, t) {
     wheel: wheelGeometry(s.wheels.r, s.wheels.w),
     lights: s.lights,
     seat: s.seat,
+    green: s.green, // (the cabin's side outline, [z, y] front to back: the windshield, the roof, the back)
     door: null,
   };
   // The doors: a panel (the body's color) from the hinge back, its window above it (the
