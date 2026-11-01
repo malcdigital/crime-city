@@ -412,12 +412,21 @@ export class Shops {
     el.querySelector('.car-next').addEventListener('click', () => this.step(1));
     el.querySelector('.car-buy').addEventListener('click', () => this.buy());
     const stage = el.querySelector('.car-stage');
+    // (a swipe: it turns over as soon as you've dragged far enough, one item per swipe)
     let sx = null;
-    stage.addEventListener('pointerdown', (e) => (sx = e.clientX));
-    stage.addEventListener('pointerup', (e) => {
-      if (sx !== null && Math.abs(e.clientX - sx) > 40) this.step(e.clientX < sx ? 1 : -1);
+    stage.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button')) return;
+      sx = e.clientX;
+    });
+    stage.addEventListener('pointermove', (e) => {
+      if (sx === null || Math.abs(e.clientX - sx) < 40) return;
+      this.step(e.clientX < sx ? 1 : -1);
       sx = null;
     });
+    const end = () => (sx = null);
+    stage.addEventListener('pointerup', end);
+    stage.addEventListener('pointercancel', end);
+    stage.addEventListener('pointerleave', end);
     el.addEventListener('click', (e) => {
       if (e.target.closest('.shop-car')) return;
       const row = e.target.closest('.shop-row');

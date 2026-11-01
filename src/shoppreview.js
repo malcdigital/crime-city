@@ -96,9 +96,12 @@ export class ShopPreview {
     this.init();
     const m = this.model(p);
     if (m === this.cur) return;
-    if (this.old) this.scene.remove(this.old);
+    if (this.old && this.old !== m) this.scene.remove(this.old);
     this.old = this.cur;
     this.cur = m;
+    // (shown again: it was hidden when it slid out last time)
+    m.visible = true;
+    if (this.old) this.old.visible = true;
     this.scene.add(m);
     this.dir = dir;
     this.slide = 0;
