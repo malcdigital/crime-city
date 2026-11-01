@@ -155,7 +155,7 @@ export class MapView {
     const game = this.game;
     this.open = true;
     this.el.classList.remove('hidden');
-    const [px, pz] = game.player.pos();
+    const [px, pz] = game.mapPos();
     this.cx = 1600 / 2;
     this.cz = 1600 / 2;
     this.scale = this.fit();
@@ -218,7 +218,7 @@ export class MapView {
     const T = game.turfWars;
     const S = game.shops;
     const D = game.drugs;
-    const [px, pz] = game.player.pos();
+    const [px, pz] = game.mapPos();
     const out = [];
     const head = (t) => out.push({ head: t });
     const add = (kind, color, text, label, x, z) => out.push({ kind, color, text, label, x, z });
@@ -245,7 +245,7 @@ export class MapView {
     add('blip', '#2e6fd8', 'P', 'Police station', city.station.x, city.station.z);
     add('blip', '#d63031', 'H', 'Hospital', city.hospital.x, city.hospital.z);
     add('blip', '#e67e22', 'C', 'Chop shop (sell cars)', city.chop.x, city.chop.z);
-    add('blip', S.gun.color, 'A', `${S.gun.name} (guns, armor)`, S.gun.x, S.gun.z);
+    for (const g of S.gunShops) add('blip', g.color, 'A', `${g.name} (guns, range)`, g.x, g.z);
     add('blip', S.garage.color, 'M', `${S.garage.name} (mods, respray)`, S.garage.x, S.garage.z);
     add('blip', S.safehouse ? '#2c3e50' : '#7f8c8d', 'S', S.safehouse ? 'Your safehouse' : 'Safehouse (for sale)', S.safe.x, S.safe.z);
     const stops = [...game.transit.shelters()].sort((p, q) => dist(p.sx, p.sz, px, pz) - dist(q.sx, q.sz, px, pz));
@@ -564,7 +564,7 @@ export class MapView {
       dot(r.car.x, r.car.z, 6, g ? g.color : '#fff');
     }
     // GPS route, then the waypoint pin.
-    this.route = this.waypoint ? gpsRoute(city, ...game.player.pos(), ...this.waypoint) : null;
+    this.route = this.waypoint ? gpsRoute(city, ...game.mapPos(), ...this.waypoint) : null;
     if (this.route) {
       ctx.lineJoin = ctx.lineCap = 'round';
       ctx.beginPath();
@@ -595,7 +595,7 @@ export class MapView {
     }
     // You: an arrow pointing the way you face.
     {
-      const [px, pz] = game.player.pos();
+      const [px, pz] = game.mapPos();
       const v = game.player.vehicle;
       const h = v ? v.heading : game.player.heading;
       const [sx, sy] = this.toScreen(px, pz);

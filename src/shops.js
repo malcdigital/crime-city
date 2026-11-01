@@ -1,4 +1,5 @@
-import { PLACES } from './districts.js';
+import { PLACES, GUN_SHOP_BLOCKS } from './districts.js';
+import { GUN_SHOPS } from './gunshops.js';
 import * as THREE from 'three';
 import { CFG, CRED_TIERS } from './config.js';
 import { tierOf } from './claim.js';
@@ -28,6 +29,10 @@ const GUN_STOCK = [
   { id: 'smg', price: 1500, ammo: 90, ammoPrice: 150 },
   { id: 'shotgun', price: 2500, ammo: 18, ammoPrice: 120 },
   { id: 'rifle', price: 4500, ammo: 90, ammoPrice: 250 },
+  { id: 'revolver', price: 900, ammo: 24, ammoPrice: 90 },
+  { id: 'mpistol', price: 1200, ammo: 96, ammoPrice: 130 },
+  { id: 'ak', price: 5200, ammo: 90, ammoPrice: 260 },
+  { id: 'hunting', price: 6000, ammo: 20, ammoPrice: 200 },
 ];
 const ARMOR_PRICE = 500;
 // Crew gear: guns in two steps, and vests.
@@ -47,6 +52,16 @@ const RESPRAY_PRICE = 300;
 const PAINTS = [0x1c1c1c, 0xf2f2f2, 0xb71c1c, 0x0d47a1, 0x1b5e20, 0xf9a825, 0x4a148c, 0x37474f, 0xe65100, 0x00838f];
 
 const money = (n) => `$${n.toLocaleString('en-US')}`;
+// A gun's numbers in a line: what it hits for, how fast, how many, how far.
+export function specLine(w) {
+  const rpm = Math.round(60 / w.rate);
+  return `Damage ${w.dmg}${w.pellets ? ` ×${w.pellets}` : ''} · ${w.auto ? `${rpm} rounds/min` : `${rpm} shots/min`} · ${w.mag}-round mag · range ${w.range} m${w.scope ? ' · scope' : ''}`;
+}
+// What a gun costs at a shop (its list price times the shop's).
+export function gunPrice(id, shop) {
+  const s = GUN_STOCK.find((x) => x.id === id);
+  return s ? Math.round((s.price * (shop?.mult || 1)) / 10) * 10 : 0;
+}
 
 // A block's storefront: the wall of the building facing its front street (city.storefront),
 // plus a local frame for decorating it: frame(lx, lz) is a point lx along the wall (to the
@@ -95,7 +110,9 @@ export class Shops {
     const city = game.city;
     const scene = game.scene;
     // Places.
-    this.gun = { ...storefront(city, PLACES.gunShop), name: "Iron Mike's Guns", color: '#c0392b', icon: 'A' };
+    // The gun shops (src/gunshops.js): you go inside each (src/interiors.js). this.gun: Iron Mike's.
+    this.gunShops = GUN_SHOPS.map((d, i) => ({ ...storefront(city, GUN_SHOP_BLOCKS[i]), ...d, i, color: '#c0392b', icon: 'A' }));
+    this.gun = this.gunShops[0];
     this.garage = { ...storefront(city, PLACES.garage), name: "Lou's Mod Garage", color: '#16a085', icon: 'M' };
     this.safe = { ...storefront(city, PLACES.safehouse), name: 'Safehouse', color: '#5d6d7e', icon: 'S' };
     {
@@ -121,7 +138,7 @@ export class Shops {
       g.add(door);
       return sign;
     };
-    front(this.gun, "IRON MIKE'S GUNS", '#8e1b10');
+    for (const g of this.gunShops) front(g, g.sign, g.signBg);
     front(this.garage, "LOU'S MOD GARAGE", '#0e6655');
     this.safeSign = front(this.safe, 'SAFEHOUSE', '#2c3e50');
     // Ground rings: walk-in (gun shop, safehouse) and drive-in (garage).
@@ -132,7 +149,7 @@ export class Shops {
       scene.add(m);
       return m;
     };
-    this.rings = [ring(this.gun.x, this.gun.z, 1.2, 0xe74c3c), ring(this.safe.x, this.safe.z, 1.2, 0xbdc3c7), ring(this.garage.x, this.garage.z, this.garage.r, 0x1abc9c)];
+    this.rings = [...this.gunShops.map((g) => ring(g.x, g.z, 1.2, 0xe74c3c)), ring(this.safe.x, this.safe.z, 1.2, 0xbdc3c7), ring(this.garage.x, this.garage.z, this.garage.r, 0x1abc9c)];
     // The stash: a duffel bag on the bench, only there when there's money in it.
     const bag = new THREE.Group();
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.75, 10), new THREE.MeshLambertMaterial({ color: 0x1b2631 }));
@@ -284,7 +301,7 @@ export class Shops {
   // ---- Places, prompts and radar ----
   blips() {
     const out = [
-      [this.gun.x, this.gun.z, this.gun.color, 'A'],
+      ...this.gunShops.map((g) => [g.x, g.z, g.color, 'A']),
       [this.garage.x, this.garage.z, this.garage.color, 'M'],
       [this.safe.x, this.safe.z, this.safehouse ? '#2c3e50' : '#7f8c8d', 'S'],
     ];
@@ -326,13 +343,15 @@ export class Shops {
       if (pressed) this.collect();
       return true;
     }
-    if (dist(px, pz, this.gun.x, this.gun.z) < 1.6) {
+    // (a gun shop's door: you go inside: src/interiors.js)
+    const gs = this.gunShops.find((g) => dist(px, pz, g.x, g.z) < 1.6);
+    if (gs) {
       if (game.stars > 0) {
-        game.prompt = `${this.gun.name} won't serve you with the cops on you`;
+        game.prompt = `${gs.name} won't let you in with the cops on you`;
         return true;
       }
-      game.prompt = `Press ${key} to shop at ${this.gun.name}`;
-      if (pressed) this.open('gun');
+      game.prompt = `Press ${key} to go inside ${gs.name}`;
+      if (pressed) game.interiors?.enter(gs.i);
       return true;
     }
     if (dist(px, pz, this.safe.x, this.safe.z) < 1.6) {
@@ -386,6 +405,18 @@ export class Shops {
     });
   }
 
+  // A gun shop's clerk: his shop's racks, at his prices (src/interiors.js); focus: a gun to
+  // open on (the one you were looking at).
+  openGun(shop, focus = null) {
+    this.open('gun');
+    this.menu.shop = shop;
+    if (focus) {
+      const k = this.items().findIndex((it) => it.gun === focus);
+      if (k >= 0) this.menu.i = k;
+    }
+    this.render();
+  }
+
   open(kind) {
     const game = this.game;
     this.menu = { kind, i: 0 };
@@ -424,7 +455,13 @@ export class Shops {
         label: 'Body armor', price: ARMOR_PRICE, detail: 'Soaks up most of the damage you take until it wears out',
         can: game.armor >= 100 ? 'Already full' : true, buy: () => (game.armor = 100),
       });
-      for (const s of GUN_STOCK) {
+      // (this shop's racks, at its prices)
+      const shop = this.menu.shop || this.gun;
+      const mult = shop.mult || 1;
+      const price = (n) => Math.round((n * mult) / 10) * 10;
+      for (const id of shop.stock || GUN_STOCK.map((s) => s.id)) {
+        const s0 = GUN_STOCK.find((x) => x.id === id);
+        const s = { ...s0, price: price(s0.price), ammoPrice: price(s0.ammoPrice) };
         const w = WEAPONS.find((x) => x.id === s.id);
         const have = ar.has(w.id);
         if (!have) {
@@ -432,7 +469,8 @@ export class Shops {
           const outName = out ? WEAPONS.find((x) => x.id === out).name : null;
           list.push({
             label: out ? `${w.name} (swap out your ${outName})` : w.name, price: s.price,
-            detail: out ? `You carry two guns. This replaces the ${outName} in your hand. Comes with ${s.ammo} rounds.` : `Comes with ${s.ammo} rounds`,
+            detail: `${specLine(w)}. ${out ? `You carry two guns: this replaces the ${outName} in your hand. ` : ''}Comes with ${s.ammo} rounds.`,
+            gun: w.id,
             can: true,
             buy: () => {
               ar.give(w.id);
@@ -531,7 +569,7 @@ export class Shops {
     const items = this.items();
     const m = this.menu;
     m.i = Math.min(m.i, items.length - 1);
-    const place = m.kind === 'gun' ? this.gun : this.garage;
+    const place = m.kind === 'gun' ? m.shop || this.gun : this.garage;
     this.el.querySelector('.shop-title').textContent = m.title || place.name;
     this.el.querySelector('.shop-cash').textContent = `Cash ${money(game.cash)} · Bank ${money(game.bank.balance)}`;
     this.el.querySelector('.shop-list').innerHTML = items.map((it, i) => {

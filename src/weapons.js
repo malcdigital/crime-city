@@ -4,6 +4,15 @@ export const WEAPONS = [
   { id: 'smg', slot: 'smg', name: 'SMG', dmg: 20, rate: 0.085, mag: 30, auto: true, spread: 0.045, aimSpread: 0.014, reload: 1.6, range: 90, sound: 'smg' },
   { id: 'rifle', slot: 'rifle', name: 'Assault Rifle', dmg: 30, rate: 0.11, mag: 30, auto: true, spread: 0.03, aimSpread: 0.006, reload: 2.0, range: 150, sound: 'rifle' },
   { id: 'shotgun', slot: 'shotgun', name: 'Pump Shotgun', dmg: 20, pellets: 8, rate: 0.85, mag: 6, auto: false, spread: 0.08, aimSpread: 0.04, reload: 2.4, range: 45, sound: 'shotgun' },
+  // (the gun shops' newer stock)
+  // A revolver: six heavy rounds, slow to reload, a man down in two.
+  { id: 'revolver', slot: 'pistol', name: '.357 Revolver', dmg: 58, rate: 0.5, mag: 6, auto: false, spread: 0.022, aimSpread: 0.003, reload: 2.1, range: 125, sound: 'revolver', kick: 1.6 },
+  // A machine pistol: one hand, a bullet hose up close, all over the place at range.
+  { id: 'mpistol', slot: 'smg', name: 'Machine Pistol', dmg: 13, rate: 0.055, mag: 32, auto: true, spread: 0.06, aimSpread: 0.022, reload: 1.3, range: 65, sound: 'mpistol', kick: 0.7 },
+  // An AK: hits harder than the rifle, kicks more, a little less accurate.
+  { id: 'ak', slot: 'rifle', name: 'AK-47', dmg: 37, rate: 0.13, mag: 30, auto: true, spread: 0.04, aimSpread: 0.01, reload: 2.3, range: 140, sound: 'ak', kick: 1.3 },
+  // A bolt-action hunting rifle: five rounds, one shot a man, dead on when you aim (it zooms).
+  { id: 'hunting', slot: 'rifle', name: 'Hunting Rifle', dmg: 105, rate: 1.15, mag: 5, auto: false, spread: 0.035, aimSpread: 0.0007, reload: 2.7, range: 260, sound: 'hunting', scope: 26, kick: 1.8 },
 ];
 
 // The player's weapons and ammo. Two hands' worth: two weapon slots (fists when a slot is
@@ -19,6 +28,7 @@ export class Arsenal {
     this.ammo = {
       pistol: { mag: 12, reserve: 96 }, smg: { mag: 30, reserve: 180 },
       rifle: { mag: 30, reserve: 180 }, shotgun: { mag: 6, reserve: 36 },
+      revolver: { mag: 6, reserve: 0 }, mpistol: { mag: 32, reserve: 0 }, ak: { mag: 30, reserve: 0 }, hunting: { mag: 5, reserve: 0 },
     };
     this.cool = 0;
     this.reloadT = 0;

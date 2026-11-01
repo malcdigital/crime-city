@@ -57,6 +57,10 @@ export class Sfx {
     if (kind === 'smg') this.burst(0.5 * vol, 'lowpass', 3200, 0.11, 140, muffle);
     else if (kind === 'rifle') this.burst(0.65 * vol, 'lowpass', 2600, 0.16, 120, muffle);
     else if (kind === 'shotgun') this.burst(0.95 * vol, 'lowpass', 1400, 0.42, 80, muffle);
+    else if (kind === 'revolver') this.burst(0.9 * vol, 'lowpass', 1800, 0.34, 90, muffle); // (a big boom)
+    else if (kind === 'mpistol') this.burst(0.45 * vol, 'lowpass', 3600, 0.08, 160, muffle); // (a quick crack)
+    else if (kind === 'ak') this.burst(0.75 * vol, 'lowpass', 2200, 0.2, 100, muffle);
+    else if (kind === 'hunting') this.burst(1.0 * vol, 'lowpass', 1600, 0.5, 75, muffle); // (rolls on)
     else this.burst(0.7 * vol, 'lowpass', 2200, 0.24, 110, muffle);
   }
 

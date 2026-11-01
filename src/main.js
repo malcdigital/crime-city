@@ -54,6 +54,7 @@ import { AnimViewer } from './animviewer.js';
 import { markRecoil, markFlinch, PUNCH_T, FIGHT_STYLES, PISTOL_STYLES } from './combatpose.js';
 import { stepFalls } from './character.js';
 import { Shops } from './shops.js';
+import { Interiors } from './interiors.js';
 import { Drugs } from './drugs.js';
 import { Bank } from './bank.js';
 import { PropertyMarket } from './property.js';
@@ -212,6 +213,7 @@ class Game {
     this.shops = new Shops(this);
     this.drugs = new Drugs(this);
     this.bank = new Bank(this);
+    this.interiors = new Interiors(this); // (inside the gun shops: src/interiors.js)
     if (this.shops.refundSafehouse) {
       // The city was rebuilt: the old safehouse is refunded (it's back on the market).
       this.shops.refundSafehouse = false;
@@ -333,7 +335,9 @@ class Game {
     // (in a pickup game: a button to quit it)
     const q = document.getElementById('quit-game');
     const g = this.pickupGame();
-    q.classList.toggle('hidden', !(p && g));
+    const other = !g && this.interiors?.activeGame(); // (the range challenge)
+    q.classList.toggle('hidden', !(p && (g || other)));
+    if (p && other) q.textContent = `Stop the range challenge${this.input.touchMode ? '' : this.input.mode === 'pad' ? ' · △' : ' · F'}`;
     if (p && g) {
       const key = this.input.touchMode ? '' : this.input.mode === 'pad' ? ' · △' : ' · F';
       const fresh = this.pickupFresh();
@@ -368,6 +372,12 @@ class Game {
     } catch {
       // Ignore storage errors.
     }
+  }
+
+  // Where you are on the map: inside a shop (src/interiors.js), its front door.
+  mapPos() {
+    const r = this.interiors?.inside;
+    return r ? [r.shop.x, r.shop.z] : this.player.pos();
   }
 
   // Everyone who can be shot, hit or run over. (Not the children at the playground: they can't
@@ -669,7 +679,7 @@ class Game {
       }
       return;
     }
-    if (!CFG.INFINITE_AMMO) am.mag--;
+    if (!CFG.INFINITE_AMMO && !this.interiors?.freeAmmo()) am.mag--; // (range ammo's on the house)
     this.arsenal.cool = w.rate;
     this.lastShot = this.time;
 
@@ -709,7 +719,10 @@ class Game {
       dx /= l2;
       dy /= l2;
       dz /= l2;
-      const hit = raycast(this, ox, oy, oz, dx, dy, dz, w.range, this.player.vehicle);
+      let hit = raycast(this, ox, oy, oz, dx, dy, dz, w.range, this.player.vehicle);
+      // (at the range: the paper first, if it's nearer)
+      const rg = this.interiors?.rangeShot(ox, oy, oz, dx, dy, dz, hit.t);
+      if (rg) hit = { t: rg.t, type: 'range', x: rg.wx, y: rg.wy, z: rg.wz };
       if (k < 4) this.effects.tracer(mx, my, mz, hit.x, hit.y, hit.z);
       if (hit.type === 'char') {
         const c = hit.target;
@@ -1640,7 +1653,13 @@ class Game {
   // with no score (or no snap) yet is called off (your money back); otherwise you forfeit it.
   quitPickup() {
     const g = this.pickupGame();
-    if (!g) return;
+    if (!g) {
+      // (no pickup game: whatever else you're in, the range challenge)
+      const G = this.activeGame();
+      if (G) G.quit();
+      this.setPaused(false);
+      return;
+    }
     if (g === this.sport && this.sport.solo && !this.sport.t33) g.end('done');
     else g.end(this.pickupFresh() ? 'off' : 'forfeit');
     this.setPaused(false);
@@ -1656,7 +1675,7 @@ class Game {
       return { label, quit: () => this.quitPickup() };
     }
     if (this.dice.playing) return { label: 'get up from the dice game', quit: () => this.dice.leave() };
-    return null;
+    return this.interiors?.activeGame() || null; // (the range challenge)
   }
 
   // In any game the map button (touchpad / M) is quit: hold it a second (a bar fills) and
@@ -1787,6 +1806,14 @@ class Game {
 
     // A pickup game at the courts: no weapons while you're playing.
     if (this.pickupGame()) return;
+    // Inside (src/interiors.js): its doors, its clerk, its cases, its lanes; guns out only in a lane.
+    if (this.interiors.inside) {
+      this.interiors.interact(a);
+      if (!this.interiors.armed()) {
+        p.showWeapon('fists');
+        return;
+      }
+    }
     this.sport.offer(a);
     this.gridiron.offer(a);
     this.dice.offer(a); // (a dice game on the corner)
@@ -1800,6 +1827,7 @@ class Game {
     p.showWeapon(w.id);
     if (a.melee || (w.melee && a.firePressed)) this.punch();
     else this.tryFire(a);
+    if (this.interiors.inside) return; // (in a lane: nothing else in here)
 
     if (drugsBusy) return; // the drug prompt has the interact button
 
@@ -1938,7 +1966,7 @@ class Game {
         distBack = 3.6;
         height = 0.45;
         shoulder = 0.45;
-        fov = 56;
+        fov = this.arsenal.current().scope || 56; // (the hunting rifle's scope: zoomed in)
       }
       // Camera over the shoulder of the gun hand (left when peeking left out of cover).
       if (this.player.gunHand === 'L') shoulder = -Math.max(shoulder, 0.35);
@@ -2040,6 +2068,7 @@ class Game {
     this.sun.target.position.set(tx, ty, tz);
     if (this.cine) this.cineCamera(dt);
     if (this.travel.active) this.travel.camera(); // riding a taxi or bus: the cut scene's shots
+    this.interiors?.camera(this.camera); // (inside: the camera stays in the room)
   }
 
   // Police holding you at gunpoint: they won't fire for a while unless you shoot. Stand
@@ -2402,7 +2431,7 @@ class Game {
       this.mapView.show();
     } else if (a.pause) {
       this.setPaused(!this.paused);
-    } else if (this.paused && a.enter && this.pickupGame()) {
+    } else if (this.paused && a.enter && (this.pickupGame() || this.interiors?.activeGame())) {
       this.quitPickup(); // (△ / F in the pause menu)
     } else if (!this.paused) {
       // (a beat of slow motion: breaking the 3-point record)
@@ -2588,6 +2617,7 @@ class Game {
     this.turfWars.update(dt);
     this.shops.update(dt);
     this.bank.update(dt);
+    this.interiors.update(dt);
     this.property.update(dt);
     for (const v of this.vehicles) {
       if (v.driver === null && !v.removed) {
@@ -2645,8 +2675,9 @@ class Game {
 
     this.updateWanted(dt);
     const [px, pz] = p.pos();
-    this.district = districtAt(px, pz);
-    this.turf = this.turfWars.turfAt(px, pz);
+    const room = this.interiors.inside; // (inside: the shop's name and its district)
+    this.district = room ? `${room.shop.name}, ${room.shop.district}` : districtAt(px, pz);
+    this.turf = room ? null : this.turfWars.turfAt(px, pz);
     this.updateCamera(dt, a);
 
     this.showCrosshair = !p.vehicle && gun && (this.aimingNow || this.input.mode === 'kb');

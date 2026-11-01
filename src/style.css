@@ -262,6 +262,10 @@ body.touch #sport .sh { display: none; }
 #strip .r-smg { border-bottom: 4px solid #4fa3ff; }
 #strip .r-shotgun { border-bottom: 4px solid #b06bff; }
 #strip .r-rifle { border-bottom: 4px solid #ffb02e; }
+#strip .r-revolver { border-bottom: 4px solid #d8dde4; }
+#strip .r-mpistol { border-bottom: 4px solid #36d1c4; }
+#strip .r-ak { border-bottom: 4px solid #e06a2c; }
+#strip .r-hunting { border-bottom: 4px solid #7fbf4d; }
 #strip .r-fists { border-bottom: 4px solid #555; }
 #strip .st-list { display: grid; grid-template-columns: auto auto; column-gap: 10px; font-size: 12px; margin-top: 3px; }
 #strip .am { display: contents; opacity: .45; }
@@ -1200,3 +1204,8 @@ body.board3pt-on #sport .sb { display: none; }
 #cine3 .dc-play b { font-size: clamp(16px, 6vh, 34px); font-weight: 900; font-style: italic; letter-spacing: 1px; color: #ffd23f; text-shadow: 0 3px 14px rgba(0,0,0,.6); }
 @keyframes dc-up { to { opacity: 1; transform: translate(-50%, 0); } }
 #cine3 .c3-final span { line-height: 1.6; margin-top: 4px; }
+
+/* Going in or out of a door (src/interiors.js): a quick fade through black. */
+#fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 60; }
+/* The range challenge's board in a narrow window: under the top-left info, not over it. */
+@media (max-width: 900px) { body.ranging:not(.touch) #sport { top: 92px; } }

@@ -23,6 +23,10 @@ export class Player {
       smg: new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.18, 0.6), lam(0x2a2a2a)),
       rifle: new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.2, 0.95), lam(0x2b2f26)),
       shotgun: new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.15, 0.9), lam(0x4a3420)),
+      revolver: new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.15, 0.36), lam(0x8a8f96)), // (steel)
+      mpistol: new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.17, 0.36), lam(0x232323)),
+      ak: new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.21, 0.92), lam(0x6b4423)), // (the wood furniture)
+      hunting: new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.16, 1.1), lam(0x5a3d22)),
     };
     // A matching set for the left hand (used when peeking out of cover to the left).
     this.gunsL = {};

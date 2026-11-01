@@ -114,7 +114,7 @@ const VERBS = [
   [/^swap/i, 'SWAP'], [/^sell/i, 'SELL'], [/^rob/i, 'ROB'], [/^buy|^look at buying/i, 'BUY'], [/^bank/i, 'BANK'],
   [/^use the atm/i, 'ATM'], [/^tag/i, 'TAG'], [/^recruit/i, 'RECRUIT'], [/^send/i, 'SEND'], [/^mod/i, 'MOD'],
   [/^take the bus/i, 'BUS'], [/^hail/i, 'TAXI'], [/^get in the .*game/i, 'JOIN'], [/^get in\b/i, 'ENTER'], [/^carjack/i, 'JACK'], [/^get out/i, 'EXIT'], [/^start/i, 'START'], [/^shop|^browse/i, 'SHOP'],
-  [/^enter|^go in|^go inside/i, 'ENTER'], [/^talk/i, 'TALK'],
+  [/^enter|^go in|^go inside/i, 'ENTER'], [/^talk/i, 'TALK'], [/^leave/i, 'EXIT'], [/^look at/i, 'LOOK'],
 ];
 // Simple icons (white, drawn at 24×24) for the buttons that are things rather than actions.
 const svg = (body, fill = false) => `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="${fill ? 'currentColor' : 'none'}" stroke="${fill ? 'none' : 'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
@@ -133,6 +133,10 @@ const WEAPON_ICONS = {
   smg: svg('<path d="M2 8h17.5l1.5 1.5V11h-5.5l-.8 1H12l-1 6H8.6l.8-6H7.5l-.4 3.5H5L5.4 11H2z"/>', true),
   rifle: svg('<path d="M1 9.5h4l1-1.5h12l1.5-1h3v2.5h-3.5l-1 1H14l-.6 1H11l-1.3 4.5H7.5l1-4.5H6.5L4.5 14H1.5l1.5-3.5H1z"/>', true),
   shotgun: svg('<path d="M1 10.5l3.5-1.5H23v1.8h-8v1.4H8.5l-1.2.8H5.5l-2.5 3H1z"/>', true),
+  revolver: svg('<path d="M3 7.5h14l1-1h2.5v2.5H16v2.5h-3l-1.6 6H7.6l1.5-6H6.5l-.6-1.6H3z"/><circle cx="11.4" cy="9.6" r="1.9" fill="rgba(15,18,26,.85)"/>', true),
+  mpistol: svg('<path d="M4 7h15l1 1.4v2H15l-.7 1h-1.8l-.5 2.2H10l-.6 4.2H7l.8-4.2H6.5l-.6-2.2H4z"/><path d="M10.2 13.6h2.4l-.6 4.6H9.6z"/>', true),
+  ak: svg('<path d="M1 10l4-1.6h6.5l1-1h7.5l2 .8V10h-6l-1.5 1.2h-1.8l1.2 4.8h-2.2l-1.6-4.6-1.6.4-1.3 4H5.2l1.1-4H1z"/>', true),
+  hunting: svg('<path d="M1 10.8l3.5-1.6H23v1.5h-9.5l-.8.9H8l-2 3H3.5l1.2-2.8H1z"/><rect x="9" y="6.4" width="7" height="1.8" rx=".9"/>', true),
 };
 
 export function useVerb(prompt) {
@@ -591,6 +595,7 @@ export class TouchControls {
     }
     // QUIT: armed by the first tap (SURE?), quits on the second.
     const qb = this.el.buttons.quit;
+    if (qb && ctx === 'foot') qb.el.classList.toggle('hidden', !game.interiors?.challenge); // (on foot: only the range challenge)
     if (qb) {
       const armed = this.quitArm > performance.now();
       setText(qb.el.querySelector('.tl'), armed ? 'SURE?' : 'QUIT');

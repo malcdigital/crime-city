@@ -13,7 +13,7 @@ import { dist } from './util.js';
 // you (they take guns and product: they'll use the gun, and sell the product into the stash).
 const HOLD_ALL = 0.5; // seconds to hold for "all"
 const CASH_STEP = 100;
-const AMMO = [['pistol', 'Pistol'], ['smg', 'SMG'], ['rifle', 'Rifle'], ['shotgun', 'Shells']];
+const AMMO = [['pistol', 'Pistol'], ['smg', 'SMG'], ['rifle', 'Rifle'], ['shotgun', 'Shells'], ['revolver', '.357'], ['mpistol', 'Mach. pistol'], ['ak', 'AK'], ['hunting', 'Hunting']];
 // The strip's top row: two weapons, an Ammo tab, cash, and a Drugs tab. The tabs open up to
 // show what's in them (indexes into items()).
 export const TOP = [{ flat: 0 }, { flat: 1 }, { group: 'ammo', name: 'Ammo', items: [2, 3, 4, 5] }, { flat: 6 }, { group: 'drugs', name: 'Drugs', items: [7, 8, 9] }];

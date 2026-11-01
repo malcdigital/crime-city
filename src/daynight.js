@@ -30,6 +30,16 @@ export class DayNight {
 
   update() {
     const game = this.game;
+    // (inside: the room's own light, whatever the time; outside again, it's worked out afresh)
+    if (game.interiors?.inside) {
+      if (this.night !== -2) {
+        this.night = -2;
+        if (game.hemi) game.hemi.intensity = 1.45;
+        game.sun.intensity = 0.45;
+        game.sun.color.copy(DAY_SUN);
+      }
+      return;
+    }
     const m = game.clockMinutes();
     const k = Math.max(0, Math.min(1, this.nightAt(m)));
     // A warm glow around dawn and dusk.

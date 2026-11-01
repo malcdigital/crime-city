@@ -168,3 +168,12 @@ export function districtCenter(name) {
   centers[name] = [best.cx, best.cz];
   return centers[name];
 }
+
+// The gun shops (src/gunshops.js, the same order): Iron Mike's in Midtown, then Downtown, the
+// Strip and the Docks. (Picked last: the blocks the rest already took stay theirs.)
+export const GUN_SHOP_BLOCKS = [
+  PLACES.gunShop,
+  pick(928, 741, { district: 'Downtown' }),
+  pick(322, 1086, { district: 'The Strip' }),
+  pick(976, 1136, { district: 'The Docks' }),
+];

@@ -38,7 +38,7 @@ import { crouchPose, bendLeg, reachArm, upperQuat, bendSpine, wristPos } from '.
 const ease = (k) => k * k * (3 - 2 * k);
 const clamp01 = (k) => Math.max(0, Math.min(1, k));
 const mix = (a, b, k) => a + (b - a) * k;
-const LONG = new Set(['smg', 'rifle', 'shotgun']);
+const LONG = new Set(['smg', 'rifle', 'shotgun', 'ak', 'hunting']); // (shouldered; the revolver and the machine pistol are held like a pistol)
 const BLADE = 0.72; // (side-on behind a long gun)
 const BLADE_PISTOL = 0.12;
 const FIGHT = 0.5; // (side-on with fists up)
@@ -124,7 +124,7 @@ export function aimPose(c, weapon, pitch = 0, now = 0, hand = 'R', style = 'two'
   const p = Math.max(-0.9, Math.min(0.9, pitch));
   seatGuns(c);
   if (LONG.has(weapon)) {
-    const kick = (weapon === 'shotgun' ? 0.3 : 0.12) * k;
+    const kick = (weapon === 'shotgun' || weapon === 'hunting' ? 0.3 : weapon === 'ak' ? 0.18 : 0.12) * k; // (the big ones kick)
     const beta = BLADE * mx;
     aimFrame(c, beta, p + kick);
     // (the butt in the shoulder pocket, pushed back by the kick; the grip a hand's width up it)

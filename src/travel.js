@@ -109,7 +109,8 @@ export class Travel {
       const c = game.city;
       out.push(place('Green Street hangout', c.crewHome.x, c.crewHome.z));
       const s = game.shops;
-      out.push(place(s.gun.name, s.gun.x, s.gun.z));
+      const gun = [...s.gunShops].sort((g1, g2) => dist(g1.x, g1.z, px, pz) - dist(g2.x, g2.z, px, pz))[0];
+      out.push(place(`${gun.name} (nearest gun shop)`, gun.x, gun.z));
       out.push(place(s.garage.name, s.garage.x, s.garage.z));
       const bank = [...(game.bank?.banks || [])].sort((p1, p2) => dist(p1.x, p1.z, px, pz) - dist(p2.x, p2.z, px, pz))[0];
       if (bank) out.push(place(`${bank.name} (nearest bank)`, bank.x, bank.z));
