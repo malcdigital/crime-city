@@ -499,7 +499,7 @@ export class Shops {
     v.mods = v.mods || { engine: 0, brakes: 0, armor: 0 };
     const list = [{
       label: 'Repair', price: REPAIR_PRICE, detail: `Body ${Math.round(v.health)}%`,
-      can: v.health >= 99 ? 'Not damaged' : true, buy: () => (v.health = 100),
+      can: v.health >= 99 && !v.dmg?.hits ? 'Not damaged' : true, buy: () => { v.health = 100; game.carDamage?.repair(v); },
     }];
     for (const [k, m] of Object.entries(MODS)) {
       const l = v.mods[k];

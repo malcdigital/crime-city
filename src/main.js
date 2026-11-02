@@ -24,6 +24,7 @@ import { Pursuit, LOW_RANGE } from './pursuit.js';
 import { StopScene } from './stopscene.js';
 import { Justice } from './jail.js';
 import { arrestScene } from './arrestscenes.js';
+import { CarDamage } from './cardamage.js';
 import { Parking } from './parking.js';
 import { Props } from './props.js';
 import { Enforcement } from './enforcement.js';
@@ -32,7 +33,7 @@ import { Highway } from './highway.js';
 import { RampEditor, takeStartAt } from './rampeditor.js';
 import { Input } from './input.js';
 import { Player } from './player.js';
-import { Vehicle, resolveCarCollisions } from './vehicle.js';
+import { Vehicle, resolveCarCollisions, CRASH } from './vehicle.js';
 import { TrafficManager } from './traffic.js';
 import { PedManager } from './peds.js';
 import { PoliceManager } from './police.js';
@@ -172,6 +173,8 @@ class Game {
     this.playground = new Playground(this); // (kids at the Market St playground, people by the statue)
     this.pursuit = new Pursuit(this); // (police tactics, lying low, the radio)
     this.justice = new Justice(this); // (charges, booking, bail, jail time, your record)
+    this.carDamage = new CarDamage(this); // (dents, smashed lights, blown-out glass)
+    CRASH.dent = (...q) => this.carDamage.dent(...q);
     this.police = new PoliceManager(this);
 
     // Parked cars at the curb near the start point.
@@ -1585,7 +1588,10 @@ class Game {
     this.lockTarget = null;
     // (walking to the door, opening it, getting in: carscenes.js)
     const p = this.player;
-    p.scene = enterCar(p.char, v, -1, { from: [p.x, p.z], groundY: this.city.groundY, onDone: () => p.enter(v) });
+    // (from the passenger's side: in by that door and slide across, not round the car)
+    const lx = (p.x - v.x) * Math.cos(v.heading) - (p.z - v.z) * Math.sin(v.heading);
+    const side = lx < -0.2 && v.doors?.[1] ? 1 : -1;
+    p.scene = enterCar(p.char, v, side, { from: [p.x, p.z], groundY: this.city.groundY, slide: side === 1, onDone: () => p.enter(v) });
     p.sceneCar = v;
   }
 

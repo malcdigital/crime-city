@@ -306,6 +306,7 @@ export class Props {
     it.downT = game.time;
     v.speed *= it.slow;
     if (it.dmg) v.damage(it.dmg * Math.min(3, Math.abs(v.speed) / 8), v.driver === 'player');
+    if (it.kind !== 'trash') game.carDamage?.dent(v, it.x, it.z, -fx * s, -fz * s, Math.abs(v.speed) * (it.kind === 'hydrant' ? 0.8 : 0.5));
     if (v.driver === 'player') v.crash = Math.max(v.crash, 3);
     if (it.kind === 'hydrant') {
       it.broken = true;

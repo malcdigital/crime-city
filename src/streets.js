@@ -209,6 +209,7 @@ export class Streets {
     this.lampRefs = []; // [node, axis, color, index]
     this.poleStats = { total: 0, moved: 0, skipped: 0 };
     this.junctionPoles = new Map(); // node -> the sign and signal poles there
+    this.knockables = []; // stop and yield signs a car can knock over: { x, z, y, refs: [[mesh key, index]] }
     this.armNames = []; // street names on the traffic light arms: [x, y, z, dirx, dirz, name, half, node]
     // In a roadway (any street's pavement, with a little room)?
     // (out on the hills the roads are strips that flare a little at bends and junctions: more room)
@@ -330,9 +331,11 @@ export class Streets {
         const face = Math.atan2(a.ux, a.uz); // the face points back toward the driver
         if (ctl.type === 'stop') {
           if (share) continue; // (one stop sign per corner)
+          // (no wall for cars: drive into one and it goes over, see knockSigns)
+          const list = ctl.yield ? yields : signs;
+          this.knockables.push({ x: px, z: pz, y, refs: [['pole', signPoles.length], [ctl.yield ? 'yield' : 'stop', list.length]], down: false });
           signPoles.push([px, y + 1.45, pz, 0]);
-          (ctl.yield ? yields : signs).push([px, y + 2.55, pz, face]); // (a roundabout: give way)
-          city.colliders.push({ minX: px - 0.12, maxX: px + 0.12, minZ: pz - 0.12, maxZ: pz + 0.12, h: y + 2.9 });
+          list.push([px, y + 2.55, pz, face]); // (a roundabout: give way)
         } else {
           // A mast arm: a tall pole on the corner with an arm out over the lanes coming in, a
           // light hanging over each lane, one more on the pole at eye level, a walk signal for
@@ -372,17 +375,20 @@ export class Streets {
     lineGeo.rotateX(-Math.PI / 2);
     place(new THREE.InstancedMesh(lineGeo, new THREE.MeshBasicMaterial({ color: 0xe8e8e8 }), lines.length), lines);
     const poleMat = new THREE.MeshLambertMaterial({ color: 0x8a8f96 });
-    place(new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.05, 2.9, 6), poleMat, signPoles.length), signPoles);
+    this.knockMeshes = {};
+    this.knockMeshes.pole = place(new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.05, 2.9, 6), poleMat, signPoles.length), signPoles);
     const oct = new THREE.CylinderGeometry(0.42, 0.42, 0.04, 8);
     oct.rotateX(Math.PI / 2);
     oct.rotateZ(Math.PI / 8);
     const signMat = new THREE.MeshLambertMaterial({ color: 0xc0392b, emissive: 0x200000 });
-    place(new THREE.InstancedMesh(oct, signMat, signs.length), signs);
+    this.knockMeshes.stop = place(new THREE.InstancedMesh(oct, signMat, Math.max(1, signs.length)), signs);
+    this.knockMeshes.stop.count = signs.length;
     // Give way: a red triangle, point down.
     const tri = new THREE.CylinderGeometry(0.55, 0.55, 0.04, 3);
     tri.rotateX(Math.PI / 2);
     tri.rotateZ(-Math.PI / 2);
-    place(new THREE.InstancedMesh(tri, signMat, Math.max(1, yields.length)), yields).count = yields.length;
+    this.knockMeshes.yield = place(new THREE.InstancedMesh(tri, signMat, Math.max(1, yields.length)), yields);
+    this.knockMeshes.yield.count = yields.length;
     place(new THREE.InstancedMesh(new THREE.CylinderGeometry(0.09, 0.09, 4.6, 6), new THREE.MeshLambertMaterial({ color: 0x2c3e50 }), sigPoles.length), sigPoles);
     // Mast arms: galvanized poles, arms, the street light on top, walk signals.
     const steel = new THREE.MeshLambertMaterial({ color: 0xa9adb3 });
@@ -445,11 +451,19 @@ export class Streets {
       const list = [...named.values()].sort((p, q) => q.rank - p.rank).slice(0, 2);
       if (!list.length) continue;
       const base = pole.type === 'stop' ? 3.05 : 4.5; // (on a mast pole: above its light)
+      // (on a stop sign's pole: they go over with it)
+      const kn = pole.type === 'stop' ? this.knockables.find((q) => Math.abs(q.x - pole.x) < 0.01 && Math.abs(q.z - pole.z) < 0.01) : null;
+      if (kn) kn.refs.push(['extra', extra.length]);
       if (pole.type === 'stop') extra.push([pole.x, pole.y + 3.3, pole.z, 0]);
+      if (kn) kn.blades = [];
       list.forEach((e, k) => {
         const m = e.other(n);
         const L = Math.hypot(m.x - n.x, m.z - n.z) || 1;
         // (thick enough to wrap the pole it's on: a mast pole is ~0.2 m round, a sign post 0.05)
+        if (kn) {
+          kn.refs.push(['board', blades.length]);
+          kn.blades.push(blades.length);
+        }
         blades.push([pole.x, pole.y + base + k * 0.3, pole.z, (m.x - n.x) / L, (m.z - n.z) / L, e.street.name, pole.type === 'stop' ? 0.07 : 0.21]);
       });
     }
@@ -532,7 +546,9 @@ export class Streets {
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     geo.computeBoundingSphere();
     this.scene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex, side: THREE.FrontSide })));
-    if (extra.length) place(new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.05, 0.75, 6), new THREE.MeshLambertMaterial({ color: 0x8a8f96 }), extra.length), extra);
+    this.knockMeshes.board = boards;
+    this.bladeText = geo; // (blade k's name: vertices k*12 .. k*12+11)
+    if (extra.length) this.knockMeshes.extra = place(new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.05, 0.75, 6), new THREE.MeshLambertMaterial({ color: 0x8a8f96 }), extra.length), extra);
     this.nameBlades = blades.length;
   }
 
@@ -617,6 +633,124 @@ export class Streets {
       this.paintT = 0.2;
       this.paintSignals();
     }
+    this.knockSigns(dt);
+  }
+
+  // ---- Stop and yield signs: drive into one and over it goes ----
+  // A car (yours or anyone's, near you) that hits a sign's post bends it over, flat out along the
+  // way the car was going, the street names on top going with it; the car hardly slows. On foot
+  // you can't walk through a standing one. They're put back once you're well away.
+  knockSigns(dt) {
+    const game = this.game;
+    if (!this.knockables?.length) return;
+    if (!this.knockGrid) {
+      this.knockGrid = new Map();
+      for (const k of this.knockables) {
+        const key = `${Math.floor(k.x / 24)},${Math.floor(k.z / 24)}`;
+        if (!this.knockGrid.has(key)) this.knockGrid.set(key, []);
+        this.knockGrid.get(key).push(k);
+      }
+    }
+    const near = (x, z) => {
+      const out = [];
+      const i = Math.floor(x / 24);
+      const j = Math.floor(z / 24);
+      for (let a = i - 1; a <= i + 1; a++) for (let b = j - 1; b <= j + 1; b++) out.push(...(this.knockGrid.get(`${a},${b}`) || []));
+      return out;
+    };
+    const [px, pz] = game.player.pos();
+    for (const v of game.vehicles) {
+      if (v.removed || v.exploded || v.high || Math.abs(v.speed) < 1.5) continue;
+      if (Math.abs(v.x - px) > 120 || Math.abs(v.z - pz) > 120) continue;
+      for (const k of near(v.x, v.z)) {
+        if (k.down) continue;
+        if (v.circles().some(([cx, cz]) => Math.hypot(cx - k.x, cz - k.z) < v.radius + 0.12)) this.knockSign(k, v);
+      }
+    }
+    // (on foot: the post's in the way)
+    const p = game.player;
+    if (!p.vehicle) {
+      for (const k of near(p.x, p.z)) {
+        if (k.down) continue;
+        const d = Math.hypot(p.x - k.x, p.z - k.z);
+        const r = 0.4;
+        if (d < r && d > 1e-4) {
+          p.x = k.x + ((p.x - k.x) / d) * r;
+          p.z = k.z + ((p.z - k.z) / d) * r;
+        }
+      }
+    }
+    // (back up once you're well away)
+    this.knockResetT = (this.knockResetT ?? 5) - dt;
+    if (this.knockResetT <= 0) {
+      this.knockResetT = 5;
+      for (const k of this.knockables) {
+        if (k.down && game.time - k.downT > 120 && Math.hypot(k.x - px, k.z - pz) > 150) this.poseSign(k, null);
+      }
+    }
+  }
+
+  knockSign(k, v) {
+    const game = this.game;
+    const [fx, fz] = v.forward();
+    const s = Math.sign(v.speed) || 1;
+    const dx = fx * s;
+    const dz = fz * s;
+    // (over it goes, the way the car was going, the post bent flat at its foot, shoved along)
+    const ang = Math.PI / 2 - 0.08 - Math.random() * 0.15;
+    const axis = new THREE.Vector3(dz, 0, -dx).normalize();
+    const base = new THREE.Vector3(k.x, k.y, k.z);
+    const shove = Math.min(2.5, 0.6 + Math.abs(v.speed) * 0.08);
+    const M = new THREE.Matrix4().makeTranslation(base.x + dx * shove, base.y + 0.06, base.z + dz * shove)
+      .multiply(new THREE.Matrix4().makeRotationAxis(axis, ang))
+      .multiply(new THREE.Matrix4().makeRotationY((Math.random() - 0.5) * 0.4))
+      .multiply(new THREE.Matrix4().makeTranslation(-base.x, -base.y, -base.z));
+    k.down = true;
+    k.downT = game.time;
+    this.poseSign(k, M);
+    v.speed *= 0.94;
+    if (v.driver === 'player') v.crash = Math.max(v.crash || 0, 2);
+    game.carDamage?.dent(v, k.x, k.z, -dx, -dz, Math.min(9, Math.abs(v.speed) * 0.45)); // (a small ding in the bumper)
+    game.sfx?.thud?.();
+    for (let i = 0; i < 4; i++) game.effects?.sprite(k.x, k.y + 0.6, k.z, { color: 0xc0392b, size: 0.12, life: 0.5, vx: dx * 3 + (Math.random() - 0.5) * 2, vy: 2, vz: dz * 3 + (Math.random() - 0.5) * 2 });
+  }
+
+  // Put a sign's pieces down by M (a matrix about its foot), or back as they were (M null).
+  poseSign(k, M) {
+    const tmp = new THREE.Matrix4();
+    k.orig ||= {};
+    for (const [key, i] of k.refs) {
+      const mesh = this.knockMeshes[key];
+      if (!mesh) continue;
+      const id = `${key}${i}`;
+      if (!k.orig[id]) {
+        k.orig[id] = new THREE.Matrix4();
+        mesh.getMatrixAt(i, k.orig[id]);
+      }
+      mesh.setMatrixAt(i, M ? tmp.multiplyMatrices(M, k.orig[id]) : k.orig[id]);
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.boundingSphere = null; // (moved: recomputed next frame)
+      mesh.frustumCulled = false;
+    }
+    // (the names on the blades)
+    if (k.blades?.length && this.bladeText) {
+      const P = this.bladeText.attributes.position;
+      k.origText ||= k.blades.map((b) => Array.from(P.array.slice(b * 36, b * 36 + 36)));
+      const v3 = new THREE.Vector3();
+      k.blades.forEach((b, j) => {
+        const o = k.origText[j];
+        for (let q = 0; q < 12; q++) {
+          v3.set(o[q * 3], o[q * 3 + 1], o[q * 3 + 2]);
+          if (M) v3.applyMatrix4(M);
+          P.array[b * 36 + q * 3] = v3.x;
+          P.array[b * 36 + q * 3 + 1] = v3.y;
+          P.array[b * 36 + q * 3 + 2] = v3.z;
+        }
+      });
+      P.needsUpdate = true;
+      this.bladeText.computeBoundingSphere();
+    }
+    if (!M) k.down = false;
   }
 }
 

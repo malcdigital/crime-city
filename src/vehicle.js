@@ -4,6 +4,11 @@ import { pushCircle } from './collision.js';
 import { clamp, lerp, wrapAngle } from './util.js';
 import { carModel, driverGeometry, trimMat, glassMat, insideMat, setInsideNight } from './carmodels.js';
 
+// Crash damage (src/cardamage.js, set up by main.js): dent(v, x, z, dx, dz, strength) at a
+// world point where the car was hit, (dx, dz) the way into the car, strength in m/s.
+export const CRASH = { dent: null };
+const dentGap = new WeakMap(); // (a pair of cars grinding together: one dent every so often, not every frame)
+
 export const VTYPES = {
   sedan: { armor: 5, w: 1.86, l: 4.65, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 30, accel: 9, brake: 20, rev: 8, value: 900, label: 'Sedan',
     colors: [0x2a4d8f, 0x8f2a2a, 0xd0d0d0, 0x333333, 0x2f6b4f, 0xc9a227, 0x7a7a7a] },
@@ -56,6 +61,7 @@ const headMat = new THREE.MeshBasicMaterial({ color: 0xd9d3b8 });
 const headOffMat = new THREE.MeshBasicMaterial({ color: 0xb8b4a6 });
 const tailMat = new THREE.MeshBasicMaterial({ color: 0x6e1a15 });
 const tailOffMat = new THREE.MeshBasicMaterial({ color: 0x5a1612 }); // nobody at the wheel
+const brokenLightMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2c }); // (smashed in a crash: cardamage.js)
 const brakeMat = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
 const amberMat = new THREE.MeshBasicMaterial({ color: 0xffa020 });
 let NIGHT = 0;
@@ -180,10 +186,13 @@ export class Vehicle {
     const trim = new THREE.Mesh(M.trim, trimMat);
     trim.castShadow = true;
     g.add(trim, new THREE.Mesh(M.inside, insideMat)); // (the cabin: seats, dash, wheel, floor)
+    this.bodyMesh = body;
+    this.trimMesh = trim;
     if (M.glass) {
       const glass = new THREE.Mesh(M.glass, glassMat);
       glass.renderOrder = 2;
       g.add(glass);
+      this.glassMesh = glass;
     }
     if (this.typeName === 'swat' || this.typeName === 'police') {
       this.lightR = new THREE.MeshBasicMaterial({ color: 0x550000 });
@@ -303,14 +312,14 @@ export class Vehicle {
     const head = on && NIGHT > 0.15;
     if (head !== this.headOn) {
       this.headOn = head;
-      for (const m of this.heads) m.material = head ? headMat : headOffMat;
+      for (const m of this.heads) m.material = m.userData.broken ? brokenLightMat : head ? headMat : headOffMat;
     }
     // Hazards blink amber; otherwise brake lights.
     this.blinkT = (this.blinkT || 0) + dt;
     const tail = this.hazard ? (Math.floor(this.blinkT * 1.6) % 2 === 0 ? amberMat : tailMat) : !on ? tailOffMat : this.braking ? brakeMat : tailMat;
     if (tail !== this.tailNow) {
       this.tailNow = tail;
-      for (const m of this.tails) m.material = tail;
+      for (const m of this.tails) m.material = m.userData.broken ? brokenLightMat : tail;
     }
     if (!this.glow && (head || this.siren)) this.buildGlow();
     if (this.glow) this.glow.visible = head;
@@ -733,6 +742,21 @@ export class Vehicle {
       const vn = ((fx * nx + fz * nz) / nl) * this.speed;
       if (vn < -1) {
         this.crash = Math.max(this.crash, -vn);
+        // (dented where it hit: the side of the car facing the wall)
+        const now = performance.now();
+        if (-vn > 4 && CRASH.dent && now - (this.wallDentAt || 0) > 250) {
+          this.wallDentAt = now;
+          const ux = nx / nl;
+          const uz = nz / nl;
+          const R = Math.max(this.type.w / 2, Math.min(this.halfLen, this.radius));
+          let best = null;
+          for (const [cx, cz] of this.circles()) {
+            const q = [cx - ux * this.radius, cz - uz * this.radius];
+            if (!best || (q[0] - this.x) * -ux + (q[1] - this.z) * -uz > (best[0] - this.x) * -ux + (best[1] - this.z) * -uz) best = q;
+          }
+          void R;
+          CRASH.dent(this, best[0], best[1], ux, uz, -vn);
+        }
         this.speed *= 0.35;
         if (-vn > 12) this.damage((-vn - 12) * 2.5, false);
       }
@@ -815,6 +839,7 @@ export class Vehicle {
       if (!w.userData.flat) w.rotation.x += (spin * dt) / (w.userData.r || 0.38);
       else w.rotation.x = 0; // a flat tire is squashed at the bottom, not spinning
       if (w.userData.front) w.rotation.y = -this.steerVis; // positive steer is a right turn
+      if (w.userData.camber) w.rotation.z = w.userData.camber; // (bent in a crash: cardamage.js)
     }
     if (this.doors) {
       for (const d of Object.values(this.doors)) {
@@ -840,6 +865,7 @@ export class Vehicle {
   dispose() {
     this.scene.remove(this.group);
     this.removed = true;
+    if (this.dmg) for (const d of this.dmg.parts) d.mesh.geometry.dispose(); // (its own dented copies)
   }
 }
 
@@ -864,7 +890,11 @@ export function resolveCarCollisions(cars, onHit) {
           const npc = (q) => q.driver && q.driver !== 'player';
           if (min - d < 0.35 && ((A.parkSpot && npc(Bc)) || (Bc.parkSpot && npc(A)))) continue;
           // Measure the impact before anything slows down.
-          const rel = Math.abs(A.speed - Bc.speed);
+          // (how fast they're closing: head-on and T-bones count in full, not just the
+          // difference in speedometer readings)
+          const [afx, afz] = A.forward();
+          const [bfx, bfz] = Bc.forward();
+          const rel = Math.hypot(afx * A.speed - bfx * Bc.speed, afz * A.speed - bfz * Bc.speed);
           // Parked roadblock cars are heavy: whatever hits them does most of the moving.
           const wa = A.heavy && !Bc.heavy ? 0.1 : Bc.heavy && !A.heavy ? 0.9 : 0.5;
           const ux = ddx / d;
@@ -878,6 +908,16 @@ export function resolveCarCollisions(cars, onHit) {
             mover.speed *= 0.6;
           }
           if (rel > 3 && onHit) onHit(A, Bc, rel);
+          // (dented where they met, both of them)
+          if (rel > 4 && CRASH.dent) {
+            const now = performance.now();
+            const gaps = dentGap.get(A) || dentGap.set(A, new Map()).get(A);
+            if (now - (gaps.get(Bc) || 0) > 350) {
+              gaps.set(Bc, now);
+              CRASH.dent(A, ax + ux * A.radius * 0.9, az + uz * A.radius * 0.9, -ux, -uz, rel);
+              CRASH.dent(Bc, bx - ux * Bc.radius * 0.9, bz - uz * Bc.radius * 0.9, ux, uz, rel);
+            }
+          }
           // Crash damage. Bumps between computer-driven cars are gentler so they don't
           // wreck each other on their own.
           const involvesPlayer = A.driver === 'player' || Bc.driver === 'player';

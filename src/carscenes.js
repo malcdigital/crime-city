@@ -118,6 +118,106 @@ function place(c, x, y, z, yaw) {
   c.group.rotation.set(0, yaw, 0);
 }
 
+// ---- Walking up to a car ----
+// A walk from where you are to a spot by the car (local [x, z]): around its corners if the
+// straight line would cut through it, at a walking pace that picks up and slows to a stop, the
+// stride matched to the ground covered (no sliding feet), turning smoothly as the path bends
+// and squaring up to face at the end. Worked out once: { len, at(t) -> { x, z, yaw, phase,
+// amt } }.
+function walkTo(v, F, from, local, face) {
+  const L = v.type.l / 2 + 0.55;
+  const W = v.type.w / 2 + 0.5;
+  // (in the car's frame: where you start, where you're going)
+  const c = Math.cos(v.heading);
+  const s = Math.sin(v.heading);
+  const toLocal = (x, z) => {
+    const dx = x - v.x;
+    const dz = z - v.z;
+    return [dx * c - dz * s, dx * s + dz * c];
+  };
+  const P0 = toLocal(...from);
+  const P1 = local;
+  const inside = (x, z) => Math.abs(x) < W - 0.05 && Math.abs(z) < L - 0.05;
+  const crosses = (a, b) => {
+    for (let k = 1; k < 20; k++) if (inside(a[0] + ((b[0] - a[0]) * k) / 20, a[1] + ((b[1] - a[1]) * k) / 20)) return true;
+    return false;
+  };
+  let pts = [P0, P1];
+  if (crosses(P0, P1)) {
+    // Round the car: the corners, clockwise and the other way, whichever's shorter.
+    const C = [[W, L], [W, -L], [-W, -L], [-W, L]];
+    const near = (p) => C.reduce((bi, q, i) => (Math.hypot(q[0] - p[0], q[1] - p[1]) < Math.hypot(C[bi][0] - p[0], C[bi][1] - p[1]) ? i : bi), 0);
+    const i0 = near(P0);
+    const i1 = near(P1);
+    let best = null;
+    for (const dir of [1, -1]) {
+      const way = [P0];
+      for (let i = i0; ; i = (i + dir + 4) % 4) {
+        way.push(C[i]);
+        if (i === i1) break;
+      }
+      way.push(P1);
+      // (skip a first corner you can cut past, and a last one)
+      while (way.length > 2 && !crosses(way[0], way[2])) way.splice(1, 1);
+      while (way.length > 2 && !crosses(way[way.length - 3], way[way.length - 1])) way.splice(way.length - 2, 1);
+      const len = way.slice(1).reduce((t, q, k) => t + Math.hypot(q[0] - way[k][0], q[1] - way[k][1]), 0);
+      if (!best || len < best.len) best = { way, len };
+    }
+    pts = best.way;
+  }
+  const world = pts.map((q) => F.w(...q));
+  // Walk it: up to speed, along, down to a stop at the end (sampled every 1/60 s).
+  const segs = [];
+  let total = 0;
+  for (let k = 0; k + 1 < world.length; k++) {
+    const d = Math.hypot(world[k + 1][0] - world[k][0], world[k + 1][1] - world[k][1]);
+    segs.push({ a: world[k], b: world[k + 1], d, s0: total });
+    total += d;
+  }
+  const V = 2.1; // (m/s: a brisk walk)
+  const ACC = 4.5;
+  const S = [];
+  let d = 0;
+  let vel = 0;
+  let yaw = total > 0.05 ? Math.atan2(world[1][0] - world[0][0], world[1][1] - world[0][1]) : face;
+  let phase = 0;
+  const posAt = (dd) => {
+    const sg = segs.find((q) => dd <= q.s0 + q.d) || segs[segs.length - 1];
+    if (!sg) return world[0];
+    const k = sg.d > 0 ? Math.min(1, (dd - sg.s0) / sg.d) : 1;
+    return [sg.a[0] + (sg.b[0] - sg.a[0]) * k, sg.a[1] + (sg.b[1] - sg.a[1]) * k];
+  };
+  const dt = 1 / 60;
+  for (let i = 0; i < 1200; i++) {
+    const left = total - d;
+    const want = Math.min(V, Math.sqrt(Math.max(0, 2 * ACC * 0.8 * left)));
+    vel = want > vel ? Math.min(want, vel + ACC * dt) : want;
+    d = Math.min(total, d + vel * dt);
+    const [x, z] = posAt(d);
+    // (heading: along the path, a little ahead; squaring up to the car over the last stretch)
+    const [ax, az] = posAt(Math.min(total, d + 0.6));
+    const along = Math.hypot(ax - x, az - z) > 0.05 ? Math.atan2(ax - x, az - z) : yaw;
+    const want2 = angLerp(along, face, 1 - Math.min(1, left / 0.7));
+    yaw = angLerp(yaw, want2, Math.min(1, dt * 9));
+    phase += (vel * dt) / 0.36; // (one stride ~ 2.3 m: two steps)
+    S.push({ x, z, yaw, phase, amt: Math.min(1, vel / 1.6) });
+    if (left < 0.005 && vel < 0.05 && Math.abs(Math.atan2(Math.sin(yaw - face), Math.cos(yaw - face))) < 0.05) break;
+  }
+  if (!S.length) S.push({ x: world[0][0], z: world[0][1], yaw: face, phase: 0, amt: 0 });
+  const len = (S.length - 1) / 60;
+  return {
+    len,
+    at(t) {
+      const f = Math.max(0, Math.min(S.length - 1, t * 60));
+      const i = Math.floor(f);
+      const q = S[i];
+      const r = S[Math.min(S.length - 1, i + 1)];
+      const k = f - i;
+      return { x: lerp(q.x, r.x, k), z: lerp(q.z, r.z, k), yaw: angLerp(q.yaw, r.yaw, k), phase: lerp(q.phase, r.phase, k), amt: lerp(q.amt, r.amt, k) };
+    },
+  };
+}
+
 // ---- Shared bits for in and out ----
 // A point on the door, in the door's own frame (from its hinge: x out, y up, z back along it),
 // out in the world as the door is now (open, shut, swinging).
@@ -240,7 +340,7 @@ function seatFit(c, fit, k) {
 // roof edge, swing your legs in and turn to the wheel, sit back, and pull the door shut by its
 // inside pull. Done: sitting in the seat (the caller swaps you for the seated driver: vehicle.js).
 // fromDuck: start from stepping into the opening (the door's open already: a carjacking).
-export function enterCar(c, v, side = -1, { from = null, groundY = null, fromDuck = false, onDone = null } = {}) {
+export function enterCar(c, v, side = -1, { from = null, groundY = null, fromDuck = false, onDone = null, slide = false } = {}) {
   const F = carFrame(v);
   const S = doorSpot(v, side);
   const sx = S.sx;
@@ -258,19 +358,21 @@ export function enterCar(c, v, side = -1, { from = null, groundY = null, fromDuc
   const faceCar = F.yaw(-sx, 0);
   const faceSit = F.yaw(sx, 0.35); // (back to the seat)
   const faceFwd = F.yaw(0, 1);
-  const walk0 = Math.atan2(ax - start[0], az - start[1]);
-  const walkLen = Math.min(0.9, Math.hypot(ax - start[0], az - start[1]) / 3.2 + 0.1);
-  const W = walkLen;
+  const path = walkTo(v, F, start, A, faceCar);
+  const W = path.len;
   const T = none
     ? { reach: W, open: W, let: W, step: W, sit: W + 0.35, swing: W + 0.85, close: W + 1.1, shut: W + 1.25, end: W + 1.45 }
-    : { reach: W, open: W + 0.15, let: W + 0.6, step: W + 0.95, sit: W + 1.45, swing: W + 1.85, close: W + 1.75, shut: W + 2.05, end: W + 2.25 };
+    : { reach: W, open: W + 0.12, let: W + 0.52, step: W + 0.84, sit: W + 1.27, swing: W + 1.62, close: W + 1.52, shut: W + 1.78, end: W + 1.95 };
+  // (in by the passenger's door: once it's shut, slide across into the driver's seat)
+  T.fin = slide ? T.end + 0.75 : T.end;
+  const [dsX, dsZ] = F.w(-S.seat[0], S.seat[2]);
   let fit = null;
   const hand = sx > 0 ? 'L' : 'R';
   const far = sx > 0 ? 'R' : 'L';
   const t0 = fromDuck ? T.let : 0;
   let opened = fromDuck || none;
   let closed = false;
-  const sc0 = new Scene(T.end - t0, (tt) => {
+  const sc0 = new Scene(T.fin - t0, (tt) => {
     const t = tt + t0;
     rest(c);
     let x;
@@ -279,13 +381,14 @@ export function enterCar(c, v, side = -1, { from = null, groundY = null, fromDuc
     let yaw;
     let bend = 0;
     let seatK = 0;
+    let slideLean = 0;
     if (t < T.reach) {
-      // (walking up behind the door)
-      const k = ease(seg(t, 0, T.reach));
-      x = lerp(start[0], ax, k);
-      z = lerp(start[1], az, k);
-      yaw = angLerp(walk0, faceCar, seg(t, T.reach * 0.55, T.reach));
-      animateWalk(c, t * 10, 0.8 * (1 - seg(t, T.reach * 0.7, T.reach)));
+      // (walking up behind the door: round the car if need be)
+      const w = path.at(t);
+      x = w.x;
+      z = w.z;
+      yaw = w.yaw;
+      animateWalk(c, w.phase, 0.85 * w.amt);
     } else if (t < T.step) {
       // (pulling it open, then a step into the opening, turning the back to the seat)
       const k = ease(seg(t, T.let, T.step));
@@ -313,9 +416,17 @@ export function enterCar(c, v, side = -1, { from = null, groundY = null, fromDuc
       sitPose(c, 1);
       bend = lerp(0.75, 0, k);
       seatK = k;
+      if (slide && t > T.end) {
+        // (across the console: hips up a little, leaning the way you're going)
+        const q = ease(seg(t, T.end, T.fin));
+        x = lerp(seatX, dsX, q);
+        z = lerp(seatZ, dsZ, q);
+        y = seatY + Math.sin(q * Math.PI) * 0.06;
+        slideLean = Math.sin(q * Math.PI) * 0.3 * -sx;
+      }
     }
     place(c, x, y, z, yaw);
-    bendSpine(c, bend, 0, 0);
+    bendSpine(c, bend, 0, slideLean);
     c.neck.rotation.set(Math.max(0, bend) * 0.3, 0, 0);
     if (seatK > 0) {
       if (!fit) {
@@ -361,7 +472,7 @@ export function enterCar(c, v, side = -1, { from = null, groundY = null, fromDuc
     }
     sc0.pos = [x, z];
     sc0.yaw = yaw;
-    if (tt >= T.end - t0 && onDone) onDone();
+    if (tt >= T.fin - t0 && onDone) onDone();
   });
   return sc0;
 }
@@ -486,8 +597,8 @@ export function jackCar(j, victim, v, side = -1, { from = null, groundY = null, 
   const vgy = groundY ? groundY(downX, downZ) : F.y;
   const faceCar = F.yaw(-S.sx, 0);
   const faceFwd = F.yaw(0, 1);
-  const walk0 = Math.atan2(sxw - start[0], szw - start[1]);
-  const walkLen = Math.min(0.45, Math.hypot(sxw - start[0], szw - start[1]) / 4.5 + 0.1);
+  const path = walkTo(v, F, start, S.stand, faceCar);
+  const walkLen = Math.max(0.15, path.len);
   const T = { yank: walkLen, grab: walkLen + 0.3, pull: walkLen + 0.65, out: walkLen + 1.15, fall: walkLen + 1.2, down: walkLen + 2.3, enter: walkLen + 1.45 };
   // (then the way in: the enter scene from its duck on, from where j's standing)
   let enter = null;
@@ -536,11 +647,11 @@ export function jackCar(j, victim, v, side = -1, { from = null, groundY = null, 
       let z = szw;
       let yaw = faceCar;
       if (t < T.yank) {
-        const k = ease(seg(t, 0, T.yank));
-        x = lerp(start[0], sxw, k);
-        z = lerp(start[1], szw, k);
-        yaw = angLerp(walk0, faceCar, seg(t, T.yank * 0.5, T.yank));
-        animateWalk(j, t * 12, 0.9);
+        const w = path.at(t);
+        x = w.x;
+        z = w.z;
+        yaw = w.yaw;
+        animateWalk(j, w.phase, 0.9 * w.amt);
       } else {
         // (leaning in, then hauling back and to the side)
         const haul = ease(seg(t, T.pull, T.out));
