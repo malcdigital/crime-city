@@ -1,4 +1,5 @@
 import { startGroggy, stepGroggy } from './groggy.js';
+import { callForHelp, aidStep } from './aid.js';
 import { GANG_NAME, CREW_NAME } from './config.js';
 import { aimPose, lowReady, flinchPose, fallFace, markFlinch, kneelPose } from './combatpose.js';
 import * as THREE from 'three';
@@ -545,9 +546,44 @@ export class GangFighter {
     this.char.group.rotation.y = this.heading + this.twS;
   }
 
+  // Who's on our side, for helping each other up (aid.js): the same turf-war gang, the
+  // rival corner crew, or your own crew.
+  homies() {
+    const g = this.game;
+    if (this.isSoldier) return this.mgr.soldiers.filter((s) => s.gangId === this.gangId);
+    if (this.isGang) return g.gang.members;
+    return g.crew.members;
+  }
+
+  // Who'd hurt us here and now.
+  hostiles() {
+    const g = this.game;
+    if (this.enemies) return this.enemies();
+    if (this.isGang) return g.gang.angry ? g.playerFaction() : [];
+    return g.crewEnemies?.() || [];
+  }
+
+  aidThreat() {
+    return this.hostiles().some((h) => dist(h.x, h.z, this.x, this.z) < 15);
+  }
+
+  get aidSpeed() {
+    return 5;
+  }
+
+  // Knocked out cold: the nearest homie who isn't caught up in a fight comes to pick him up,
+  // once nobody hostile is standing over him.
+  callForHelp() {
+    const g = this.game;
+    if (this.hostiles().some((h) => dist(h.x, h.z, this.x, this.z) < 20)) return void (this.helpT = g.time + 1);
+    const ok = (o) => o.alive && o.standing && o.state !== 'inCar' && !o.boarding && !o.taxing && !o.ko && !o.aidThreat();
+    callForHelp(this, g, this.homies(), ok);
+  }
+
   // Frame update for the down / dead states. Returns true if handled.
   updateDown(dt) {
     if (this.groggy && stepGroggy(this, dt, this.game)) return true;
+    if (this.aid && aidStep(this, dt, this.game)) return true; // (helping a homie up: aid.js)
     if (this.state === 'dead') {
       this.t -= dt;
       this.place();
@@ -555,13 +591,21 @@ export class GangFighter {
     }
     if (this.state === 'down') {
       this.t -= dt;
+      if (this.ko && !this.helper && this.game.time > (this.helpT || 0)) this.callForHelp();
       if (this.t <= 0 && this.ko) {
         // (knocked out cold: comes round groggy, stumbles about, then has nothing left and gets
-        // out of there; groggy.js)
+        // out of there; groggy.js. Brought round by a homie (aid.js) he stays, shaken.)
+        const helped = !!this.helper;
+        this.downT = 0;
         startGroggy(this, 'idle', () => {
+          if (helped) {
+            this.heart = 0.4 * this.baseHeart; // (shaken, but his boy's got him: he stays)
+            if (this.behavior === 'flee') this.behavior = null;
+            return;
+          }
           this.heart = 0;
           if (this.behavior !== undefined) this.behavior = 'flee';
-        });
+        }, helped);
         stepGroggy(this, dt, this.game);
         return true;
       }
