@@ -57,7 +57,7 @@ import { stepFalls } from './character.js';
 import { Shops } from './shops.js';
 import { Interiors } from './interiors.js';
 import { enterCar, exitCar, jackCar } from './carscenes.js';
-import { makePerson, restPose } from './character.js';
+import { makePerson, restPose, bendSpine } from './character.js';
 // (back on your feet after a scene: upright, the joints at rest)
 const restoreStanding = (c) => {
   restPose(c);
@@ -498,6 +498,8 @@ class Game {
   // a dirty cop: you get a moment to read him first (see updateStop).
   bust(opts = {}) {
     if (this.stop) return;
+    if (this.struggle) return; // (they're still wrestling you: updateStruggle decides)
+    if (this.resisted) opts = { ...opts, final: true, resisting: true }; // (you fought them: no deals now)
     if (!opts.final && this.canStop()) return this.startStop();
     this.president.win(3, 'Arrests');
     const [bx, bz] = this.player.pos();
@@ -524,7 +526,7 @@ class Game {
     const [px, pz] = this.player.pos();
     const list = this.police.officers().filter((o) => (o.standing || o.state === 'inCar') && dist(o.x, o.z, px, pz) < 40);
     list.sort((p, q) => dist(p.x, p.z, px, pz) - dist(q.x, q.z, px, pz));
-    return list.slice(0, 4);
+    return list.slice(0, 3); // (three at most come to you; arrestPlay sends the rest to their cars)
   }
 
   // How it goes: you fought them (beaten), you were in a car (slammed on it), a big chase
@@ -579,12 +581,21 @@ class Game {
     });
     S.kind = kind;
     S.officers = officers;
+    // (everyone else on foot hangs back: down behind their cruisers, guns on you)
+    for (const o of this.police.officers()) {
+      if (officers.includes(o) || !o.standing || dist(o.x, o.z, px, pz) > 60) continue;
+      o.grabbing = false;
+      o.coverStill(px, pz);
+    }
     S.update(0);
     [p.x, p.z] = S.pos;
     return S;
   }
 
   afterBust() {
+    this.brawl = null;
+    this.struggle = null;
+    this.resisted = false;
     if (this.arrestS) {
       this.arrestS.clear();
       restoreStanding(this.player.char);
@@ -1879,7 +1890,7 @@ class Game {
       this.progress = this.drugs.progress;
     }
 
-    if (p.busy || p.scene) return; // tumbling / getting up / getting in or out of a car
+    if (p.busy || p.scene || this.struggle) return; // tumbling / getting up / getting in or out of a car
     if (p.vehicle) {
       const v = p.vehicle;
       // Getting out: stopped -> step out; 30 mph or less -> brake hard to a stop first;
@@ -2378,16 +2389,20 @@ class Game {
     p.heading = Math.atan2(cop.x - p.x, cop.z - p.z);
     this.sfx.punch?.();
     // Odds: about 2 in 3, a little better with more street cred.
-    const win = Math.random() < Math.min(0.8, 0.62 + this.cred / 4000);
+    const win = Math.random() < Math.min(0.93, 0.82 + this.cred / 6000);
     if (win) {
       cop.knockDown(px, pz, 1.5);
+      cop.t = Math.max(cop.t, 7); // (out cold a while)
+      this.shakeCamera(0.25, 0.2);
       if (s.dirty) {
         this.hud.toast(`You drop ${who.replace('The officer', 'the officer')}. He won't be reporting this. Go!`, '#ffd36b');
         this.cred += 6;
         this.police.standDown();
       } else {
+        // The rest come at you to take you down (no shooting unless you pull a gun): see brawl.
         this.crime('assaultCop', cop.x, cop.z);
-        this.hud.toast(`You drop ${who.replace('The officer', 'the officer')}. Run!`, '#ff8080');
+        this.startBrawl();
+        this.hud.toast(`You knock ${who.replace('The officer', 'the officer')} out cold. "Officer down! Take him down!"`, '#ff8080');
       }
       this.save();
       return;
@@ -2409,6 +2424,113 @@ class Game {
     this.health = Math.max(15, this.health - 15);
     this.hud.toast(`${who} takes you down. "Stop resisting!"`, '#ff8080');
     this.bust({ final: true, resisting: true });
+  }
+
+  // ---- A scuffle with the police ----
+  // You swung on an officer: the others rush you to tackle you and cuff you, no guns (unless
+  // you pull one). When one gets hold of you, it's a struggle: mash ✕ / E / USE to break free;
+  // every extra officer hanging on makes it harder, and so does every time you've broken free
+  // already. Break free and you throw them off and run (they're down a few seconds; then it's
+  // a chase, and if they catch you again it's another struggle). Lose and they beat you down
+  // and cuff you (arrestscenes.js 'beaten').
+  startBrawl() {
+    this.brawl = { str: 1, breaks: 0 };
+    this.resisted = true;
+    this.stars = Math.max(this.stars, 2);
+    this.lethalFlag = false;
+    this.lastSeen = this.time;
+    for (const o of this.police.officers()) if (o.state === 'inCar' && dist(o.x, o.z, ...this.player.pos()) < 40) o.dismount(1);
+  }
+
+  grabbedBy(o) {
+    if (this.bustedT > 0 || this.wastedT > 0 || this.player.vehicle) return;
+    if (!this.struggle) {
+      this.struggle = { cops: [], meter: 0.5, t: 0 };
+      this.player.crouched = false;
+      this.player.leaveCover?.();
+      this.hud.toast('"Stop resisting!"', '#ff8080');
+    }
+    if (!this.struggle.cops.includes(o)) {
+      this.struggle.cops.push(o);
+      o.grabbing = true;
+      if (this.struggle.cops.length > 1) this.struggle.meter = Math.max(0.2, this.struggle.meter - 0.05); // (another one piles on)
+      this.shakeCamera(0.15, 0.15);
+    }
+  }
+
+  updateStruggle(dt, a) {
+    const S = this.struggle;
+    const B = this.brawl;
+    const p = this.player;
+    S.t += dt;
+    S.cops = S.cops.filter((o) => o.standing && o.grabbing);
+    if (!S.cops.length) {
+      this.struggle = null;
+      return;
+    }
+    const n = S.cops.length;
+    const str = B ? B.str : 1;
+    S.meter -= dt * (0.12 + 0.1 * n) * str * (S.t < 0.5 ? 0.3 : 1); // (a beat to react)
+    if (a.dealYes) S.meter += 0.085;
+    const key = this.input.touchMode || this.input.mode === 'pad' ? '✕' : 'E';
+    S.ui = { value: Math.max(0, Math.min(1, S.meter)), label: `BREAK FREE: mash ${key}${n > 1 ? ` (${n} on you)` : ''}` };
+    S.say = `${n > 1 ? `${n} officers have` : 'An officer has'} hold of you. Mash ${key} to break free`;
+    this.askedAt = this.time; // (the phone shows its button)
+    // (you, fighting it: twisting and shoving)
+    const c = p.char;
+    restPose(c);
+    for (const j of ['armL', 'armR', 'elbowL', 'elbowR']) c[j].rotation.set(0, 0, 0);
+    const tw = Math.sin(S.t * 9) * 0.45;
+    bendSpine(c, 0.3 + Math.sin(S.t * 5) * 0.1, tw, 0);
+    c.armL.rotation.set(-1.0 + Math.sin(S.t * 13) * 0.4, 0, 0.5);
+    c.armR.rotation.set(-0.9 + Math.cos(S.t * 12) * 0.4, 0, -0.5);
+    c.elbowL.rotation.set(-1.2, 0, 0);
+    c.elbowR.rotation.set(-1.2, 0, 0);
+    p.sync();
+    const [px, pz] = p.pos();
+    if (S.meter >= 1) {
+      // Free: you throw them off and run.
+      for (const o of S.cops) {
+        o.grabbing = false;
+        o.knockDown(px, pz, 2.2);
+        o.t = 2.4 + Math.random() * 0.8;
+      }
+      this.struggle = null;
+      restoreStanding(c);
+      if (B) {
+        B.breaks++;
+        B.str *= 1.3;
+      }
+      this.stars = Math.max(this.stars, 2);
+      this.lastSeen = this.time;
+      this.shakeCamera(0.3, 0.25);
+      this.sfx.punch?.();
+      this.hud.toast('You break free! RUN!', '#ffd36b');
+      return;
+    }
+    if (S.meter <= 0) {
+      // They've got you.
+      for (const o of S.cops) o.grabbing = false;
+      this.struggle = null;
+      restoreStanding(c);
+      this.health = Math.max(15, this.health - 15);
+      this.hud.toast('They wrestle you down. "Stop resisting!"', '#ff8080');
+      this.bust({ final: true, resisting: true });
+    }
+  }
+
+  // Who comes to you while there's a stop or a scuffle (police.js): the three nearest officers
+  // on foot (the one doing the stop first); everyone else hangs back by the cars.
+  pickApproachers() {
+    const busy = this.stop || this.brawl || this.enforce?.footStop;
+    if (!busy || this.lethal) {
+      this.approachers = null;
+      return;
+    }
+    const [px, pz] = this.player.pos();
+    const list = this.police.officers().filter((o) => o.standing);
+    list.sort((p, q) => (q.script ? 1 : 0) - (p.script ? 1 : 0) || dist(p.x, p.z, px, pz) - dist(q.x, q.z, px, pz));
+    this.approachers = new Set(list.slice(0, 3));
   }
 
   // City News now and then: Internal Affairs looking at a dirty officer (remember the names).
@@ -2748,6 +2870,8 @@ class Game {
           p.sync();
         }
       }
+    } else if (this.struggle) {
+      this.updateStruggle(dt, a); // (an officer has hold of you: break free or go down)
     } else if (p.busy) {
       p.updateRolling(dt);
     } else {
@@ -2799,7 +2923,20 @@ class Game {
     this.playground.update(dt);
     this.checkRunOver();
     this.handleInteractions(dt, a);
+    if (this.struggle?.ui) {
+      this.progress = this.struggle.ui; // (handleInteractions clears it)
+      this.prompt = this.struggle.say;
+    }
     this.updateSurrender(dt, a);
+    if (this.brawl && (this.stars === 0 || this.bustedT > 0 || this.wastedT > 0)) this.brawl = null;
+    if (this.brawl && !this.lethalFlag) {
+      // (a scuffle stays a scuffle: two stars, no guns, unless you pull one)
+      this.heat = Math.min(this.heat, CFG.STAR_HEAT[2] - 0.01);
+      this.stars = Math.min(this.stars, 2);
+    }
+    if (!this.brawl && this.stars === 0) this.resisted = false;
+    this.pickApproachers();
+    document.body.classList.toggle('struggle-on', !!this.struggle); // (the news pop-up keeps out of the way)
     this.bases.update(dt, a);
     this.streets.update(dt);
     this.dayNight.update();

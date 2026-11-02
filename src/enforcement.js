@@ -1,6 +1,7 @@
 import { CFG } from './config.js';
 import { segmentBlocked } from './collision.js';
 import { dist } from './util.js';
+import { districtAt } from './city.js';
 import { StopScene } from './stopscene.js';
 
 // Traffic enforcement. Run a red light or speed (over 55 in the city's 45 zone) where a patrol
@@ -34,9 +35,11 @@ export class Enforcement {
   update(dt, a) {
     const game = this.game;
     this.cool -= dt;
+    game.frisking = false; // (a street stop's question up: updateFoot sets it)
     const u = this.unit;
     if (u) return this.updateStop(dt, a, u);
     const v = game.player.vehicle;
+    if (!v) return this.footWatch(dt);
     if (!CFG.TRAFFIC_TICKETS) return; // (switched off in config.js)
     if (!v || game.stars > 0 || game.stop || game.wastedT > 0 || game.bustedT > 0) {
       this.prevNode = null;
@@ -47,6 +50,153 @@ export class Enforcement {
     if (!vio || this.cool > 0) return;
     const cop = this.witness(v);
     if (cop) this.start(cop, vio);
+  }
+
+  // ---- Street stops (on foot: "stop and frisk") ----
+  // A patrol that can see you on foot (nobody's after you) may stop you:
+  //   a gun out in your hand          quickly (they don't like that)
+  //   carrying product                now and then, more in the Projects, the Docks and the
+  //                                   Strip, and more at night
+  //   fitting the description         once in a while in those districts at night
+  // The car pulls up and an officer gets out: "Hold up. Stop right there." Stand still and he
+  // walks up (stopscene.js); then ✕ let him pat you down (product on you: arrested; a gun out:
+  // "put that away"; clean: "move along"), □ fight him (main.js fightStop: the scuffle), or walk
+  // off and it's a chase. After a stop they leave you alone a couple of minutes.
+  footWatch(dt) {
+    const game = this.game;
+    this.footCool = (this.footCool ?? 40) - dt;
+    if (!CFG.FOOT_STOPS || this.footCool > 0 || game.stars > 0 || game.stop || game.brawl || game.wastedT > 0 || game.bustedT > 0) return;
+    const p = game.player;
+    if (p.scene || p.busy || game.interiors?.inside || game.sport?.active || game.gridiron?.active || game.dice?.playing || game.cine || game.travel?.active) return;
+    const [px, pz] = p.pos();
+    const u = this.footWitness(px, pz);
+    if (!u) return;
+    const w = game.arsenal.current();
+    const gunOut = w && !w.melee && w.id !== 'fists';
+    const held = game.drugs.holding() > 0;
+    const d = districtAt(px, pz);
+    const m = game.clockMinutes();
+    const night = m >= 21 * 60 || m < 5 * 60;
+    const rough = ['The Projects', 'The Docks', 'The Strip'].includes(d);
+    let rate = 0;
+    let why = null;
+    if (gunOut) {
+      rate = game.aimingNow ? 1.5 : 0.12;
+      why = 'gun';
+    } else if (held) {
+      rate = 0.012 * (rough ? 2.5 : 1) * (night ? 1.8 : 1);
+      why = 'product';
+    } else if (rough && night) {
+      rate = 0.003;
+      why = 'description';
+    }
+    if (!rate || Math.random() > rate * dt) return;
+    this.startFoot(u, why);
+  }
+
+  footWitness(px, pz) {
+    const game = this.game;
+    for (const u of game.police.units) {
+      if (!u.patrol || u.pull || u.check || u.carLost || u.allDead || u.kind !== 'police') continue;
+      const c = u.car;
+      if (dist(c.x, c.z, px, pz) > 40) continue;
+      if (segmentBlocked(c.x, c.z, px, pz, game.city.los)) continue;
+      return u;
+    }
+    return null;
+  }
+
+  startFoot(u, why) {
+    const game = this.game;
+    u.pull = { vio: { label: why, fine: 0 }, stage: 'pursue', t: 0, stillT: 0, foot: true, why };
+    u.to = null;
+    this.footStop = u;
+    game.hud.toast('🚨 Police: "Hey! You. Stop right there."', '#9fc3ff');
+  }
+
+  // The street stop, once the car's pulled up near you.
+  updateFoot(dt, a, u, p) {
+    const game = this.game;
+    const pl = game.player;
+    const pad = game.input.mode === 'pad';
+    const [px, pz] = pl.pos();
+    if (pl.vehicle) return this.flee(u); // (got in a car and went)
+    if (p.stage === 'pursue') {
+      game.prompt = '🚨 Police stop: stand still';
+      const d = dist(u.car.x, u.car.z, px, pz);
+      p.stillT = d < 16 ? p.stillT + dt : 0;
+      if (p.stillT > 0.6) {
+        p.stage = 'stopped';
+        p.t = 0;
+        p.scene = new StopScene(game, { unit: u, foot: true });
+        if (!p.scene.officer) p.scene = null;
+        p.at = [px, pz];
+        return;
+      }
+      if (p.t > 12 || d > 70) this.flee(u);
+      return;
+    }
+    if (p.stage === 'done') {
+      if (u.mounted) u.resumePatrol();
+      if (this.footStop === u) this.footStop = null;
+      return;
+    }
+    if (p.scene) {
+      if (p.scene.update(dt) === 'fled') return this.flee(u);
+      if (!p.scene.ready) {
+        p.t = 0;
+        game.prompt = `The officer's walking over… stay put · ${pad ? '□' : 'R'} jump him`;
+        game.frisking = true; // (the phone shows the stop's buttons)
+        if (a.dealFight) return this.footFight(u);
+        return;
+      }
+    }
+    if (dist(px, pz, ...(p.at || [px, pz])) > 5) return this.flee(u);
+    game.askedAt = game.time;
+    game.frisking = true;
+    const line = p.why === 'gun' ? '"Drop your hands. Whose gun is that?"' : '"Hold up. You got anything on you I should know about?"';
+    game.prompt = p.frisk ? 'He pats you down…' : `Officer: ${line} ${pad ? '✕' : 'E'} let him pat you down · ${pad ? '□' : 'R'} fight · walk off to run`;
+    if (p.t < 0.6) return;
+    if (!p.frisk) {
+      if (a.dealFight) return this.footFight(u);
+      if (a.dealYes || p.t > 20) {
+        p.frisk = 0.01;
+        p.t = 0;
+      }
+      return;
+    }
+    p.frisk += dt;
+    if (p.frisk < 1.6) return;
+    // What he finds.
+    game.frisking = false;
+    if (game.drugs.holding() > 0) {
+      game.hud.toast('He finds the product. "Turn around. Hands behind your back."', '#ff8080');
+      p.scene?.end();
+      u.pull = null;
+      this.footStop = null;
+      this.footCool = 120;
+      u.joinChase();
+      game.crime('possession', px, pz);
+      game.bust({ final: true });
+      return;
+    }
+    game.hud.toast(p.why === 'gun' ? '"Keep that thing put away. Go on."' : '"Alright. You\'re good. Move along."', '#9fc3ff');
+    p.scene?.end();
+    p.stage = 'done';
+    this.footCool = 150;
+    this.footStop = null;
+  }
+
+  footFight(u) {
+    const game = this.game;
+    const p = u.pull;
+    game.frisking = false;
+    const s = { dirty: false, scene: p.scene };
+    u.pull = null;
+    this.footStop = null;
+    this.footCool = 120;
+    u.joinChase();
+    game.fightStop(s, 'The officer');
   }
 
   // Crossing the stop line at a signal on red.
@@ -126,7 +276,7 @@ export class Enforcement {
       return [u.to.x, u.to.z, c.type.max * 0.75];
     }
     u.to = null;
-    if (dd < 2.5) return [bx, bz, 0];
+    if (dd < 2.5 || (!v && dd < 11)) return [bx, bz, 0]; // (on foot: pulls up a few meters off)
     const vs = v ? Math.abs(v.speed) : 0;
     return [bx, bz, Math.min(c.type.max * 0.8, 1 + dd * 0.7 + vs)];
   }
@@ -136,9 +286,14 @@ export class Enforcement {
     const p = u.pull;
     p.t += dt;
     if (game.stars > 0) {
+      p.scene?.end();
+      u.pull = null;
+      if (this.footStop === u) this.footStop = null;
+      game.frisking = false;
       u.joinChase();
       return;
     }
+    if (p.foot) return this.updateFoot(dt, a, u, p);
     const v = game.player.vehicle;
     const [px, pz] = game.player.pos();
     const d = dist(u.car.x, u.car.z, px, pz);
@@ -211,11 +366,15 @@ export class Enforcement {
   flee(u) {
     const game = this.game;
     const [px, pz] = game.player.pos();
+    const foot = u.pull?.foot;
     u.pull?.scene?.end();
     u.pull = null;
     u.joinChase();
+    game.frisking = false;
+    if (this.footStop === u) this.footStop = null;
     game.crime('fleeStop', px, pz);
-    game.hud.toast('Fleeing a traffic stop', '#ff8080');
+    game.hud.toast(foot ? 'Running from a police stop' : 'Fleeing a traffic stop', '#ff8080');
     this.cool = 30;
+    this.footCool = 90;
   }
 }

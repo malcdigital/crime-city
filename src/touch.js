@@ -39,7 +39,7 @@ const BUTTONS = [
   ['fire', 'FIRE', B.R2, ['foot'], 'fire', 'big red'],
   ['aim', 'AIM', B.L2, ['foot'], 'toggle', 'mid'],
   ['reload', '□', B.SQUARE, ['strip', 'qb'], 'hold', 'sm'], // (on foot: hold the GUN button to reload)
-  ['cross', '✕', B.CROSS, ['foot', 'car', 'phone', 'menu', 'strip', 'map', 'stop', 'qb'], 'hold', 'sm'],
+  ['cross', '✕', B.CROSS, ['foot', 'car', 'phone', 'menu', 'strip', 'map', 'stop', 'qb', 'struggle'], 'hold', 'sm'],
   ['circle', '○', B.CIRCLE, ['foot', 'car', 'phone', 'menu', 'map', 'stop', 'qb'], 'hold', 'sm'],
   ['fight', '□', B.SQUARE, ['stop'], 'hold', 'sm'], // (a police stop: fight back)
   // Pickup basketball (streetball.js): NBA 2K style.
@@ -85,7 +85,7 @@ const BUTTONS = [
   ['down', '▼', B.DOWN, ['phone', 'menu', 'map', 'strip'], 'hold', 'dp'],
   ['left', '◀', B.LEFT, ['phone', 'menu', 'strip'], 'hold', 'dp'],
   ['right', '▶', B.RIGHT, ['phone', 'menu', 'strip'], 'hold', 'dp'],
-  ['pause', '❚❚', B.OPTIONS, ['foot', 'car', 'phone', 'map', 'strip', 'stop', 'ball', 'qb'], 'hold', 'top'],
+  ['pause', '❚❚', B.OPTIONS, ['foot', 'car', 'phone', 'map', 'strip', 'stop', 'ball', 'qb', 'struggle'], 'hold', 'top'],
   ['phone', '📱', B.CREATE, ['foot', 'car', 'phone'], 'hold', 'top'],
   ['map', 'MAP', B.TOUCHPAD, ['foot', 'car', 'map'], 'hold', 'top txt'],
   ['spawn', 'CAR', B.R3, ['foot'], 'hold', 'top txt test'],
@@ -103,6 +103,7 @@ const HINTS = {
   strip: { cross: 'give', reload: 'drop', weapon: 'close' },
   map: { cross: 'pin', circle: 'close', tri: 'legend', heat: 'heat' },
   stop: { cross: 'quietly', circle: 'bribe', fight: 'fight' },
+  struggle: { cross: 'break free' },
   ball: { bblock: 'block', bd: 'hold' },
   qb: { cross: 'hike' },
 };
@@ -492,7 +493,8 @@ export class TouchControls {
     else if (game.mapView.open) ctx = 'map';
     else if (game.hud.phoneOpen) ctx = 'phone';
     else if (this.latched || game.inventory?.open) ctx = 'strip';
-    else if (game.stop) ctx = 'stop'; // (pulled over: go quietly, bribe, or fight)
+    else if (game.struggle) ctx = 'struggle'; // (an officer has hold of you: tap ✕ fast to break free)
+    else if (game.stop || game.frisking) ctx = 'stop'; // (pulled over or stopped on foot: go quietly / pat down, bribe, or fight)
     else if (game.player.vehicle) ctx = 'car';
     else if (game.dice?.playing) ctx = 'dice'; // (street dice: roll, leave, with / fade)
     else if (game.sport?.active) ctx = 'ball'; // (one-on-one: shoot, moves, steal, block)
@@ -522,7 +524,13 @@ export class TouchControls {
       bx.cross.el.classList.toggle('hidden', !ask);
       bx.circle.el.classList.toggle('hidden', !ask); // (on foot, punching is on USE)
     }
-    if (ctx === 'stop') setText(this.el.buttons.fight.hint, game.player.vehicle ? 'floor it' : 'fight');
+    if (ctx === 'stop') {
+      setText(this.el.buttons.fight.hint, game.player.vehicle ? 'floor it' : 'fight');
+      // (a street stop: ✕ lets him pat you down, and there's no bribe)
+      const frisk = !game.stop && game.frisking;
+      setText(this.el.buttons.cross.hint, frisk ? 'pat down' : 'quietly');
+      this.el.buttons.circle.el.classList.toggle('hidden', frisk);
+    }
     if (ctx === 'qb') {
       const M = game.gridiron;
       const b = this.el.buttons;

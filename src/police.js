@@ -3,7 +3,7 @@ import { exitCar } from './carscenes.js';
 import { aimPose, flinchPose, fallFace, markFlinch, kneelPose } from './combatpose.js';
 import { CFG } from './config.js';
 import { Vehicle } from './vehicle.js';
-import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES, straightArms, makePerson } from './character.js';
+import { makeCharacter, animateWalk, setDown, crouchPose, SKIN_TONES, straightArms, makePerson, restPose, reachArm, bendSpine } from './character.js';
 import { pushCircle, segmentBlocked } from './collision.js';
 import { steerToward, throttleFor, StuckHelper } from './driving.js';
 import { dist, pick, rand, lerpAngle } from './util.js';
@@ -135,7 +135,10 @@ export class Officer {
     let tz = this.z;
     let speed = 0;
     let face = null;
+    this.coverAim = false;
 
+    if (this.grabbing && game.struggle?.cops.includes(this) && this.standing) return this.holdOn(game);
+    this.grabbing = false;
     if (this.state !== 'chase') this.crouched = false;
     if (this.script && this.standing) {
       // Scripted (a traffic stop, stopscene.js): walk to a spot, then stand there facing a
@@ -244,6 +247,23 @@ export class Officer {
         tz = r.tz;
         speed = r.speed;
         face = r.face;
+      } else if (game.approachers && !game.approachers.has(this)) {
+        // (a stop or a scuffle: three of them come to you, the rest hang back at their cars,
+        // down behind them with their guns on you)
+        const r = this.holdBack(dt, px, pz);
+        tx = r.tx;
+        tz = r.tz;
+        speed = r.speed;
+        face = r.face;
+      } else if (game.brawl && !pv) {
+        // You swung on one of them: the others rush you to take you down (no shooting).
+        tx = px;
+        tz = pz;
+        speed = CFG.OFFICER_SPEED + 1.4;
+        if (d < 1.35) {
+          speed = 0;
+          game.grabbedBy(this);
+        }
       } else {
         tx = px;
         tz = pz;
@@ -287,7 +307,7 @@ export class Officer {
     const gun = this.swat ? 'smg' : 'pistol';
     this.tw = 0;
     this.gunUp = false;
-    if ((game.lethal || this.aimingTires) && this.state === 'chase') {
+    if ((game.lethal || this.aimingTires || this.coverAim) && this.state === 'chase') {
       this.tw = aimPose(this.char, gun, 0, game.time);
       this.gunUp = true;
     }
@@ -383,6 +403,75 @@ export class Officer {
     }
     if (this.taskT > 45) this.state = 'return';
     return out;
+  }
+
+  // Hanging back during a stop or a scuffle: to cover by our cruiser, down on a knee, gun on you.
+  holdBack(dt, px, pz) {
+    this.recheckT -= dt;
+    if (this.recheckT <= 0 || this.spot === undefined) {
+      this.recheckT = 1;
+      const c = this.unit.car;
+      this.spot = this.unit.carLost || dist(c.x, c.z, px, pz) > 45 ? null : this.carCover(c, { x: px, z: pz });
+    }
+    const out = { tx: this.x, tz: this.z, speed: 0, face: Math.atan2(px - this.x, pz - this.z) };
+    if (this.spot && dist(this.x, this.z, this.spot.x, this.spot.z) > 0.6) {
+      out.tx = this.spot.x;
+      out.tz = this.spot.z;
+      out.speed = 4;
+    } else this.crouched = true;
+    this.coverAim = true;
+    return out;
+  }
+
+  // The same, at once (the world's stopped while an arrest plays out: arrestscenes.js).
+  coverStill(px, pz) {
+    if (!this.standing) return;
+    const c = this.unit.car;
+    const spot = this.unit.carLost || dist(c.x, c.z, px, pz) > 45 ? null : this.carCover(c, { x: px, z: pz });
+    if (spot) {
+      this.x = spot.x;
+      this.z = spot.z;
+    }
+    this.heading = Math.atan2(px - this.x, pz - this.z);
+    restPose(this.char);
+    animateWalk(this.char, 0, 0);
+    this.crouched = true;
+    this.gunUp = true;
+    this.tw = aimPose(this.char, this.swat ? 'smg' : 'pistol', 0, this.game.time);
+    this.crouchY = kneelPose(this.char);
+    this.place();
+  }
+
+  // Got hold of you (main.js struggle): beside you, both hands on your arm and shoulder,
+  // hauling; you shake him about as you fight it.
+  holdOn(game) {
+    const P = game.player;
+    const S = game.struggle;
+    const k = S.cops.indexOf(this);
+    const side = k % 2 ? 1 : -1;
+    const ph = P.heading;
+    const a = ph + Math.PI + side * (0.9 + 0.35 * Math.floor(k / 2));
+    const wob = Math.sin(game.time * 11 + k) * 0.08;
+    this.crouched = false;
+    this.x = P.x + Math.sin(a) * (0.62 + wob);
+    this.z = P.z + Math.cos(a) * (0.62 + wob);
+    this.heading = Math.atan2(P.x - this.x, P.z - this.z);
+    restPose(this.char);
+    animateWalk(this.char, 0, 0);
+    bendSpine(this.char, 0.35, 0, 0);
+    this.place();
+    this.char.group.updateMatrixWorld(true);
+    const tgt = (node, up = 0) => {
+      const w = node.getWorldPosition(new THREE.Vector3());
+      w.y += up;
+      return this.char.group.worldToLocal(w);
+    };
+    const arm = side > 0 ? P.char.elbowL : P.char.elbowR;
+    reachArm(this.char, 'L', tgt(arm), new THREE.Vector3(1, -0.5, -0.4), null, null, 'group');
+    reachArm(this.char, 'R', tgt(P.char.chest, 0.15), new THREE.Vector3(-1, -0.5, -0.4), null, null, 'group');
+    this.char.group.position.y = game.city.groundY(this.x, this.z);
+    this.tw = 0;
+    this.gunUp = false;
   }
 
   // Where to take cover behind our own cruiser, given where the shooter is.

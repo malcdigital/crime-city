@@ -39,6 +39,9 @@ export const CFG = {
 
   // Cops pull you over for running red lights and speeding (off: drive however you like).
   TRAFFIC_TICKETS: false,
+  // Cops stop you on foot (a street stop: "stop and frisk"): a gun out where they can see it,
+  // carrying product in a hot spot, or just fitting the description at night (off: they don't).
+  FOOT_STOPS: true,
 
   TRAFFIC_CARS: 55,
   PEDS: 100,

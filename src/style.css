@@ -308,7 +308,7 @@ body.touch #bigmap .lg-row.layer { padding-top: 7px; padding-bottom: 7px; }
 
 #strip { position: absolute; left: 50%; bottom: 236px; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); pointer-events: none; text-shadow: none; }
 @media (max-width: 640px) { #strip { bottom: auto; top: 140px; } #strip .st { min-width: 0; } #strip .weap { width: auto; min-width: 120px; } }
-body.strip-on #phone-toast { display: none; }
+body.strip-on #phone-toast, body.struggle-on #phone-toast { display: none; }
 #strip .st-row { display: flex; gap: 6px; align-items: stretch; flex-wrap: wrap; justify-content: center; }
 #strip .st-name { overflow: hidden; text-overflow: ellipsis; }
 #strip .st { min-width: 92px; padding: 7px 10px 8px; border-radius: 8px; background: rgba(14,18,26,.86); border: 2px solid rgba(255,255,255,.12); }
@@ -519,7 +519,8 @@ body.strip-on #phone-toast { display: none; }
 #touch[data-ctx="car"] .tb-circle { right: 196px; bottom: 84px; }
 #touch[data-ctx="car"] .tb-tri { right: 30px; bottom: 140px; }
 /* Pulled over: three big choices in a row (go quietly, bribe, fight). */
-#touch[data-ctx="stop"] .tz { display: none; }
+#touch[data-ctx="stop"] .tz-right, #touch[data-ctx="struggle"] .tz { display: none; } /* (stopped on foot: the stick still walks you off) */
+#touch[data-ctx="struggle"] .tb-cross { width: 96px; height: 96px; font-size: 30px; right: 70px; bottom: 96px; left: auto; background: rgba(255,184,77,.45); border-color: #ffd08a; }
 #touch[data-ctx="stop"] .tb-cross, #touch[data-ctx="stop"] .tb-circle, #touch[data-ctx="stop"] .tb-fight { width: 70px; height: 70px; font-size: 22px; bottom: 104px; } /* (above the prompt and the phone line) */
 #touch[data-ctx="stop"] .tb-cross { right: 196px; }
 #touch[data-ctx="stop"] .tb-circle { right: 114px; }
