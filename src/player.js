@@ -283,11 +283,12 @@ export class Player {
     this.x += this.moveX * this.speed * dt;
     this.z += this.moveZ * this.speed * dt;
 
-    const r = pushCircle(this.x, this.z, 0.4, this.boxes());
+    // (in a dice game the game puts you in your place: no bumping on the way, see dice.js)
+    const r = this.inDice ? { x: this.x, z: this.z } : pushCircle(this.x, this.z, 0.4, this.boxes());
     this.x = r.x;
     this.z = r.z;
     // Don't walk through cars.
-    for (const v of game.vehicles) {
+    for (const v of this.inDice ? [] : game.vehicles) {
       if (Math.abs(v.x - this.x) > 5 || Math.abs(v.z - this.z) > 5) continue;
       for (const [cx, cz] of v.circles()) {
         const dx = this.x - cx, dz = this.z - cz;

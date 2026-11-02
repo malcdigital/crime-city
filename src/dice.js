@@ -819,9 +819,21 @@ class Round {
     return !!g && g !== 'crew' && !this.c.crew;
   }
 
+  // A patrol car that can see the game (40 m, nothing in the way, nobody after you already):
+  // somebody spots it a beat later and it's "Twelve!".
+  copsWatch(dt) {
+    const game = this.game;
+    if (game.stars > 0 || !game.enforce?.footWitness) return;
+    const u = game.enforce.footWitness(this.c.x, this.c.z);
+    this.seenT = u ? (this.seenT || 0) + dt : Math.max(0, (this.seenT || 0) - dt);
+    if (u && this.seenT > 0.8) this.raid(u);
+  }
+
   step(dt) {
     this.t += dt;
     if (this.c.peds.length < 1) return this.mgr.leave('They all got up and left');
+    this.copsWatch(dt);
+    if (!this.mgr.round) return;
     if (this.phase === 'start') {
       this.newRound();
       return;
@@ -851,7 +863,7 @@ class Round {
     // A cop car rolling up, now and then.
     if (this.phase === 'between' && !this.raidChecked) {
       this.raidChecked = true;
-      if (Math.random() < 0.025) this.raid();
+      if (Math.random() < 0.04) this.raid();
     }
   }
 
@@ -1344,12 +1356,32 @@ class Round {
     this.mgr.goesDown(this.c, `${A.s.name}: "Aight, bet." It's going down!`);
   }
 
-  // 12! Somebody saw a cruiser: everybody scatters, the money on the ground's gone.
-  raid() {
+  // 12! Somebody saw a cruiser: everybody scatters, the money on the ground's gone, and the
+  // patrol stops you on foot (the officer walks up and takes hold of you: go quietly, bribe or
+  // fight; run before he gets to you and it's a chase). u: the patrol that saw it (or the
+  // nearest one around, sent over).
+  raid(u = null) {
     const game = this.game;
-    game.hud.toast('"Twelve! Twelve!" The cops are rolling up', '#ff8080');
-    if (Math.random() < 0.5) game.crime('gambling', this.c.x, this.c.z);
+    const E = game.enforce;
+    if (!u && E) {
+      let bd = 160;
+      for (const q of game.police.units) {
+        if (!q.patrol || q.pull || q.check || q.carLost || q.allDead || q.kind !== 'police') continue;
+        const d = dist(q.car.x, q.car.z, this.c.x, this.c.z);
+        if (d < bd) {
+          bd = d;
+          u = q;
+        }
+      }
+    }
+    const look = pick(this.c.peds);
+    if (look) this.c.fx?.say(look, 'Twelve! Twelve!', 2, 3);
+    game.hud.toast(u ? '"Twelve! Twelve!" A patrol car spotted the game' : '"Twelve! Twelve!" Somebody thought they saw a cruiser', '#ff8080');
     this.mgr.leave(null, true);
+    if (u && E && game.stars === 0) {
+      E.footCool = 0;
+      E.startFoot(u, 'gambling');
+    }
   }
 
   // The panel.

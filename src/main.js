@@ -3151,6 +3151,7 @@ class Game {
       let faceYaw = combat || p.fistsUp ? this.camYaw : null;
       if (combat && this.lockTarget) faceYaw = Math.atan2(this.lockTarget.x - p.x, this.lockTarget.z - p.z);
       if (p.fistsUp && this.fistLock) faceYaw = Math.atan2(this.fistLock.x - p.x, this.fistLock.z - p.z);
+      p.inDice = this.dice.playing; // (moved into your place in the game: dice.js)
       if (this.enforce.footGrab) {
         // (an officer has hold of you on a street stop: you stay put)
         a.moveX = a.moveY = 0;

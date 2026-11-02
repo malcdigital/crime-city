@@ -166,7 +166,7 @@ export class Enforcement {
     if (o) pl.heading = Math.atan2(o.x - px, o.z - pz);
     game.askedAt = game.time;
     game.frisking = true;
-    const line = p.why === 'gun' ? '"Hands where I can see em. Whose gun is that?"' : '"Hold up. You got anything on you I should know about?"';
+    const line = p.why === 'gun' ? '"Hands where I can see em. Whose gun is that?"' : p.why === 'gambling' ? '"Y\'all shooting dice out here? Hands where I can see em."' : '"Hold up. You got anything on you I should know about?"';
     game.prompt = p.frisk ? 'He pats you down…' : `Officer, holding your arm: ${line} — ${pad ? '✕' : 'E'} go quietly · ${pad ? '○' : 'Q'} offer a bribe · ${pad ? '□' : 'R'} fight`;
     if (p.t < 0.8) return; // (a beat while he gets hold of you)
     if (!p.frisk) {
@@ -193,7 +193,7 @@ export class Enforcement {
       game.bust({ final: true });
       return;
     }
-    game.hud.toast(p.why === 'gun' ? '"Keep that thing put away. Go on."' : '"Alright. You\'re good. Move along."', '#9fc3ff');
+    game.hud.toast(p.why === 'gun' ? '"Keep that thing put away. Go on."' : p.why === 'gambling' ? '"Take that dice game somewhere else. Move along."' : '"Alright. You\'re good. Move along."', '#9fc3ff');
     p.scene?.end();
     p.stage = 'done';
     this.footCool = 150;
