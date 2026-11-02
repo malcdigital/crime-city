@@ -175,7 +175,7 @@ class Circle {
       p.keep = true;
       p.diceName = pick((p.female ? WOMEN : NAMES).filter((nm) => !this.peds.some((o) => o.name === nm)));
       if (gang && GANGS[gang]) setShirt(p.char, GANGS[gang].shirt);
-      const s = { p, name: p.diceName, react: 0, reactKind: null, roll: 0, pref, rj: rand(-0.12, 0.3), role: roles[i % roles.length], seed: Math.random() * 10 };
+      const s = { p, name: p.diceName, react: 0, reactKind: null, roll: 0, pref, rj: rand(-0.12, 0.3), role: roles[i % roles.length], seed: Math.random() * 10, bank: this.bankroll(), fade: Math.random() };
       if (s.role === 'cash') {
         // (a folded knot of bills in the hand)
         s.wad = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.075, 0.12), new THREE.MeshLambertMaterial({ color: 0x6f9a5c }));
@@ -205,6 +205,56 @@ class Circle {
     this.you = null; // (when you're in: your place in the ring, and the round)
     this.shooter = null; // (who's up: a seat, or 'you')
     this.amb = 0;
+  }
+
+  // What somebody walks up with: a couple hundred, more in gang turf; now and then somebody
+  // holding (who'll raise the stakes when he's got the dice).
+  bankroll(stake = 20) {
+    let v = rand(120, 650) * (this.gang ? 1.35 : 1) * Math.max(1, stake / 40);
+    if (Math.random() < 0.18) v *= rand(2.5, 4);
+    return Math.round(v / 10) * 10;
+  }
+
+  // Somebody new walks up and gets in (from back up the walk), between hands. Returns the seat.
+  addPlayer(stake) {
+    const game = this.game;
+    const used = new Set(this.peds.map((o) => o.name));
+    const prefs = this.peds.map((o) => o.pref).concat(this.you ? [this.you.pref] : []);
+    let pref = 0;
+    for (let k = 0, best = -1; k < 12; k++) {
+      const c = rand(-1, 1);
+      const gap = Math.min(...prefs.map((q) => Math.abs(q - c)), 9);
+      if (gap > best) {
+        best = gap;
+        pref = c;
+      }
+    }
+    const [x, z] = this.arcPos(pref, 6);
+    const p = game.peds.addAt(x, z);
+    if (!p) return null;
+    p.act = this;
+    p.state = 'play';
+    p.keep = true;
+    const name = pick((p.female ? WOMEN : NAMES).filter((nm) => !used.has(nm))) || 'Somebody';
+    p.diceName = name;
+    if (this.gang && GANGS[this.gang]) setShirt(p.char, GANGS[this.gang].shirt);
+    const s = { p, name, react: 0, reactKind: null, roll: 0, pref, rj: rand(-0.12, 0.3), role: pick(['hunch', 'hunch', 'cash', 'lean']), seed: Math.random() * 10, bank: this.bankroll(stake), fade: Math.random() };
+    this.peds.push(s);
+    return s;
+  }
+
+  // Gets up and walks off (tapped out).
+  release(s) {
+    const i = this.peds.indexOf(s);
+    if (i < 0) return;
+    this.peds.splice(i, 1);
+    s.wad?.removeFromParent();
+    if (this.shooter === s) this.shooter = null;
+    const p = s.p;
+    if (p.removed) return;
+    p.act = null;
+    p.keep = false;
+    p.resumeWalking();
   }
 
   // A point round the dice: pref (radians either side of straight back from the backstop), r out.
@@ -554,6 +604,19 @@ class Circle {
 }
 
 // ---- A round with you in it (cee-lo or craps), the money, and the trouble ----
+// Everybody in it plays with their own money (s.bank; yours is your cash). A bet is always
+// between two people: one backing the shooter (pro), one against him (con), each putting their
+// side down (escrowed off the bankroll when it's made, the lot to whoever's right).
+//   Craps: the shooter puts up his bet (raising it when he's holding: two or three times the
+// stake) and the others fade it, covering what they can; you go with him (a side bet against
+// one of them), fade him, or sit out, and if they can't cover all of it you're offered the rest.
+// When it's your dice, ◀ ▶ sets your bet before the come-out. Once there's a point they lay or
+// take odds on it (2 to 1 on 4 and 10, 3 to 2 on 5 and 9, 6 to 5 on 6 and 8): take it or pass.
+// They bet among themselves too. Anybody who's tapped out gets up and walks off, and somebody new
+// walks up now and then.
+const POINT_ODDS = { 4: [2, 1], 10: [2, 1], 5: [3, 2], 9: [3, 2], 6: [6, 5], 8: [6, 5] };
+const r5 = (v) => Math.max(5, Math.round(v / 5) * 5);
+
 class Round {
   constructor(mgr, circle, stake) {
     this.mgr = mgr;
@@ -566,14 +629,68 @@ class Round {
     this.first = 0;
     this.net = 0; // (what you're up, this sitting)
     this.tension = 0; // (in a rival hood: how hot they are about you winning)
-    this.side = 'against'; // (craps: with the shooter, against him, or sit out)
-    this.shooter = 0;
+    this.side = 'against'; // (craps, somebody else shooting: with him, fade him, or sit out)
+    this.shooterKey = null; // (craps: who has the dice: 'you' or a seat)
+    this.raise = 1; // (your come-out bet when it's your dice, in stakes)
+    this.bets = [];
+    this.offer = null;
+    this.offers = [];
     this.lines = []; // (the panel: the last few things that happened)
   }
 
   // Everybody in it, you included, in seat order.
   players() {
-    return [{ you: true, name: 'You' }, ...this.c.peds.map((s) => ({ s, name: s.name }))];
+    return [{ you: true, name: 'You', key: 'you' }, ...this.c.peds.map((s) => ({ s, name: s.name, key: s }))];
+  }
+
+  // ---- Money ----
+  bank(p) {
+    return p === 'you' ? this.game.cash : p.bank;
+  }
+
+  give(p, v) {
+    if (p === 'you') this.game.cash += v;
+    else p.bank += v;
+  }
+
+  nameOf(p) {
+    return p === 'you' ? 'You' : p.name;
+  }
+
+  // A bet: pro backs the shooter putting down a, con against him putting down b. Both off
+  // their bankroll now; the lot to the winner when it's decided.
+  bet(pro, con, a, b, kind) {
+    if (pro === con || a <= 0 || b <= 0 || this.bank(pro) < a || this.bank(con) < b) return false;
+    this.give(pro, -a);
+    this.give(con, -b);
+    this.bets.push({ pro, con, a, b, kind });
+    return true;
+  }
+
+  // What somebody's got riding right now.
+  riding(p) {
+    let v = 0;
+    for (const B of this.bets) {
+      if (B.pro === p) v += B.a;
+      if (B.con === p) v += B.b;
+    }
+    return v;
+  }
+
+  // Walking off (or the cops) with money down: walk away and it's theirs; a raid, it's gone.
+  forfeit(raid = false) {
+    for (const B of this.bets) {
+      if (raid) continue;
+      if (B.pro === 'you') this.give(B.con, B.a + B.b);
+      else if (B.con === 'you') this.give(B.pro, B.a + B.b);
+      else {
+        this.give(B.pro, B.a);
+        this.give(B.con, B.b);
+      }
+      if (B.pro === 'you') this.net -= B.a;
+      if (B.con === 'you') this.net -= B.b;
+    }
+    this.bets = [];
   }
 
   say(text) {
@@ -588,16 +705,21 @@ class Round {
 
   step(dt) {
     this.t += dt;
-    const game = this.game;
     if (this.c.peds.length < 1) return this.mgr.leave('They all got up and left');
     if (this.phase === 'start') {
       this.newRound();
       return;
     }
-    if (this.phase === 'between' && this.t > (this.kind === 'celo' ? 2.4 : 1.6)) this.newRound();
+    // (somebody's offering you a bet: everything waits on your answer, a few seconds)
+    if (this.offer) {
+      this.offer.t -= dt;
+      if (this.offer.t <= 0) this.passOffer();
+      return;
+    }
+    if (this.phase === 'between' && this.t > (this.kind === 'celo' ? 2.4 : 1.8)) this.newRound();
     if (this.phase === 'npc' && this.t > 1.0 && !this.c.throw && this.c.ready(this.cur.s)) this.npcRoll();
-    if (this.phase === 'bets' && this.t > 2.6 && this.shooterIsNpc()) {
-      this.placeBet();
+    if (this.phase === 'bets' && this.t > 3.2) {
+      this.lockBets();
       this.phase = 'npc';
       this.t = 0;
     }
@@ -606,7 +728,21 @@ class Round {
       this.raidChecked = true;
       if (Math.random() < 0.025) this.raid();
     }
-    void game;
+  }
+
+  // Between hands: whoever's broke gets up and goes; now and then somebody new walks up.
+  shuffleIn() {
+    const floor = this.kind === 'celo' ? this.stake : Math.max(5, Math.round(this.stake * 0.3));
+    for (const s of [...this.c.peds]) {
+      if (s.bank >= floor || this.c.peds.length <= 1) continue;
+      this.say(`${s.name}'s tapped out and walks off`);
+      this.c.release(s);
+    }
+    const n = this.c.peds.length;
+    if (n < 4 && Math.random() < (n < 2 ? 0.9 : n < 3 ? 0.4 : 0.15)) {
+      const s = this.c.addPlayer(this.stake);
+      if (s) this.say(`${s.name} walks up with $${s.bank}`);
+    }
   }
 
   // ---- Cee-lo ----
@@ -614,10 +750,12 @@ class Round {
     const game = this.game;
     this.raidChecked = false;
     this.t = 0;
+    this.shuffleIn();
+    if (this.c.peds.length < 1) return this.mgr.leave('They all got up and left');
     if (this.kind === 'craps') return this.newComeOut();
     const P = this.players();
     if (game.cash < this.stake) return this.mgr.leave("You're tapped out");
-    game.cash -= this.stake;
+    for (const p of P) this.give(p.key, -this.stake);
     this.pot = this.stake * P.length;
     this.results = new Map();
     this.order = P.map((_, i) => P[(i + this.first) % P.length]);
@@ -640,7 +778,7 @@ class Round {
 
   // (your press: ✕ / E / ROLL)
   youRoll() {
-    if (this.phase !== 'you' || this.c.throw) return;
+    if (this.phase !== 'you' || this.c.throw || this.offer) return;
     if (this.kind === 'craps') return this.crapsRoll('you');
     this.mgr.rollAt = this.game.time;
     this.c.toss(roll(3), 'you', (v) => this.result(v));
@@ -694,22 +832,23 @@ class Round {
     this.phase = 'between';
     this.t = 0;
     this.cur = null;
+    const inIt = this.order.filter((p) => p.you || this.c.peds.includes(p.s));
     if (!winners.length) {
       // (everybody crapped out: antes back)
-      game.cash += this.stake;
+      for (const p of inIt) this.give(p.key, this.stake);
       this.say('Nobody hit. Money back');
       return;
     }
     const share = Math.floor(this.pot / winners.length);
+    winners.forEach((p, k) => this.give(p.key, share + (k === 0 ? this.pot - share * winners.length : 0))); // (the odd dollar to the first)
     const youWon = winners.some((p) => p.you);
     for (const p of winners) if (p.s) this.c.react(p.s, 'win');
     for (const s of this.c.peds) if (!winners.some((p) => p.s === s) && Math.random() < 0.6) this.c.react(s, 'lose');
     if (youWon) {
-      game.cash += share;
       this.net += share - this.stake;
       this.say(winners.length > 1 ? `Split it: +$${share}` : `You take it: +$${this.pot}`);
       game.hud.toast(`You take the pot: +$${share}`, '#7ee081');
-      this.heat(share);
+      this.heat(share - this.stake);
     } else {
       this.net -= this.stake;
       this.say(`${winners.map((p) => p.name).join(' and ')} take${winners.length > 1 ? '' : 's'} it`);
@@ -718,57 +857,125 @@ class Round {
 
   // ---- Street craps ----
   shooterIsNpc() {
-    const P = this.players();
-    return !P[this.shooter % P.length].you;
+    return this.shooterKey !== 'you';
+  }
+
+  // What an NPC shooter puts up: the stake, or two or three times it when he's holding.
+  shooterBet(s) {
+    const st = this.stake;
+    const k = s.bank >= st * 12 && Math.random() < 0.7 ? 3 : s.bank >= st * 6 && Math.random() < 0.6 ? 2 : 1;
+    return Math.min(st * k, Math.floor(s.bank / 5) * 5);
   }
 
   newComeOut() {
     const P = this.players();
-    this.shooter %= P.length;
-    const sh = P[this.shooter];
+    let i = P.findIndex((p) => p.key === this.shooterKey);
+    if (i < 0) i = (this.shooterAt ?? 0) % P.length;
+    this.shooterAt = i;
+    const sh = P[i];
+    this.shooterKey = sh.key;
     this.cur = sh;
     this.c.shooter = sh.you ? 'you' : sh.s; // (steps up to the dice)
     this.point = null;
-    this.bet = null;
+    this.bets = [];
+    this.locked = false;
     this.t = 0;
     if (sh.you) {
-      // (you're shooting: you bet on yourself, somebody fades you)
       if (this.game.cash < this.stake) return this.mgr.leave("You're tapped out");
-      this.game.cash -= this.stake;
-      this.bet = 'with';
-      this.say(`Your dice. $${this.stake} on you, ${pick(this.c.peds).name} fades`);
+      this.raise = Math.max(1, Math.min(this.raise, Math.floor(this.game.cash / this.stake), 3));
       this.phase = 'you';
+      this.say(`Your dice. Put up your bet and roll`);
     } else {
+      this.center = this.shooterBet(sh.s);
       this.phase = 'bets';
       sh.s.roll = 'shake';
-      this.say(`${sh.name} shooting. Bet with him, fade him, or sit out`);
+      this.say(`${sh.name} puts up $${this.center}${this.center > this.stake ? ' (raising it)' : ''}. With him or fade him?`);
     }
   }
 
-  // (◀ ▶ while he's getting ready)
+  // (◀ ▶: before the come-out, your side on his dice, or how much you put up on yours)
   cycleSide(d) {
-    if (this.phase !== 'bets') return;
-    const S = ['with', 'against', 'sit'];
-    this.side = S[(S.indexOf(this.side) + d + 3) % 3];
+    if (this.phase === 'bets') {
+      const S = ['with', 'against', 'sit'];
+      this.side = S[(S.indexOf(this.side) + d + 3) % 3];
+    } else if (this.phase === 'you' && this.kind === 'craps' && !this.locked) {
+      const max = Math.max(1, Math.min(3, Math.floor(this.game.cash / this.stake)));
+      this.raise = Math.max(1, Math.min(max, this.raise + d));
+    }
   }
 
-  placeBet() {
-    if (this.side === 'sit' || this.game.cash < this.stake) {
-      this.bet = null;
-      return;
+  // The come-out money goes down: the shooter's bet, faded; your side; theirs among themselves.
+  lockBets() {
+    if (this.locked) return;
+    this.locked = true;
+    const sh = this.shooterKey;
+    const stake = this.stake;
+    const others = this.c.peds.filter((s) => s !== sh);
+    const X = sh === 'you' ? Math.min(this.game.cash, this.raise * stake) : this.center;
+    let need = X;
+    const faded = [];
+    // (you fade him)
+    if (sh !== 'you' && this.side === 'against' && need > 0) {
+      const a = Math.min(need, this.game.cash);
+      if (this.bet(sh, 'you', a, a, 'center')) {
+        need -= a;
+        faded.push(`you $${a}`);
+      }
     }
-    this.game.cash -= this.stake;
-    this.bet = this.side;
+    // (they cover what's left, the ones who like to fade first)
+    for (const f of [...others].sort((p, q) => q.fade - p.fade || q.bank - p.bank)) {
+      if (need <= 0) break;
+      const a = Math.min(need, Math.floor((f.bank * (0.35 + f.fade * 0.35)) / 5) * 5);
+      if (a >= 5 && this.bet(sh, f, a, a, 'center')) {
+        need -= a;
+        faded.push(`${f.name} $${a}`);
+      }
+    }
+    const who = sh === 'you' ? 'You' : sh.name;
+    if (faded.length) this.say(`${who}: $${X - need} faded (${faded.join(', ')})`);
+    else this.say(`Nobody fades ${sh === 'you' ? 'you' : sh.name}`);
+    // (you go with him: a side bet against one of them)
+    if (sh !== 'you' && this.side === 'with') {
+      const f = others.filter((o) => o.bank >= stake).sort((p, q) => q.fade - p.fade)[0];
+      if (f && this.bet('you', f, stake, stake, 'side')) this.say(`You: $${stake} with ${sh.name}, ${f.name} fades you`);
+      else this.say(`Nobody'll take your $${stake}`);
+    }
+    // (side bets among them)
+    for (let k = Math.floor(Math.random() * 3); k > 0; k--) {
+      const pool = others.filter((o) => o.bank >= 10 && this.riding(o) === 0);
+      if (pool.length < 2) break;
+      const a = pick(pool);
+      const b = pick(pool.filter((o) => o !== a));
+      const amt = Math.min(r5(stake * rand(0.4, 1.2)), Math.floor(Math.min(a.bank, b.bank) / 5) * 5);
+      if (amt >= 5 && this.bet(a, b, amt, amt, 'side')) this.say(`${a.name} and ${b.name} bet $${amt} on it`);
+    }
+    // (they couldn't cover all of it: the rest is yours if you want it)
+    if (sh !== 'you' && need >= 5 && this.game.cash >= 5) {
+      const amt = Math.min(need, Math.floor(this.game.cash / 5) * 5);
+      this.queue({ text: `Nobody's got the rest of ${sh.name}'s bet. Cover $${amt} of it?`, take: () => this.bet(sh, 'you', amt, amt, 'center') && !this.say(`You cover $${amt} more of ${sh.name}`) });
+    }
   }
 
   crapsRoll(from, s = null) {
+    if (!this.locked) this.lockBets();
+    if (this.offer) return; // (an offer to answer first)
     if (s) s.roll = this.game.time;
     else this.mgr.rollAt = this.game.time;
     let v = roll(2);
-    // (their shooter in their hood: the dice like him a little)
-    if (s && this.rival() && this.bet === 'against' && Math.random() < 0.12) v = roll(2);
+    // (their shooter in their hood, you against him: the dice like him a little)
+    if (s && this.rival() && this.exposure() < 0 && Math.random() < 0.12) v = roll(2);
     this.phase = 'air';
     this.c.toss(v, from, (vv) => this.crapsResult(vv, s));
+  }
+
+  // Which way you're betting this hand: + you want the shooter to hit, - you want him to miss.
+  exposure() {
+    let e = 0;
+    for (const B of this.bets) {
+      if (B.pro === 'you') e += B.a;
+      if (B.con === 'you') e -= B.b;
+    }
+    return e;
   }
 
   crapsResult(v, s) {
@@ -783,6 +990,7 @@ class Round {
       else {
         this.point = sum;
         this.say(`${who}: ${v.join('-')} · point is ${sum}`);
+        this.oddsOffers();
       }
     } else if (sum === this.point) decided = 'win';
     else if (sum === 7) decided = 'seven';
@@ -795,22 +1003,108 @@ class Round {
     }
     const shooterWins = decided === 'win';
     this.say(`${who}: ${v.join('-')} · ${shooterWins ? (this.point ? `hit the ${this.point}!` : `${sum}, winner!`) : decided === 'craps' ? `${sum}, craps` : 'seven out'}`);
-    // Your money.
-    const game = this.game;
-    if (this.bet) {
-      const youWin = (this.bet === 'with') === shooterWins;
-      if (youWin) {
-        game.cash += this.stake * 2;
-        this.net += this.stake;
-        game.hud.toast(`+$${this.stake}`, '#7ee081');
-        this.heat(this.stake * 2);
-      } else this.net -= this.stake;
-    }
+    this.settle(shooterWins);
     if (sh.s) this.c.react(sh.s, shooterWins ? 'win' : 'lose');
     // (a seven out passes the dice; a winner or a craps on the come-out keeps them)
-    if (decided === 'seven') this.shooter += 1;
+    if (decided === 'seven') {
+      const P = this.players();
+      const i = P.findIndex((p) => p.key === this.shooterKey);
+      this.shooterAt = (i < 0 ? this.shooterAt : i) + 1;
+      this.shooterKey = P[this.shooterAt % P.length].key;
+    }
     this.phase = 'between';
     this.t = 0;
+  }
+
+  // Pay everybody off: the winner of each bet takes both sides of it.
+  settle(shooterWins) {
+    const game = this.game;
+    const delta = new Map();
+    const add = (p, v) => delta.set(p, (delta.get(p) || 0) + v);
+    for (const B of this.bets) {
+      const w = shooterWins ? B.pro : B.con;
+      const l = shooterWins ? B.con : B.pro;
+      this.give(w, B.a + B.b);
+      add(w, shooterWins ? B.b : B.a);
+      add(l, shooterWins ? -B.b : -B.a);
+    }
+    this.bets = [];
+    for (const [p, d] of delta) {
+      if (p === 'you' || p === this.shooterKey) continue;
+      if (Math.random() < 0.85) this.c.react(p, d > 0 ? 'win' : 'lose');
+    }
+    const you = delta.get('you') || 0;
+    if (you) {
+      this.net += you;
+      game.hud.toast(you > 0 ? `+$${you}` : `-$${-you}`, you > 0 ? '#7ee081' : '#ff8080');
+      if (you > 0) this.heat(you);
+    }
+  }
+
+  // A point's up: they lay and take odds on it. Up to two offers come your way.
+  oddsOffers() {
+    const [pays, per] = POINT_ODDS[this.point];
+    const sh = this.shooterKey;
+    const shName = sh === 'you' ? 'you' : sh.name;
+    const others = this.c.peds.filter((o) => o !== sh && o.bank >= 10);
+    const out = [];
+    const base = () => r5(this.stake * rand(0.4, 1));
+    const odds = `${pays} to ${per}`;
+    // (one of them lays odds he misses: you back him)
+    const L = pick(others);
+    if (L) {
+      const yours = base();
+      const theirs = Math.round((yours * pays) / per);
+      if (L.bank >= theirs && this.game.cash >= yours) {
+        out.push({
+          text: sh === 'you' ? `${L.name} lays you $${theirs} to $${yours} you don't hit the ${this.point}` : `${L.name} lays $${theirs} to your $${yours} ${shName} don't hit the ${this.point}`,
+          take: () => this.bet('you', L, yours, theirs, 'odds') && !this.say(`You: $${yours} on the ${this.point} at ${odds}, ${L.name} lays it`),
+          pass: () => {
+            const M = pick(others.filter((o) => o !== L && o.bank >= yours));
+            if (M && Math.random() < 0.6 && this.bet(M, L, yours, theirs, 'odds')) this.say(`${M.name} takes ${L.name}'s odds on the ${this.point}`);
+          },
+        });
+      }
+    }
+    // (one of them takes odds he hits: you lay it)
+    const B = pick(others.filter((o) => o !== L));
+    if (B && sh !== 'you') {
+      const theirs = base();
+      const yours = Math.round((theirs * pays) / per);
+      if (B.bank >= theirs && this.game.cash >= yours) {
+        out.push({
+          text: `${B.name} wants $${theirs} on the ${this.point} at ${odds}. Lay him $${yours}?`,
+          take: () => this.bet(B, 'you', theirs, yours, 'odds') && !this.say(`You lay ${B.name} $${yours} to $${theirs} against the ${this.point}`),
+        });
+      }
+    }
+    for (const o of out.sort(() => Math.random() - 0.5).slice(0, 1 + Math.floor(Math.random() * 2))) this.queue(o);
+  }
+
+  queue(o) {
+    this.offers.push(o);
+    if (!this.offer) this.nextOffer();
+  }
+
+  nextOffer() {
+    const o = this.offers.shift();
+    this.offer = o ? { ...o, t: 5 } : null;
+  }
+
+  // (✕ / E / TAKE)
+  takeOffer() {
+    const o = this.offer;
+    if (!o) return;
+    if (!o.take()) this.say("Can't cover that");
+    this.nextOffer();
+  }
+
+  // (○ / Q / PASS, or it times out)
+  passOffer() {
+    const o = this.offer;
+    if (!o) return;
+    o.pass?.();
+    this.nextOffer();
   }
 
   // ---- Trouble ----
@@ -839,8 +1133,10 @@ class Round {
     this.accused = null;
     const game = this.game;
     if (!stand) {
-      game.cash -= Math.min(game.cash, A.won);
-      this.net -= A.won;
+      const back = Math.min(game.cash, A.won);
+      game.cash -= back;
+      A.s.bank = (A.s.bank || 0) + back; // (into his pocket)
+      this.net -= back;
       this.tension = Math.max(0, this.tension - 0.35);
       this.say('You give it back. Cool...');
       game.hud.toast(`You hand it back (-$${A.won})`, '#9fc3ff');
@@ -871,14 +1167,31 @@ class Round {
     const P = this.players();
     const g = this.c.gang && GANGS[this.c.gang];
     const head = `${GAME[this.kind].name.toUpperCase()} · ${this.c.crew ? 'YOUR BLOCK' : g ? g.name.toUpperCase() : 'THE CORNER'}`;
-    const rows = this.kind === 'celo'
-      ? P.map((p) => {
-        const r = this.results ? [...this.results].find(([q]) => q.you === p.you && q.s === p.s)?.[1] : null;
-        const now = this.cur && this.cur.you === p.you && this.cur.s === p.s;
-        return { name: p.name, you: !!p.you, text: r ? r.label : now ? 'rolling...' : '', now };
-      })
-      : P.map((p, i) => ({ name: p.name, you: !!p.you, text: i === this.shooter % P.length ? `SHOOTER${this.point ? ` · point ${this.point}` : ''}` : '', now: i === this.shooter % P.length }));
-    return { head, pot: this.kind === 'celo' ? this.pot : null, stake: this.stake, rows, lines: this.lines, phase: this.phase, side: this.side, bet: this.bet, net: this.net, accused: this.accused ? this.accused.s.name : null, rival: this.rival() };
+    const rows = P.map((p) => {
+      const bank = `$${this.bank(p.key)}`;
+      if (this.kind === 'celo') {
+        const r = this.results ? [...this.results].find(([q]) => q.key === p.key)?.[1] : null;
+        const now = this.cur?.key === p.key;
+        return { name: p.name, you: !!p.you, text: [r ? r.label : now ? 'rolling...' : '', bank].filter(Boolean).join(' · '), now };
+      }
+      const shooter = p.key === this.shooterKey;
+      const down = this.riding(p.key);
+      const tag = shooter ? `SHOOTER${this.point ? ` · ${this.point}` : ''}` : '';
+      return { name: p.name, you: !!p.you, text: [tag, down ? `$${down} down` : '', bank].filter(Boolean).join(' · '), now: shooter };
+    });
+    // (your money on this hand, in words)
+    const act = this.bets.filter((B) => B.pro === 'you' || B.con === 'you').map((B) => {
+      const mine = B.pro === 'you' ? B.a : B.b;
+      const them = this.nameOf(B.pro === 'you' ? B.con : B.pro);
+      const shName = this.shooterKey === 'you' ? 'you' : this.shooterKey?.name;
+      if (B.kind === 'odds') return `$${mine} ${B.pro === 'you' ? 'on' : 'against'} the ${this.point} (${them})`;
+      return `$${mine} ${B.pro === 'you' ? (this.shooterKey === 'you' ? 'on you' : `with ${shName}`) : `fading ${shName}`} (${them})`;
+    });
+    return {
+      head, pot: this.kind === 'celo' ? this.pot : null, stake: this.stake, rows, lines: this.lines, phase: this.phase, side: this.side,
+      net: this.net, accused: this.accused ? this.accused.s.name : null, rival: this.rival(), act: act.join(' · '),
+      offer: this.offer ? this.offer.text : null, raise: this.raise, myBet: this.raise * this.stake, locked: this.locked, kind: this.kind, point: this.point,
+    };
   }
 }
 
@@ -1129,6 +1442,7 @@ export class DiceManager {
     const R = this.round;
     if (!R) return;
     const c = R.c;
+    R.forfeit(scatter); // (money down and you walk: it's theirs; the cops: it's gone)
     this.round = null;
     c.you = null;
     this.again = game.time + 1.5;
@@ -1186,13 +1500,19 @@ export class DiceManager {
     a.sprint = false;
     const roll = (a.interactHeld && !game.interactWasHeld) || a.dealYes || a.menuOk;
     const back = a.dealNo || a.phoneBack;
+    const lr = a.phoneLeft || a.menuUp ? -1 : a.phoneRight || a.menuDown ? 1 : 0;
     if (R.phase === 'accused') {
       if (roll) R.answer(true);
       else if (back) R.answer(false);
-    } else if (R.phase === 'you' && roll) R.youRoll();
-    else if (R.phase === 'bets') {
-      if (a.phoneLeft || a.menuUp) R.cycleSide(-1);
-      if (a.phoneRight || a.menuDown) R.cycleSide(1);
+    } else if (R.offer) {
+      // (somebody's offering you a bet: take it or pass)
+      if (roll) R.takeOffer();
+      else if (back) R.passOffer();
+    } else if (R.phase === 'you') {
+      if (lr) R.cycleSide(lr); // (your dice, before the come-out: how much you put up)
+      if (roll) R.youRoll();
+    } else if (R.phase === 'bets') {
+      if (lr) R.cycleSide(lr);
       if (back) this.leave();
     } else if (back && (R.phase === 'between' || R.phase === 'start')) this.leave();
     a.fire = a.firePressed = a.aim = a.aimPressed = a.melee = a.reload = a.dealYes = a.dealNo = a.enter = a.crouch = false;
@@ -1221,6 +1541,14 @@ export class DiceManager {
     c.group.position.y += C.poseChar(c, 'hunch', shooter, rollState, null, 1.7);
   }
 
+  // What the phone's two big buttons say right now (touch.js).
+  touchLabels() {
+    const R = this.round;
+    if (R?.phase === 'accused') return { roll: 'STAND', back: 'GIVE BACK' };
+    if (R?.offer) return { roll: 'TAKE', back: 'PASS' };
+    return { roll: 'ROLL', back: 'LEAVE' };
+  }
+
   // The dice panel (top of the screen) while you're in.
   panel() {
     let el = this.el;
@@ -1241,20 +1569,24 @@ export class DiceManager {
     const inp = this.game.input;
     const touch = inp.touchMode;
     const pad = inp.mode === 'pad' && !touch;
-    const K = { roll: touch ? 'ROLL' : pad ? '✕' : 'E', back: touch ? 'LEAVE' : pad ? '○' : 'Q', lr: touch ? '◀ ▶' : pad ? 'D-pad ◀ ▶' : '← →' };
+    const K = { roll: touch ? 'ROLL' : pad ? '✕' : 'E', back: touch ? 'LEAVE' : pad ? '○' : 'Q', take: touch ? 'TAKE' : pad ? '✕' : 'E', pass: touch ? 'PASS' : pad ? '○' : 'Q', lr: touch ? '◀ ▶' : pad ? 'D-pad ◀ ▶' : '← →' };
     let hint = '';
     if (V.phase === 'accused') hint = `<b>${K.roll}</b> stand on it · <b>${K.back}</b> give it back`;
+    else if (V.offer) hint = `<b>${K.take}</b> take it · <b>${K.pass}</b> pass`;
+    else if (V.phase === 'you' && V.kind === 'craps' && !V.locked) hint = `Your bet <b>$${V.myBet}</b> · ${K.lr} change · <b>${K.roll}</b> roll 'em`;
     else if (V.phase === 'you') hint = `<b>${K.roll}</b> roll 'em`;
-    else if (V.phase === 'bets') hint = `Your bet: <b>${V.side === 'with' ? 'WITH HIM' : V.side === 'against' ? 'FADE HIM' : 'SITTING OUT'}</b> ($${V.stake}) · ${K.lr} change · ${K.back} walk away`;
+    else if (V.phase === 'bets') hint = `Your bet: <b>${V.side === 'with' ? 'WITH HIM' : V.side === 'against' ? 'FADE HIM' : 'SITTING OUT'}</b> · ${K.lr} change · ${K.back} walk away`;
     else if (V.phase === 'between') hint = `${K.back} walk away`;
     const rows = V.rows.map((r) => `<div class="dp-row${r.you ? ' you' : ''}${r.now ? ' now' : ''}"><span class="dp-n"></span><span class="dp-r"></span></div>`).join('');
     const html = `<div class="dp-box${V.rival ? ' rival' : ''}">
       <div class="dp-head"><span class="dp-t">${V.head}</span>${V.pot != null ? `<span class="dp-pot">POT $${V.pot}</span>` : ''}</div>
       <div class="dp-rows">${rows}</div>
+      ${V.offer ? '<div class="dp-offer"></div>' : ''}
       <div class="dp-lines">${V.lines.map(() => '<div class="dp-line"></div>').join('')}</div>
+      ${V.act ? '<div class="dp-act"></div>' : ''}
       <div class="dp-foot"><span class="dp-net ${V.net >= 0 ? 'up' : 'down'}">${V.net >= 0 ? '+' : '-'}$${Math.abs(V.net)}</span><span class="dp-hint">${iconizeHTML(hint)}</span></div>
     </div>`;
-    const key = html + JSON.stringify(V.rows) + V.lines.join('|');
+    const key = html + JSON.stringify(V.rows) + V.lines.join('|') + V.offer + V.act;
     if (this.lastKey !== key) {
       this.lastKey = key;
       el.innerHTML = html;
@@ -1264,6 +1596,10 @@ export class DiceManager {
         row.querySelector('.dp-r').textContent = V.rows[i].text;
       });
       el.querySelectorAll('.dp-line').forEach((d, i) => (d.textContent = V.lines[i]));
+      const of = el.querySelector('.dp-offer');
+      if (of) of.textContent = V.offer;
+      const ac = el.querySelector('.dp-act');
+      if (ac) ac.textContent = `Your money: ${V.act}`;
     }
   }
 }

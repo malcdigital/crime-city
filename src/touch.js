@@ -649,6 +649,14 @@ export class TouchControls {
       use.el.classList.toggle('long', text.length > 6);
     }
     const w = this.el.buttons.weapon;
+    // (the dice game's big buttons say what they'll do: ROLL / TAKE / STAND, LEAVE / PASS / GIVE BACK)
+    if (ctx === 'dice' && game.dice?.touchLabels) {
+      const L = game.dice.touchLabels();
+      for (const [id, t] of [['droll', L.roll], ['dleave', L.back]]) {
+        const tl = this.el.buttons[id]?.el.querySelector('.tl');
+        if (tl && tl.textContent !== t) tl.textContent = t;
+      }
+    }
     // (held a moment: reload; the label says so while it's reloading)
     if (this.wHold && !this.wHold.done && performance.now() - this.wHold.t0 > 350) {
       this.wHold.done = true;

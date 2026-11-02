@@ -913,18 +913,22 @@ body.paused #board3pt, body.paused #c3-count { display: none; }
 #dice-panel .dp-lines { border-top: 1px solid #2b303b; padding-top: 4px; }
 #dice-panel .dp-line { font-size: 11px; color: #9aa3b2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #dice-panel .dp-line:first-child { color: #fff; font-weight: 700; }
+#dice-panel .dp-offer { margin: 2px 0 5px; padding: 5px 8px; border-radius: 8px; background: #ffd23f22; border: 1px solid #ffd23f88; color: #ffe27a; font-size: 12px; font-weight: 800; }
+#dice-panel .dp-act { margin-top: 4px; font-size: 11px; font-weight: 800; color: #9fe0ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #dice-panel .dp-foot { display: flex; justify-content: space-between; gap: 12px; margin-top: 6px; font-size: 11px; font-weight: 800; letter-spacing: .5px; }
 #dice-panel .dp-net.up { color: #7ee081; }
 #dice-panel .dp-net.down { color: #ff8080; }
 #dice-panel .dp-hint { color: #c9d1de; }
 #dice-panel .dp-hint b { color: #ffd23f; }
 body.dice-on #sport { display: none; }
-body.touch #dice-panel { top: 4px; left: calc(50% + 8px); transform: scale(.7); transform-origin: top left; }
+body.touch #dice-panel { top: 4px; left: auto; right: 6px; transform: scale(.62); transform-origin: top right; }
+body.touch #dice-panel .dp-line:nth-child(n+3) { display: none; } /* (two lines of what happened: room for the buttons) */
+body.touch.dice-on #top-right { display: none; } /* (the panel's there instead; your money's in it) */
 body.paused #dice-panel { display: none; }
 #touch .tb-droll { right: 22px; bottom: 26px; }
 #touch .tb-dleave { right: 130px; bottom: 20px; }
-#touch .tb-dleft { right: 130px; bottom: 110px; }
-#touch .tb-dright { right: 56px; bottom: 130px; }
+#touch .tb-dleft { right: 276px; bottom: 28px; }
+#touch .tb-dright { right: 216px; bottom: 28px; }
 #c3-count small { display: block; white-space: nowrap; margin-top: 8px; font-size: 13px; letter-spacing: 3px; color: #8fb8ff; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
 /* Hold-to-quit hint while you're in any game (main.js quitHoldStep). */
 #quit-hint { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 6; font: 600 11px/1 system-ui, sans-serif; letter-spacing: 1px; color: rgba(255,255,255,.72); background: rgba(0,0,0,.38); padding: 5px 10px; border-radius: 10px; pointer-events: none; }
@@ -1298,4 +1302,10 @@ body.board3pt-on #sport .sb { display: none; }
 /* (short phone screens: the strip a little smaller still, so an open tab's rows stay above the GIVE / DROP buttons) */
 @media (max-height: 340px) {
   body.touch #strip { top: 46px !important; transform: translateX(-50%) scale(.7); }
+}
+/* A narrow window: the dice panel tucked top right (clear of the info top left), the cash/clock
+   under it hidden while it's up (your money's in the panel). */
+@media (max-width: 760px) {
+  body:not(.touch) #dice-panel { left: auto; right: 8px; transform: scale(.75); transform-origin: top right; }
+  body:not(.touch).dice-on #top-right { display: none; }
 }
