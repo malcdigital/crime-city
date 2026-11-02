@@ -71,7 +71,7 @@ export function stepGroggy(e, dt, game) {
     return false;
   }
   G.t += dt;
-  const t = G.t;
+  let t = G.t;
   const s = G.seed;
   const gy = game.city.groundY(e.x, e.z);
   const roll = G.face === 'back' ? ROLL : 0;
@@ -141,6 +141,7 @@ export function stepGroggy(e, dt, game) {
     e.state = G.standState; // on its feet: standing again
   }
   const sway = Math.sin(t * 1.9 + s) + 0.4 * Math.sin(t * 3.7 + s * 2);
+  if (t < tWalk && !walkable(game, e.x, e.z)) G.t = t = tWalk; // (up in the road: no pause, off it)
   if (t < tWalk) {
     // Bent over, hands on the knees, catching itself.
     const k = 1 - ease(seg(t, tWalk - 0.4, tWalk));
@@ -161,19 +162,34 @@ export function stepGroggy(e, dt, game) {
     finish(e, true);
     return false;
   }
-  // Stumbling off: away from you, weaving, the odd lurch to the side.
+  // Stumbling off: away from you, weaving, the odd lurch to the side; but kept out of the
+  // traffic: on the sidewalk it picks a way that stays on it, and catches itself at the curb;
+  // in the street it makes for the nearest sidewalk first.
   G.goalT -= dt;
   const [px, pz] = game.player.pos();
-  if (G.goalT <= 0) {
+  const onWalk = walkable(game, e.x, e.z);
+  if (G.goalT <= 0 || onWalk !== G.wasWalk) {
     G.goalT = 0.7;
-    const away = Math.atan2(e.x - px, e.z - pz) + Math.sin(w * 0.9 + s) * 0.9;
-    G.gx = e.x + Math.sin(away) * 8;
-    G.gz = e.z + Math.cos(away) * 8;
+    G.wasWalk = onWalk;
+    const away = Math.atan2(e.x - px, e.z - pz);
+    const goal = onWalk ? walkGoal(game, e, away + Math.sin(w * 0.9 + s) * 0.9) : curbGoal(game, e, away);
+    G.gx = goal ? goal[0] : e.x;
+    G.gz = goal ? goal[1] : e.z;
+    G.stuck = !goal;
   }
-  const lurch = Math.max(0, Math.sin(w * 1.6 + s * 3)) ** 6; // (a stagger every few seconds)
+  const lurch = G.stuck ? 0 : Math.max(0, Math.sin(w * 1.6 + s * 3)) ** 6; // (a stagger every few seconds)
   const fade = Math.min(1, (G.walk - w) / 2); // (steadier toward the end)
-  const speed = (0.8 + 0.25 * Math.sin(w * 2.3 + s) + 0.9 * lurch) * (1.3 - 0.3 * fade);
+  let speed = G.stuck ? 0 : (0.8 + 0.25 * Math.sin(w * 2.3 + s) + 0.9 * lurch) * (1.3 - 0.3 * fade);
+  if (!onWalk) speed = Math.max(speed, 2.1); // (hurry out of the road)
+  const ox = e.x;
+  const oz = e.z;
   const h = navStep(e, G.gx, G.gz, speed, dt, game, 0.35);
+  if (onWalk && !walkable(game, e.x, e.z)) {
+    // (at the curb: catch yourself, and go another way)
+    e.x = ox;
+    e.z = oz;
+    G.goalT = 0;
+  }
   if (h !== null) {
     let d = h - e.heading;
     d = Math.atan2(Math.sin(d), Math.cos(d));
@@ -196,4 +212,39 @@ export function stepGroggy(e, dt, game) {
   g.rotation.set(0, e.heading, (sway * 0.06 + lurch * 0.08) * fade, 'YXZ');
   g.position.set(e.x, gy - 0.04 * fade, e.z);
   return true;
+}
+
+// Somewhere off the street: a block's sidewalk or a lot, not a road or a freeway ramp.
+function walkable(game, x, z) {
+  const b = game.city.blockAt(x, z);
+  return !!b && b.type !== 'ramps';
+}
+
+// A way to stumble that stays off the street for a few metres (as near `dir` as it can).
+function walkGoal(game, e, dir) {
+  for (const off of [0, 0.5, -0.5, 1, -1, 1.6, -1.6, 2.3, -2.3, Math.PI]) {
+    const a = dir + off;
+    const sx = Math.sin(a);
+    const sz = Math.cos(a);
+    if ([1.5, 3, 4.5].every((d) => walkable(game, e.x + sx * d, e.z + sz * d))) return [e.x + sx * 4.5, e.z + sz * 4.5];
+  }
+  return null;
+}
+
+// In the street: the nearest bit of sidewalk (a little past the curb), away from you if it's a tie.
+function curbGoal(game, e, away) {
+  for (let d = 1; d <= 16; d += 1) {
+    let best = null;
+    for (let i = 0; i < 16; i++) {
+      const a = away + (i % 2 ? -1 : 1) * Math.ceil(i / 2) * (Math.PI / 8);
+      const x = e.x + Math.sin(a) * d;
+      const z = e.z + Math.cos(a) * d;
+      if (walkable(game, x, z)) {
+        best = [e.x + Math.sin(a) * (d + 1), e.z + Math.cos(a) * (d + 1)];
+        break;
+      }
+    }
+    if (best) return best;
+  }
+  return null;
 }
