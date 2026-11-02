@@ -556,6 +556,12 @@ export class GangFighter {
       if (this.t <= 0) {
         setDown(this.char, false);
         this.state = 'idle';
+        if (this.ko) {
+          // (knocked out cold: comes round with nothing left, and gets out of there)
+          this.ko = false;
+          this.heart = 0;
+          if (this.behavior !== undefined) this.behavior = 'flee';
+        }
       }
       this.place();
       return true;

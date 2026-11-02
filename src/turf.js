@@ -228,7 +228,7 @@ class War {
   }
 
   living(side) {
-    return this.fighters.filter((f) => f.side === side && f.alive && !f.removed && f.behavior !== 'leave');
+    return this.fighters.filter((f) => f.side === side && f.alive && !f.ko && !f.removed && f.behavior !== 'leave'); // (knocked out cold counts as out)
   }
 
   // Send a side's next wave: real members of that gang, nearest first (the ones already on
@@ -316,6 +316,23 @@ class War {
       if (attOut) return this.end(false, 'they ran out of soldiers');
     }
     if (this.t > 12 * 60) return this.end(false, 'it stalled');
+  }
+
+  // You died in it (main.js wasted): it's over. Your attack fails; a block your crew was
+  // holding with you there falls (they scatter without you).
+  playerDown() {
+    if (this.state !== 'active') return false;
+    const [px, pz] = this.game.player.pos();
+    if (this.byPlayer || this.attacker === 'crew') {
+      this.end(false, 'you went down');
+      return true;
+    }
+    if (this.defender === 'crew' && this.onBlock(px, pz, 60)) {
+      this.end(true);
+      this.game.hud.toast('You went down. Your crew scattered and the block fell.', '#ff8080');
+      return true;
+    }
+    return false;
   }
 
   end(won, why = '') {

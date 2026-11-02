@@ -623,6 +623,8 @@ class Game {
     this.cash -= bill;
     this.hud.wasted(true, `Hospital bill $${bill.toLocaleString('en-US')}`);
     this.wastedT = 4;
+    // (a turf war you were in is over: turf.js playerDown)
+    for (const w of this.turfWars.wars || []) w.playerDown?.();
     if (this.player.vehicle) this.player.exit();
     this.player.setDown(true);
     this.clearWanted();
@@ -1925,7 +1927,7 @@ class Game {
         const k = 0.35 / (d || 1);
         t.x += dx * k;
         t.z += dz * k;
-      } else t.knockDown(p.x, p.z, { hook: 0.9, uppercut: 0.75, kick: 1.3 }[kind] || 0.6);
+      } else this.knockOut(t, p.x, p.z, { hook: 0.9, uppercut: 0.75, kick: 1.3 }[kind] || 0.6);
       if (t.isCop) this.crime('assaultCop', t.x, t.z);
       else if (t.isGang) this.gang.anger();
       else {
@@ -1939,6 +1941,17 @@ class Game {
       }
       return;
     }
+  }
+
+  // Knocked out by your fists: down and staying down (two minutes or so), out of the fight; when
+  // they come round they get up and get away rather than come back at you (peds.js, gang.js,
+  // police.js read .ko). A jab only staggers.
+  knockOut(t, fx, fz, fling) {
+    if (!t.standing) return;
+    t.knockDown(fx, fz, fling);
+    if (t.state !== 'down') return;
+    t.ko = true;
+    t.t = 110 + Math.random() * 40;
   }
 
   // gun: shots or explosions, which make people dive, duck and hide instead of just running.
@@ -2637,8 +2650,7 @@ class Game {
     // Odds: about 2 in 3, a little better with more street cred.
     const win = Math.random() < Math.min(0.93, 0.82 + this.cred / 6000);
     if (win) {
-      cop.knockDown(px, pz, 1.5);
-      cop.t = Math.max(cop.t, 7); // (out cold a while)
+      this.knockOut(cop, px, pz, 1.5);
       this.shakeCamera(0.25, 0.2);
       if (s.dirty) {
         this.hud.toast(`You drop ${who.replace('The officer', 'the officer')}. He won't be reporting this. Go!`, '#ffd36b');

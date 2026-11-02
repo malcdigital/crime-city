@@ -192,9 +192,12 @@ export class Ped {
       if (this.t <= 0) {
         setDown(this.char, false);
         this.state = 'walk'; // (up again: scare() and startBrawl() pass over anyone still 'down')
-        // (a tough one gets back up for another round, once; the rest run)
+        // (a tough one gets back up for another round, once; the rest run; anyone you knocked
+        // out cold has had enough)
         const [qx, qz] = game.player.pos();
-        if (this.tough && (this.rounds || 0) < 2 && !game.player.vehicle && dist(this.x, this.z, qx, qz) < 8) this.startBrawl();
+        const ko = this.ko;
+        this.ko = false;
+        if (!ko && this.tough && (this.rounds || 0) < 2 && !game.player.vehicle && dist(this.x, this.z, qx, qz) < 8) this.startBrawl();
         else this.scare(...this.threat);
       }
     } else if (this.state === 'flee') {

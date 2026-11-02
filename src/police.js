@@ -175,7 +175,8 @@ export class Officer {
       this.t -= dt;
       if (this.t <= 0) {
         setDown(this.char, false);
-        this.state = 'chase';
+        this.state = this.ko ? 'return' : 'chase'; // (out cold a while: he comes round and goes back to the car)
+        this.ko = false;
       }
     } else if (this.state === 'chase' && this.unit.task) {
       // Sent to a gang war: a crackdown (fight the targeted gangs) or investigating after.
