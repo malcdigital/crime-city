@@ -28,7 +28,7 @@ const STAKES = [10, 20, 50, 100, 250, 500];
 const NAMES = ['Lil Mike', 'Dre', 'Smoke', 'Peanut', 'Boogie', 'Tank', 'Shorty', 'Black', 'Red', 'Juice', 'Pooh', 'Ant', 'Rell', 'Man-Man', 'Bird'];
 const WOMEN = ['Kiki', 'Peaches', 'Lady', 'Nay Nay', 'Keke', 'Dee Dee', 'Precious', 'Jada', 'Shay'];
 const MAX = 3; // (circles around at once)
-const DIE = 0.08;
+const DIE = 0.11; // (a little big for real dice: easy to read from where you stand)
 
 // ---- The dice ----
 function pipsTexture(n) {
@@ -705,8 +705,8 @@ class Round {
   }
 
   // Somebody says something (a bubble over their head).
-  talk(p, text, dur) {
-    if (p && p !== 'you') this.c.fx?.say(p, text, dur);
+  talk(p, text, dur, pri = 1) {
+    if (p && p !== 'you') this.c.fx?.say(p, text, dur, pri);
   }
 
   say(text) {
@@ -826,10 +826,10 @@ class Round {
     const who = cur.you ? 'You' : cur.name;
     const fx = this.c.fx;
     const good = (x) => (cur.you ? (x ? 'good' : 'bad') : 'news');
-    if (!r) fx?.call(v.join('-'), 'Nothing. Roll again', 'news', 0.9);
-    else if (r.win) fx?.call('4-5-6!', 'Head crack', good(true));
-    else if (r.lose) fx?.call('1-2-3', `${cur.you ? 'You' : cur.name} lose`, good(false));
-    else fx?.call(r.label.toUpperCase(), v.join('-'), 'news', 1.2);
+    if (!r) fx?.call('NOTHING', 'Roll again', 'news', 1.6, v);
+    else if (r.win) fx?.call('4-5-6!', 'Head crack', good(true), 2.6, v);
+    else if (r.lose) fx?.call('1-2-3', `${cur.you ? 'You' : cur.name} lose`, good(false), 2.6, v);
+    else fx?.call(r.label.toUpperCase(), cur.you ? 'You' : cur.name, 'news', 2.0, v);
     if (!r) {
       // (nothing: roll again)
       this.rerolls += 1;
@@ -892,7 +892,7 @@ class Round {
     if (youWon) {
       this.net += share - this.stake;
       this.say(winners.length > 1 ? `Split it: +$${share}` : `You take it: +$${this.pot}`);
-      game.hud.toast(`You take the pot: +$${share}`, '#7ee081');
+      if (!this.c.fx) game.hud.toast(`You take the pot: +$${share}`, '#7ee081');
       this.heat(share - this.stake);
     } else {
       this.net -= this.stake;
@@ -936,7 +936,7 @@ class Round {
       this.phase = 'bets';
       sh.s.roll = 'shake';
       this.say(`${sh.name} puts up $${this.center}${this.center > this.stake ? ' (raising it)' : ''}. With him or fade him?`);
-      this.talk(sh.s, this.center > this.stake ? `I'm shootin' ${this.center}. Who got me?` : `Shoot ${this.center}. Who fadin'?`);
+      this.talk(sh.s, this.center > this.stake ? `I'm shootin' ${this.center}. Who got me?` : `Shoot ${this.center}. Who fadin'?`, 3, 2);
     }
   }
 
@@ -990,7 +990,7 @@ class Round {
       const f = others.filter((o) => o.bank >= stake).sort((p, q) => q.fade - p.fade)[0];
       if (f && this.bet('you', f, stake, stake, 'side')) {
         this.say(`You: $${stake} with ${sh.name}, ${f.name} fades you`);
-        this.talk(f, `Bet. I got your ${stake}.`);
+        this.talk(f, `Bet. I got your ${stake}.`, 2.4, 2);
       }
       else this.say(`Nobody'll take your $${stake}`);
     }
@@ -1003,8 +1003,7 @@ class Round {
       const amt = Math.min(r5(stake * rand(0.4, 1.2)), Math.floor(Math.min(a.bank, b.bank) / 5) * 5);
       if (amt >= 5 && this.bet(a, b, amt, amt, 'side')) {
         this.say(`${a.name} and ${b.name} bet $${amt} on it`);
-        this.talk(a, `${amt} say he hit.`);
-        this.c.fx?.after(0.8, () => this.talk(b, 'Bet.'));
+        this.talk(a, `${amt} say he hit.`, 2, 0);
       }
     }
     // (they couldn't cover all of it: the rest is yours if you want it)
@@ -1051,14 +1050,14 @@ class Round {
       else {
         this.point = sum;
         this.say(`${who}: ${v.join('-')} · point is ${sum}`);
-        this.c.fx?.call(`POINT IS ${sum}`, `${NICK[sum]} · ${sh.you ? 'you' : 'he'} need a ${pointWord(sum)} before a seven`, 'news', 2.0);
+        this.c.fx?.call(`POINT IS ${sum}`, `${NICK[sum]} · ${sh.you ? 'you' : 'he'} need a ${pointWord(sum)} before a seven`, 'news', 2.8, v);
         this.actionOffers();
       }
     } else if (sum === this.point) decided = 'win';
     else if (sum === 7) decided = 'seven';
     else {
       this.say(`${who}: ${v.join('-')} (${sum}) · need ${this.point}`);
-      this.c.fx?.call(String(sum), `${NICK[sum]} · need ${this.point}`, 'news', 0.9);
+      this.c.fx?.call(String(sum), `${NICK[sum]} · need ${this.point}`, 'news', 1.8, v);
     }
     if (!decided) {
       this.t = 0;
@@ -1071,9 +1070,9 @@ class Round {
     const you = this.settle(shooterWins);
     const tone = you > 0 ? 'good' : you < 0 ? 'bad' : 'news';
     const fx = this.c.fx;
-    if (decided === 'win') fx?.call(this.point ? `HIT THE ${this.point}!` : sum === 11 ? 'YO-LEVEN!' : 'SEVEN! WINNER', this.point ? `${NICK[this.point]} · shooter win` : v.join('-'), tone, 2.2);
-    else if (decided === 'craps') fx?.call(`${NICK[sum].toUpperCase()}. CRAPS`, `${v.join('-')} · shooter lose`, tone, 2.2);
-    else fx?.call('SEVEN OUT', `${v.join('-')} · dice pass`, tone, 2.2);
+    if (decided === 'win') fx?.call(this.point ? `HIT THE ${this.point}!` : sum === 11 ? 'YO-LEVEN!' : 'SEVEN! WINNER', this.point ? `${NICK[this.point]} · shooter win` : 'Shooter win', tone, 2.8, v);
+    else if (decided === 'craps') fx?.call(`${NICK[sum].toUpperCase()}. CRAPS`, 'Shooter lose', tone, 2.8, v);
+    else fx?.call('SEVEN OUT', 'Dice pass', tone, 2.8, v);
     if (sh.s) this.talk(sh.s, shooterWins ? pick(['Pay me!', 'Run it back.', "Told y'all."]) : pick(['Man...', 'Dice cold.', 'Damn.']));
     if (sh.s) this.c.react(sh.s, shooterWins ? 'win' : 'lose');
     // (a seven out passes the dice; a winner or a craps on the come-out keeps them)
@@ -1104,7 +1103,7 @@ class Round {
       winners.add(w);
     }
     for (const w of winners) fx?.collect(w, 1.3); // (and the winner grabs it all up)
-    for (const [p, d] of delta) fx?.float(p, d);
+    for (const [p, d] of delta) fx?.after(0.05, () => fx.float(p, d)); // (after the call's up: yours goes in it)
     this.paid = this.bets.length > 0;
     this.bets = [];
     for (const [p, d] of delta) {
@@ -1114,7 +1113,7 @@ class Round {
     const you = delta.get('you') || 0;
     if (you) {
       this.net += you;
-      game.hud.toast(you > 0 ? `+$${you}` : `-$${-you}`, you > 0 ? '#7ee081' : '#ff8080');
+      if (!this.c.fx) game.hud.toast(you > 0 ? `+$${you}` : `-$${-you}`, you > 0 ? '#7ee081' : '#ff8080'); // (with the effects up it's in the big call)
       if (you > 0) this.heat(you);
     }
     return you;
@@ -1202,7 +1201,7 @@ class Round {
     const line = pick(["Them dice loaded! Run that back.", "Nah, you cheatin'. Give me my money.", "Ain't no way. Them dice crooked.", "You switchin' dice on us?"]);
     this.say(`${s.name}: "${line}"`);
     this.game.hud.toast(`${s.name}: "${line}"`, '#ff8080');
-    this.talk(s, line, 4);
+    this.talk(s, line, 4, 3);
   }
 
   // (✕ stand on it / ○ give it back)

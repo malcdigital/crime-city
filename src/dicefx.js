@@ -41,6 +41,8 @@ function breakDown(v) {
 }
 
 const ease = (k) => k * k * (3 - 2 * k);
+// (which of a die's 3x3 spots have a pip, for each value)
+const PIPS = [[2, 3, 4, 5, 6], [], [4, 5, 6], [6], [1, 3, 5], [6], [4, 5, 6], [], [2, 3, 4, 5, 6]];
 const seg = (t, a, b) => Math.max(0, Math.min(1, (t - a) / (b - a)));
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 
@@ -337,12 +339,14 @@ export class DiceFX {
 
   // ---- What's said and what it means ----
   // The big call in the middle. tone: 'good' (for you), 'bad', or 'news'.
-  call(text, sub = '', tone = 'news', dur = 1.8) {
+  call(text, sub = '', tone = 'news', dur = 1.8, dice = null) {
     const el = this.callEl;
     el.className = `dfx-call ${tone}`;
-    el.innerHTML = '<div class="dfx-c1"></div><div class="dfx-c2"></div>';
-    el.firstChild.textContent = text;
-    el.lastChild.textContent = sub;
+    // (the dice as they landed, drawn big, so you can read them)
+    const faces = (dice || []).map((n) => `<span class="dfx-die">${PIPS.map((on) => `<i${on.includes(n) ? ' class="on"' : ''}></i>`).join('')}</span>`).join('');
+    el.innerHTML = `${faces ? `<div class="dfx-dice">${faces}</div>` : ''}<div class="dfx-c1"></div><div class="dfx-c2"></div>`;
+    el.querySelector('.dfx-c1').textContent = text;
+    el.querySelector('.dfx-c2').textContent = sub;
     void el.offsetWidth;
     el.classList.add('show');
     this.callUntil = this.game.time + dur;
@@ -351,6 +355,17 @@ export class DiceFX {
   // +$ / -$ floating up off somebody.
   float(who, v) {
     if (!v) return;
+    // (yours goes in the big call, when it's up, not on top of it)
+    if (who === 'you' && this.callUntil > this.game.time) {
+      const c2 = this.callEl.querySelector('.dfx-c2');
+      if (c2) {
+        const m = document.createElement('span');
+        m.className = `dfx-you ${v > 0 ? 'up' : 'down'}`;
+        m.textContent = v > 0 ? `  +$${v}` : `  -$${-v}`;
+        c2.appendChild(m);
+        return;
+      }
+    }
     const el = this.div(`dfx-float ${v > 0 ? 'up' : 'down'}`);
     el.textContent = v > 0 ? `+$${v}` : `-$${-v}`;
     this.later.push([this.game.time + 1.6, () => el.remove()]);
@@ -359,8 +374,14 @@ export class DiceFX {
   }
 
   // Somebody says something (over their head, a couple of seconds).
-  say(who, text, dur = 2.3) {
+  // pri: 0 chatter, 1 talk, 2 to you / the shooter, 3 must be seen. Chatter waits its turn:
+  // at most two bubbles up at once, and not hard on the heels of the last.
+  say(who, text, dur = 2.3, pri = 1) {
     if (!who || who === 'pot') return;
+    const now = this.game.time;
+    const up = [...this.bubbles.values()].filter((b) => b.until > now && b.el.style.display !== 'none').length;
+    if (pri < 2 && (up >= 2 || now - (this.lastTalk || -9) < (pri ? 0.6 : 1.4))) return;
+    if (pri < 2) this.lastTalk = now;
     let B = this.bubbles.get(who);
     if (!B) {
       B = { el: this.div('dfx-bubble') };
@@ -368,8 +389,9 @@ export class DiceFX {
     }
     B.el.className = 'dfx-bubble';
     B.el.textContent = text;
-    B.until = this.game.time + dur;
+    B.until = this.game.time + Math.max(dur, 2.2);
     B.offer = null;
+    B.pri = pri;
   }
 
   // An offer to you, over the one making it: a countdown, and what to press.
@@ -385,6 +407,7 @@ export class DiceFX {
     B.el.querySelector('.dfx-keys').innerHTML = keys;
     B.until = Infinity;
     B.offer = { T };
+    B.pri = 3;
   }
 
   endOffer() {
@@ -460,15 +483,16 @@ export class DiceFX {
       this.ring.material.opacity = 0.45 + 0.3 * Math.sin(now * 5);
     }
     // (the dice: up big a beat after they land, so you can read them)
-    const pk = this.popT != null ? (now - this.popT) / 1.1 : 1;
-    const sc = pk < 1 ? 1 + 1.6 * Math.sin(Math.PI * Math.min(1, pk * 1.4)) * (pk < 0.72 ? 1 : 1 - (pk - 0.72) / 0.28) : 1;
+    const pk = this.popT != null ? (now - this.popT) / 2.4 : 1;
+    const sc = pk < 1 ? 1 + 1.3 * ease(Math.min(1, pk / 0.08)) * (pk < 0.8 ? 1 : 1 - ease((pk - 0.8) / 0.2)) : 1;
     for (const D of this.c.dice) {
       if (this.c.throw) {
         D.m.scale.setScalar(1);
         continue;
       }
       D.m.scale.setScalar(Math.max(1, sc));
-      D.m.position.y = this.c.y + (0.08 / 2) * Math.max(1, sc);
+      D.m.position.y = this.c.y + (D.m.geometry.parameters.height / 2) * Math.max(1, sc);
+      if (sc > 1.01) D.m.rotation.set(D.m.rotation.x, D.m.rotation.y, D.m.rotation.z); // (face up as it landed)
     }
     this.overlay();
   }
@@ -480,55 +504,50 @@ export class DiceFX {
     return [((v.x + 1) / 2) * window.innerWidth, ((1 - v.y) / 2) * window.innerHeight];
   }
 
-  place(el, p, dy = 0) {
-    if (!p) {
-      el.style.display = 'none';
-      return;
-    }
-    el.style.display = '';
-    el.style.transform = `translate(${Math.round(p[0])}px, ${Math.round(p[1] + dy)}px) translate(-50%, -100%)`;
-  }
-
-  // Tags, bubbles, labels and floats over the people and the money.
+  // Tags, bubbles, labels and floats over the people and the money, laid out so nothing sits on
+  // anything else: the most important placed first (an offer, the point, what you won or lost,
+  // what's said, then names and the money labels), each slid up or down to a free spot, and
+  // the least important left out when there's no room. The big call, the panel, the info top
+  // left and the phone's buttons are kept clear.
   overlay() {
     const now = this.game.time;
-    this.game.camera.updateMatrixWorld(); // (where the camera is now, not as of the last frame drawn)
     const R = this.mgr.round;
+    this.game.camera.updateMatrixWorld();
     const head = (who) => {
       const c = this.char(who);
       const [x, z] = this.pos(who);
       return this.screen(x, c.group.position.y + 2.05, z);
     };
-    // (nothing up in the top corners' info, the panel or the buttons' way: tags and bubbles kept
-    // below the top band; tags that would sit on top of each other stacked)
-    const top = window.innerHeight < 500 ? 78 : 104;
-    const spots = new Map();
-    const tagAt = (who) => {
-      if (spots.has(who)) return spots.get(who);
-      const p = head(who);
-      spots.set(who, p && [p[0], Math.max(top, p[1])]);
-      return spots.get(who);
-    };
-    // (tags)
-    const people = [...this.c.peds, 'you'];
-    const laid = [];
-    for (const who of this.c.peds) {
-      const p = tagAt(who);
-      if (!p) continue;
-      for (let k = 0; k < 6; k++) {
-        const hit = laid.find((q) => Math.abs(q[0] - p[0]) < 86 && Math.abs(q[1] - p[1]) < 15);
-        if (!hit) break;
-        p[1] = hit[1] + 15;
+    const items = [];
+    const add = (el, p, pri, stack = 0) => {
+      if (!p) {
+        el.style.display = 'none';
+        return;
       }
-      laid.push(p);
+      el.style.display = '';
+      items.push({ el, x: p[0], y: p[1], pri, stack });
+    };
+    // (bubbles: over the one talking, in place of their tag)
+    const talking = new Set();
+    for (const [who, B] of [...this.bubbles]) {
+      if (now > B.until || (who !== 'you' && !this.c.peds.includes(who))) {
+        B.el.remove();
+        this.bubbles.delete(who);
+        continue;
+      }
+      if (B.offer && R?.offer) B.el.querySelector('.dfx-ring').style.setProperty('--k', Math.max(0, R.offer.t / B.offer.T).toFixed(3));
+      talking.add(who);
+      add(B.el, head(who), B.offer ? 9 : 4 + (B.pri || 0));
     }
+    // (tags: name, cash, shooter, what they've got against you)
+    const people = [...this.c.peds];
     for (const who of people) {
       let el = this.tags.get(who);
       if (!el) {
         el = this.div('dfx-tag');
         this.tags.set(who, el);
       }
-      if (who === 'you' || !R) {
+      if (!R || talking.has(who)) {
         el.style.display = 'none';
         continue;
       }
@@ -541,7 +560,7 @@ export class DiceFX {
         el.innerHTML = html;
         el.firstChild.textContent = who.name;
       }
-      this.place(el, tagAt(who));
+      add(el, head(who), against || who === this.c.shooter ? 3 : 1);
     }
     for (const [who, el] of [...this.tags]) {
       if (!people.includes(who)) {
@@ -549,40 +568,79 @@ export class DiceFX {
         this.tags.delete(who);
       }
     }
-    // (bubbles, over the tag)
-    for (const [who, B] of [...this.bubbles]) {
-      if (now > B.until || (who !== 'you' && !this.c.peds.includes(who))) {
-        B.el.remove();
-        this.bubbles.delete(who);
-        continue;
-      }
-      if (B.offer && R?.offer) {
-        const left = Math.max(0, R.offer.t / B.offer.T);
-        B.el.querySelector('.dfx-ring').style.setProperty('--k', left.toFixed(3));
-      }
-      const p = tagAt(who);
-      this.place(B.el, p && [p[0], Math.max(top + 40, p[1])], who === 'you' ? 0 : -18);
-    }
     // (what's on the ground)
-    for (const P of this.piles.values()) this.place(P.el, P.amount > 0 ? this.screen(P.x, this.c.y + 0.12, P.z) : null);
+    for (const P of this.piles.values()) {
+      if (P.amount > 0) add(P.el, this.screen(P.x, this.c.y + 0.1, P.z), 2);
+      else P.el.style.display = 'none';
+    }
     // (the point, over the dice)
     const pt = R?.kind === 'craps' && R.point;
     this.pointEl.classList.toggle('hidden', !pt);
     if (pt) {
       const t = `POINT ${pt} · ${NICK[pt]}`;
       if (this.pointEl.textContent !== t) this.pointEl.textContent = t;
-      this.place(this.pointEl, this.screen(this.c.sx, this.c.y + 0.75, this.c.sz));
+      add(this.pointEl, this.screen(this.c.sx, this.c.y + 0.6, this.c.sz), 8);
     }
     // (+$ / -$ rising)
     for (const el of this.root.querySelectorAll('.dfx-float')) {
       const k = (now - +el.dataset.t0) / 1.6;
       const p = head(el.who);
-      this.place(el, p, -30 - 46 * k);
       el.style.opacity = String(Math.max(0, 1 - k * k));
+      add(el, p && [p[0], p[1] - 40 * k], 6);
     }
     if (this.callUntil && now > this.callUntil) {
       this.callEl.classList.remove('show');
       this.callUntil = 0;
+    }
+    // (lay it all out)
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const keep = [];
+    const block = (sel) => {
+      for (const e of document.querySelectorAll(sel)) {
+        const r = e.getBoundingClientRect();
+        if (r.width && r.height && getComputedStyle(e).display !== 'none') keep.push([r.left - 4, r.top - 4, r.right + 4, r.bottom + 4]);
+      }
+    };
+    if (this.callUntil) block('#dice-fx .dfx-call');
+    block('#dice-panel .dp-box');
+    block('#touch .tb:not(.hidden)');
+    block('#minimap, #radar');
+    keep.push([0, 0, Math.min(W * 0.42, 330), H < 500 ? 56 : 70]); // (the info top left)
+    const hits = (r) => keep.some((k) => r[0] < k[2] && r[2] > k[0] && r[1] < k[3] && r[3] > k[1]);
+    items.sort((a, b) => b.pri - a.pri);
+    for (const it of items) {
+      const w = it.el.offsetWidth;
+      const h = it.el.offsetHeight;
+      const tries = it.pri >= 8 ? [0, -1, 1, -2, 2, -3, 3, -4, 4] : [0, -1, 1, -2, 2, -3];
+      const dxs = it.pri >= 8 ? [0, -0.6, 0.6, -1.2, 1.2] : [0, -0.6, 0.6];
+      let done = false;
+      for (const k of tries) {
+        for (const dx of dxs) {
+          const x = Math.max(4, Math.min(W - w - 4, it.x - w / 2 + dx * w));
+          const y = it.y - h + k * (h + 4);
+          const r = [x, y, x + w, y + h];
+          if (y < 0 || y + h > H || hits(r)) continue;
+          keep.push(r);
+          it.el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+          done = true;
+          break;
+        }
+        if (done) break;
+      }
+      // (no room near them: an offer or the point goes to a free spot low in the middle of the
+      // screen; the rest sit this one out)
+      if (!done && it.pri >= 8) {
+        for (let y = H * 0.66; y > H * 0.3 && !done; y -= h + 6) {
+          const x = W / 2 - w / 2;
+          const r = [x, y, x + w, y + h];
+          if (hits(r)) continue;
+          keep.push(r);
+          it.el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+          done = true;
+        }
+        if (!done) it.el.style.transform = `translate(${Math.round(W / 2 - w / 2)}px, ${Math.round(H * 0.62)}px)`;
+      } else if (!done) it.el.style.display = 'none';
     }
   }
 

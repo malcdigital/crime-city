@@ -1354,3 +1354,11 @@ body.touch #dice-fx .dfx-tag { font-size: 9px; }
 body.touch #dice-fx .dfx-bubble { font-size: 10px; max-width: 160px; padding: 4px 7px; }
 body.touch #dice-fx .dfx-float { font-size: 14px; }
 body.touch #dice-fx .dfx-call { top: 27%; }
+#dice-fx .dfx-dice { display: flex; justify-content: center; gap: 10px; margin-bottom: 6px; }
+#dice-fx .dfx-die { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 3px; width: 44px; height: 44px; padding: 6px; box-sizing: border-box; background: #f4f1e8; border-radius: 8px; box-shadow: 0 3px 0 #b9b3a3, 0 4px 10px rgba(0,0,0,.5); }
+#dice-fx .dfx-die i { border-radius: 50%; }
+#dice-fx .dfx-die i.on { background: #111; }
+body.touch #dice-fx .dfx-die { width: 34px; height: 34px; padding: 5px; gap: 2px; }
+#dice-fx .dfx-you { font-weight: 900; }
+#dice-fx .dfx-you.up { color: #7ee081; }
+#dice-fx .dfx-you.down { color: #ff6b6b; }
