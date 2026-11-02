@@ -1,3 +1,4 @@
+import { startGroggy, stepGroggy } from './groggy.js';
 import * as THREE from 'three';
 import { exitCar } from './carscenes.js';
 import { aimPose, flinchPose, fallFace, markFlinch, kneelPose } from './combatpose.js';
@@ -125,6 +126,7 @@ export class Officer {
         this.char.group.rotation.set(0, this.heading, 0);
       } else return;
     }
+    if (this.groggy && stepGroggy(this, dt, this.game)) return; // (coming round: groggy.js)
     if (this.state === 'inCar' || this.state === 'dead') {
       if (this.state === 'dead') this.place();
       return;
@@ -173,10 +175,15 @@ export class Officer {
       speed = CFG.OFFICER_SPEED;
     } else if (this.state === 'down') {
       this.t -= dt;
+      if (this.t <= 0 && this.ko) {
+        // (out cold a while: comes round groggy, stumbles about, then goes back to the car)
+        startGroggy(this, 'return', null);
+        stepGroggy(this, dt, game);
+        return;
+      }
       if (this.t <= 0) {
         setDown(this.char, false);
-        this.state = this.ko ? 'return' : 'chase'; // (out cold a while: he comes round and goes back to the car)
-        this.ko = false;
+        this.state = 'chase';
       }
     } else if (this.state === 'chase' && this.unit.task) {
       // Sent to a gang war: a crackdown (fight the targeted gangs) or investigating after.

@@ -1,3 +1,4 @@
+import { startGroggy, stepGroggy } from './groggy.js';
 import * as THREE from 'three';
 import { CFG } from './config.js';
 import { flinchPose, fallFace, markFlinch, fightStance, markPunch, punchPose, PUNCH_T } from './combatpose.js';
@@ -180,6 +181,7 @@ export class Ped {
 
   update(dt) {
     const game = this.game;
+    if (this.groggy && stepGroggy(this, dt, game)) return; // (coming round: groggy.js)
     let tx = this.x;
     let tz = this.z;
     let speed = 0;
@@ -189,15 +191,18 @@ export class Ped {
       if (this.t <= 0) this.dispose();
     } else if (this.state === 'down') {
       this.t -= dt;
+      if (this.t <= 0 && this.ko) {
+        // (knocked out cold: comes round groggy and stumbles off, then gets out of there)
+        startGroggy(this, 'walk', () => this.scare(...this.threat));
+        stepGroggy(this, dt, game);
+        return;
+      }
       if (this.t <= 0) {
         setDown(this.char, false);
         this.state = 'walk'; // (up again: scare() and startBrawl() pass over anyone still 'down')
-        // (a tough one gets back up for another round, once; the rest run; anyone you knocked
-        // out cold has had enough)
+        // (a tough one gets back up for another round, once; the rest run)
         const [qx, qz] = game.player.pos();
-        const ko = this.ko;
-        this.ko = false;
-        if (!ko && this.tough && (this.rounds || 0) < 2 && !game.player.vehicle && dist(this.x, this.z, qx, qz) < 8) this.startBrawl();
+        if (this.tough && (this.rounds || 0) < 2 && !game.player.vehicle && dist(this.x, this.z, qx, qz) < 8) this.startBrawl();
         else this.scare(...this.threat);
       }
     } else if (this.state === 'flee') {

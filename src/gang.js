@@ -1,3 +1,4 @@
+import { startGroggy, stepGroggy } from './groggy.js';
 import { GANG_NAME, CREW_NAME } from './config.js';
 import { aimPose, lowReady, flinchPose, fallFace, markFlinch, kneelPose } from './combatpose.js';
 import * as THREE from 'three';
@@ -546,6 +547,7 @@ export class GangFighter {
 
   // Frame update for the down / dead states. Returns true if handled.
   updateDown(dt) {
+    if (this.groggy && stepGroggy(this, dt, this.game)) return true;
     if (this.state === 'dead') {
       this.t -= dt;
       this.place();
@@ -553,15 +555,19 @@ export class GangFighter {
     }
     if (this.state === 'down') {
       this.t -= dt;
+      if (this.t <= 0 && this.ko) {
+        // (knocked out cold: comes round groggy, stumbles about, then has nothing left and gets
+        // out of there; groggy.js)
+        startGroggy(this, 'idle', () => {
+          this.heart = 0;
+          if (this.behavior !== undefined) this.behavior = 'flee';
+        });
+        stepGroggy(this, dt, this.game);
+        return true;
+      }
       if (this.t <= 0) {
         setDown(this.char, false);
         this.state = 'idle';
-        if (this.ko) {
-          // (knocked out cold: comes round with nothing left, and gets out of there)
-          this.ko = false;
-          this.heart = 0;
-          if (this.behavior !== undefined) this.behavior = 'flee';
-        }
       }
       this.place();
       return true;
