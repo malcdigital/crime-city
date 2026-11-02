@@ -838,6 +838,8 @@ class Round {
       this.newRound();
       return;
     }
+    // (you're calling a bet: the hand waits on you)
+    if (this.call?.open) return;
     // (somebody's offering you a bet: everything waits on your answer, a few seconds)
     if (this.offer) {
       this.offer.t -= dt;
@@ -1048,6 +1050,8 @@ class Round {
     this.point = null;
     this.bets = [];
     this.locked = false;
+    this.hand = (this.hand || 0) + 1;
+    this.calls = 0;
     this.t = 0;
     if (sh.you) {
       if (this.game.cash < this.stake) return this.mgr.leave("You're tapped out");
@@ -1280,6 +1284,80 @@ class Round {
     for (const o of out.sort(() => Math.random() - 0.5).slice(0, 1 + Math.floor(Math.random() * 2))) this.queue(o);
   }
 
+  // ---- Your own side bets: you call one, somebody takes it ----
+  // Open whenever there's a craps hand going and the dice aren't in the air (up to three of
+  // your own a hand). side 'pro': he hit (or wins coming out); 'con': he don't.
+  canCall() {
+    return this.kind === 'craps' && ['bets', 'npc', 'you'].includes(this.phase) && !this.c.throw && !this.offer && (this.calls || 0) < 3 && this.game.cash >= 10;
+  }
+
+  callAmounts() {
+    return STAKES.filter((v) => v <= this.game.cash);
+  }
+
+  // (BET: open the picker, or with it open, flip he hit / he don't)
+  callButton() {
+    if (this.call?.open) {
+      this.call.side = this.call.side === 'pro' ? 'con' : 'pro';
+      return;
+    }
+    if (!this.canCall()) return;
+    const A = this.callAmounts();
+    const i = Math.max(0, A.indexOf(A.filter((v) => v <= this.stake).pop() ?? A[0]));
+    this.call = { open: true, side: 'pro', i };
+  }
+
+  callAmount(d) {
+    const A = this.callAmounts();
+    if (this.call?.open) this.call.i = Math.max(0, Math.min(A.length - 1, this.call.i + d));
+  }
+
+  cancelCall() {
+    this.call = null;
+  }
+
+  // What you'd say (and what the panel shows).
+  callWords(C = this.call) {
+    const amt = this.callAmounts()[C.i] || 0;
+    const sh = this.shooterKey === 'you';
+    const pt = this.point;
+    if (C.side === 'pro') return pt ? `${amt} say ${sh ? 'I' : 'he'} hit the ${pointWord(pt)}.` : `${amt} say ${sh ? 'I' : 'he'} win.`;
+    return pt ? `${amt} say ${sh ? 'I' : 'he'} don't hit.` : `${amt} say ${sh ? 'I' : 'he'} crap out.`;
+  }
+
+  // (✕ / E / CALL IT) You call it out; a beat later somebody with the money takes it (or nobody).
+  placeCall() {
+    const C = this.call;
+    if (!C?.open) return;
+    this.call = null;
+    const amt = this.callAmounts()[C.i];
+    if (!amt) return;
+    this.calls = (this.calls || 0) + 1;
+    const words = this.callWords(C);
+    const fx = this.c.fx;
+    fx?.say('you', `${words} Who fadin'?`, 2.4, 3);
+    const hand = this.hand;
+    const go = () => {
+      if (this.mgr.round !== this || this.hand !== hand || !['bets', 'npc', 'you', 'air'].includes(this.phase)) return;
+      const sh = this.shooterKey;
+      // (who'd take the other side: your 'he hit' wants a fader, not the shooter himself;
+      // a 'he don't' the shooter will take on himself, gladly)
+      const pool = this.c.peds.filter((o) => o.bank >= amt && !(C.side === 'pro' && o === sh));
+      const want = (o) => (C.side === 'pro' ? o.fade : 1 - o.fade) + (o === sh ? 0.8 : 0) + Math.random() * 0.5;
+      const taker = pool.sort((a, b) => want(b) - want(a))[0];
+      if (!taker || Math.random() < 0.12 || !(C.side === 'pro' ? this.bet('you', taker, amt, amt, 'call') : this.bet(taker, 'you', amt, amt, 'call'))) {
+        const who = pick(this.c.peds);
+        if (who) this.talk(who, pick(["Nah, I'm good.", 'Not me.', 'Find somebody else.']), 2, 3);
+        this.say(`Nobody took your ${amt}`);
+        return;
+      }
+      this.talk(taker, pick(['Bet. I got you.', `I got your ${amt}.`, 'Bet.']), 2.2, 3);
+      this.say(`You: ${words} ${taker.name} takes it`);
+    };
+    if (fx) fx.after(1.2, go);
+    else go();
+  }
+
   queue(o) {
     this.offers.push(o);
     if (!this.offer) this.nextOffer();
@@ -1406,13 +1484,15 @@ class Round {
       const mine = B.pro === 'you' ? B.a : B.b;
       const them = this.nameOf(B.pro === 'you' ? B.con : B.pro);
       const shName = this.shooterKey === 'you' ? 'you' : this.shooterKey?.name;
-      if (B.kind === 'action') return `$${mine} ${B.pro === 'you' ? 'he hit' : "he don't"} (${them})`;
+      if (B.kind === 'action' || B.kind === 'call') return `$${mine} ${B.pro === 'you' ? 'he hit' : "he don't"} (${them})`;
       return `$${mine} ${B.pro === 'you' ? (this.shooterKey === 'you' ? 'on you' : `with ${shName}`) : `fading ${shName}`} (${them})`;
     });
     return {
       head, pot: this.kind === 'celo' ? this.pot : null, stake: this.stake, rows, lines: this.lines, phase: this.phase, side: this.side,
       net: this.net, accused: this.accused ? this.accused.s.name : null, rival: this.rival(), acts,
-      offer: this.offer ? this.offer.text : null, raise: this.raise, myBet: this.raise * this.stake, locked: this.locked, kind: this.kind, point: this.point,
+      offer: this.offer ? this.offer.text : null,
+      call: this.call?.open ? { words: this.callWords(), side: this.call.side } : null,
+      canCall: this.canCall(), raise: this.raise, myBet: this.raise * this.stake, locked: this.locked, kind: this.kind, point: this.point,
     };
   }
 }
@@ -1737,6 +1817,14 @@ export class DiceManager {
     if (R.phase === 'accused') {
       if (roll) R.answer(true);
       else if (back) R.answer(false);
+    } else if (R.call?.open) {
+      // (calling your own bet: ◀ ▶ how much, BET flips he hit / he don't, ✕ call it, ○ never mind)
+      if (lr) R.callAmount(lr);
+      if (a.enter) R.callButton();
+      if (roll) R.placeCall();
+      else if (back) R.cancelCall();
+    } else if (a.enter && R.canCall()) {
+      R.callButton();
     } else if (R.offer) {
       // (somebody's offering you a bet: take it or pass)
       if (roll) R.takeOffer();
@@ -1779,8 +1867,9 @@ export class DiceManager {
   touchLabels() {
     const R = this.round;
     if (R?.phase === 'accused') return { roll: 'STAND', back: 'GIVE BACK' };
-    if (R?.offer) return { roll: 'TAKE', back: 'PASS' };
-    return { roll: 'ROLL', back: 'LEAVE' };
+    if (R?.call?.open) return { roll: 'CALL IT', back: 'CANCEL', bet: 'FLIP', betOn: true };
+    if (R?.offer) return { roll: 'TAKE', back: 'PASS', bet: 'BET', betOn: false };
+    return { roll: 'ROLL', back: 'LEAVE', bet: 'BET', betOn: !!R?.canCall() };
   }
 
   // The dice panel (top of the screen) while you're in.
@@ -1789,7 +1878,7 @@ export class DiceManager {
     const inp = this.game.input;
     const touch = inp.touchMode;
     const pad = inp.mode === 'pad' && !touch;
-    return { roll: touch ? 'ROLL' : pad ? '✕' : 'E', back: touch ? 'LEAVE' : pad ? '○' : 'Q', take: touch ? 'TAKE' : pad ? '✕' : 'E', pass: touch ? 'PASS' : pad ? '○' : 'Q', lr: touch ? '◀ ▶' : pad ? 'D-pad ◀ ▶' : '← →' };
+    return { bet: touch ? 'BET' : pad ? '△' : 'F', roll: touch ? 'ROLL' : pad ? '✕' : 'E', back: touch ? 'LEAVE' : pad ? '○' : 'Q', take: touch ? 'TAKE' : pad ? '✕' : 'E', pass: touch ? 'PASS' : pad ? '○' : 'Q', lr: touch ? '◀ ▶' : pad ? 'D-pad ◀ ▶' : '← →' };
   }
 
   // (an offer's bubble: what to press)
@@ -1819,13 +1908,16 @@ export class DiceManager {
     const K = this.keys();
     let hint = '';
     if (V.phase === 'accused') hint = `<b>${K.roll}</b> stand on it · <b>${K.back}</b> give it back`;
+    else if (V.call) hint = `<b>${K.bet}</b> he hit / he don't · ${K.lr} amount · <b>${K.roll === 'ROLL' ? 'CALL IT' : K.roll}</b> call it · <b>${K.back === 'LEAVE' ? 'CANCEL' : K.back}</b> cancel`;
     else if (V.offer) hint = `<b>${K.take}</b> take it · <b>${K.pass}</b> pass`;
     else if (V.phase === 'you' && V.kind === 'craps' && !V.locked) hint = `Shoot <b>$${V.myBet}</b> · ${K.lr} more / less · <b>${K.roll}</b> roll`;
     else if (V.phase === 'you') hint = `<b>${K.roll}</b> roll 'em`;
     else if (V.phase === 'bets') hint = `<b>${V.side === 'with' ? 'WITH HIM' : V.side === 'against' ? 'FADE HIM' : 'SIT OUT'}</b> · ${K.lr} change · ${K.back} leave`;
     else if (V.phase === 'between') hint = `${K.back} leave`;
+    if (V.canCall && !V.call && !V.offer && V.phase !== 'accused') hint += `${hint ? ' · ' : ''}<b>${K.bet}</b> side bet`;
     const chips = [];
     if (V.kind === 'craps' && V.point) chips.push(['pt', `POINT ${V.point}`]);
+    if (V.call) chips.push(['call', `YOUR CALL: "${V.call.words}"`]);
     if (V.kind === 'celo' && V.pot != null) chips.push(['pt', `POT $${V.pot}`]);
     for (const a of V.acts) chips.push(['me', a]);
     if (!chips.length) chips.push(['none', V.kind === 'craps' ? 'No money down' : '']);

@@ -46,6 +46,7 @@ const BUTTONS = [
   // Street dice (dice.js): roll, walk away, and craps' with / fade.
   ['droll', 'ROLL', B.CROSS, ['dice'], 'hold', 'big red txt'],
   ['dleave', 'LEAVE', B.CIRCLE, ['dice'], 'hold', 'mid txt'],
+  ['dbet', 'BET', B.TRIANGLE, ['dice'], 'hold', 'mid txt'],
   ['dleft', '◀', B.LEFT, ['dice'], 'hold', 'sm'],
   ['dright', '▶', B.RIGHT, ['dice'], 'hold', 'sm'],
   ['bshoot', 'SHOOT', B.SQUARE, ['ball'], 'hold', 'big red txt'],
@@ -651,10 +652,11 @@ export class TouchControls {
     // (the dice game's big buttons say what they'll do: ROLL / TAKE / STAND, LEAVE / PASS / GIVE BACK)
     if (ctx === 'dice' && game.dice?.touchLabels) {
       const L = game.dice.touchLabels();
-      for (const [id, t] of [['droll', L.roll], ['dleave', L.back]]) {
+      for (const [id, t] of [['droll', L.roll], ['dleave', L.back], ['dbet', L.bet]]) {
         const tl = this.el.buttons[id]?.el.querySelector('.tl');
         if (tl && tl.textContent !== t) tl.textContent = t;
       }
+      this.el.buttons.dbet?.el.classList.toggle('hidden', !L.betOn); // (a side bet only when you can call one)
     }
     // (held a moment: reload; the label says so while it's reloading)
     if (this.wHold && !this.wHold.done && performance.now() - this.wHold.t0 > 350) {

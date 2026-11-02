@@ -929,6 +929,7 @@ body.paused #dice-panel { display: none; }
 #touch .tb-dleave { right: 130px; bottom: 20px; }
 #touch .tb-dleft { right: 276px; bottom: 28px; }
 #touch .tb-dright { right: 216px; bottom: 28px; }
+#touch .tb-dbet { right: 246px; bottom: 92px; }
 #c3-count small { display: block; white-space: nowrap; margin-top: 8px; font-size: 13px; letter-spacing: 3px; color: #8fb8ff; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
 /* Hold-to-quit hint while you're in any game (main.js quitHoldStep). */
 #quit-hint { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 6; font: 600 11px/1 system-ui, sans-serif; letter-spacing: 1px; color: rgba(255,255,255,.72); background: rgba(0,0,0,.38); padding: 5px 10px; border-radius: 10px; pointer-events: none; }
@@ -1362,3 +1363,4 @@ body.touch #dice-fx .dfx-die { width: 34px; height: 34px; padding: 5px; gap: 2px
 #dice-fx .dfx-you { font-weight: 900; }
 #dice-fx .dfx-you.up { color: #7ee081; }
 #dice-fx .dfx-you.down { color: #ff6b6b; }
+#dice-panel .dp-chip.call { background: #ffd23f22; color: #ffe27a; border: 1px solid #ffd23f88; white-space: normal; }
