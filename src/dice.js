@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { dist, rand, pick, lerpAngle } from './util.js';
-import { crouchPose, setShirt } from './character.js';
+import { crouchPose, setShirt, restPose, bendSpine } from './character.js';
+import { kneelPose } from './combatpose.js';
 import { pushCircle } from './collision.js';
 import { GANGS, Soldier } from './turf.js';
 import { CFG } from './config.js';
@@ -26,7 +27,6 @@ const STAKES = [10, 20, 50, 100, 250, 500];
 const NAMES = ['Lil Mike', 'Dre', 'Smoke', 'Peanut', 'Boogie', 'Tank', 'Shorty', 'Black', 'Red', 'Juice', 'Pooh', 'Ant', 'Rell', 'Man-Man', 'Bird'];
 const WOMEN = ['Kiki', 'Peaches', 'Lady', 'Nay Nay', 'Keke', 'Dee Dee', 'Precious', 'Jada', 'Shay'];
 const MAX = 3; // (circles around at once)
-const SEAT_R = 1.15;
 const DIE = 0.08;
 
 // ---- The dice ----
@@ -79,126 +79,305 @@ export function celo(d) {
 const roll = (n) => Array.from({ length: n }, () => 1 + Math.floor(Math.random() * 6));
 
 // ---- One circle ----
+// Laid out the way it goes on a real corner: up against a backstop (a wall, or the curb when
+// there's no wall), the dice thrown off it. The shooter steps up and gets down on a knee to
+// shake and throw; the rest stand round him in a loose half-ring, everybody their own way
+// (bent over with the hands on the knees, squatting, a knot of money in the hand, arms folded),
+// all leaning in when the dice go.
+const ROLES = ['hunch', 'cash', 'squat', 'hunch', 'lean', 'cash', 'hunch'];
+const SHOOT_D = 0.95; // (the shooter, back from the dice)
+const WALL_GAP = 0.45; // (the dice land this far off the backstop)
+
+// The nearest wall within a few metres (a tall collider), else the curb (out toward the street).
+function backstop(game, x, z) {
+  const near = game.city.colliders.filter((b) => (b.h ?? 30) >= 2.5 && b.maxX > x - 3.5 && b.minX < x + 3.5 && b.maxZ > z - 3.5 && b.minZ < z + 3.5);
+  let best = null;
+  for (let i = 0; i < 24 && near.length; i++) {
+    const a = (i / 24) * Math.PI * 2;
+    const dx = Math.sin(a);
+    const dz = Math.cos(a);
+    for (let d = 0.6; d <= 2.8; d += 0.15) {
+      if (pushCircle(x + dx * d, z + dz * d, 0.05, near).hit) {
+        if (!best || d < best.d) best = { dx, dz, d, wall: true };
+        break;
+      }
+    }
+  }
+  if (best) return best;
+  const b = game.city.blockAt?.(x, z);
+  let dx = 0;
+  let dz = 1;
+  if (b && b.cx != null) {
+    const l = dist(b.cx, b.cz, x, z) || 1;
+    dx = (x - b.cx) / l;
+    dz = (z - b.cz) / l;
+  } else {
+    const a = Math.random() * Math.PI * 2;
+    dx = Math.sin(a);
+    dz = Math.cos(a);
+  }
+  return { dx, dz, d: 1.35, wall: false };
+}
+
+// Somewhere near (x, z) up against a building wall (on the walk, not in it), else (x, z) itself.
+function wallSpot(game, x, z) {
+  let best = null;
+  for (let r = 0; r <= 10 && !best; r += 1) {
+    const n = Math.max(1, Math.round(r * 6));
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const qx = x + Math.sin(a) * r;
+      const qz = z + Math.cos(a) * r;
+      if (!game.city.blockAt?.(qx, qz) || pushCircle(qx, qz, 0.6, game.city.colliders).hit) continue;
+      const B = backstop(game, qx, qz);
+      if (B.wall && B.d > 0.9 && B.d < 1.9) {
+        best = [qx, qz];
+        break;
+      }
+    }
+  }
+  return best || [x, z];
+}
+
+function billMesh() {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(0.155, 0.006, 0.068), new THREE.MeshLambertMaterial({ color: 0x6f9a5c }));
+  m.castShadow = false;
+  return m;
+}
+
 class Circle {
   constructor(mgr, x, z, gang, kind, n, crew = false) {
     this.mgr = mgr;
     const game = mgr.game;
     this.game = game;
-    this.x = x;
-    this.z = z;
     this.gang = gang; // (a GANGS id, or null on a neutral corner)
     this.kind = kind;
     this.crew = crew; // (your own crew's game)
-    this.y = game.city.groundY?.(x, z) || 0;
+    // (the backstop: dice land just off it; the crowd gathers back from there)
+    [x, z] = wallSpot(game, x, z);
+    const B = backstop(game, x, z);
+    this.wall = B.wall;
+    this.dir = [B.dx, B.dz];
+    this.sx = x + B.dx * (B.d - WALL_GAP);
+    this.sz = z + B.dz * (B.d - WALL_GAP);
+    this.back = Math.atan2(-B.dx, -B.dz); // (the way back from the dice, toward the crowd)
+    this.x = this.sx - B.dx * 1.35;
+    this.z = this.sz - B.dz * 1.35;
+    this.y = game.city.groundY?.(this.sx, this.sz) || 0;
     this.peds = [];
+    const roles = ROLES.slice().sort(() => Math.random() - 0.5);
     for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + rand(-0.2, 0.2);
-      const p = game.peds.addAt(x + Math.sin(a) * SEAT_R, z + Math.cos(a) * SEAT_R);
+      const pref = n === 1 ? 0 : -1.2 + (2.4 * i) / (n - 1) + rand(-0.1, 0.1);
+      const [px, pz] = this.arcPos(pref, 1.5);
+      const p = game.peds.addAt(px, pz);
       p.act = this;
       p.state = 'play';
       p.keep = true;
       p.diceName = pick((p.female ? WOMEN : NAMES).filter((nm) => !this.peds.some((o) => o.name === nm)));
       if (gang && GANGS[gang]) setShirt(p.char, GANGS[gang].shirt);
-      this.peds.push({ p, a, name: p.diceName, react: 0, reactKind: null, roll: 0 });
+      const s = { p, name: p.diceName, react: 0, reactKind: null, roll: 0, pref, rj: rand(-0.12, 0.3), role: roles[i % roles.length], seed: Math.random() * 10 };
+      if (s.role === 'cash') {
+        // (a folded knot of bills in the hand)
+        s.wad = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.075, 0.12), new THREE.MeshLambertMaterial({ color: 0x6f9a5c }));
+        s.wad.position.set(0, -0.12, 0.05);
+        p.char.wristL.add(s.wad);
+      }
+      this.peds.push(s);
     }
     this.dice = Array.from({ length: GAME[kind].dice }, () => {
       const m = dieMesh();
       game.scene.add(m);
-      return { m, p0: null, p1: null, q1: new THREE.Quaternion(), spin: new THREE.Vector3() };
+      return { m, p0: null, pw: null, p1: null, q1: new THREE.Quaternion(), spin: new THREE.Vector3() };
+    });
+    // (money down, by the dice)
+    this.bills = Array.from({ length: 3 + Math.floor(Math.random() * 4) }, () => {
+      const m = billMesh();
+      const a = this.back + rand(-0.9, 0.9);
+      const r = rand(0.18, 0.55);
+      m.position.set(this.sx + Math.sin(a) * r, this.y + 0.004, this.sz + Math.cos(a) * r);
+      m.rotation.y = rand(0, 6.28);
+      game.scene.add(m);
+      return m;
     });
     this.restDice();
     this.throw = null; // (dice in the air)
     this.wait = rand(0.5, 2); // (ambient: till the next roll)
-    this.you = null; // (when you're in: your seat and the round)
+    this.you = null; // (when you're in: your place in the ring, and the round)
+    this.shooter = null; // (who's up: a seat, or 'you')
     this.amb = 0;
   }
 
-  // (dice lying in the middle)
+  // A point round the dice: pref (radians either side of straight back from the backstop), r out.
+  arcPos(pref, r) {
+    const a = this.back + pref;
+    return [this.sx + Math.sin(a) * r, this.sz + Math.cos(a) * r];
+  }
+
+  // (dice lying by the backstop)
   restDice() {
+    const [dx, dz] = this.dir;
     this.dice.forEach((D, i) => {
-      D.m.position.set(this.x + (i - 1) * 0.12, this.y + DIE / 2, this.z + rand(-0.05, 0.05));
+      const off = (i - (this.dice.length - 1) / 2) * 0.12;
+      D.m.position.set(this.sx - dz * off + rand(-0.04, 0.04), this.y + DIE / 2, this.sz + dx * off + rand(-0.04, 0.04));
       faceUp(1 + Math.floor(Math.random() * 6), rand(0, 6.28), D.m.quaternion);
     });
   }
 
-  // Who's sitting where (you take the seat nearest you, they spread round the rest).
-  seats() {
-    const list = [...this.peds];
-    const n = list.length + (this.you ? 1 : 0);
-    const a0 = this.you ? this.you.a : 0;
-    const out = new Map();
-    list.forEach((s, i) => out.set(s, a0 + ((i + 1) / n) * Math.PI * 2));
-    return out;
+  // Where everybody stands: the shooter up on the dice, the rest spread round behind in the
+  // order they're in (you where you walked up), a gap where the shooter stepped out of.
+  place(key) {
+    const [dx, dz] = this.dir;
+    if (key === this.shooter) return { x: this.sx - dx * SHOOT_D, z: this.sz - dz * SHOOT_D, face: Math.atan2(dx, dz) };
+    const all = [...this.peds.map((s) => ({ key: s, pref: s.pref })), ...(this.you ? [{ key: 'you', pref: this.you.pref }] : [])].sort((a, b) => a.pref - b.pref);
+    const n = all.length;
+    const A = Math.min(1.3, 0.36 * (n - 1) + 0.2);
+    const i = all.findIndex((m) => m.key === key);
+    const s = key === 'you' ? null : key;
+    const ang = n === 1 ? 0.5 : -A + (2 * A * i) / (n - 1) + (s ? Math.sin(s.seed) * 0.08 : 0);
+    const r = s?.role === 'squat' ? 1.25 : 1.5 + (s ? s.rj : 0);
+    const [x, z] = this.arcPos(ang, r);
+    return { x, z, face: Math.atan2(this.sx - x, this.sz - z) };
+  }
+
+  // On their mark (the shooter: down on the dice, ready to throw)?
+  ready(s) {
+    if (!this.peds.includes(s)) return true; // (gone: don't wait on him)
+    const P = this.place(s);
+    return dist(s.p.x, s.p.z, P.x, P.z) < 0.2;
   }
 
   // ---- The people in it (peds.js asks act.drive / act.pose) ----
   drive(p, dt) {
     const s = this.peds.find((q) => q.p === p);
     if (!s) return { speed: 0 };
-    const a = this.seatOf(s);
-    const tx = this.x + Math.sin(a) * SEAT_R;
-    const tz = this.z + Math.cos(a) * SEAT_R;
-    if (dist(p.x, p.z, tx, tz) > 0.15) return { tx, tz, speed: 1.4 };
-    p.heading = lerpAngle(p.heading, Math.atan2(this.x - p.x, this.z - p.z), Math.min(1, dt * 6));
+    const P = this.place(s);
+    const far = dist(p.x, p.z, P.x, P.z);
+    if (far > 0.12) return { tx: P.x, tz: P.z, speed: Math.min(1.5, 0.6 + far) };
+    p.heading = lerpAngle(p.heading, P.face, Math.min(1, dt * 6));
     return { speed: 0 };
-  }
-
-  seatOf(s) {
-    return this.seats().get(s) ?? s.a;
   }
 
   pose(p) {
     const s = this.peds.find((q) => q.p === p);
-    const c = p.char;
-    if (!s) return 0;
-    const t = this.game.time;
-    if (s.react > t && s.reactKind === 'win') {
-      // (up out of the crouch, both arms up)
-      c.armL.rotation.x = c.armR.rotation.x = -2.8 + Math.sin(t * 14) * 0.15;
-      c.elbowL.rotation.x = c.elbowR.rotation.x = -0.2;
-      return 0;
-    }
-    const y = crouchPose(c, 0.62);
-    c.legL.rotation.z = 0.12;
-    c.legR.rotation.z = -0.12;
-    c.armL.rotation.x = c.armR.rotation.x = -0.75; // (forearms on the knees)
-    c.elbowL.rotation.x = c.elbowR.rotation.x = -0.6;
-    if (s.react > t && s.reactKind === 'lose') {
-      // (hands on the head)
-      c.armL.rotation.x = c.armR.rotation.x = -2.6;
-      c.elbowL.rotation.x = c.elbowR.rotation.x = -2.1;
-    }
-    if (s.roll) this.rollArm(c, s.roll, t);
-    return y;
+    if (!s || p.speed > 0) return 0;
+    return this.poseChar(p.char, s.role, s === this.shooter, s.roll, s.react > this.game.time ? s.reactKind : null, s.seed);
   }
 
-  // The roller's arm: shaking them in the fist, then the toss.
-  rollArm(c, r, t) {
-    if (r === 'shake') {
-      c.armR.rotation.x = -1.35 + Math.sin(t * 32) * 0.22;
-      c.elbowR.rotation.x = -1.0;
-    } else if (typeof r === 'number') {
-      const k = Math.min(1, (t - r) / 0.25);
-      c.armR.rotation.x = -1.4 + k * 0.9;
-      c.elbowR.rotation.x = -1.0 + k * 0.9;
+  // A body in the game. role: how they stand; shooter: down on a knee with the dice; roll:
+  // 'shake' / the time the throw went; react: 'win' / 'lose' for a moment after a roll.
+  poseChar(c, role, shooter, roll, react, seed) {
+    const t = this.game.time;
+    restPose(c);
+    for (const k of ['legL', 'legR', 'kneeL', 'kneeR']) c[k].rotation.set(0, 0, 0);
+    if (react === 'win') {
+      // (up, both arms up, bouncing)
+      c.armL.rotation.set(-2.8 + Math.sin(t * 14) * 0.15, 0, 0.25);
+      c.armR.rotation.set(-2.8 - Math.sin(t * 14) * 0.15, 0, -0.25);
+      c.elbowL.rotation.x = c.elbowR.rotation.x = -0.2;
+      bendSpine(c, -0.15);
+      return 0.04 * Math.abs(Math.sin(t * 9));
     }
+    if (react === 'lose') {
+      // (stood up straight, hands on the head, turned half away)
+      c.armL.rotation.set(-2.5, 0, 0.35);
+      c.armR.rotation.set(-2.5, 0, -0.35);
+      c.elbowL.rotation.x = c.elbowR.rotation.x = -2.1;
+      bendSpine(c, -0.1, 0.5 * Math.sin(seed), 0);
+      c.neck.rotation.set(0.25, 0, 0);
+      return 0;
+    }
+    const lean = this.throw ? 0.18 : 0; // (everybody leans in while the dice go)
+    const sway = Math.sin(t * 0.8 + seed) * 0.05;
+    if (shooter) {
+      // Down on one knee, the other forearm on that knee, the dice in the right hand.
+      const y = kneelPose(c);
+      bendSpine(c, 0.32 + lean * 0.5, 0, 0);
+      c.armL.rotation.set(-0.85, 0, 0.15);
+      c.elbowL.rotation.x = -0.9;
+      c.neck.rotation.set(-0.2, 0, 0);
+      if (roll === 'shake') {
+        // (fist up by the ear, shaking)
+        c.armR.rotation.set(-1.5 + Math.sin(t * 30) * 0.18, 0, -0.25);
+        c.elbowR.rotation.x = -1.9;
+        c.wristR.rotation.x = Math.sin(t * 30) * 0.4;
+      } else if (typeof roll === 'number') {
+        // (the throw: the arm whips forward and down, the hand opening)
+        const k = Math.min(1, (t - roll) / 0.22);
+        c.armR.rotation.set(-1.5 + k * 0.6, 0, -0.25 + k * 0.2);
+        c.elbowR.rotation.x = -1.9 + k * 1.8;
+        c.wristR.rotation.x = -0.6 * k;
+      } else {
+        c.armR.rotation.set(-0.7, 0, -0.1);
+        c.elbowR.rotation.x = -0.8;
+      }
+      return y;
+    }
+    if (role === 'squat') {
+      // (way down on the heels, forearms on the knees)
+      const y = crouchPose(c, 0.66);
+      c.legL.rotation.z = 0.18;
+      c.legR.rotation.z = -0.18;
+      bendSpine(c, 0.3 + lean, 0, sway * 0.5);
+      c.armL.rotation.x = c.armR.rotation.x = -0.75;
+      c.elbowL.rotation.x = c.elbowR.rotation.x = -0.6;
+      c.neck.rotation.set(-0.15, 0, 0);
+      return y;
+    }
+    if (role === 'hunch') {
+      // (bent over, hands on the knees, looking down at it)
+      const y = crouchPose(c, 0.2);
+      c.legL.rotation.z = 0.1;
+      c.legR.rotation.z = -0.1;
+      bendSpine(c, 0.62 + lean, 0, sway);
+      c.armL.rotation.set(-0.55, 0, 0.1);
+      c.armR.rotation.set(-0.55, 0, -0.1);
+      c.elbowL.rotation.x = c.elbowR.rotation.x = -0.15;
+      c.neck.rotation.set(-0.45, 0, 0);
+      return y;
+    }
+    if (role === 'cash') {
+      // (stood, the knot of money in the left hand, thumbing it)
+      bendSpine(c, 0.12 + lean, 0, sway);
+      c.legL.rotation.x = 0.08;
+      c.legR.rotation.x = -0.05;
+      c.armL.rotation.set(-0.75, 0, 0.1);
+      c.elbowL.rotation.x = -1.35;
+      c.armR.rotation.set(-0.55, 0, -0.05);
+      c.elbowR.rotation.x = -1.5 + Math.max(0, Math.sin(t * 2.2 + seed)) * 0.25;
+      c.neck.rotation.set(0.2, 0, 0);
+      return 0;
+    }
+    // lean: (stood back a bit, arms folded, weight on one leg)
+    bendSpine(c, -0.04 + lean, 0, 0.06 + sway);
+    c.legL.rotation.z = 0.08;
+    c.armR.rotation.set(-0.55, 0, -0.35);
+    c.armL.rotation.set(-0.55, 0, 0.35);
+    c.elbowR.rotation.x = c.elbowL.rotation.x = -1.75;
+    c.neck.rotation.set(0.25, 0, 0);
+    return 0;
   }
 
   // ---- The dice going down ----
-  // from: who's throwing (a seat). Returns when they've landed (cb with the values).
-  toss(values, fromA, cb) {
+  // from: who's throwing ('you' or a seat). Out of the hand, off the backstop, back onto the
+  // ground (cb with the values when they've settled).
+  toss(values, from, cb) {
     const game = this.game;
-    const fx = this.x + Math.sin(fromA) * (SEAT_R - 0.3);
-    const fz = this.z + Math.cos(fromA) * (SEAT_R - 0.3);
+    const [dx, dz] = this.dir;
+    const P = this.place(from);
+    const hx = P.x + dx * 0.35;
+    const hz = P.z + dz * 0.35;
     this.dice.forEach((D, i) => {
-      D.p0 = [fx, this.y + 0.55, fz];
-      const off = (i - (this.dice.length - 1) / 2) * 0.13;
-      const side = fromA + Math.PI / 2;
-      D.p1 = [this.x + Math.sin(side) * off + rand(-0.06, 0.06) - Math.sin(fromA) * 0.15, this.y + DIE / 2, this.z + Math.cos(side) * off + rand(-0.06, 0.06) - Math.cos(fromA) * 0.15];
+      const off = (i - (this.dice.length - 1) / 2) * 0.1;
+      D.p0 = [hx - dz * off * 0.3, this.y + 0.38, hz + dx * off * 0.3];
+      const wl = off + rand(-0.12, 0.12); // (where it hits the backstop)
+      D.pw = [this.sx + dx * (WALL_GAP - 0.04) - dz * wl, this.y + (this.wall ? rand(0.06, 0.16) : 0.05), this.sz + dz * (WALL_GAP - 0.04) + dx * wl];
+      const ll = off * 1.6 + rand(-0.12, 0.12); // (where it comes to rest)
+      const back = rand(-0.12, 0.2);
+      D.p1 = [this.sx - dx * back - dz * ll, this.y + DIE / 2, this.sz - dz * back + dx * ll];
       faceUp(values[i], rand(0, 6.28), D.q1);
-      D.spin.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize().multiplyScalar(rand(14, 22));
+      D.spin.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize().multiplyScalar(rand(16, 24));
     });
-    this.throw = { t: 0, T: 0.95, values, cb };
+    this.throw = { t: 0, T: 1.05, values, cb };
     game.sfx?.dice?.();
   }
 
@@ -207,16 +386,32 @@ class Circle {
     if (!T) return;
     T.t += dt;
     const k = Math.min(1, T.t / T.T);
+    const lerp = (a, b, u) => a + (b - a) * u;
     for (const D of this.dice) {
-      // (out of the hand in an arc, two little hops on the ground, settling on its face)
-      const fly = Math.min(1, k / 0.55);
-      const x = D.p0[0] + (D.p1[0] - D.p0[0]) * Math.min(1, k / 0.8);
-      const z = D.p0[2] + (D.p1[2] - D.p0[2]) * Math.min(1, k / 0.8);
+      let x;
       let y;
-      if (k < 0.55) y = D.p0[1] + (D.p1[1] - D.p0[1]) * fly + Math.sin(fly * Math.PI) * 0.25;
-      else y = D.p1[1] + Math.abs(Math.sin(((k - 0.55) / 0.45) * Math.PI * 2)) * 0.06 * (1 - (k - 0.55) / 0.45);
+      let z;
+      if (k < 0.38) {
+        // (out of the hand, down onto the ground short of the wall, skidding into it)
+        const u = k / 0.38;
+        x = lerp(D.p0[0], D.pw[0], u);
+        z = lerp(D.p0[2], D.pw[2], u);
+        y = lerp(D.p0[1], D.pw[1], u) + Math.sin(u * Math.PI) * 0.1;
+      } else if (k < 0.72) {
+        // (off the backstop, bouncing back)
+        const u = (k - 0.38) / 0.34;
+        x = lerp(D.pw[0], D.p1[0], u);
+        z = lerp(D.pw[2], D.p1[2], u);
+        y = lerp(D.pw[1], D.p1[1], u) + Math.sin(u * Math.PI) * 0.09;
+      } else {
+        // (a couple of little hops, settling)
+        const u = (k - 0.72) / 0.28;
+        x = D.p1[0];
+        z = D.p1[2];
+        y = D.p1[1] + Math.abs(Math.sin(u * Math.PI * 2)) * 0.035 * (1 - u);
+      }
       D.m.position.set(x, y, z);
-      if (k < 0.8) {
+      if (k < 0.82) {
         D.m.rotation.x += D.spin.x * dt;
         D.m.rotation.y += D.spin.y * dt;
         D.m.rotation.z += D.spin.z * dt;
@@ -238,34 +433,51 @@ class Circle {
   update(dt) {
     this.stepDice(dt);
     // (anyone who ran off from it, or got hurt, is out)
-    for (const s of [...this.peds]) if (s.p.removed || s.p.state !== 'play' || s.p.act !== this) this.peds.splice(this.peds.indexOf(s), 1);
+    for (const s of [...this.peds]) {
+      if (s.p.removed || s.p.state !== 'play' || s.p.act !== this) {
+        this.peds.splice(this.peds.indexOf(s), 1);
+        s.wad?.removeFromParent();
+        if (this.shooter === s) this.shooter = null;
+      }
+    }
     if (this.you) this.mgr.round.step(dt);
     else this.ambient(dt);
   }
 
-  // Not playing: they roll among themselves (so you can spot it from down the street).
+  // Not playing: they roll among themselves (so you can spot it from down the street). The
+  // dice stay with a shooter a few rolls, then pass.
   ambient(dt) {
     if (this.throw || !this.peds.length) return;
+    if (!this.shooter || this.shooter === 'you' || !this.peds.includes(this.shooter)) {
+      this.shooter = pick(this.peds);
+      this.wait = Math.max(this.wait, 1.5);
+    }
+    const s = this.shooter;
+    if (!this.ready(s)) return;
     this.wait -= dt;
-    const s = this.cur || (this.cur = pick(this.peds));
-    if (this.wait < 0.8) s.roll = 'shake';
+    if (this.wait < 0.9) s.roll = 'shake';
     if (this.wait > 0) return;
     const v = roll(GAME[this.kind].dice);
     s.roll = this.game.time;
-    this.toss(v, this.seatOf(s), () => {
+    this.toss(v, s, () => {
       s.roll = 0;
       const good = this.kind === 'celo' ? (celo(v)?.rank ?? 0) > 100 : [7, 11].includes(v[0] + v[1]);
+      const bad = this.kind === 'celo' ? celo(v)?.lose : [2, 3, 12].includes(v[0] + v[1]);
       if (good) {
         this.react(s, 'win');
         for (const o of this.peds) if (o !== s && Math.random() < 0.5) this.react(o, 'lose');
+      } else if (bad) {
+        this.react(s, 'lose');
+        for (const o of this.peds) if (o !== s && Math.random() < 0.4) this.react(o, 'win');
       }
-      this.cur = null;
-      this.wait = rand(1.6, 3.2);
+      if (Math.random() < (good || bad ? 0.6 : 0.25)) this.shooter = null; // (dice pass)
+      this.wait = rand(1.8, 3.4);
     });
   }
 
   dispose(scatter = false) {
     for (const s of this.peds) {
+      s.wad?.removeFromParent();
       const p = s.p;
       if (p.removed) continue;
       p.act = null;
@@ -275,6 +487,7 @@ class Circle {
     }
     this.peds = [];
     for (const D of this.dice) this.game.scene.remove(D.m);
+    for (const m of this.bills) this.game.scene.remove(m);
   }
 }
 
@@ -320,7 +533,7 @@ class Round {
       return;
     }
     if (this.phase === 'between' && this.t > (this.kind === 'celo' ? 2.4 : 1.6)) this.newRound();
-    if (this.phase === 'npc' && this.t > 1.0 && !this.c.throw) this.npcRoll();
+    if (this.phase === 'npc' && this.t > 1.0 && !this.c.throw && this.c.ready(this.cur.s)) this.npcRoll();
     if (this.phase === 'bets' && this.t > 2.6 && this.shooterIsNpc()) {
       this.placeBet();
       this.phase = 'npc';
@@ -359,25 +572,26 @@ class Round {
     this.t = 0;
     this.cur = cur;
     this.phase = cur.you ? 'you' : 'npc';
+    this.c.shooter = cur.you ? 'you' : cur.s; // (steps up to the dice)
     if (cur.s) cur.s.roll = 'shake';
   }
 
   // (your press: ✕ / E / ROLL)
   youRoll() {
     if (this.phase !== 'you' || this.c.throw) return;
-    if (this.kind === 'craps') return this.crapsRoll(this.mgr.youA());
+    if (this.kind === 'craps') return this.crapsRoll('you');
     this.mgr.rollAt = this.game.time;
-    this.c.toss(roll(3), this.mgr.youA(), (v) => this.result(v));
+    this.c.toss(roll(3), 'you', (v) => this.result(v));
   }
 
   npcRoll() {
     const cur = this.cur;
-    if (this.kind === 'craps') return this.crapsRoll(this.c.seatOf(cur.s), cur.s);
+    if (this.kind === 'craps') return this.crapsRoll(cur.s, cur.s);
     cur.s.roll = this.game.time;
     // (in their hood, now and then the dice are working for them)
     let v = roll(3);
     if (this.rival() && Math.random() < 0.15 && (celo(v)?.rank ?? 0) < 14) v = roll(3);
-    this.c.toss(v, this.c.seatOf(cur.s), (vv) => this.result(vv));
+    this.c.toss(v, cur.s, (vv) => this.result(vv));
   }
 
   result(v) {
@@ -451,6 +665,7 @@ class Round {
     this.shooter %= P.length;
     const sh = P[this.shooter];
     this.cur = sh;
+    this.c.shooter = sh.you ? 'you' : sh.s; // (steps up to the dice)
     this.point = null;
     this.bet = null;
     this.t = 0;
@@ -484,14 +699,14 @@ class Round {
     this.bet = this.side;
   }
 
-  crapsRoll(fromA, s = null) {
+  crapsRoll(from, s = null) {
     if (s) s.roll = this.game.time;
     else this.mgr.rollAt = this.game.time;
     let v = roll(2);
     // (their shooter in their hood: the dice like him a little)
     if (s && this.rival() && this.bet === 'against' && Math.random() < 0.12) v = roll(2);
     this.phase = 'air';
-    this.c.toss(v, fromA, (vv) => this.crapsResult(vv, s));
+    this.c.toss(v, from, (vv) => this.crapsResult(vv, s));
   }
 
   crapsResult(v, s) {
@@ -617,11 +832,6 @@ export class DiceManager {
 
   get playing() {
     return !!this.round;
-  }
-
-  // Your seat's angle round the circle you're in.
-  youA() {
-    return this.round?.c.you?.a ?? 0;
   }
 
   update(dt) {
@@ -792,7 +1002,11 @@ export class DiceManager {
   join(c, stake) {
     const game = this.game;
     const [px, pz] = game.player.pos();
-    c.you = { a: Math.atan2(px - c.x, pz - c.z) };
+    // (you take your place in the ring on the side you walked up)
+    let pref = Math.atan2(px - c.sx, pz - c.sz) - c.back;
+    pref = Math.atan2(Math.sin(pref), Math.cos(pref));
+    c.you = { pref: Math.max(-1.3, Math.min(1.3, pref)) };
+    if (c.shooter === 'you') c.shooter = null;
     this.round = new Round(this, c, stake);
     c.restDice();
     game.hud.toast(`${GAME[c.kind].name} · $${stake} a ${c.kind === 'celo' ? 'round' : 'bet'}. ${game.input.label('interact')} to roll · ○ / Q to walk away`, '#ffd23f');
@@ -872,31 +1086,28 @@ export class DiceManager {
     } else if (back && (R.phase === 'between' || R.phase === 'start')) this.leave();
     a.fire = a.firePressed = a.aim = a.aimPressed = a.melee = a.reload = a.dealYes = a.dealNo = a.enter = a.crouch = false;
     a.interactHeld = false;
-    // (your spot in the circle)
+    // (your place in the ring, or up on the dice when they're yours)
     if (this.round) {
-      const tx = c.x + Math.sin(c.you.a) * SEAT_R;
-      const tz = c.z + Math.cos(c.you.a) * SEAT_R;
-      p.x += (tx - p.x) * Math.min(1, dt * 8);
-      p.z += (tz - p.z) * Math.min(1, dt * 8);
-      p.heading = Math.atan2(c.x - p.x, c.z - p.z);
+      const P = c.place('you');
+      p.x += (P.x - p.x) * Math.min(1, dt * 5);
+      p.z += (P.z - p.z) * Math.min(1, dt * 5);
+      p.heading = lerpAngle(p.heading, P.face, Math.min(1, dt * 8));
     }
   }
 
-  // Your pose (main.js, after your walk animation): crouched in the circle, shaking and throwing.
+  // Your pose (main.js, after your walk animation): bent over with your hands on your knees in
+  // the ring, or down on a knee on the dice, shaking and throwing.
   late() {
     const R = this.round;
     if (!R) return;
     const p = this.game.player;
     const c = p.char;
+    const C = R.c;
     c.group.rotation.y = p.heading;
-    c.group.position.y += crouchPose(c, 0.62);
-    c.legL.rotation.z = 0.12;
-    c.legR.rotation.z = -0.12;
-    c.armL.rotation.x = c.armR.rotation.x = -0.75;
-    c.elbowL.rotation.x = c.elbowR.rotation.x = -0.6;
     const t = this.game.time;
-    if (R.phase === 'you') R.c.rollArm(c, 'shake', t);
-    else if (this.rollAt && t - this.rollAt < 0.3) R.c.rollArm(c, this.rollAt, t);
+    const shooter = C.shooter === 'you';
+    const rollState = shooter && R.phase === 'you' ? 'shake' : this.rollAt && t - this.rollAt < 0.3 ? this.rollAt : 0;
+    c.group.position.y += C.poseChar(c, 'hunch', shooter, rollState, null, 1.7);
   }
 
   // The dice panel (top of the screen) while you're in.
