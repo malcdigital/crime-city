@@ -142,6 +142,7 @@ export class Officer {
     if (this.grabbing && game.struggle?.cops.includes(this) && this.standing) return this.holdOn(game);
     this.grabbing = false;
     if (this.state !== 'chase') this.crouched = false;
+    if (this.aid && this.aidUpdate(dt, game, px, pz)) return;
     if (this.script && this.standing) {
       // Scripted (a traffic stop, stopscene.js): walk to a spot, then stand there facing a
       // point, in a pose.
@@ -175,9 +176,12 @@ export class Officer {
       speed = CFG.OFFICER_SPEED;
     } else if (this.state === 'down') {
       this.t -= dt;
+      if (this.ko && !this.helper && game.time > (this.helpT || 0)) this.callForHelp(game);
       if (this.t <= 0 && this.ko) {
-        // (out cold a while: comes round groggy, stumbles about, then goes back to the car)
-        startGroggy(this, 'return', null);
+        // (out cold a while, or brought round by a partner: comes round groggy, stumbles about,
+        // then goes back to the car)
+        startGroggy(this, 'return', null, !!this.helper);
+        this.downT = 0;
         stepGroggy(this, dt, game);
         return;
       }
@@ -543,6 +547,160 @@ export class Officer {
     } else this.crouched = true;
     this.coverAim = true;
     return out;
+  }
+
+  // Knocked out cold: a partner comes to help (his own first, else any cop close by), once
+  // nobody's fighting him for it (you're not wanted, or well away).
+  callForHelp(game) {
+    this.helpT = game.time + 1;
+    if (this.t > 0 && (this.downT = (this.downT || 0) + 1) < 2) return; // (a moment before anyone moves)
+    const [px, pz] = game.player.pos();
+    // (his partner back in the parked cruiser gets out again for him)
+    const seated = (o) => o.state === 'inCar' && o.unit === this.unit && !this.unit.carLost && Math.abs(this.unit.car.speed || 0) < 1;
+    const free = (o) => o !== this && (o.standing || seated(o)) && !o.aid && !o.script && !o.fireJob && !o.grabbing && !o.groggy &&
+      !game.struggle?.cops.includes(o) && (game.stars === 0 || dist(o.x, o.z, px, pz) > 25) && dist(o.x, o.z, this.x, this.z) < 60;
+    const mine = this.unit.officers.filter(free);
+    const pool = mine.length ? mine : game.police.officers().filter((o) => free(o) && dist(o.x, o.z, this.x, this.z) < 40);
+    if (!pool.length || (game.stars > 0 && dist(this.x, this.z, px, pz) < 20)) return;
+    pool.sort((a, b) => dist(a.x, a.z, this.x, this.z) - dist(b.x, b.z, this.x, this.z));
+    const o = pool[0];
+    if (o.state === 'inCar') o.dismount(this.unit.officers.indexOf(o) % 2 ? 1 : -1);
+    o.aid = this;
+    o.aidSide = null;
+    o.aidStage = 'go';
+    o.aidT = 0;
+    this.helper = o;
+    game.pursuit?.radio(`Unit ${o.unit.callsign}: officer down on ${streetAt(this.x, this.z) || 'scene'}! I'm going to him.`, true);
+  }
+
+  // Helping a knocked-out partner (see callForHelp): run over, kneel by him, a hand on his
+  // shoulder giving him a shake, radio it in, then help him up by the arm and steady him.
+  aidUpdate(dt, game, px, pz) {
+    const D = this.aid;
+    const G = D.groggy;
+    const lying = (D.state === 'down' && D.ko) || (G && !G.up);
+    const threat = game.stars > 0 && dist(this.x, this.z, px, pz) < 15 && this.aidStage !== 'lift';
+    if (!this.standing || D.state === 'dead' || !lying || threat) {
+      this.aid = null;
+      if (D.helper === this) D.helper = null;
+      this.crouched = false;
+      restPose(this.char);
+      return false;
+    }
+    this.aidT += dt;
+    const c = this.char;
+    // (where his chest is on the ground, and a spot kneeling beside it, on our side)
+    const face = G ? G.face : D.char.group.rotation.x > 0 ? 'front' : 'back';
+    const hs = face === 'front' ? 1 : -1; // (rolling over turns him round: the same spot either way)
+    const chx = D.x + Math.sin(D.heading) * 1.15 * hs;
+    const chz = D.z + Math.cos(D.heading) * 1.15 * hs;
+    const qx = Math.cos(D.heading) * hs;
+    const qz = -Math.sin(D.heading) * hs;
+    this.aidSide ??= (this.x - chx) * qx + (this.z - chz) * qz >= 0 ? 1 : -1;
+    const kx = chx + qx * 0.62 * this.aidSide;
+    const kz = chz + qz * 0.62 * this.aidSide;
+    const tgt = (node, up = 0, wob = 0) => {
+      const w = node.getWorldPosition(new THREE.Vector3());
+      w.y += up;
+      w.x += wob;
+      return c.group.worldToLocal(w);
+    };
+    if (this.aidStage === 'go') {
+      const far = dist(this.x, this.z, kx, kz);
+      // (can't get to that side of him, a car or a wall in the way: try the other side; close
+      // enough after a while: kneel where he can reach)
+      this.aidStuck = far < (this.aidBest ?? Infinity) - 0.2 ? 0 : (this.aidStuck || 0) + dt;
+      if (this.aidStuck === 0) this.aidBest = far;
+      if (this.aidStuck > 2.5 && far > 1.3) {
+        this.aidSide = -this.aidSide;
+        this.aidStuck = 0;
+        this.aidBest = Infinity;
+      }
+      if (far < 0.3 || (far < 1.3 && this.aidStuck > 0.8)) {
+        this.aidBest = Infinity;
+        this.aidStuck = 0;
+        this.aidStage = 'check';
+        this.aidT = 0;
+      } else {
+        const speed = far > 4 ? CFG.OFFICER_SPEED : Math.max(1, far * 1.5);
+        const h = navStep(this, kx, kz, speed, dt, game, 0.35);
+        if (h !== null) this.heading = lerpAngle(this.heading, h, Math.min(1, dt * 10));
+        this.phase += dt * speed * 3.2;
+        animateWalk(c, this.phase, Math.min(1, speed / 2));
+        this.crouched = false;
+        this.tw = 0;
+        this.place();
+        return true;
+      }
+    }
+    if (this.aidStage === 'check') {
+      // Down on a knee by him: a hand on his shoulder, shaking it; then the radio.
+      this.x = kx;
+      this.z = kz;
+      this.heading = Math.atan2(chx - kx, chz - kz);
+      restPose(c);
+      animateWalk(c, 0, 0);
+      this.crouched = true;
+      this.gunUp = false;
+      this.tw = 0;
+      this.crouchY = kneelPose(c);
+      bendSpine(c, 0.35, 0, 0);
+      this.place();
+      c.group.updateMatrixWorld(true);
+      D.char.group.updateMatrixWorld(true);
+      const shake = Math.sin(this.aidT * 14) * 0.05 * (this.aidT < 1.6 ? 1 : 0.3);
+      reachArm(c, 'R', tgt(D.char.chest, 0.05, shake), new THREE.Vector3(-1, -0.5, -0.4), null, null, 'group');
+      if (this.aidT < 1.6) reachArm(c, 'L', tgt(D.char.neck, 0, shake), new THREE.Vector3(1, -0.5, -0.4), null, null, 'group');
+      else {
+        // (left hand up to the radio on his shoulder, head turned to it)
+        reachArm(c, 'L', new THREE.Vector3(0.14, 1.38, 0.1), new THREE.Vector3(1, -0.6, -0.3), null, null, 'group');
+        c.neck.rotation.set(0.1, 0.45, 0);
+        if (!this.aidRadio) {
+          this.aidRadio = true;
+          game.pursuit?.radio(`Unit ${this.unit.callsign}: he's out cold but breathing. Bringing him round.`, true);
+        }
+      }
+      if (this.aidT > 3.6) {
+        D.t = 0; // (he comes round: groggy.js, helped)
+        this.aidStage = 'lift';
+        this.aidT = 0;
+        this.aidRadio = false;
+      }
+      return true;
+    }
+    // Lift: kneeling with him while he comes to, then up with him, hands on his arm and back,
+    // moving in beside him as he stands.
+    const rise = D.char.group.rotation.x ? 1 - Math.min(1, Math.abs(D.char.group.rotation.x) / (Math.PI / 2)) : 1;
+    const pushing = G && G.t > 2.2 + (G.rolled ? 0.8 : 0) - 0.1;
+    const fx = D.x + qx * 0.58 * this.aidSide;
+    const fz = D.z + qz * 0.58 * this.aidSide;
+    const k = pushing ? rise : 0;
+    this.x = kx + (fx - kx) * k;
+    this.z = kz + (fz - kz) * k;
+    D.char.group.updateMatrixWorld(true);
+    const dc = D.char.chest.getWorldPosition(new THREE.Vector3());
+    this.heading = lerpAngle(this.heading, Math.atan2(dc.x - this.x, dc.z - this.z), Math.min(1, dt * 6));
+    restPose(c);
+    animateWalk(c, 0, 0);
+    this.tw = 0;
+    this.gunUp = false;
+    if (!pushing) {
+      this.crouched = true;
+      this.crouchY = kneelPose(c);
+      bendSpine(c, 0.35, 0, 0);
+    } else {
+      this.crouched = false;
+      const drop = crouchPose(c, 0.45 * (1 - k));
+      bendSpine(c, 0.55 - 0.35 * k, 0, 0);
+      this.place();
+      c.group.position.y += drop;
+    }
+    if (this.crouched) this.place();
+    c.group.updateMatrixWorld(true);
+    const near = this.aidSide > 0 ? D.char.elbowL : D.char.elbowR;
+    reachArm(c, 'L', tgt(near), new THREE.Vector3(1, -0.5, -0.4), null, null, 'group');
+    reachArm(c, 'R', tgt(D.char.chest, 0.1), new THREE.Vector3(-1, -0.5, -0.4), null, null, 'group');
+    return true;
   }
 
   // The same, at once (the world's stopped while an arrest plays out: arrestscenes.js).

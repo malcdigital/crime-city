@@ -24,7 +24,7 @@ const _Y = new THREE.Vector3(0, 1, 0);
 
 // Start coming round. standState: the state that counts as up for this kind of character;
 // done(): back to its own AI once it's worn off.
-export function startGroggy(e, standState, done) {
+export function startGroggy(e, standState, done, helped = false) {
   const c = e.char;
   const face = c.group.rotation.x > 0 ? 'front' : 'back';
   setDown(c, false); // (we pose it from here)
@@ -34,7 +34,9 @@ export function startGroggy(e, standState, done) {
     standState,
     done,
     seed: Math.random() * 10,
-    walk: 7 + Math.random() * 3,
+    walk: helped ? 2.5 + Math.random() : 7 + Math.random() * 3,
+    helped, // (a partner helping him up: no slip on the way up, and it wears off sooner)
+    rolled: face === 'back',
     goalT: 0,
     phase: 0,
   };
@@ -123,7 +125,7 @@ export function stepGroggy(e, dt, game) {
   if (t < tSteady) {
     // Push up off the ground, pivoting on the feet; it gives once on the way.
     const u = seg(t, tPush, tSteady);
-    const k = ease(seg(u, 0, 0.45)) * 0.55 - 0.12 * Math.sin(Math.PI * seg(u, 0.4, 0.62)) + ease(seg(u, 0.62, 1)) * 0.45;
+    const k = G.helped ? ease(u) : ease(seg(u, 0, 0.45)) * 0.55 - 0.12 * Math.sin(Math.PI * seg(u, 0.4, 0.62)) + ease(seg(u, 0.62, 1)) * 0.45;
     const eLie = 1 - Math.max(0, Math.min(1, k)); // 1 lying -> 0 up
     const lean = (Math.PI / 2) * eLie;
     restPose(c);
