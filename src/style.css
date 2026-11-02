@@ -1309,3 +1309,48 @@ body.board3pt-on #sport .sb { display: none; }
   body:not(.touch) #dice-panel { left: auto; right: 8px; transform: scale(.75); transform-origin: top right; }
   body:not(.touch).dice-on #top-right { display: none; }
 }
+
+/* ---- Street dice, slim panel (dice.js) ---- */
+#dice-panel .dp-box.slim { min-width: 260px; max-width: 360px; }
+#dice-panel .dp-box.slim .dp-head .dp-net { font-size: 14px; font-weight: 900; }
+#dice-panel .dp-chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 7px 0 2px; }
+#dice-panel .dp-chip { font-size: 12px; font-weight: 800; padding: 3px 8px; border-radius: 999px; background: #ffffff14; color: #c9d1de; white-space: nowrap; max-width: 330px; overflow: hidden; text-overflow: ellipsis; }
+#dice-panel .dp-chip.pt { background: #ffd23f; color: #1b1400; }
+#dice-panel .dp-chip.me { background: #2b6cb0; color: #fff; }
+#dice-panel .dp-chip.none { background: none; padding-left: 0; color: #7d8696; }
+#dice-panel .dp-box.slim .dp-foot { justify-content: flex-end; }
+
+/* ---- Street dice, over the game (dicefx.js) ---- */
+#dice-fx { position: fixed; inset: 0; pointer-events: none; z-index: 5; overflow: hidden; font-family: inherit; }
+body.paused #dice-fx { display: none; }
+#dice-fx > div { position: absolute; left: 0; top: 0; will-change: transform; }
+#dice-fx .dfx-call { left: 50%; top: 25%; transform: translate(-50%, -50%) scale(.6); opacity: 0; text-align: center; transition: transform .18s ease-out, opacity .18s; white-space: nowrap; }
+#dice-fx .dfx-call.show { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+#dice-fx .dfx-call.hidden { display: none; }
+#dice-fx .dfx-c1 { font-size: clamp(26px, 5.6vw, 60px); font-weight: 900; letter-spacing: 1px; color: #fff; text-shadow: 0 3px 0 #000, 0 0 18px rgba(0,0,0,.6); }
+#dice-fx .dfx-c2 { font-size: clamp(13px, 2.2vw, 20px); font-weight: 800; color: #e8edf5; text-shadow: 0 2px 0 #000; margin-top: 2px; }
+#dice-fx .dfx-call.good .dfx-c1 { color: #7ee081; }
+#dice-fx .dfx-call.bad .dfx-c1 { color: #ff6b6b; }
+#dice-fx .dfx-call.news .dfx-c1 { color: #ffd23f; }
+#dice-fx .dfx-tag { display: flex; gap: 4px; align-items: center; font-size: 11px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px #000; white-space: nowrap; }
+#dice-fx .dfx-tag .dfx-cash { color: #8ff08f; }
+#dice-fx .dfx-tag .dfx-sh { background: #ffd23f; color: #1b1400; border-radius: 4px; padding: 0 4px; text-shadow: none; }
+#dice-fx .dfx-tag .dfx-vs { background: #c0392b; border-radius: 4px; padding: 0 4px; }
+#dice-fx .dfx-bubble { max-width: 210px; background: #fff; color: #111; font-size: 12px; font-weight: 800; line-height: 1.25; padding: 5px 9px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+#dice-fx .dfx-bubble::after { content: ''; position: absolute; left: 50%; bottom: -6px; margin-left: -6px; border: 6px solid transparent; border-bottom: 0; border-top-color: #fff; }
+#dice-fx .dfx-bubble.offer { background: #fff6cf; border: 2px solid #ffd23f; }
+#dice-fx .dfx-bubble.offer::after { border-top-color: #ffd23f; }
+#dice-fx .dfx-ok { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11px; color: #5a4a00; }
+#dice-fx .dfx-ok b { color: #000; }
+#dice-fx .dfx-ring { --k: 1; width: 14px; height: 14px; border-radius: 50%; background: conic-gradient(#e0a800 calc(var(--k) * 360deg), #0000 0); border: 1px solid #e0a800; flex: none; }
+#dice-fx .dfx-pile { font-size: 11px; font-weight: 900; color: #b8ffb0; background: rgba(0,0,0,.55); padding: 1px 5px; border-radius: 4px; }
+#dice-fx .dfx-pile.hidden { display: none; }
+#dice-fx .dfx-point { font-size: 12px; font-weight: 900; color: #1b1400; background: #ffd23f; padding: 2px 8px; border-radius: 999px; box-shadow: 0 2px 6px rgba(0,0,0,.45); }
+#dice-fx .dfx-point.hidden { display: none; }
+#dice-fx .dfx-float { font-size: 18px; font-weight: 900; text-shadow: 0 2px 0 #000; }
+#dice-fx .dfx-float.up { color: #7ee081; }
+#dice-fx .dfx-float.down { color: #ff6b6b; }
+body.touch #dice-fx .dfx-tag { font-size: 9px; }
+body.touch #dice-fx .dfx-bubble { font-size: 10px; max-width: 160px; padding: 4px 7px; }
+body.touch #dice-fx .dfx-float { font-size: 14px; }
+body.touch #dice-fx .dfx-call { top: 27%; }

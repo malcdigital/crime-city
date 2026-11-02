@@ -1,7 +1,11 @@
 
-  VITE v5.4.10  ready in 342 ms
+  VITE v5.4.10  ready in 177 ms
 
   ➜  Local:   http://localhost:5174/
   ➜  Network: use --host to expose
-11:46:08 PM [vite] page reload src/football.js
-11:48:21 PM [vite] page reload src/gridiron.js
+7:18:52 PM [vite] page reload src/dice.js
+7:23:13 PM [vite] page reload src/dice.js
+7:23:13 PM [vite] hmr update /src/style.css?direct
+7:25:28 PM [vite] page reload src/dicefx.js
+7:27:44 PM [vite] page reload src/dicefx.js
+7:27:44 PM [vite] hmr update /src/style.css?direct
