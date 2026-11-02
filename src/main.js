@@ -273,7 +273,7 @@ class Game {
       this.player.z = z;
       this.player.heading = this.camYaw = (deg * Math.PI) / 180;
       this.player.sync?.();
-    } else if (CFG.START_IN_CAR && !this.player.vehicle) {
+    } else if (CFG.START_IN_CAR && !CFG.START_NEAR_DICE && !this.player.vehicle) { // (starting at a dice game: on foot)
       this.testCar = this.vehicles[0];
       const startAt = takeStartAt() || CFG.START_AT; // (just saved in the interchange editor: start there)
       if (startAt) {

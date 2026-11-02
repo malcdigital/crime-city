@@ -24,8 +24,8 @@ export const CFG = {
   // null (off: ask their quarterback like normal).
   START_FIELD_GAME: null,
   // Testing switch: a few seconds in, a dice game on a corner in a rival gang's turf near the
-  // start, and you put a few steps from it (dice.js).
-  START_NEAR_DICE: false,
+  // start, and you put a few steps from it (dice.js): 'craps', 'celo', true (either), or false.
+  START_NEAR_DICE: 'craps',
   // Testing switch: the interchange editor in the pause menu (reshape the ramps, then drive them).
   RAMP_EDITOR: true,
 

@@ -907,14 +907,17 @@ export class DiceManager {
     if (!best) return;
     const g = T.turfAt(best.x, best.z);
     const l = dist(best.b.cx, best.b.cz, best.x, best.z) || 1;
-    const c = this.spawnAt(best.x + ((best.b.cx - best.x) / l) * 1.6, best.z + ((best.b.cz - best.z) / l) * 1.6, g.id, Math.random() < 0.5 ? 'celo' : 'craps', 4);
-    // (you: a few steps off, out toward the street, facing it)
-    const ox = best.x - (best.b.cx - best.x) / l * 1.5;
-    const oz = best.z - (best.b.cz - best.z) / l * 1.5;
+    const c = this.spawnAt(best.x + ((best.b.cx - best.x) / l) * 1.6, best.z + ((best.b.cz - best.z) / l) * 1.6, g.id, CFG.START_NEAR_DICE === 'craps' || CFG.START_NEAR_DICE === 'celo' ? CFG.START_NEAR_DICE : Math.random() < 0.5 ? 'celo' : 'craps', 4);
+    // (you: a few steps behind the crowd, looking at the game; off to a side if that's a wall;
+    // with something to bet)
     const p = game.player;
-    const dl = dist(ox, oz, c.x, c.z) || 1;
-    p.x = c.x + ((ox - c.x) / dl) * 4.5;
-    p.z = c.z + ((oz - c.z) / dl) * 4.5;
+    game.cash = Math.max(game.cash, 500);
+    for (const off of [0, 0.5, -0.5, 1, -1, 1.5, -1.5]) {
+      const [x, z] = c.arcPos(off, 4.2);
+      p.x = x;
+      p.z = z;
+      if (game.city.blockAt?.(x, z) && !pushCircle(x, z, 0.5, game.city.colliders).hit) break;
+    }
     p.heading = Math.atan2(c.x - p.x, c.z - p.z);
     game.camYaw = p.heading;
     game.hud.toast(`A ${GAME[c.kind].name.toLowerCase()} game on the corner (${g.name} turf)`, '#ffd23f');
