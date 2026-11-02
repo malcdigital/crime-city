@@ -1297,6 +1297,72 @@ function trimLooseServiceEnds() {
 }
 trimLooseServiceEnds();
 
+// Three streets that close a tiny triangle (one just reaching across the corner where two
+// others meet): too small for a block, so it came out as one big wedge of asphalt with stop
+// lines all over it, and no telling where to go. Cut the short stub that closes it back to the
+// street it crosses, so it's a plain T, and the wedge joins the block beside it (curbs,
+// sidewalk). Only a street's end segment is cut (a street that runs on through is left alone),
+// and never an exit's, a frontage road's or a roundabout's.
+function trimTriangleStubs() {
+  const G = buildGraph();
+  const near = (x, z, p) => dist(x, z, p[0], p[1]) < SNAP + 1;
+  const fixed = (st) => st.keep || st.frontage || st.loop || st.roundabout || st.stub !== undefined || st.cls === 'pier';
+  const done = new Set();
+  const cut = [];
+  for (const e of G.edges) {
+    for (const c of e.a.nb) {
+      if (!e.b.nb.includes(c) && !c.nb.includes(e.b)) continue;
+      const tri = [e.a, e.b, c];
+      const A = Math.abs((e.b.x - e.a.x) * (c.z - e.a.z) - (c.x - e.a.x) * (e.b.z - e.a.z)) / 2;
+      const per = dist(e.a.x, e.a.z, e.b.x, e.b.z) + dist(e.b.x, e.b.z, c.x, c.z) + dist(c.x, c.z, e.a.x, e.a.z);
+      if (A > 2500 || per > 220) continue;
+      const key = tri.map((n) => n.id).sort((p, q) => p - q).join(',');
+      if (done.has(key)) continue;
+      done.add(key);
+      // (its three sides: which can go - a street's last stretch, ending at a corner)
+      let best = null;
+      for (const [P, Q] of [[tri[0], tri[1]], [tri[1], tri[2]], [tri[2], tri[0]]]) {
+        const ed = P.edgeTo.get(Q);
+        if (!ed) continue;
+        const st = ed.street;
+        if (fixed(st) || st.pts.length < 2) continue;
+        for (const [end, Q2] of [[P, Q], [Q, P]]) {
+          const first = near(end.x, end.z, st.pts[0]);
+          const last = near(end.x, end.z, st.pts[st.pts.length - 1]);
+          if (!first && !last) continue;
+          // (and the street goes on past the other corner: something's left once it's cut)
+          const Ltot = st.pts.slice(1).reduce((t, q, k) => t + dist(...st.pts[k], ...q), 0);
+          const Lcut = dist(end.x, end.z, Q2.x, Q2.z);
+          if (Ltot - Lcut < 20) continue;
+          const score = ROAD_CLASS[st.cls].rank * 100 + Lcut;
+          if (!best || score < best.score) best = { st, first, to: Q2, score };
+        }
+      }
+      if (!best) continue;
+      // Cut the street's polyline back to where it reaches the other corner.
+      const { st, first, to } = best;
+      const pts = first ? st.pts : [...st.pts].reverse();
+      let k0 = 0;
+      let bd = Infinity;
+      let at = null;
+      for (let k = 0; k + 1 < pts.length; k++) {
+        const cl = closestOnSeg(to.x, to.z, ...pts[k], ...pts[k + 1]);
+        if (cl.d < bd) {
+          bd = cl.d;
+          k0 = k;
+          at = [cl.x, cl.z];
+        }
+      }
+      if (!at || bd > SNAP + 2) continue;
+      const rest = [at, ...pts.slice(k0 + 1)];
+      st.pts = first ? rest : rest.reverse();
+      cut.push([Math.round(to.x), Math.round(to.z), st.name]);
+    }
+  }
+  return cut;
+}
+export const TRIANGLE_STUBS_CUT = trimTriangleStubs(); // (where: [x, z, street])
+
 export const STREETS = streets;
 export const GRAPH = buildGraph();
 export const BLOCKS = buildBlocks(GRAPH).filter((b) => b.area >= 60);
