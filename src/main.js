@@ -1254,7 +1254,8 @@ class Game {
             const [x, y, z] = this.carPoint(v, (Math.random() - 0.5) * 1.2, 0.6);
             this.effects.smoke(x, y, z, true);
           }
-          fires.push({ v, k: 0.6 * k + 0.1 });
+          fires.push({ v, k: 0.6 * k + 0.1, burning: false });
+          if (!v.fireUnit && this.time >= (v.nextCallT || 0)) this.fireCall(v);
         }
         continue;
       }
@@ -1295,6 +1296,7 @@ class Game {
         // On fire: it starts in the engine and spreads back along the car, the paint charring
         // and glowing, a column of black smoke going up, embers popping; it roars up in the
         // last moment before it goes.
+        if (!v.fireUnit && this.time >= (v.nextCallT || 0)) this.fireCall(v); // (called in; again till someone's free)
         v.burnAge = (v.burnAge || 0) + dt;
         const total = 7;
         const k = Math.min(1, v.burnAge / total);
@@ -1324,12 +1326,33 @@ class Game {
           v.charMat.color.copy(v.charFrom).lerp(new THREE.Color(0x141210), Math.min(1, k * 1.1));
           if (v.charMat.emissive) v.charMat.emissive.setRGB(0.12 * k * (0.6 + Math.random() * 0.4), 0.03 * k, 0); // (a dull glow through the scorched paint)
         }
-        fires.push({ v, k: (0.5 + k) * roar });
+        fires.push({ v, k: (0.5 + k) * roar, burning: true });
         v.burnT -= dt;
         if (v.burnT <= 0) this.explode(v);
       }
     }
     this.lightFires(fires);
+    this.fires = fires; // (who's watching, who's running, who's coming: peds.js, police.js)
+  }
+
+  // A car on fire: someone calls it in, and the nearest patrol free to go is sent (police.js).
+  fireCall(v) {
+    v.nextCallT = this.time + 3;
+    if (this.stars > 0) return; // (they've got their hands full with you)
+    let best = null;
+    let bd = 260;
+    for (const u of this.police.units) {
+      if (!u.patrol || u.pull || u.check || u.fire || u.carLost || u.allDead || u.car === v) continue;
+      const d = dist(u.car.x, u.car.z, v.x, v.z);
+      if (d < bd) {
+        bd = d;
+        best = u;
+      }
+    }
+    if (!best) return;
+    best.fire = { v };
+    v.fireUnit = best;
+    this.pursuit?.radio(`Dispatch: vehicle fire on ${streetAt(v.x, v.z) || districtAt(v.x, v.z)}. Unit ${best.callsign} responding.`);
   }
 
   // The fire lights (effects.js): the nearest few fires get one each, flickering.

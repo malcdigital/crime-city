@@ -1286,3 +1286,16 @@ body.board3pt-on #sport .sb { display: none; }
 /* (fists up, locked on: a red marker over who you're squaring up to: hud.js) */
 #fist-lock { position: absolute; left: -10px; top: -18px; width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-top: 14px solid #ff4040; filter: drop-shadow(0 0 2px rgba(0,0,0,.9)); pointer-events: none; animation: fistbob .7s ease-in-out infinite alternate; }
 @keyframes fistbob { from { margin-top: -4px; } to { margin-top: 2px; } }
+/* (an open tab with lots in it - the eight kinds of ammo - wraps into rows on smaller screens,
+   in the middle, clear of the top corners) */
+@media (max-width: 940px) {
+  #strip .st-open { width: auto; max-width: 320px; margin-left: auto; margin-right: auto; gap: 3px; padding: 3px; }
+  #strip .st-open .st { width: 74px; min-width: 0; padding: 2px 5px 3px; }
+  #strip .st-open .st-top { display: none; }
+  #strip .st-open .st-name { font-size: 12px; margin-top: 0; text-overflow: ellipsis; overflow: hidden; }
+  #strip .st-open .st-sub { font-size: 11px; margin-top: 0; }
+}
+/* (short phone screens: the strip a little smaller still, so an open tab's rows stay above the GIVE / DROP buttons) */
+@media (max-height: 340px) {
+  body.touch #strip { top: 46px !important; transform: translateX(-50%) scale(.7); }
+}

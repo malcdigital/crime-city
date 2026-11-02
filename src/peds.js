@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { CFG } from './config.js';
 import { flinchPose, fallFace, markFlinch, fightStance, markPunch, punchPose, PUNCH_T } from './combatpose.js';
 import { closestOnBox } from './geom.js';
@@ -329,6 +330,27 @@ export class Ped {
         this.resumeWalking();
         this.hurryT = 12;
       }
+    } else if (this.state === 'watch') {
+      // Watching a car burn from a safe way off (Peds.fireWatch): walk to a spot, turn to it,
+      // film it, point, stare. Too close when it's about to go: run.
+      const v = this.watchFire;
+      this.t -= dt;
+      const live = v && !v.removed && ((v.wrecked && !v.exploded) || v.afterBurn > 0);
+      if (!live || this.t <= 0) {
+        this.watchFire = null;
+        this.resumeWalking();
+        this.hurryT = 4;
+      } else {
+        const d = dist(this.x, this.z, v.x, v.z);
+        if (v.wrecked && !v.exploded && v.burnT < 1.8 && d < 13) {
+          this.watchFire = null;
+          this.scare(v.x, v.z); // ("it's gonna blow!")
+        } else {
+          [tx, tz] = this.watchSpot;
+          if (dist(this.x, this.z, tx, tz) > 0.6) speed = d < 10 ? 3.6 : 1.8;
+          else this.heading = lerpAngle(this.heading, Math.atan2(v.x - this.x, v.z - this.z), Math.min(1, dt * 5));
+        }
+      }
     } else if (this.state === 'leave') {
       // Leaving: back to their car, back the way they came, or into a building.
       [tx, tz] = this.door;
@@ -390,6 +412,48 @@ export class Ped {
     this.phase += dt * speed * 4;
     animateWalk(this.char, this.phase, Math.min(1, speed / 1.5));
     if (this.state === 'call') this.char.armR.rotation.x = -2.5; // phone to the ear
+    if (this.phoneProp) this.phoneProp.visible = false;
+    if (this.posed && !(this.state === 'watch' && speed === 0)) {
+      // (done watching: arms back as they were)
+      const c = this.char;
+      for (const j of ['armL', 'armR', 'elbowL', 'elbowR']) {
+        c[j].rotation.y = 0;
+        c[j].rotation.z = 0;
+      }
+      c.elbowL.rotation.x = c.elbowR.rotation.x = 0;
+      this.posed = false;
+    }
+    if (this.state === 'watch' && speed === 0) {
+      this.posed = true;
+      const c = this.char;
+      const b = Math.sin(game.time * 1.3 + this.phase) * 0.04;
+      if (this.watchPose === 'film') {
+        // (phone up in both hands, filming it)
+        c.armR.rotation.set(-1.35 + b, 0, -0.35);
+        c.armL.rotation.set(-1.3 + b, 0, 0.35);
+        c.elbowR.rotation.set(-0.85, 0, 0);
+        c.elbowL.rotation.set(-0.85, 0, 0);
+        if (!this.phoneProp) {
+          this.phoneProp = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.14, 0.012), new THREE.MeshLambertMaterial({ color: 0x111111 }));
+          this.phoneProp.position.set(-0.03, -0.12, 0.05);
+          c.wristR.add(this.phoneProp);
+        }
+        this.phoneProp.visible = true;
+      } else if (this.watchPose === 'point') {
+        c.armR.rotation.set(-1.5 + b, 0, -0.1);
+        c.elbowR.rotation.set(-0.1, 0, 0);
+      } else if (this.watchPose === 'mouth') {
+        // (a hand over the mouth)
+        c.armR.rotation.set(-1.0, 0, -0.55);
+        c.elbowR.rotation.set(-2.3, 0, 0);
+      } else {
+        // (arms folded)
+        c.armR.rotation.set(-0.55, 0, -0.35);
+        c.armL.rotation.set(-0.55, 0, 0.35);
+        c.elbowR.rotation.set(-1.75, 0, 0);
+        c.elbowL.rotation.set(-1.75, 0, 0);
+      }
+    }
     if (this.flagging && this.state === 'buyer') this.char.armR.rotation.x = -2.6 + Math.sin(game.time * 9) * 0.45; // waving you down
     if (this.state === 'sting') {
       // Gun out in the right hand, badge held up in the left.
@@ -555,7 +619,42 @@ export class PedManager {
     return p;
   }
 
+  // A car on fire nearby (main.js game.fires): people notice. About one in five runs; the rest
+  // find somewhere a safe way off (13-21 m, more once it's gone up) to stand and watch it:
+  // filming on their phones, pointing, a hand over the mouth, arms folded. They drift off after
+  // a while or once it's burnt out; the blast itself sends them diving (main.js scareNearby).
+  fireWatch(dt) {
+    const game = this.game;
+    this.fireScanT = (this.fireScanT || 0) - dt;
+    if (this.fireScanT > 0 || !game.fires?.length) return;
+    this.fireScanT = 0.4;
+    for (const f of game.fires) {
+      const v = f.v;
+      const key = `${v.uid ??= Math.random()}:${v.exploded ? 1 : 0}`;
+      for (const p of this.peds) {
+        if (p.state !== 'walk' || p.shopkeeper || p.isPlug || p.keep || p.sawFire === key) continue;
+        const d = dist(p.x, p.z, v.x, v.z);
+        if (d > (f.burning ? 32 : 24)) continue;
+        p.sawFire = key;
+        if (f.burning && (Math.random() < 0.2 || (v.burnT < 2.5 && d < 14))) {
+          p.scare(v.x, v.z);
+          continue;
+        }
+        if (Math.random() < 0.15) continue; // (some just keep walking)
+        const r = (f.burning ? 13 : 9) + Math.random() * 8;
+        const a = Math.atan2(p.x - v.x, p.z - v.z) + (Math.random() - 0.5) * 0.6;
+        p.state = 'watch';
+        p.watchFire = v;
+        p.watchSpot = [v.x + Math.sin(a) * r, v.z + Math.cos(a) * r];
+        p.t = 20 + Math.random() * 30;
+        const q = Math.random();
+        p.watchPose = q < 0.4 ? 'film' : q < 0.58 ? 'point' : q < 0.78 ? 'mouth' : 'arms';
+      }
+    }
+  }
+
   update(dt) {
+    this.fireWatch(dt);
     for (const p of this.peds) p.update(dt);
     // Keep the population steady: drop extras far from the player, refill when low.
     const [px, pz] = this.game.player.pos();

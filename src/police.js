@@ -163,7 +163,15 @@ export class Officer {
       this.place();
       return;
     }
-    if (this.state === 'down') {
+    // A burning car about to go (main.js game.fires): anyone close gets clear, whatever else.
+    const blow = this.standing && (game.fires || []).find((f) => f.burning && f.v.burnT < 1.8 && dist(this.x, this.z, f.v.x, f.v.z) < 11);
+    if (this.fireJob && this.standing && game.stars === 0 && !blow) return this.fireDuty(dt, game);
+    if (blow) {
+      const d = dist(this.x, this.z, blow.v.x, blow.v.z) || 1;
+      tx = blow.v.x + ((this.x - blow.v.x) / d) * 16;
+      tz = blow.v.z + ((this.z - blow.v.z) / d) * 16;
+      speed = CFG.OFFICER_SPEED;
+    } else if (this.state === 'down') {
       this.t -= dt;
       if (this.t <= 0) {
         setDown(this.char, false);
@@ -403,6 +411,112 @@ export class Officer {
     }
     if (this.taskT > 45) this.state = 'return';
     return out;
+  }
+
+  // At a car fire (the unit's fire call, main.js fireCall): the first officer runs in with the
+  // extinguisher and sprays the engine (it slows the fire down) until it's about to go, then
+  // gets back ("It's gonna blow!"); the others hold a line, arms out, keeping people back. Once
+  // the wreck's burnt out they head back to the car.
+  fireDuty(dt, game) {
+    const job = this.fireJob;
+    const v = job.v;
+    const live = v && !v.removed && ((v.wrecked && !v.exploded) || v.afterBurn > 0);
+    if (!live) {
+      this.fireJob = null;
+      this.state = 'return';
+      this.extinguisher && (this.extinguisher.visible = false);
+      return;
+    }
+    const burning = v.wrecked && !v.exploded;
+    const [fx, fz] = v.forward();
+    const L = v.halfLen || 2.3;
+    const ex = v.x + fx * L * 0.6;
+    const ez = v.z + fz * L * 0.6; // (the engine)
+    const away = (x, z, r) => {
+      const d = dist(x, z, v.x, v.z) || 1;
+      return [v.x + ((x - v.x) / d) * r, v.z + ((z - v.z) / d) * r];
+    };
+    let spot;
+    let face = Math.atan2(v.x - this.x, v.z - this.z);
+    let spray = false;
+    let speed = 0;
+    const ext = job.role === 'ext';
+    const hull = ext && !burning && v.afterBurn > 0; // (it's gone up: now putting the wreck out)
+    if (ext && ((burning && v.burnT > 2.2 && !job.ranOff) || hull)) {
+      // (in close to the engine, spraying it)
+      const [cx, cz] = hull ? [v.x, v.z] : [ex, ez];
+      const d = dist(this.x, this.z, cx, cz) || 1;
+      const r = hull ? 3.4 : 2.6;
+      spot = [cx + ((this.x - cx) / d) * r, cz + ((this.z - cz) / d) * r];
+      face = Math.atan2(cx - this.x, cz - this.z);
+      spray = dist(this.x, this.z, ...spot) < 1.2;
+    } else {
+      if (ext && burning && !job.ranOff) {
+        job.ranOff = true;
+        if (dist(this.x, this.z, ...game.player.pos()) < 40) game.hud.toast('Officer: "It\'s gonna blow! Get back!"', '#ffb070');
+      }
+      // (the line: a way back, between the fire and whoever's watching)
+      const r = burning ? 15 : 9;
+      if (!job.lineAt) {
+        const a = Math.atan2(this.x - v.x, this.z - v.z) + (job.idx || 0) * 0.5;
+        job.lineAt = [v.x + Math.sin(a) * r, v.z + Math.cos(a) * r];
+      }
+      spot = away(...job.lineAt, r);
+      face = Math.atan2(this.x - v.x, this.z - v.z); // (facing the crowd)
+      if (ext && !burning) face += Math.PI; // (watching the wreck burn out)
+    }
+    const far = dist(this.x, this.z, spot[0], spot[1]);
+    if (far > 0.5) {
+      speed = Math.min(CFG.OFFICER_SPEED, 1.5 + far * 1.2);
+      const h = navStep(this, spot[0], spot[1], speed, dt, game, 0.35);
+      if (h !== null) this.heading = lerpAngle(this.heading, h, Math.min(1, dt * 10));
+    } else this.heading = lerpAngle(this.heading, face, Math.min(1, dt * 8));
+    this.phase += dt * speed * 3.2;
+    animateWalk(this.char, this.phase, Math.min(1, speed / 2));
+    this.crouched = false;
+    this.tw = 0;
+    this.gunUp = false;
+    const c = this.char;
+    if (ext && (burning || hull || !job.ranOff)) {
+      // (the extinguisher: a red bottle, both hands, the hose at the fire)
+      if (!this.extinguisher) {
+        const g = new THREE.Group();
+        const can = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.42, 10), new THREE.MeshLambertMaterial({ color: 0xc81e1e }));
+        can.position.set(0, -0.22, 0.05);
+        const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 0.22, 6), new THREE.MeshLambertMaterial({ color: 0x111111 }));
+        nozzle.rotation.x = Math.PI / 2;
+        nozzle.position.set(0, -0.02, 0.2);
+        g.add(can, nozzle);
+        c.wristR.add(g);
+        this.extinguisher = g;
+      }
+      this.extinguisher.visible = true;
+      c.armR.rotation.set(-1.15, 0, -0.15);
+      c.elbowR.rotation.set(-0.5, 0, 0);
+      c.armL.rotation.set(-1.0, 0, 0.35);
+      c.elbowL.rotation.set(-0.9, 0, 0);
+      if (spray) {
+        const hx = this.x + Math.sin(this.heading) * 0.9;
+        const hz = this.z + Math.cos(this.heading) * 0.9;
+        const y = game.city.groundY(this.x, this.z) + 1.0;
+        for (let k = 0; k < 2; k++) {
+          game.effects.sprite(hx, y, hz, { color: 0xf2f2f2, size: 0.35, life: 0.7, grow: 2.2, opacity: 0.75, vx: Math.sin(this.heading) * 5 + (Math.random() - 0.5), vy: -0.6 + Math.random(), vz: Math.cos(this.heading) * 5 + (Math.random() - 0.5) });
+        }
+        // (it slows a car fire down, it doesn't put it out; the burnt wreck it puts out)
+        if (burning) v.burnT += dt * 0.5;
+        else v.afterBurn -= dt * 1.5;
+      }
+    } else {
+      if (this.extinguisher) this.extinguisher.visible = false;
+      if (far <= 0.5 && burning) {
+        // (arms out: "Stay back!")
+        c.armL.rotation.set(-1.3, 0, 0.6);
+        c.armR.rotation.set(-1.3, 0, -0.6);
+        c.elbowL.rotation.set(-0.15, 0, 0);
+        c.elbowR.rotation.set(-0.15, 0, 0);
+      }
+    }
+    this.place();
   }
 
   // Hanging back during a stop or a scuffle: to cover by our cruiser, down on a knee, gun on you.
@@ -696,8 +810,12 @@ export class PoliceUnit {
     // you're wanted, a patrol car nearby joins the chase; one that catches you running a red
     // or speeding pulls you over (enforcement.js).
     if (this.patrol) {
-      if (game.stars > 0 && d < 260) this.joinChase();
-      else if (this.check) {
+      if (game.stars > 0 && d < 260) {
+        this.joinChase();
+        this.fire = null;
+      } else if (this.fire) {
+        // (a car fire: driving over - below)
+      } else if (this.check) {
         // (heard shots: driving over to check it out - below)
       } else if (!this.pull) {
         c.siren = false;
@@ -788,6 +906,45 @@ export class PoliceUnit {
         this.dismountAll();
       }
       this.to = null;
+    } else if (this.fire && this.patrol) {
+      // A car fire: lights on, over to it, pull up short of it, everyone out (fireDuty).
+      const F = this.fire;
+      const v = F.v;
+      c.siren = true;
+      const live = v && !v.removed && ((v.wrecked && !v.exploded) || v.afterBurn > 0);
+      const dk = v ? dist(c.x, c.z, v.x, v.z) : 0;
+      if (!live) {
+        if (this.mounted) {
+          this.fire = null;
+          this.resumePatrol();
+        }
+        desired = 0;
+        tx = c.x;
+        tz = c.z;
+      } else if (!F.out && dk > 24 && !F.walk) {
+        // (held up - traffic stopped behind the wreck: park and go in on foot)
+        if (dk < (F.best ?? 1e9) - 1) {
+          F.best = dk;
+          F.stuckT = 0;
+        } else F.stuckT = (F.stuckT || 0) + dt;
+        if (F.stuckT > 4 && dk < 130) F.walk = true;
+        this.navigate(v.x, v.z, false, 2);
+        tx = this.to.x;
+        tz = this.to.z;
+        desired = maxS * 0.8;
+        if (dk < 45) desired = Math.min(desired, 10);
+      } else {
+        tx = c.x;
+        tz = c.z;
+        desired = 0;
+        if (!F.out && Math.abs(c.speed) < 1) {
+          F.out = true;
+          this.dismountAll();
+          this.officers.forEach((o, k) => {
+            if (o.state !== 'dead') o.fireJob = { v, role: k === 0 ? 'ext' : 'line', idx: k };
+          });
+        }
+      }
     } else if (this.check && this.patrol) {
       // Shots fired nearby: lights on, drive over and look around.
       const k = this.check;
