@@ -167,7 +167,7 @@ class Circle {
     this.peds = [];
     const roles = ROLES.slice().sort(() => Math.random() - 0.5);
     for (let i = 0; i < n; i++) {
-      const pref = n === 1 ? 0 : -1.2 + (2.4 * i) / (n - 1) + rand(-0.1, 0.1);
+      const pref = n === 1 ? 0 : -1.0 + (2.0 * i) / (n - 1) + rand(-0.1, 0.1);
       const [px, pz] = this.arcPos(pref, 1.5);
       const p = game.peds.addAt(px, pz);
       p.act = this;
@@ -224,26 +224,88 @@ class Circle {
   }
 
   // Where everybody stands: the shooter up on the dice, the rest spread round behind in the
-  // order they're in (you where you walked up), a gap where the shooter stepped out of.
-  place(key) {
+  // order they're in (you where you walked up), a gap where the shooter stepped out of; then
+  // nudged apart (nobody in anybody) and off the walls. Worked out once a frame.
+  layout() {
+    const key = `${this.game.time}|${this.peds.length}|${!!this.you}|${this.shooter === 'you' ? 'you' : this.peds.indexOf(this.shooter)}`;
+    if (this.layKey === key) return this.lay;
     const [dx, dz] = this.dir;
-    if (key === this.shooter) return { x: this.sx - dx * SHOOT_D, z: this.sz - dz * SHOOT_D, face: Math.atan2(dx, dz) };
+    const out = new Map();
     const all = [...this.peds.map((s) => ({ key: s, pref: s.pref })), ...(this.you ? [{ key: 'you', pref: this.you.pref }] : [])].sort((a, b) => a.pref - b.pref);
     const n = all.length;
-    const A = Math.min(1.3, 0.36 * (n - 1) + 0.2);
-    const i = all.findIndex((m) => m.key === key);
-    const s = key === 'you' ? null : key;
-    const ang = n === 1 ? 0.5 : -A + (2 * A * i) / (n - 1) + (s ? Math.sin(s.seed) * 0.08 : 0);
-    const r = s?.role === 'squat' ? 1.25 : 1.5 + (s ? s.rj : 0);
-    const [x, z] = this.arcPos(ang, r);
-    return { x, z, face: Math.atan2(this.sx - x, this.sz - z) };
+    const A = Math.min(1.0, 0.3 * (n - 1) + 0.15); // (all behind the shooter: the wall's sides stay clear for the camera)
+    const pts = [];
+    all.forEach((m, i) => {
+      if (m.key === this.shooter) return;
+      const s = m.key === 'you' ? null : m.key;
+      const ang = n === 1 ? 0.5 : -A + (2 * A * i) / (n - 1) + (s ? Math.sin(s.seed) * 0.08 : 0);
+      const r = s?.role === 'squat' ? 1.55 : 1.8 + (s ? s.rj : 0);
+      const [x, z] = this.arcPos(ang, r);
+      pts.push({ key: m.key, x, z });
+    });
+    const sh = this.shooter ? { key: this.shooter, x: this.sx - dx * SHOOT_D, z: this.sz - dz * SHOOT_D, fixed: true } : null;
+    const every = sh ? [sh, ...pts] : pts;
+    const walls = this.game.city.colliders;
+    for (let it = 0; it < 6; it++) {
+      for (let i = 0; i < every.length; i++) {
+        for (let j = i + 1; j < every.length; j++) {
+          const P = every[i];
+          const Q = every[j];
+          const d = Math.hypot(Q.x - P.x, Q.z - P.z) || 0.01;
+          if (d >= 0.78) continue;
+          const push = (0.78 - d) / d;
+          const ux = (Q.x - P.x) * push;
+          const uz = (Q.z - P.z) * push;
+          if (P.fixed) {
+            Q.x += ux;
+            Q.z += uz;
+          } else if (Q.fixed) {
+            P.x -= ux;
+            P.z -= uz;
+          } else {
+            Q.x += ux / 2;
+            Q.z += uz / 2;
+            P.x -= ux / 2;
+            P.z -= uz / 2;
+          }
+        }
+      }
+      for (const P of every) {
+        const r = pushCircle(P.x, P.z, 0.36, walls);
+        P.x = r.x;
+        P.z = r.z;
+      }
+    }
+    for (const P of every) out.set(P.key, { x: P.x, z: P.z, face: P === sh ? Math.atan2(dx, dz) : Math.atan2(this.sx - P.x, this.sz - P.z) });
+    this.layKey = key;
+    this.lay = out;
+    return out;
   }
 
-  // On their mark (the shooter: down on the dice, ready to throw)?
+  place(key) {
+    return this.layout().get(key) || { x: this.x, z: this.z, face: 0 };
+  }
+
+  // On their mark (the shooter: down on the dice, ready to throw)? Somebody who can't quite get
+  // there (stuck on something) is put there after a few seconds, so the game never waits on him.
   ready(s) {
     if (!this.peds.includes(s)) return true; // (gone: don't wait on him)
     const P = this.place(s);
-    return dist(s.p.x, s.p.z, P.x, P.z) < 0.2;
+    const off = dist(s.p.x, s.p.z, P.x, P.z);
+    if (off < 0.3) {
+      s.stuckT = 0;
+      return true;
+    }
+    s.stuckT = (s.stuckT || 0) + (this.game.time - (s.stuckAt ?? this.game.time));
+    s.stuckAt = this.game.time;
+    if (s.stuckT > 3) {
+      s.p.x = P.x;
+      s.p.z = P.z;
+      s.p.heading = P.face;
+      s.stuckT = 0;
+      return true;
+    }
+    return false;
   }
 
   // ---- The people in it (peds.js asks act.drive / act.pose) ----
@@ -856,6 +918,52 @@ export class DiceManager {
     this.panel();
   }
 
+  // The camera while you're in a game (main.js camera, last): off to the side of the shooter,
+  // a bit up, looking across him at the dice and the backstop, so you see every roll land. Your
+  // look stick / drag swings it round the dice. Eases in when you get in, back out after.
+  camShot(dt, cam) {
+    const game = this.game;
+    const R = this.round;
+    this.camK = Math.max(0, Math.min(1, (this.camK || 0) + (R ? dt : -dt) * 2.2));
+    if (R) this.camC = R.c;
+    const C = this.camC;
+    if (!C || this.camK <= 0) {
+      this.camC = null;
+      return null;
+    }
+    const [dx, dz] = C.dir;
+    if (R && !this.camSet) {
+      // (first frame in: from the side you walked up on, a little behind the shooter)
+      // (from up by the backstop, off to the side you're on, looking back at the shooter: nobody
+      // stands between it and the dice; a wall in the way, the other side)
+      let side = (C.you?.pref ?? 0) >= 0 ? 1 : -1;
+      const free = (sd) => {
+        const a = Math.atan2(dx, dz) + sd * 1.4;
+        return !pushCircle(C.sx - dx * 0.35 + Math.sin(a) * 2.4, C.sz - dz * 0.35 + Math.cos(a) * 2.4, 0.3, game.city.colliders).hit;
+      };
+      if (!free(side) && free(-side)) side = -side;
+      game.camYaw = Math.atan2(dx, dz) + side * 1.4 + Math.PI;
+      game.camPitch = 0;
+      this.camSet = true;
+    }
+    if (!R) this.camSet = false;
+    const yaw = game.camYaw;
+    const lx = C.sx - dx * 0.35;
+    const lz = C.sz - dz * 0.35;
+    let D = 2.9;
+    for (; D > 2; D -= 0.15) {
+      const x = lx - Math.sin(yaw) * D;
+      const z = lz - Math.cos(yaw) * D;
+      if (!pushCircle(x, z, 0.15, game.city.colliders).hit) break;
+    }
+    const k = this.camK * this.camK * (3 - 2 * this.camK);
+    const pos = new THREE.Vector3(lx - Math.sin(yaw) * D, C.y + 3.0, lz - Math.cos(yaw) * D);
+    const look = new THREE.Vector3(lx, C.y + 1.35, lz); // (aimed a little over them: the dice sit low, clear of the panel)
+    const fromLook = new THREE.Vector3();
+    cam.getWorldDirection(fromLook).multiplyScalar(4).add(cam.position);
+    return { pos: cam.position.clone().lerp(pos, k), look: fromLook.lerp(look, k) };
+  }
+
   trySpawn(px, pz) {
     const game = this.game;
     const pts = game.city.walk?.pts;
@@ -1008,7 +1116,7 @@ export class DiceManager {
     // (you take your place in the ring on the side you walked up)
     let pref = Math.atan2(px - c.sx, pz - c.sz) - c.back;
     pref = Math.atan2(Math.sin(pref), Math.cos(pref));
-    c.you = { pref: Math.max(-1.3, Math.min(1.3, pref)) };
+    c.you = { pref: Math.max(-1.0, Math.min(1.0, pref)) };
     if (c.shooter === 'you') c.shooter = null;
     this.round = new Round(this, c, stake);
     c.restDice();

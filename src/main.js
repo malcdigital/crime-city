@@ -2459,6 +2459,12 @@ class Game {
       this.camera.position.copy(O.pos);
       this.camera.lookAt(O.look);
     }
+    // (in a dice game: framed on the dice, dice.js)
+    const DS = this.dice?.camShot(dt, this.camera);
+    if (DS) {
+      this.camera.position.copy(DS.pos);
+      this.camera.lookAt(DS.look);
+    }
     if (Math.abs(this.camera.fov - fov) > 0.1) {
       this.camera.fov = fovNow ? fov : lerp(this.camera.fov, fov, Math.min(1, dt * 10));
       this.camera.updateProjectionMatrix();
