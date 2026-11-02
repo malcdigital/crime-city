@@ -496,8 +496,8 @@ export class DiceFX {
     const cz = rested ? this.c.dice.reduce((v, D) => v + D.rest[1], 0) / n : 0;
     const [ddx, ddz] = this.c.dir;
     this.c.dice.forEach((D, i) => {
-      if (this.c.throw) {
-        D.m.scale.setScalar(1);
+      if (this.c.throw || this.c.held || this.c.pick) {
+        // (in the air or in somebody's hand: the hand has them)
         D.rest = null;
         return;
       }

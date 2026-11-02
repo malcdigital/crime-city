@@ -526,10 +526,9 @@ export class TouchControls {
     }
     if (ctx === 'stop') {
       setText(this.el.buttons.fight.hint, game.player.vehicle ? 'floor it' : 'fight');
-      // (a street stop: ✕ lets him pat you down, and there's no bribe)
-      const frisk = !game.stop && game.frisking;
-      setText(this.el.buttons.cross.hint, frisk ? 'pat down' : 'quietly');
-      this.el.buttons.circle.el.classList.toggle('hidden', frisk);
+      // (a street stop on foot too: go quietly, bribe, or fight)
+      setText(this.el.buttons.cross.hint, 'quietly');
+      this.el.buttons.circle.el.classList.remove('hidden');
     }
     if (ctx === 'qb') {
       const M = game.gridiron;

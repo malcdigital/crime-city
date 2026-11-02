@@ -29,6 +29,8 @@ const NAMES = ['Lil Mike', 'Dre', 'Smoke', 'Peanut', 'Boogie', 'Tank', 'Shorty',
 const WOMEN = ['Kiki', 'Peaches', 'Lady', 'Nay Nay', 'Keke', 'Dee Dee', 'Precious', 'Jada', 'Shay'];
 const MAX = 3; // (circles around at once)
 const DIE = 0.11; // (a little big for real dice: easy to read from where you stand)
+const IN_HAND = 0.55; // (in the fist they're real-dice size, side by side, growing back as they're thrown)
+const HAND_GAP = DIE * IN_HAND * 1.25;
 
 // ---- The dice ----
 function pipsTexture(n) {
@@ -339,8 +341,13 @@ class Circle {
       s.stuckT = 0;
       return true;
     }
-    s.stuckT = (s.stuckT || 0) + (this.game.time - (s.stuckAt ?? this.game.time));
+    // (time stuck since he set off: a long gap since we last asked is a fresh start, not time stuck)
+    const gap = this.game.time - (s.stuckAt ?? this.game.time);
+    s.stuckT = gap > 0.5 ? 0 : (s.stuckT || 0) + gap;
     s.stuckAt = this.game.time;
+    // (somebody still on the spot: wait for them to clear it, don't drop him on them)
+    const taken = [...this.peds.map((o) => o.p), ...(this.you ? [this.game.player] : [])].some((q) => q !== s.p && dist(q.x, q.z, P.x, P.z) < 0.7);
+    if (taken) s.stuckT = Math.min(s.stuckT, 2.5);
     if (s.stuckT > 3) {
       s.p.x = P.x;
       s.p.z = P.z;
@@ -367,12 +374,12 @@ class Circle {
     if (!s || p.speed > 0) return 0;
     const m = this.fx?.pose(s, p.char, s === this.shooter); // (going through money, setting it down, grabbing it up)
     if (m != null) return m;
-    return this.poseChar(p.char, s.role, s === this.shooter, s.roll, s.react > this.game.time ? s.reactKind : null, s.seed);
+    return this.poseChar(p.char, s.role, s === this.shooter, s.roll, s.react > this.game.time ? s.reactKind : null, s.seed, s);
   }
 
   // A body in the game. role: how they stand; shooter: down on a knee with the dice; roll:
   // 'shake' / the time the throw went; react: 'win' / 'lose' for a moment after a roll.
-  poseChar(c, role, shooter, roll, react, seed) {
+  poseChar(c, role, shooter, roll, react, seed, key = null) {
     const t = this.game.time;
     restPose(c);
     for (const k of ['legL', 'legR', 'kneeL', 'kneeR']) c[k].rotation.set(0, 0, 0);
@@ -402,7 +409,15 @@ class Circle {
       c.armL.rotation.set(-0.85, 0, 0.15);
       c.elbowL.rotation.x = -0.9;
       c.neck.rotation.set(-0.2, 0, 0);
-      if (roll === 'shake') {
+      const pk = this.pick && this.pick.who === key ? Math.sin(Math.PI * Math.min(1, this.pick.t / this.pick.dur)) : 0;
+      if (pk > 0) {
+        // (leaning way in over the dice, the right hand down to scoop them up)
+        bendSpine(c, 0.32 + 0.6 * pk, 0, 0);
+        c.neck.rotation.set(-0.2 + 0.3 * pk, 0, 0);
+        c.armR.rotation.set(-0.7 - 0.45 * pk, 0, -0.1);
+        c.elbowR.rotation.x = -0.8 + 0.7 * pk;
+        c.wristR.rotation.x = 0.4 * pk;
+      } else if (roll === 'shake' && this.held === key) {
         // (fist up by the ear, shaking)
         c.armR.rotation.set(-1.5 + Math.sin(t * 30) * 0.18, 0, -0.25);
         c.elbowR.rotation.x = -1.9;
@@ -473,9 +488,13 @@ class Circle {
     const P = this.place(from);
     const hx = P.x + dx * 0.35;
     const hz = P.z + dz * 0.35;
+    const inHand = this.held === from;
+    this.held = null;
+    this.pick = null;
     this.dice.forEach((D, i) => {
       const off = (i - (this.dice.length - 1) / 2) * 0.2;
-      D.p0 = [hx - dz * off * 0.85, this.y + 0.38, hz + dx * off * 0.85];
+      // (out of the hand they're in, or where the hand would be)
+      D.p0 = inHand ? D.m.position.toArray() : [hx - dz * off * 0.85, this.y + 0.38, hz + dx * off * 0.85];
       const wl = off + rand(-0.015, 0.015); // (where it hits the backstop: each its own spot)
       D.pw = [this.sx + dx * (WALL_GAP - 0.04) - dz * wl, this.y + (this.wall ? rand(0.06, 0.16) : 0.05), this.sz + dz * (WALL_GAP - 0.04) + dx * wl];
       // (where it comes to rest: anywhere in a patch off the backstop, but never within a die and
@@ -493,7 +512,7 @@ class Circle {
       faceUp(values[i], rand(0, 6.28), D.q1);
       D.spin.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize().multiplyScalar(rand(16, 24));
     });
-    this.throw = { t: 0, T, values, cb }; // (a longer T: the deciding roll, in slow motion)
+    this.throw = { t: 0, T, values, cb, inHand }; // (a longer T: the deciding roll, in slow motion)
     game.sfx?.dice?.();
   }
 
@@ -503,7 +522,9 @@ class Circle {
     T.t += dt;
     const k = Math.min(1, T.t / T.T);
     const lerp = (a, b, u) => a + (b - a) * u;
+    const grow = T.inHand ? IN_HAND + (1 - IN_HAND) * Math.min(1, k / 0.2) : 1; // (out of the fist, full size)
     for (const D of this.dice) {
+      D.m.scale.setScalar(grow);
       let x;
       let y;
       let z;
@@ -549,6 +570,7 @@ class Circle {
   // ---- Every frame ----
   update(dt) {
     this.stepDice(dt);
+    this.stepHold(dt);
     this.fx?.update(dt);
     // (anyone who ran off from it, or got hurt, is out)
     for (const s of [...this.peds]) {
@@ -562,6 +584,74 @@ class Circle {
     else this.ambient(dt);
   }
 
+  // ---- Picking the dice up ----
+  // Done reading them (they've had their moment up big): they can be picked up.
+  settled() {
+    return !this.throw && (!this.fx || this.fx.popT == null || this.game.time - this.fx.popT > 2.3);
+  }
+
+  // The shooter leans in and scoops them up (they ride in his hand till the throw). who: a seat
+  // or 'you'. Returns true once they're in his hand.
+  pickUp(who) {
+    if (this.held === who) return true;
+    if (!this.pick && this.settled()) {
+      // (their order across the throw, as they lie: that's their order in the hand)
+      const across = (D) => -D.m.position.x * this.dir[1] + D.m.position.z * this.dir[0];
+      this.dice.sort((a, b) => across(a) - across(b));
+      this.pick = { who, t: 0, dur: 0.9, from: this.dice.map((D) => D.m.position.clone()), s0: this.dice[0].m.scale.x };
+    }
+    return false;
+  }
+
+  // Each frame: the scoop (the dice up off the ground into the hand as it comes back up) and,
+  // held, the dice in the fist.
+  stepHold(dt) {
+    // (side by side across the throw, in the same order they lie on the ground and leave the
+    // hand in: their paths never cross)
+    const side = new THREE.Vector3(-this.dir[1], 0, this.dir[0]);
+    const hand = (who) => {
+      const c = who === 'you' ? this.game.player.char : who?.p?.char;
+      if (!c) return null;
+      c.group.updateMatrixWorld(true);
+      return c.wristR.localToWorld(new THREE.Vector3(0, -0.12, 0.03));
+    };
+    const P = this.pick;
+    if (P) {
+      // (gone from the game, or not the shooter now: never mind)
+      if (P.who !== 'you' && !this.peds.includes(P.who)) {
+        this.pick = null;
+        return;
+      }
+      P.t += dt;
+      const k = Math.max(0, Math.min(1, (P.t - P.dur * 0.45) / (P.dur * 0.35)));
+      const h = hand(P.who);
+      if (h && k > 0) {
+        this.dice.forEach((D, i) => {
+          const to = h.clone().add(side.clone().multiplyScalar((i - (this.dice.length - 1) / 2) * HAND_GAP));
+          const e = k * k * (3 - 2 * k);
+          D.m.position.lerpVectors(P.from[i], to, e);
+          D.m.scale.setScalar(P.s0 + (IN_HAND - P.s0) * e);
+        });
+      }
+      if (P.t >= P.dur) {
+        this.held = P.who;
+        this.pick = null;
+      }
+      return;
+    }
+    if (this.held && !this.throw) {
+      const h = hand(this.held);
+      if (!h || (this.held !== 'you' && !this.peds.includes(this.held))) {
+        this.held = null;
+        return;
+      }
+      this.dice.forEach((D, i) => {
+        D.m.position.copy(h).add(side.clone().multiplyScalar((i - (this.dice.length - 1) / 2) * HAND_GAP));
+        D.m.scale.setScalar(IN_HAND);
+      });
+    }
+  }
+
   // Not playing: they roll among themselves (so you can spot it from down the street). The
   // dice stay with a shooter a few rolls, then pass.
   ambient(dt) {
@@ -572,6 +662,7 @@ class Circle {
     }
     const s = this.shooter;
     if (!this.ready(s)) return;
+    if (!this.pickUp(s)) return; // (scoop the dice up first)
     this.wait -= dt;
     if (this.wait < 0.9) s.roll = 'shake';
     if (this.wait > 0) return;
@@ -743,7 +834,15 @@ class Round {
     }
     if (this.phase === 'between' && this.t > (this.paid ? 3.6 : this.kind === 'celo' ? 2.4 : 1.8)) this.newRound(); // (paid: room for the money to change hands)
     this.flushFx();
-    if (this.phase === 'npc' && this.t > 1.0 && !this.c.throw && this.c.ready(this.cur.s)) this.npcRoll();
+    if ((this.phase === 'npc' || this.phase === 'bets') && !this.c.throw && this.c.ready(this.cur.s)) this.c.pickUp(this.cur.s); // (scoops the dice up first)
+    if (this.phase === 'npc' && this.t > 1.0 && !this.c.throw && this.c.held === this.cur.s) this.npcRoll();
+    // (your dice: you pick them up as soon as they've been read, and a ROLL pressed meanwhile goes when they're in your hand)
+    if (this.phase === 'you' && !this.c.throw && !this.offer) {
+      if (this.c.pickUp('you') && this.wantRoll) {
+        this.wantRoll = false;
+        this.youRoll();
+      }
+    }
     if (this.phase === 'bets' && this.t > 3.2) {
       this.lockBets();
       this.phase = 'npc';
@@ -813,6 +912,10 @@ class Round {
   // (your press: ✕ / E / ROLL)
   youRoll() {
     if (this.phase !== 'you' || this.c.throw || this.offer) return;
+    if (this.c.held !== 'you') {
+      this.wantRoll = true; // (once you've got them in your hand)
+      return;
+    }
     if (this.kind === 'craps') return this.crapsRoll('you');
     this.mgr.rollAt = this.game.time;
     this.c.toss(roll(3), 'you', (v) => this.result(v));
@@ -1532,6 +1635,13 @@ export class DiceManager {
     if (!R) return;
     const c = R.c;
     R.forfeit(scatter); // (money down and you walk: it's theirs; the cops: it's gone)
+    if (c.held === 'you' || c.pick?.who === 'you') {
+      // (the dice back down where they go)
+      c.held = null;
+      c.pick = null;
+      for (const D of c.dice) D.m.scale.setScalar(1);
+      c.restDice();
+    }
     this.round = null;
     c.you = null;
     c.fx?.dispose();
@@ -1630,7 +1740,7 @@ export class DiceManager {
     const shooter = C.shooter === 'you';
     const rollState = shooter && R.phase === 'you' ? 'shake' : this.rollAt && t - this.rollAt < 0.3 ? this.rollAt : 0;
     const m = C.fx?.pose('you', c, shooter);
-    c.group.position.y += m != null ? m : C.poseChar(c, 'hunch', shooter, rollState, null, 1.7);
+    c.group.position.y += m != null ? m : C.poseChar(c, 'hunch', shooter, rollState, null, 1.7, 'you');
   }
 
   // What the phone's two big buttons say right now (touch.js).

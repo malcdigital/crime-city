@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { lam } from './character.js';
+import { lam, reachArm, bendSpine, restPose } from './character.js';
 import { dist } from './util.js';
 
 // A police stop played out in the world (main.js: the arrest stop with a possible dirty cop;
@@ -144,7 +144,15 @@ export class StopScene {
     }
     const [px, pz] = game.player.pos();
     const d = dist(o.x, o.z, px, pz) || 1;
-    return { x: px + ((o.x - px) / d) * 1.5, z: pz + ((o.z - pz) / d) * 1.5, fx: px, fz: pz };
+    // (on foot, once he's up to you: in close at your side, to take hold of you)
+    const r = this.grabT != null ? 0.62 : 1.5;
+    return { x: px + ((o.x - px) / d) * r, z: pz + ((o.z - pz) / d) * r, fx: px, fz: pz };
+  }
+
+  // On foot: he takes hold of you (a hand on your arm, the other on your shoulder) for the rest
+  // of the stop (enforcement.js updateFoot).
+  grab() {
+    if (this.grabT == null) this.grabT = this.game.time;
   }
 
   // Each frame while the stop lasts. Returns 'fled' if you took off while he was walking up.
@@ -161,9 +169,29 @@ export class StopScene {
     const radio = this.has('calls it in');
     const cuffs = this.has('cuffs out');
     const rights = this.has('reads you your rights');
+    const P = game.player;
+    const grabbing = this.grabT != null && !game.player.vehicle;
     o.script = {
       x: s.x, z: s.z, fx: s.fx, fz: s.fz, speed: WALK,
       pose: (c, t, speed) => {
+        if (grabbing && speed <= 0.2) {
+          // (both hands on you: one on your arm, one on your shoulder)
+          const k = Math.min(1, (game.time - this.grabT) / 0.35);
+          restPose(c);
+          bendSpine(c, 0.25 * k, 0, 0);
+          c.group.updateMatrixWorld(true);
+          P.char.group.updateMatrixWorld(true);
+          const tgt = (node, up = 0) => {
+            const w = node.getWorldPosition(new THREE.Vector3());
+            w.y += up;
+            const l = c.group.worldToLocal(w);
+            // (reaching out to it over the first moment)
+            return new THREE.Vector3(0.18, 1.0, 0.3).lerp(l, k);
+          };
+          reachArm(c, 'L', tgt(P.char.elbowR), new THREE.Vector3(1, -0.5, -0.4), null, null, 'group');
+          reachArm(c, 'R', tgt(P.char.chest, 0.17), new THREE.Vector3(-1, -0.5, -0.4), null, null, 'group');
+          return;
+        }
         if (speed > 0.2) return;
         c.armR.rotation.x = cuffs ? -0.9 : -0.25;
         c.armL.rotation.x = rights ? -1.0 : -0.2;

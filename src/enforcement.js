@@ -36,6 +36,7 @@ export class Enforcement {
     const game = this.game;
     this.cool -= dt;
     game.frisking = false; // (a street stop's question up: updateFoot sets it)
+    this.footGrab = false; // (held by the officer: updateFoot sets it)
     const u = this.unit;
     if (u) return this.updateStop(dt, a, u);
     const v = game.player.vehicle;
@@ -108,7 +109,9 @@ export class Enforcement {
 
   startFoot(u, why) {
     const game = this.game;
-    u.pull = { vio: { label: why, fine: 0 }, stage: 'pursue', t: 0, stillT: 0, foot: true, why };
+    // (now and then the one stopping you is dirty: a bribe works on him)
+    const dirty = Math.random() < (game.dirtyChance?.() ?? 0.2);
+    u.pull = { vio: { label: why, fine: 0 }, stage: 'pursue', t: 0, stillT: 0, foot: true, why, dirty };
     u.to = null;
     this.footStop = u;
     game.hud.toast('🚨 Police: "Hey! You. Stop right there."', '#9fc3ff');
@@ -152,13 +155,23 @@ export class Enforcement {
       }
     }
     if (dist(px, pz, ...(p.at || [px, pz])) > 5) return this.flee(u);
+    // He's up to you: he takes hold of you (you're not walking off now), then it's up to you.
+    if (!p.grabbed) {
+      p.grabbed = true;
+      p.scene?.grab();
+      game.hud.toast('The officer grabs your arm.', '#9fc3ff');
+    }
+    this.footGrab = true;
+    const o = p.scene?.officer;
+    if (o) pl.heading = Math.atan2(o.x - px, o.z - pz);
     game.askedAt = game.time;
     game.frisking = true;
-    const line = p.why === 'gun' ? '"Drop your hands. Whose gun is that?"' : '"Hold up. You got anything on you I should know about?"';
-    game.prompt = p.frisk ? 'He pats you down…' : `Officer: ${line} ${pad ? '✕' : 'E'} let him pat you down · ${pad ? '□' : 'R'} fight · walk off to run`;
-    if (p.t < 0.6) return;
+    const line = p.why === 'gun' ? '"Hands where I can see em. Whose gun is that?"' : '"Hold up. You got anything on you I should know about?"';
+    game.prompt = p.frisk ? 'He pats you down…' : `Officer, holding your arm: ${line} — ${pad ? '✕' : 'E'} go quietly · ${pad ? '○' : 'Q'} offer a bribe · ${pad ? '□' : 'R'} fight`;
+    if (p.t < 0.8) return; // (a beat while he gets hold of you)
     if (!p.frisk) {
       if (a.dealFight) return this.footFight(u);
+      if (a.dealNo) return this.footBribe(u, p);
       if (a.dealYes || p.t > 20) {
         p.frisk = 0.01;
         p.t = 0;
@@ -187,10 +200,36 @@ export class Enforcement {
     this.footStop = null;
   }
 
+  // Slipping him something: a dirty cop pockets it and lets you go (product and all); a straight
+  // one arrests you for it.
+  footBribe(u, p) {
+    const game = this.game;
+    const [px, pz] = game.player.pos();
+    game.frisking = false;
+    this.footGrab = false;
+    p.scene?.end();
+    u.pull = null;
+    this.footStop = null;
+    this.footCool = 150;
+    const offer = Math.min(game.cash, Math.max(40, Math.round((game.cash * 0.2) / 10) * 10));
+    if (p.dirty && offer > 0) {
+      game.cash -= offer;
+      game.hud.toast(`He pockets the $${offer}. "I ain't see you. Get outta here."`, '#ffd36b');
+      if (u.mounted) u.resumePatrol();
+      game.save?.();
+      return;
+    }
+    game.hud.toast(offer > 0 ? '"You trying to bribe me? Turn around."' : '"With what? Turn around."', '#ff8080');
+    u.joinChase();
+    if (game.drugs.holding() > 0) game.crime('possession', px, pz);
+    game.bust({ final: true, bribery: offer > 0 });
+  }
+
   footFight(u) {
     const game = this.game;
     const p = u.pull;
     game.frisking = false;
+    this.footGrab = false;
     const s = { dirty: false, scene: p.scene };
     u.pull = null;
     this.footStop = null;
