@@ -260,8 +260,8 @@ class Circle {
   restDice() {
     const [dx, dz] = this.dir;
     this.dice.forEach((D, i) => {
-      const off = (i - (this.dice.length - 1) / 2) * 0.12;
-      D.m.position.set(this.sx - dz * off + rand(-0.04, 0.04), this.y + DIE / 2, this.sz + dx * off + rand(-0.04, 0.04));
+      const off = (i - (this.dice.length - 1) / 2) * 0.19; // (apart: never touching)
+      D.m.position.set(this.sx - dz * off + rand(-0.015, 0.015), this.y + DIE / 2, this.sz + dx * off + rand(-0.015, 0.015));
       faceUp(1 + Math.floor(Math.random() * 6), rand(0, 6.28), D.m.quaternion);
     });
   }
@@ -276,13 +276,13 @@ class Circle {
     const out = new Map();
     const all = [...this.peds.map((s) => ({ key: s, pref: s.pref })), ...(this.you ? [{ key: 'you', pref: this.you.pref }] : [])].sort((a, b) => a.pref - b.pref);
     const n = all.length;
-    const A = Math.min(1.0, 0.3 * (n - 1) + 0.15); // (all behind the shooter: the wall's sides stay clear for the camera)
+    const A = Math.min(0.88, 0.28 * (n - 1) + 0.15); // (all behind the shooter: the wall's sides stay clear for the camera)
     const pts = [];
     all.forEach((m, i) => {
       if (m.key === this.shooter) return;
       const s = m.key === 'you' ? null : m.key;
       const ang = n === 1 ? 0.5 : -A + (2 * A * i) / (n - 1) + (s ? Math.sin(s.seed) * 0.08 : 0);
-      const r = s?.role === 'squat' ? 1.55 : 1.8 + (s ? s.rj : 0);
+      const r = s?.role === 'squat' ? 2.0 : 2.3 + (s ? s.rj : 0); // (room to breathe)
       const [x, z] = this.arcPos(ang, r);
       pts.push({ key: m.key, x, z });
     });
@@ -295,8 +295,8 @@ class Circle {
           const P = every[i];
           const Q = every[j];
           const d = Math.hypot(Q.x - P.x, Q.z - P.z) || 0.01;
-          if (d >= 0.78) continue;
-          const push = (0.78 - d) / d;
+          if (d >= 1.0) continue;
+          const push = (1.0 - d) / d;
           const ux = (Q.x - P.x) * push;
           const uz = (Q.z - P.z) * push;
           if (P.fixed) {
@@ -474,12 +474,21 @@ class Circle {
     const hx = P.x + dx * 0.35;
     const hz = P.z + dz * 0.35;
     this.dice.forEach((D, i) => {
-      const off = (i - (this.dice.length - 1) / 2) * 0.1;
-      D.p0 = [hx - dz * off * 0.3, this.y + 0.38, hz + dx * off * 0.3];
-      const wl = off + rand(-0.12, 0.12); // (where it hits the backstop)
+      const off = (i - (this.dice.length - 1) / 2) * 0.2;
+      D.p0 = [hx - dz * off * 0.85, this.y + 0.38, hz + dx * off * 0.85];
+      const wl = off + rand(-0.015, 0.015); // (where it hits the backstop: each its own spot)
       D.pw = [this.sx + dx * (WALL_GAP - 0.04) - dz * wl, this.y + (this.wall ? rand(0.06, 0.16) : 0.05), this.sz + dz * (WALL_GAP - 0.04) + dx * wl];
-      const ll = off * 1.6 + rand(-0.12, 0.12); // (where it comes to rest)
-      const back = rand(-0.12, 0.2);
+      // (where it comes to rest: anywhere in a patch off the backstop, but never within a die and
+      // a half of another, so they don't sit in each other)
+      let ll = 0;
+      let back = 0;
+      for (let k = 0; k < 30; k++) {
+        ll = off * 1.5 + rand(-0.05, 0.05); // (side to side in the same order they left the hand: their paths never cross)
+        back = rand(-0.12, 0.2);
+        const x = this.sx - dx * back - dz * ll;
+        const z = this.sz - dz * back + dx * ll;
+        if (this.dice.slice(0, i).every((o) => Math.hypot(o.p1[0] - x, o.p1[2] - z) > DIE * 2)) break;
+      }
       D.p1 = [this.sx - dx * back - dz * ll, this.y + DIE / 2, this.sz - dz * back + dx * ll];
       faceUp(values[i], rand(0, 6.28), D.q1);
       D.spin.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize().multiplyScalar(rand(16, 24));
@@ -1341,14 +1350,14 @@ export class DiceManager {
     const yaw = game.camYaw;
     const lx = C.sx - dx * 0.35;
     const lz = C.sz - dz * 0.35;
-    let D = 2.9;
+    let D = 3.4;
     for (; D > 2; D -= 0.15) {
       const x = lx - Math.sin(yaw) * D;
       const z = lz - Math.cos(yaw) * D;
       if (!pushCircle(x, z, 0.15, game.city.colliders).hit) break;
     }
     const k = this.camK * this.camK * (3 - 2 * this.camK);
-    const pos = new THREE.Vector3(lx - Math.sin(yaw) * D, C.y + 2.7, lz - Math.cos(yaw) * D);
+    const pos = new THREE.Vector3(lx - Math.sin(yaw) * D, C.y + 3.0, lz - Math.cos(yaw) * D);
     const look = new THREE.Vector3(lx, C.y + 0.75, lz); // (aimed a little over them: the dice sit in the lower middle)
     const fromLook = new THREE.Vector3();
     cam.getWorldDirection(fromLook).multiplyScalar(4).add(cam.position);

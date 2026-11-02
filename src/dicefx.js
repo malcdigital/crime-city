@@ -422,6 +422,7 @@ export class DiceFX {
   // The dice pop up big a beat when they land.
   pop() {
     this.popT = this.game.time;
+    for (const D of this.c.dice) D.rest = [D.m.position.x, D.m.position.z];
   }
 
   after(delay, fn) {
@@ -485,15 +486,32 @@ export class DiceFX {
     // (the dice: up big a beat after they land, so you can read them)
     const pk = this.popT != null ? (now - this.popT) / 2.4 : 1;
     const sc = pk < 1 ? 1 + 1.3 * ease(Math.min(1, pk / 0.08)) * (pk < 0.8 ? 1 : 1 - ease((pk - 0.8) / 0.2)) : 1;
-    for (const D of this.c.dice) {
+    // (popped up big, they move apart into a row across the throw, so they never grow into each
+    // other; then back down where they landed)
+    const big = Math.max(1, sc);
+    const k = (big - 1) / 1.3;
+    const n = this.c.dice.length;
+    const rested = this.c.dice.every((D) => D.rest);
+    const cx = rested ? this.c.dice.reduce((v, D) => v + D.rest[0], 0) / n : 0;
+    const cz = rested ? this.c.dice.reduce((v, D) => v + D.rest[1], 0) / n : 0;
+    const [ddx, ddz] = this.c.dir;
+    this.c.dice.forEach((D, i) => {
       if (this.c.throw) {
         D.m.scale.setScalar(1);
-        continue;
+        D.rest = null;
+        return;
       }
-      D.m.scale.setScalar(Math.max(1, sc));
-      D.m.position.y = this.c.y + (D.m.geometry.parameters.height / 2) * Math.max(1, sc);
-      if (sc > 1.01) D.m.rotation.set(D.m.rotation.x, D.m.rotation.y, D.m.rotation.z); // (face up as it landed)
-    }
+      D.m.scale.setScalar(big);
+      if (rested) {
+        const size = D.m.geometry.parameters.width;
+        const off = (i - (n - 1) / 2) * size * big * 1.65;
+        const rx = cx - ddz * off;
+        const rz = cz + ddx * off;
+        D.m.position.x = D.rest[0] + (rx - D.rest[0]) * k;
+        D.m.position.z = D.rest[1] + (rz - D.rest[1]) * k;
+      }
+      D.m.position.y = this.c.y + (D.m.geometry.parameters.height / 2) * big;
+    });
     this.overlay();
   }
 
