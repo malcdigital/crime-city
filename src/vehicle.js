@@ -831,9 +831,21 @@ export class Vehicle {
       this.roll = 0;
       this.flat = false;
     }
-    this.group.position.set(this.x, this.y + lift, this.z);
+    // (blown up: thrown into the air, landing on a tilt; main.js explode)
+    if (this.blast) {
+      const B = this.blast;
+      B.t += dt;
+      B.vy -= 9.8 * dt;
+      B.y = Math.max(0, B.y + B.vy * dt);
+      if (B.y === 0 && B.vy < 0) B.vy = Math.abs(B.vy) > 2 ? -B.vy * 0.25 : 0;
+      const k = Math.min(1, B.t / 0.9);
+      B.pitch = B.p1 * k + Math.sin(Math.min(1, B.t / 0.6) * Math.PI) * B.p0;
+      B.roll = B.r1 * k + Math.sin(Math.min(1, B.t / 0.6) * Math.PI) * B.r0;
+    }
+    const by = this.blast ? this.blast.y : 0;
+    this.group.position.set(this.x, this.y + lift + by, this.z);
     this.group.rotation.order = 'YXZ';
-    this.group.rotation.set(-this.pitch, this.heading, this.roll);
+    this.group.rotation.set(-this.pitch + (this.blast?.pitch || 0), this.heading, this.roll + (this.blast?.roll || 0));
     for (const w of this.wheels) {
       const spin = !w.userData.front && this.rearSpin > 0 ? this.rearSpin : this.speed;
       if (!w.userData.flat) w.rotation.x += (spin * dt) / (w.userData.r || 0.38);

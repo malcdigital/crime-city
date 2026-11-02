@@ -1129,10 +1129,32 @@ class Game {
 
   explode(v) {
     const { x, z } = v;
+    const gy = (v.y || 0);
+    const [fx, fz] = v.forward();
+    // (mangled from every side first: the blast buckles it, the glass goes)
+    if (this.carDamage) {
+      const L = v.halfLen || 2.3;
+      const W = v.type.w / 2;
+      for (const [lx, lz] of [[0, L], [0, -L], [W, 0], [-W, 0], [W * 0.7, L * 0.6], [-W * 0.7, -L * 0.6]]) {
+        const wx = x + lx * Math.cos(v.heading) + lz * fx;
+        const wz = z - lx * Math.sin(v.heading) + lz * fz;
+        const d = Math.hypot(wx - x, wz - z) || 1;
+        this.carDamage.dent(v, wx, wz, (x - wx) / d, (z - wz) / d, 17 + Math.random() * 6);
+      }
+    }
     v.burnOut();
-    this.effects.explosion(x, z);
+    // The blast: a flash and a fireball rolling up into black smoke, a shockwave along the
+    // ground, the hull thrown up and coming down on a tilt, its doors, hood and wheels torn off.
+    this.effects.fireball(x, gy, z, v.type.l > 7 ? 1.4 : 1);
+    this.effects.shockwave(x, gy, z, 10);
+    this.effects.scorch(x, this.city.groundY(x, z), z, Math.max(3, v.type.l * 0.7));
+    v.blast = { t: 0, y: 0, vy: 4.5 + Math.random() * 2.5, p0: (Math.random() - 0.5) * 0.9, r0: (Math.random() - 0.5) * 0.9, p1: (Math.random() - 0.5) * 0.18, r1: (Math.random() - 0.5) * 0.22 };
+    this.throwParts(v);
+    v.afterBurn = 22 + Math.random() * 8; // (the hull burns on a while, then smoulders)
     const [px, pz] = this.player.pos();
-    this.sfx.explosionAt(dist(x, z, px, pz));
+    const pd = dist(x, z, px, pz);
+    this.shakeCamera(Math.max(0, 0.9 - pd / 60), 0.7);
+    this.sfx.explosionAt(pd);
     if (v.driver && v.driver !== 'player' && v.driver.active !== undefined) v.driver.active = false;
     this.crew.carDestroyed(v);
     if (this.player.vehicle === v) {
@@ -1162,10 +1184,92 @@ class Game {
     if (v.isHeliWreck) this.newsIncident(`Police helicopter shot down over ${streetAt(x, z)}`, x, z);
   }
 
+  // Pieces torn off in a blast: the doors, the hood, the wheels, bits of the body, burning,
+  // flying, tumbling and bouncing to a stop (effects.js throwPiece).
+  throwParts(v) {
+    const ground = (x, z) => this.city.groundY(x, z);
+    v.group.updateMatrixWorld(true);
+    const burnt = new THREE.MeshLambertMaterial({ color: 0x1a1816 });
+    const fling = (obj, size, up = 1) => {
+      const wp = new THREE.Vector3();
+      obj.getWorldPosition(wp);
+      const dx = wp.x - v.x;
+      const dz = wp.z - v.z;
+      const d = Math.hypot(dx, dz) || 1;
+      const sp = 5 + Math.random() * 7;
+      this.effects.throwPiece(obj, new THREE.Vector3((dx / d) * sp + (Math.random() - 0.5) * 3, (5 + Math.random() * 7) * up, (dz / d) * sp + (Math.random() - 0.5) * 3), new THREE.Vector3((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 12), ground, size);
+    };
+    const detach = (m) => {
+      const c = m.clone(true);
+      m.updateMatrixWorld(true);
+      m.matrixWorld.decompose(c.position, c.quaternion, c.scale);
+      c.traverse((q) => {
+        if (q.isMesh) q.material = burnt;
+      });
+      m.visible = false;
+      return c;
+    };
+    // (the doors)
+    for (const d of Object.values(v.doors || {})) if (Math.random() < 0.85) fling(detach(d.pivot), 0.12, 0.8);
+    // (two of the wheels)
+    const ws = [...(v.wheels || [])].sort(() => Math.random() - 0.5).slice(0, 2);
+    for (const w of ws) fling(detach(w), w.userData.r || 0.35, 0.7);
+    // (the hood, and a few chunks of the body)
+    const L = v.halfLen || 2.3;
+    const W = v.type.w / 2;
+    const at = (lx, ly, lz) => new THREE.Vector3(lx, ly, lz).applyMatrix4(v.group.matrixWorld);
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(W * 1.6, 0.06, Math.min(1.5, L * 0.55)), burnt);
+    hood.position.copy(at(0, (v.model?.belt || 1) - 0.05, L * 0.6));
+    hood.rotation.set(0, v.heading, 0);
+    fling(hood, 0.05, 1.4);
+    for (let k = 0; k < 6; k++) {
+      const chunk = new THREE.Mesh(new THREE.BoxGeometry(0.15 + Math.random() * 0.35, 0.05 + Math.random() * 0.12, 0.15 + Math.random() * 0.4), burnt);
+      chunk.position.copy(at((Math.random() - 0.5) * W * 2, 0.6 + Math.random() * 0.6, (Math.random() - 0.5) * L * 2));
+      fling(chunk, 0.06, 1.1);
+    }
+  }
+
+  // Where a car's engine sits (the front, a little above the wheels) and anywhere along it.
+  carPoint(v, along, up = 0) {
+    const L = v.halfLen || 2.3;
+    const [fx, fz] = v.forward();
+    const lz = L * along;
+    return [v.x + fx * lz, (v.y || 0) + (v.model?.belt || 1) * 0.85 + up, v.z + fz * lz];
+  }
+
   updateVehicleDamage(dt) {
+    const fires = [];
     for (const v of this.vehicles) {
-      if (v.removed || v.exploded) continue;
-      if (v.health < 40 && Math.random() < dt * 8) this.effects.smoke(v.x, 1.4, v.z, v.health < 15);
+      if (v.removed) continue;
+      if (v.exploded) {
+        // The hull burning on, then smouldering.
+        if (v.afterBurn > 0) {
+          v.afterBurn -= dt;
+          const k = Math.min(1, v.afterBurn / 20);
+          if (Math.random() < dt * 30 * k) {
+            const [x, y, z] = this.carPoint(v, (Math.random() - 0.5) * 1.6, -0.2);
+            this.effects.flame(x, y, z, 0.6 + 0.6 * k);
+          }
+          if (Math.random() < dt * (3 + 6 * k)) {
+            const [x, y, z] = this.carPoint(v, (Math.random() - 0.5) * 1.2, 0.6);
+            this.effects.smoke(x, y, z, true);
+          }
+          fires.push({ v, k: 0.6 * k + 0.1 });
+        }
+        continue;
+      }
+      // Hurt: the engine smokes (grey, then black), from under the hood.
+      if (v.health < 50 && !v.wrecked) {
+        const heavy = v.health < 20;
+        if (Math.random() < dt * (v.health < 30 ? 10 : 4)) {
+          const [x, y, z] = this.carPoint(v, 0.62, 0.15);
+          this.effects.smoke(x, y, z, heavy);
+        }
+        if (v.health < 15 && Math.random() < dt * 4) {
+          const [x, y, z] = this.carPoint(v, 0.62, 0);
+          this.effects.fire(x, y, z); // (a lick of flame out of the engine)
+        }
+      }
       // Driving on a rim throws sparks.
       if (v.flatCount && Math.abs(v.speed) > 6) {
         v.wheels.forEach((wh, i) => {
@@ -1188,11 +1292,61 @@ class Game {
             this.peds.addAt(v.x + fz * 2.2, v.z - fx * 2.2).scare(v.x, v.z);
           }
         }
-        if (Math.random() < dt * 25) this.effects.fire(v.x, (v.y || 0) + 1.3, v.z);
+        // On fire: it starts in the engine and spreads back along the car, the paint charring
+        // and glowing, a column of black smoke going up, embers popping; it roars up in the
+        // last moment before it goes.
+        v.burnAge = (v.burnAge || 0) + dt;
+        const total = 7;
+        const k = Math.min(1, v.burnAge / total);
+        const roar = v.burnT < 1.2 ? 1 + (1.2 - v.burnT) * 1.5 : 1;
+        const reach = 0.7 - 1.6 * Math.min(1, k * 1.3); // (how far back it's spread: front to rear)
+        if (Math.random() < dt * (18 + 40 * k) * roar) {
+          const along = 0.7 - Math.random() * (0.7 - reach);
+          const [x, y, z] = this.carPoint(v, along, Math.random() * 0.4 * k);
+          this.effects.flame(x, y, z, 0.7 + 0.6 * k);
+        }
+        if (Math.random() < dt * (5 + 10 * k)) {
+          const [x, y, z] = this.carPoint(v, 0.2 + Math.random() * 0.3, 0.9 + k);
+          this.effects.sprite(x, y, z, { color: 0x151515, size: 1.1 + k, life: 3 + k * 2, grow: 3.2, opacity: 0.6, vy: 2.6 + k * 1.5, vx: (Math.random() - 0.5) * 0.7, vz: (Math.random() - 0.5) * 0.7 });
+        }
+        if (Math.random() < dt * 6 * roar) {
+          const [x, y, z] = this.carPoint(v, 0.6 - Math.random(), 0.3);
+          this.effects.sprite(x, y, z, { color: 0xffb040, size: 0.08, life: 0.9, additive: true, vx: (Math.random() - 0.5) * 3, vy: 3 + Math.random() * 3, vz: (Math.random() - 0.5) * 3 });
+        }
+        // (the paint blistering to black, a glow coming through it)
+        const bm = v.bodyMesh;
+        if (bm) {
+          if (!v.charMat) {
+            v.charMat = bm.material.clone();
+            v.charFrom = bm.material.color.clone();
+            bm.material = v.charMat;
+          }
+          v.charMat.color.copy(v.charFrom).lerp(new THREE.Color(0x141210), Math.min(1, k * 1.1));
+          if (v.charMat.emissive) v.charMat.emissive.setRGB(0.12 * k * (0.6 + Math.random() * 0.4), 0.03 * k, 0); // (a dull glow through the scorched paint)
+        }
+        fires.push({ v, k: (0.5 + k) * roar });
         v.burnT -= dt;
         if (v.burnT <= 0) this.explode(v);
       }
     }
+    this.lightFires(fires);
+  }
+
+  // The fire lights (effects.js): the nearest few fires get one each, flickering.
+  lightFires(fires) {
+    const [px, pz] = this.player.pos();
+    fires.sort((a, b) => dist(a.v.x, a.v.z, px, pz) - dist(b.v.x, b.v.z, px, pz));
+    this.effects.fireLights.forEach((l, i) => {
+      const f = fires[i];
+      if (!f || dist(f.v.x, f.v.z, px, pz) > 120) {
+        l.intensity = 0;
+        return;
+      }
+      // (up above the flames and out a little, so it lights the street round it more than the car)
+      const [x, y, z] = this.carPoint(f.v, 0.3, 2.2);
+      l.position.set(x, y, z);
+      l.intensity = Math.min(9, (2.5 + Math.random() * 1.6) * f.k);
+    });
   }
 
   dropAmmo(x, z, weapon, amount) {
