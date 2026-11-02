@@ -1283,3 +1283,6 @@ body.board3pt-on #sport .sb { display: none; }
   #strip .st-open { margin-bottom: 3px; padding: 3px; }
   #strip .st-hint { display: none; } /* (the buttons say GIVE / DROP / CLOSE) */
 }
+/* (fists up, locked on: a red marker over who you're squaring up to: hud.js) */
+#fist-lock { position: absolute; left: -10px; top: -18px; width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-top: 14px solid #ff4040; filter: drop-shadow(0 0 2px rgba(0,0,0,.9)); pointer-events: none; animation: fistbob .7s ease-in-out infinite alternate; }
+@keyframes fistbob { from { margin-top: -4px; } to { margin-top: 2px; } }

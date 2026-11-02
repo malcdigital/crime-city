@@ -142,6 +142,15 @@ export class Hud {
     }
     $('crosshair').classList.toggle('hidden', !game.showCrosshair);
     $('crosshair').classList.toggle('locked', !!game.lockTarget);
+    // (fists up, locked on: a marker over their head)
+    let fl = $('fist-lock');
+    if (!fl) {
+      fl = document.createElement('div');
+      fl.id = 'fist-lock';
+      document.getElementById('hud').appendChild(fl);
+    }
+    fl.classList.toggle('hidden', !game.fistScreen);
+    if (game.fistScreen) fl.style.transform = `translate(${game.fistScreen[0]}px, ${game.fistScreen[1]}px)`;
     this.hitT = Math.max(0, this.hitT - dt);
     if (this.hitT <= 0) $('hitmarker').classList.remove('show');
     this.hurtT = Math.max(0, this.hurtT - dt);

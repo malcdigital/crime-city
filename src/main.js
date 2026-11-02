@@ -1470,6 +1470,55 @@ class Game {
   }
 
   // The closest target to the right (dir 1) or left (dir -1) of the current one on screen.
+  // Fists up, locked on (like the gun's lock-on, on every input): the nearest person in front
+  // of you in reach (gang members and cops first), the camera and you turned to them, a marker
+  // over their head. Flick the right stick, the mouse or a finger sideways to switch to the next
+  // one that way; they're dropped if they go down, out of reach or out of sight.
+  updateFistLock(dt, a) {
+    const p = this.player;
+    const valid = (c) => c.alive && c.standing && !c.isCrew && dist(c.x, c.z, p.x, p.z) < 11 && !segmentBlocked(p.x, p.z, c.x, c.z, this.city.los);
+    const threat = (c) => c.isGang || c.isCop || c.isSoldier || c.state === 'brawl';
+    let t = this.fistLock;
+    if (t && !valid(t)) t = this.fistLock = null;
+    if (!t) {
+      // (who you're facing: the camera's way, a wide look on the first press)
+      const first = !this.fistAimWas;
+      let best = null;
+      let bestS = Infinity;
+      for (const c of this.characters()) {
+        if (!valid(c) || dist(c.x, c.z, p.x, p.z) > 9) continue;
+        const yaw = Math.atan2(c.x - p.x, c.z - p.z);
+        const off = Math.abs(Math.atan2(Math.sin(yaw - this.camYaw), Math.cos(yaw - this.camYaw)));
+        if (off > (first ? 1.6 : 0.6)) continue;
+        const sc = off + dist(c.x, c.z, p.x, p.z) * 0.06 - (threat(c) ? 0.35 : 0);
+        if (sc < bestS) {
+          bestS = sc;
+          best = c;
+        }
+      }
+      t = this.fistLock = best;
+      this.fistSwipe = 0;
+    }
+    this.fistAimWas = true;
+    if (!t) return;
+    // Switching: a flick sideways (the stick, the mouse, a finger) to the next one that way.
+    const flick = this.input.mode === 'pad' ? Math.abs(a.lookX) > dt * 2.3 : Math.abs(a.lookX) > 0.002;
+    if (flick) this.fistSwipe = (this.fistSwipe || 0) + a.lookX;
+    else if (this.input.mode === 'pad' || !a.lookX) this.fistSwipe = 0;
+    const need = this.input.mode === 'pad' ? dt * 2.3 : 0.1;
+    if (Math.abs(this.fistSwipe || 0) > need && !this.fistFlicked) {
+      const next = this.nextTarget(t, this.fistSwipe < 0 ? 1 : -1, (c) => valid(c) && dist(c.x, c.z, p.x, p.z) < 9);
+      if (next) this.fistLock = t = next;
+      this.fistFlicked = true;
+      this.fistSwipe = 0;
+    }
+    if (!flick) this.fistFlicked = false;
+    a.lookX = 0;
+    // (the camera comes round behind you, toward them)
+    const yaw = Math.atan2(t.x - p.x, t.z - p.z);
+    this.camYaw += Math.atan2(Math.sin(yaw - this.camYaw), Math.cos(yaw - this.camYaw)) * Math.min(1, dt * 7);
+  }
+
   nextTarget(cur, dir, valid) {
     const asp = this.camera.aspect;
     tmpV.set(cur.x, this.city.groundY(cur.x, cur.z) + 1.3, cur.z).project(this.camera);
@@ -1661,6 +1710,20 @@ class Game {
   punch() {
     const p = this.player;
     if (p.punchT > 0.08) return; // (the next one can start as this one comes back)
+    // (locked on: turn square to them, and step in if they're just out of reach)
+    const L = this.fistLock;
+    if (L && L.standing) {
+      const d0 = dist(p.x, p.z, L.x, L.z);
+      p.heading = Math.atan2(L.x - p.x, L.z - p.z);
+      if (d0 > 1.25 && d0 < 3.4) {
+        const step = Math.min(1.0, d0 - 1.2);
+        const nx = p.x + Math.sin(p.heading) * step;
+        const nz = p.z + Math.cos(p.heading) * step;
+        const r = pushCircle(nx, nz, 0.4, p.boxes());
+        p.x = r.x;
+        p.z = r.z;
+      }
+    }
     const kind = p.throwPunch();
     p.punchT = PUNCH_T[kind];
     const reach = kind === 'kick' ? 2.0 : 1.7;
@@ -2838,6 +2901,12 @@ class Game {
     else if (this.input.mode === 'pad' && this.aimingNow) this.updateAimAssist(dt, a);
     else this.lockTarget = null;
     if (!this.aimingNow) this.touchAimWas = false;
+    // Fists up (aiming with no gun): lock on to the one you're squaring up to.
+    if (!p.vehicle && !gun && !pickup && a.aim && !this.dice.playing && !p.busy && !this.struggle) this.updateFistLock(dt, a);
+    else {
+      this.fistLock = null;
+      this.fistAimWas = false;
+    }
 
     if (p.vehicle) {
       const v = p.vehicle;
@@ -2880,6 +2949,7 @@ class Game {
       p.fistsUp = !gun && !pickup && !!a.aim && !this.dice.playing;
       let faceYaw = combat || p.fistsUp ? this.camYaw : null;
       if (combat && this.lockTarget) faceYaw = Math.atan2(this.lockTarget.x - p.x, this.lockTarget.z - p.z);
+      if (p.fistsUp && this.fistLock) faceYaw = Math.atan2(this.fistLock.x - p.x, this.fistLock.z - p.z);
       p.updateOnFoot(dt, a, this.camYaw, faceYaw);
       if (pickup) pickup.late(dt);
       else if (this.postGame.active) this.postGame.late(dt, a);
@@ -2972,6 +3042,12 @@ class Game {
     this.updateCamera(dt, a);
 
     this.showCrosshair = !p.vehicle && gun && (this.aimingNow || this.input.mode === 'kb');
+    this.fistScreen = null;
+    if (this.fistLock) {
+      const t = this.fistLock;
+      tmpV.set(t.x, this.city.groundY(t.x, t.z) + (t.char?.group.scale.y || 1) * 2.25, t.z).project(this.camera);
+      if (tmpV.z < 1) this.fistScreen = [((tmpV.x + 1) / 2) * innerWidth, ((1 - tmpV.y) / 2) * innerHeight];
+    }
     this.lockScreen = null;
     if (this.lockTarget) {
       const t = this.lockTarget;
