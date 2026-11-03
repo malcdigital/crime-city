@@ -1349,6 +1349,38 @@ export class PoliceManager {
     return true;
   }
 
+  // A patrol car on a street somewhere between min and max meters from (x, z), headed that way
+  // (out of sight around a corner, for someone who's about to be sent over). Returns the unit.
+  patrolNear(x, z, min = 70, max = 130) {
+    const game = this.game;
+    const spots = [];
+    for (const e of game.city.edges) {
+      if (!e.street || e.high) continue;
+      for (const k of [0.25, 0.5, 0.75]) {
+        const px = e.a.x + (e.b.x - e.a.x) * k;
+        const pz = e.a.z + (e.b.z - e.a.z) * k;
+        const d = dist(px, pz, x, z);
+        if (d < min || d > max) continue;
+        if (game.vehicles.some((v) => !v.removed && dist(v.x, v.z, px, pz) < 8)) continue;
+        spots.push({ e, px, pz, d });
+      }
+    }
+    if (!spots.length) return null;
+    // (one that can drive straight over, if there is one)
+    const clear = spots.filter((q) => !segmentBlocked(q.px, q.pz, x, z, game.city.los));
+    const pool = clear.length ? clear : spots;
+    const S = pool[Math.floor(Math.random() * pool.length)];
+    // (facing along the road, whichever way is toward the spot)
+    const ux = S.e.b.x - S.e.a.x;
+    const uz = S.e.b.z - S.e.a.z;
+    const toward = ux * (x - S.px) + uz * (z - S.pz) >= 0;
+    const u = new PoliceUnit(game, S.px, S.pz, Math.atan2(toward ? ux : -ux, toward ? uz : -uz), 'police');
+    this.units.push(u);
+    game.vehicles.push(u.car);
+    u.resumePatrol();
+    return u;
+  }
+
   // A raid: cruisers come screaming in from several directions at once, already close, and
   // pull up around the spot. n = how many cars.
   // rush: an undercover's backup, already close by, arrives in a couple of seconds.

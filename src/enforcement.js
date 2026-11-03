@@ -111,7 +111,8 @@ export class Enforcement {
     const game = this.game;
     // (now and then the one stopping you is dirty: a bribe works on him)
     const dirty = Math.random() < (game.dirtyChance?.() ?? 0.2);
-    u.pull = { vio: { label: why, fine: 0 }, stage: 'pursue', t: 0, stillT: 0, foot: true, why, dirty };
+    const [sx, sz] = game.player.pos();
+    u.pull = { vio: { label: why, fine: 0 }, stage: 'pursue', t: 0, stillT: 0, foot: true, why, dirty, start: [sx, sz] };
     u.to = null;
     this.footStop = u;
     game.hud.toast('🚨 Police: "Hey! You. Stop right there."', '#9fc3ff');
@@ -125,8 +126,50 @@ export class Enforcement {
     const [px, pz] = pl.pos();
     if (pl.vehicle) return this.flee(u); // (got in a car and went)
     if (p.stage === 'pursue') {
-      game.prompt = '🚨 Police stop: stand still';
       const d = dist(u.car.x, u.car.z, px, pz);
+      // (sent over to a dice game: they drive over from wherever they were; you've run if you
+      // walk off before they get there)
+      const callOut = p.why === 'gambling';
+      game.prompt = callOut ? (d > 40 ? '🚨 The cops are coming: stay put, or get gone' : '🚨 Police stop: stand still') : '🚨 Police stop: stand still';
+      if (callOut) {
+        if (dist(px, pz, ...p.start) > 22) return this.flee(u);
+        // (the car's not getting any closer — stuck in traffic, a bad street: another patrol
+        // closer by takes the call, once)
+        if (d < (p.best ?? Infinity) - 4) {
+          p.best = d;
+          p.bestT = p.t;
+        }
+        if (!p.swapped && p.t - (p.bestT ?? 0) > 6 && d > 42) {
+          const n = game.police.patrolNear?.(px, pz, 35, 75);
+          if (n) {
+            p.swapped = true;
+            p.best = Infinity;
+            p.bestT = p.t;
+            n.pull = p;
+            u.pull = null;
+            if (this.footStop === u) this.footStop = n;
+            if (u.mounted) u.resumePatrol();
+            return;
+          }
+        }
+        if (p.t > 60) {
+          // (they never made it: let it go)
+          u.pull = null;
+          if (this.footStop === u) this.footStop = null;
+          return;
+        }
+        // (pulled up as close as the road gets: he gets out and walks the rest)
+        const parked = d < 16 || (d < 42 && p.t > 2.5 && Math.abs(u.car.speed || 0) < 0.8);
+        p.stillT = parked ? p.stillT + dt : 0;
+        if (p.stillT > 0.6) {
+          p.stage = 'stopped';
+          p.t = 0;
+          p.scene = new StopScene(game, { unit: u, foot: true });
+          if (!p.scene.officer) p.scene = null;
+          p.at = [px, pz];
+        }
+        return;
+      }
       p.stillT = d < 16 ? p.stillT + dt : 0;
       if (p.stillT > 0.6) {
         p.stage = 'stopped';
