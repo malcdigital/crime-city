@@ -649,15 +649,15 @@ export class TouchControls {
       use.el.classList.toggle('long', text.length > 6);
     }
     const w = this.el.buttons.weapon;
-    // (the phone button: how many unread, pulsing when one comes in during a dice game, where
-    // nothing pops up over the game)
+    // (the phone button: how many unread, pulsing when one comes in: on a phone, headlines and
+    // texts don't pop up over the game, they come in here: hud.js popsUp)
     {
       const pb = this.el.buttons.phone;
       const n = game.hud.unread || 0;
       if (pb) {
         setText(pb.hint, n && !game.hud.phoneOpen ? String(n > 9 ? '9+' : n) : '');
         pb.el.classList.toggle('badge', !!n && !game.hud.phoneOpen);
-        if (ctx === 'dice' && n > (this.seenUnread ?? n)) {
+        if (n > (this.seenUnread ?? n)) {
           pb.el.classList.remove('ping');
           void pb.el.offsetWidth;
           pb.el.classList.add('ping');

@@ -186,6 +186,12 @@ export class Hud {
     // (in a dice game too: nothing pops up over it, but the phone still says what's new, with a
     // little pulse when something comes in)
     const dice = !!game.dice?.playing;
+    this.touchMode = !!game.input.touchMode;
+    if (this.touchMode && !this.storyToast && this.phoneToastT > 0) {
+      // (switched to touch with a headline up: put it away)
+      this.phoneToastT = 0;
+      $('phone-toast').classList.add('hidden');
+    }
     const quiet = !!(S?.active && (S.t3 || S.t33 || !S.solo)) || !!game.contestCine?.open || !!game.matchup?.open || dice;
     if (dice && this.unread > (this.seenUnread ?? this.unread)) {
       const h = $('phone-hint');
@@ -322,7 +328,15 @@ export class Hud {
   // Headlines arrive on the player's phone, in one of two apps: City News (the city, politics,
   // money) or Crime Reports (shootings, robberies, arrests, raids, gangs). cat: 'news' | 'crime'
   // (worked out from the headline when not given).
-  news(text, kind = 'crime', cat = null) {
+  // Playing on a phone (touch controls): headlines and texts don't pop up over the game at all,
+  // they just land in the phone (the 📱 button's red count goes up and it pulses: touch.js).
+  // Only story and mission messages still pop up there ({ story: true }, for what's coming).
+  popsUp(story) {
+    if (this.phoneOpen || this.quiet) return false;
+    return story || !this.touchMode;
+  }
+
+  news(text, kind = 'crime', cat = null, { story = false } = {}) {
     const time = this.clock();
     cat = cat || newsCategory(text, kind);
     const list = $('phone-list');
@@ -337,7 +351,7 @@ export class Hud {
     if (cat === 'crime') this.unreadCrime = (this.unreadCrime || 0) + 1;
     else this.unreadNews = (this.unreadNews || 0) + 1;
     if (!this.phoneOpen) this.unread++;
-    if (!this.phoneOpen && !this.quiet) {
+    if (this.popsUp(story)) {
       $('pt-icon').textContent = cat === 'crime' ? '!' : 'N';
       $('pt-icon').style.background = cat === 'crime' ? '#1f3a93' : '';
       $('pt-app').textContent = cat === 'crime' ? 'CRIME REPORTS' : 'CITY NEWS';
@@ -345,27 +359,29 @@ export class Hud {
       $('pt-text').textContent = text;
       const toast = $('phone-toast');
       toast.className = `news-${kind}`;
-      this.phoneToastT = 4;
+      this.phoneToastT = story ? 6 : 4;
+      this.storyToast = story;
     }
     return item;
   }
 
   // A text message from someone you know (your homies, the plugs). Goes to the Messages app.
-  text(from, msg) {
+  text(from, msg, { story = false } = {}) {
     const time = this.clock();
     this.texts = this.texts || [];
     this.texts.unshift({ from, msg, time });
     if (this.texts.length > 40) this.texts.pop();
     this.unreadTexts = (this.unreadTexts || 0) + 1;
     if (!this.phoneOpen) this.unread++;
-    if (!this.phoneOpen && !this.quiet) {
+    if (this.popsUp(story)) {
       $('pt-icon').textContent = '✉';
       $('pt-icon').style.background = '#34c759';
       $('pt-app').textContent = from.toUpperCase();
       $('pt-time').textContent = time;
       $('pt-text').textContent = msg;
       $('phone-toast').className = 'news-text';
-      this.phoneToastT = 4;
+      this.phoneToastT = story ? 6 : 4;
+      this.storyToast = story;
     }
   }
 

@@ -11,6 +11,7 @@
 - Your player and the opponents always change together: a new animation, rule or tweak applies to both.
 - On a phone, USE is the one contextual button: it shows the action of whatever prompt is up. Word new interaction prompts as `Press ${input.label('interact')} to <verb> ...` and add the verb to VERBS in src/touch.js if it needs a better word than its first one.
 - Every door into a building interior is a swing door you push through (src/doors.js DoorSet + doorLeaf): it swings away from whoever walks into it (you, cops, peds) and shuts on its own; no loading, no fade, no prompt.
+- On a phone, news and texts don't pop up (they go to the 📱 badge). A message that matters to a mission or the story passes `{ story: true }` to `hud.news` / `hud.text` so it still pops up.
 - Every game quits without pausing: add it to `activeGame()` in src/main.js (hold M / touchpad; QUIT on a phone).
 - Testing switches in src/config.js (START_ON_FOOT, START_NEAR_DICE, CAR_SPAWN_KEY...) are listed in ROADMAP to turn off before release.
 - Test harness: tools/tests/launch.mjs and `window.__game`. Smoke test: `node tools/tests/smoke.mjs`.
