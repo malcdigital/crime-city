@@ -280,7 +280,7 @@ export class Pursuit {
     const [px, pz] = game.player.pos();
     const [kx, kz] = game.lastKnown || [px, pz];
     const outside = dist(px, pz, kx, kz) > game.searchRadius;
-    const need = outside ? 5 + game.stars * 1.5 : 30 + game.stars * 8;
+    const need = outside ? 10 + game.stars * 3 : 45 + game.stars * 10; // (main.js ESCAPE_OUT / ESCAPE_HID)
     return clamp(since / need, 0, 1);
   }
 }

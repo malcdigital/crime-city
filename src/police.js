@@ -15,6 +15,7 @@ import { findCover } from './gang.js';
 import { Helicopter } from './heli.js';
 import { TrafficDriver, laneOff } from './traffic.js';
 import { boxCorners } from './geom.js';
+import { nodePath } from './gps.js';
 
 // A police officer on foot. Rides hidden inside the unit's car until it dismounts.
 export class Officer {
@@ -280,7 +281,7 @@ export class Officer {
         // You swung on one of them: the others rush you to take you down (no shooting).
         tx = px;
         tz = pz;
-        speed = CFG.OFFICER_SPEED + 1.4;
+        speed = CFG.OFFICER_SPEED + 0.6;
         if (d < 1.35) {
           speed = 0;
           game.grabbedBy(this);
@@ -289,9 +290,18 @@ export class Officer {
         tx = px;
         tz = pz;
         speed = CFG.OFFICER_SPEED + game.stars * 0.15;
-        // Arrest when close: on foot, or pull the player out of a stopped car.
-        const reach = pv ? 2.8 : 1.4;
-        if (d < reach && (!pv || Math.abs(pv.speed) < 2)) {
+        // Arrest when close: on foot, or pull the player out of a stopped car (he goes for the
+        // driver's door, the car's left side: not the middle of the car, which he can't reach).
+        let near = d < 1.4;
+        if (pv) {
+          const [fx, fz] = pv.forward();
+          const w = (pv.type?.w || 2) / 2 + 0.6;
+          tx = pv.x + fx * 0.4 + fz * w;
+          tz = pv.z + fz * 0.4 - fx * w;
+          near = d < 2.8 || dist(this.x, this.z, tx, tz) < 1.3;
+          if (dist(this.x, this.z, tx, tz) < 0.5) speed = 0;
+        }
+        if (near && (!pv || Math.abs(pv.speed) < 2)) {
           speed = 0;
           game.arrestPressure(dt);
         }
@@ -870,7 +880,9 @@ export class PoliceUnit {
 
     let tx, tz, desired;
     let plan = null;
-    const maxS = c.type.max * (0.6 + game.stars * 0.08);
+    // (chasing flat out: near top speed from one star, all of it from three)
+    const maxS = c.type.max * Math.min(1, 0.84 + game.stars * 0.06);
+    let boost = 1;
     if (this.leaving || game.wastedT > 0) {
       this.leaveT += dt;
       c.siren = false;
@@ -905,7 +917,7 @@ export class PoliceUnit {
           tx = this.to.x;
           tz = this.to.z;
           desired = this.task.type === 'crackdown' ? maxS : maxS * 0.6;
-          if (dist(c.x, c.z, tx, tz) < 22) desired = Math.min(desired, 12);
+          desired = Math.min(desired, this.cornerSpeed());
         }
       }
     } else if (this.blockPlan) {
@@ -927,7 +939,7 @@ export class PoliceUnit {
         tx = this.to.x;
         tz = this.to.z;
         desired = maxS;
-        if (dist(c.x, c.z, tx, tz) < 22) desired = Math.min(desired, 14);
+        desired = Math.min(desired, this.cornerSpeed());
       }
     } else if (this.stage && !this.staged) {
       // A raid: drive to our spot on the road near you, pull up, and everyone out.
@@ -999,7 +1011,7 @@ export class PoliceUnit {
         tx = this.to.x;
         tz = this.to.z;
         desired = maxS * 0.8;
-        if (dist(c.x, c.z, tx, tz) < 22) desired = Math.min(desired, 12);
+        desired = Math.min(desired, this.cornerSpeed());
       } else {
         tx = k.x;
         tz = k.z;
@@ -1030,7 +1042,9 @@ export class PoliceUnit {
     } else {
       c.siren = true;
       this.chasing = true; // (pursuit.js gives chasing cars their jobs)
-      const seesPlayer = (d < 45 && game.spots(c, 1.4, 60, false)) || (this.raid && d < 45); // a raid knows exactly where you are
+      const seesPlayer = (d < 85 && game.spots(c, 1.4, 85, false)) || (this.raid && d < 45); // a raid knows exactly where you are
+      // (an interceptor: tuned past a street car, and it closes the gap when you pull away)
+      boost = d > 40 ? 1.16 : 1.06;
       plan = seesPlayer && !this.raid && game.pursuit ? game.pursuit.drive(this, maxS) : null;
       if (plan) {
         // Cutting you off, a PIT, or boxing you in (pursuit.js).
@@ -1043,7 +1057,9 @@ export class PoliceUnit {
         desired = Math.min(maxS, 6 + d * 0.9);
         const stopRange = this.raid ? 20 : game.lethal ? 22 : 14;
         // A raid team bails out on arrival, car or no car.
-        if ((!game.player.vehicle || game.lethal || this.raid) && d < stopRange) {
+        // (you stopped in your car: they get out and come pull you out of it)
+        const parked = game.player.vehicle && Math.abs(game.player.vehicle.speed) < 1.5;
+        if ((!game.player.vehicle || game.lethal || this.raid || parked) && d < stopRange) {
           desired = 0;
           if (Math.abs(c.speed) < 4) this.dismountAll();
         }
@@ -1054,8 +1070,8 @@ export class PoliceUnit {
         this.navigate(kx, kz, false);
         tx = this.to.x;
         tz = this.to.z;
-        desired = maxS * 0.85;
-        if (dist(c.x, c.z, tx, tz) < 22) desired = Math.min(desired, 12);
+        desired = maxS;
+        desired = Math.min(desired, this.cornerSpeed());
         // Close to where you vanished on foot: pull over and search on foot.
         const since = game.time - game.lastSeen;
         this.searchCd = (this.searchCd || 0) - dt;
@@ -1074,10 +1090,14 @@ export class PoliceUnit {
     }
     // Don't plow into cars ahead (especially other cruisers parked at the scene) or officers on foot.
     const [fx, fz] = c.forward();
+    const want = desired;
+    let blocker = null;
     const tactic = plan && this.role && this.role !== 'tail'; // (a PIT or a box-in means getting right up on you)
     for (const o of game.vehicles) {
       if (o === c || o.removed) continue;
       if (tactic && o === game.player.vehicle) continue;
+      // (lights and siren: traffic pulling over to the curb isn't in the way: traffic.js)
+      if (c.siren && o.yieldT > 0 && Math.abs((o.x - c.x) * fz - (o.z - c.z) * fx) > 1.2) continue;
       const ox = o.x - c.x;
       const oz = o.z - c.z;
       if (Math.abs(ox) > 18 || Math.abs(oz) > 18) continue;
@@ -1085,7 +1105,28 @@ export class PoliceUnit {
       const lat = Math.abs(ox * fz - oz * fx);
       if (o.parkSpot && lat > 1.7) continue; // parked at the curb
       if (!!o.high !== !!c.high || Math.abs((o.y || 0) - (c.y || 0)) > 3) continue; // (one on the highway, one underneath, or on a bridge over it)
-      if (fwd > 0 && fwd < 18 && lat < 3) desired = Math.min(desired, Math.max(0, (fwd - 7) * 1.2));
+      if (fwd > 0 && fwd < 18 && lat < 3) {
+        desired = Math.min(desired, Math.max(0, (fwd - 7) * 1.2));
+        if (!o.siren && (!blocker || fwd < blocker.fwd)) blocker = { o, fwd };
+      }
+    }
+    // Lights and siren, held up behind a car: round it on the wrong side of the road if that's
+    // clear (the other lane, about 3.3 m over), not sitting behind it.
+    if (blocker && c.siren && !this.leaving && want > 4 && !c.high) {
+      const lx = fz;
+      const lz = -fx; // (left of the car)
+      const b = blocker.o;
+      const ox = b.x + lx * 3.3 + fx * 6;
+      const oz = b.z + lz * 3.3 + fz * 6;
+      const mx = c.x + lx * 3.3 + fx * 4;
+      const mz = c.z + lz * 3.3 + fz * 4;
+      const clear = !game.vehicles.some((o) => o !== c && o !== b && !o.removed && (dist(o.x, o.z, ox, oz) < 4 || dist(o.x, o.z, mx, mz) < 4))
+        && !segmentBlocked(c.x, c.z, ox, oz, game.city.colliders);
+      if (clear) {
+        tx = ox;
+        tz = oz;
+        desired = Math.min(want, 15);
+      }
     }
     for (const o of game.police.officers()) {
       if (!o.standing) continue;
@@ -1101,7 +1142,7 @@ export class PoliceUnit {
       this.dismountAll();
       this.heldT = 0;
     }
-    const ctrl = { throttle: throttleFor(c, desired), steer: steerToward(c, tx, tz), handbrake: desired === 0 };
+    const ctrl = { throttle: throttleFor(c, desired), steer: steerToward(c, tx, tz), handbrake: desired === 0, boost };
     this.stuck.apply(dt, c, desired, ctrl);
     c.update(dt, ctrl, game.city.colliders);
   }
@@ -1181,6 +1222,41 @@ export class PoliceUnit {
   navigate(px, pz, away, jitter = 15) {
     const city = this.game.city;
     const c = this.car;
+    // Going somewhere a way off: the shortest way there along the streets (gps.js nodePath),
+    // worked out again every few seconds or when the goal moves. Close in (or leaving), one
+    // corner at a time toward it, with a bit of chance in it (combing an area).
+    if (!this.to) this.path = null;
+    if (!away && !c.high && dist(c.x, c.z, px, pz) > 60) {
+      const now = this.game.time;
+      const ok = (n) => n.street && !n.rampEnd;
+      const goal = city.nearestNode(px, pz, ok);
+      if (goal && (!this.path || this.pathGoal !== goal || now - this.pathT > 4)) {
+        // (from a corner we can drive straight to: never one round the back of a building)
+        const reach = (n) => ok(n) && !segmentBlocked(c.x, c.z, n.x, n.z, city.colliders);
+        const start = this.to && reach(this.to) && dist(c.x, c.z, this.to.x, this.to.z) < 40 ? this.to : city.nearestNode(c.x, c.z, reach) || city.nearestNode(c.x, c.z, ok);
+        this.path = start ? nodePath(start, goal) : null;
+        this.pathGoal = goal;
+        this.pathT = now;
+        if (this.path) {
+          this.pathI = 0;
+          if (this.to !== this.path[0]) this.from = this.to;
+          this.to = this.path[0];
+        }
+      }
+      if (this.path) {
+        const dn = dist(c.x, c.z, this.to.x, this.to.z);
+        const [hx, hz] = c.forward();
+        const behind = (this.to.x - c.x) * hx + (this.to.z - c.z) * hz < 0;
+        // (on to the next one in good time at speed, or once we're past it)
+        if ((dn < 8 + Math.abs(c.speed) * 0.45 || (behind && dn < 30)) && this.pathI < this.path.length - 1) {
+          this.from = this.to;
+          this.pathI++;
+          this.to = this.path[this.pathI];
+        }
+        return;
+      }
+    }
+    this.path = null;
     if (!this.to) {
       this.to = city.nearestNode(c.x, c.z);
       this.from = null;
@@ -1192,6 +1268,21 @@ export class PoliceUnit {
       this.from = this.to;
       this.to = options[0] || this.from;
     }
+  }
+
+  // How fast to take the corner coming up: flat out if the way goes straight on through it,
+  // slower the sharper the turn (no route known: slow for it, it could be anything).
+  cornerSpeed() {
+    const c = this.car;
+    const to = this.to;
+    if (!to || dist(c.x, c.z, to.x, to.z) > 24) return Infinity;
+    const nx = this.path && this.pathI < this.path.length - 1 ? this.path[this.pathI + 1] : null;
+    if (!nx) return 13;
+    const a1 = Math.atan2(to.x - c.x, to.z - c.z);
+    const a2 = Math.atan2(nx.x - to.x, nx.z - to.z);
+    const turn = Math.abs(Math.atan2(Math.sin(a2 - a1), Math.cos(a2 - a1)));
+    if (turn < 0.3) return Infinity;
+    return turn > 1.2 ? 11 : turn > 0.7 ? 15 : 21;
   }
 
   dispose() {
@@ -1335,8 +1426,41 @@ export class PoliceManager {
     return this.units.flatMap((u) => u.officers);
   }
 
-  // New units roll out of the police station yard, so response time depends on how far away you are.
+  // A chase unit: sent from a street 90-170 m from you, out of your sight (round a corner,
+  // the next block over), already rolling with lights on. Falls back to the station yard.
   spawnUnit(kind = 'police') {
+    const game = this.game;
+    const [px, pz] = game.player.pos();
+    const spots = [];
+    for (const e of game.city.edges) {
+      if (!e.street || e.high || e.street.stub !== undefined) continue;
+      for (const k of [0.3, 0.7]) {
+        const x = e.a.x + (e.b.x - e.a.x) * k;
+        const z = e.a.z + (e.b.z - e.a.z) * k;
+        const d = dist(x, z, px, pz);
+        if (d < 90 || d > 170) continue;
+        if (!segmentBlocked(x, z, px, pz, game.city.los)) continue; // (you'd see it pop in)
+        if (game.vehicles.some((v) => !v.removed && dist(v.x, v.z, x, z) < 9)) continue;
+        spots.push({ e, x, z });
+      }
+    }
+    if (!spots.length) return this.spawnAtStation(kind);
+    const S = spots[Math.floor(Math.random() * spots.length)];
+    const ux = S.e.b.x - S.e.a.x;
+    const uz = S.e.b.z - S.e.a.z;
+    const toward = ux * (px - S.x) + uz * (pz - S.z) >= 0;
+    const lane = laneOff(toward ? S.e.a : S.e.b, toward ? S.e.b : S.e.a) || 0;
+    const L = Math.hypot(ux, uz) || 1;
+    const sx = toward ? 1 : -1;
+    const u = new PoliceUnit(game, S.x - (uz / L) * lane * sx, S.z + (ux / L) * lane * sx, Math.atan2(ux * sx, uz * sx), kind);
+    u.car.speed = 10;
+    this.units.push(u);
+    game.vehicles.push(u.car);
+    return true;
+  }
+
+  // New units roll out of the police station yard, so response time depends on how far away you are.
+  spawnAtStation(kind = 'police') {
     const { city } = this.game;
     const st = city.station;
     // In the yard out front: either side of the door, and a little further out.
@@ -1544,7 +1668,7 @@ export class PoliceManager {
     if (!gangs.length || this.units.some((u) => u.task && u.task.war === war)) return;
     const task = { type: 'crackdown', war, block: war.block, gangs };
     for (const kind of ['police', 'swat']) {
-      if (this.spawnUnit(kind)) this.units[this.units.length - 1].task = task;
+      if (this.spawnAtStation(kind)) this.units[this.units.length - 1].task = task;
     }
     this.game.hud.news(`Police move in on the ${war.street} gang war — crackdown on ${gangs.map((g) => this.game.turfWars.gangName(g)).join(' and ')}`, 'info');
   }
@@ -1560,7 +1684,7 @@ export class PoliceManager {
       if (game.time < p.at) continue;
       p.sent = true;
       if (this.units.some((u) => u.task && u.task.block === p.block && !u.task.done)) continue;
-      if (this.spawnUnit('police')) {
+      if (this.spawnAtStation('police')) {
         this.units[this.units.length - 1].task = { type: 'investigate', block: p.block };
         game.hud.news(`Police investigating the aftermath of a shootout on ${p.street}`, 'info');
       }
@@ -1683,7 +1807,7 @@ export class PoliceManager {
     }
     this.plans = this.plans.filter((p) => !p.done);
     // Dispatch: a short delay after the first call, then one unit every few seconds.
-    if (want === 0) this.spawnT = 3;
+    if (want === 0) this.spawnT = 2;
     this.spawnT -= dt;
     if (this.spawnT <= 0 && game.wastedT <= 0) {
       // SWAT vans roll out once you hit 4 stars, alternating with cruisers.
@@ -1691,7 +1815,7 @@ export class PoliceManager {
       const needCar = active.length < want;
       const kind = needSwat && (!needCar || this.lastKind !== 'swat') ? 'swat' : needCar ? 'police' : null;
       if (kind && this.spawnUnit(kind)) {
-        this.spawnT = 4;
+        this.spawnT = 3;
         this.lastKind = kind;
         if (kind === 'swat' && !this.swatNews) {
           this.swatNews = true;

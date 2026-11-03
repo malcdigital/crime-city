@@ -91,6 +91,11 @@ const CLEAN_NAMES = ['Nguyen', 'Harris', 'Cole', 'Delgado', 'Price', 'Watts', 'K
 const SAVE_KEY = 'crimecity.v1';
 const tmpV = new THREE.Vector3();
 
+// How long you have to stay out of sight to get away (seconds): out past the search area, or
+// hidden inside it while they comb it (pursuit.js shows it on the evade meter).
+export const ESCAPE_OUT = (stars) => 10 + stars * 3;
+export const ESCAPE_HID = (stars) => 45 + stars * 10;
+
 class Game {
   constructor() {
     const canvas = document.getElementById('game');
@@ -668,14 +673,27 @@ class Game {
     let seen = false;
     for (const u of this.police.units) {
       if (u.leaving) continue;
-      if (!u.carLost && !u.allDead && u.mounted && this.spots(u.car, 1.4, 60, false)) seen = true;
+      if (!u.carLost && !u.allDead && u.mounted && this.spots(u.car, 1.4, 85, false)) seen = true;
+      // (right on your tail you can't shake them by ducking round a corner: they hear you, glimpse
+      // you between the cars; lying low in a hiding spot still works)
+      const lying = this.pursuit?.lyingLow;
+      if (!lying && !u.carLost && !u.allDead && u.mounted && dist(u.car.x, u.car.z, px, pz) < 35) seen = true;
       for (const o of u.officers) {
         if (o.standing && this.spots(o, 1.7, 38, true)) seen = true;
+        if (!lying && o.standing && dist(o.x, o.z, px, pz) < 12) seen = true;
       }
     }
     // The helicopter's crew.
     const heli = this.police.heli;
     if (heli && heli.sees) seen = true;
+    // (losing you: dispatch puts out which way you were headed, so they search up ahead of where
+    // you vanished, not just the corner you went round)
+    if (!seen && this.seenNow && this.lastKnown) {
+      const [vx, vz] = this.player.velocity();
+      const sp = Math.hypot(vx, vz);
+      const k = Math.min(3, 45 / Math.max(sp, 1e-3));
+      if (sp > 3) this.lastKnown = [px + vx * k, pz + vz * k];
+    }
     this.seenNow = seen;
     if (seen) {
       this.lastSeen = this.time;
@@ -694,7 +712,7 @@ class Game {
     const since = this.unseenT || 0;
     const [kx, kz] = this.lastKnown || [px, pz];
     const outside = dist(px, pz, kx, kz) > this.searchRadius;
-    if ((outside && since > 5 + this.stars * 1.5) || since > 30 + this.stars * 8) {
+    if ((outside && since > ESCAPE_OUT(this.stars)) || since > ESCAPE_HID(this.stars)) {
       const bonus = 10 * this.stars;
       this.cred += bonus;
       this.endStory(`Suspect escaped police in ${districtAt(px, pz)}`, px, pz, 'good', true);
@@ -1076,7 +1094,7 @@ class Game {
   // The area they're combing: it widens slowly the longer they search.
   get searchRadius() {
     const since = this.searching ? this.time - this.lastSeen : 0;
-    return 35 + this.stars * 8 + Math.min(30, since * 0.4);
+    return 55 + this.stars * 12 + Math.min(50, since * 0.8);
   }
 
   // An officer shoots at a car's tires (front tires first).

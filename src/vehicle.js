@@ -485,8 +485,9 @@ export class Vehicle {
     // Flat tires: lower top speed and acceleration.
     const flats = this.flatCount;
     const eng = this.mods ? this.mods.engine : 0; // mod garage engine level
-    const maxS = t.max * (1 - 0.18 * flats) * (1 + 0.07 * eng);
-    const accel = t.accel * (1 - 0.15 * flats) * (1 + 0.12 * eng);
+    const boost = ctrl.boost || 1; // (a cruiser in a chase: police.js)
+    const maxS = t.max * (1 - 0.18 * flats) * (1 + 0.07 * eng) * boost;
+    const accel = t.accel * (1 - 0.15 * flats) * (1 + 0.12 * eng) * boost;
     if (thr > 0) {
       if (s < -0.5) s += this.brakePow() * dt * thr;
       else s += accel * thr * dt * Math.max(0, 1 - s / maxS);

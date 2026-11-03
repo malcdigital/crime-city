@@ -48,12 +48,12 @@ export const CFG = {
 
   WALK_SPEED: 4.2,
   SPRINT_SPEED: 7.5,
-  OFFICER_SPEED: 6.2,
+  OFFICER_SPEED: 7.1,
 
   // Heat needed for each wanted star (1 to 5).
   STAR_HEAT: [1, 3, 6, 10, 15],
   // Police units chasing at each star level (index = stars).
-  UNITS_PER_STAR: [0, 1, 2, 3, 5, 6],
+  UNITS_PER_STAR: [0, 2, 3, 4, 5, 6],
   SWAT_PER_STAR: [0, 0, 0, 0, 2, 3], // SWAT vans
   // Bank: open 9 AM to 6 PM (game clock), 2% to deposit, a monthly fee (an in-game month is
   // 30 game days = 24 real hours of play), and ATMs that pay out up to a limit per game day.
@@ -62,7 +62,7 @@ export const CFG = {
   BANK_DEPOSIT_FEE: 0.02,
   BANK_MONTHLY_FEE: 250,
   ATM_DAILY_LIMIT: 2000,
-  HELI_STARS: 4, // police helicopter from this many stars
+  HELI_STARS: 3, // police helicopter from this many stars
   TURF_FAST: true,
   CLAIM_IGNORE_CRED: false,
   GANG_RUNS_ANY_RANK: true,

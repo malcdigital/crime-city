@@ -171,11 +171,11 @@ Then open the address Vite prints (usually http://localhost:5173). Desktop brows
 - NPC traffic that follows lanes and stops for cars and people
 - NPC pedestrians who stay on the sidewalks and cross only at the zebra crosswalks by each intersection (even when running from violence or walking off after a deal), and flee from violence. The exceptions are people diving for cover, people getting out of a car, and a buyer you wave over
 - Crimes: assault, carjacking, hit-and-run, store robbery, assaulting officers, stealing police cars
-- Wanted level (1–5 stars) with police cruisers dispatched from the station that chase on the road grid, officers who chase on foot, and arrests
+- Wanted level (1–5 stars) with police cruisers that chase on the road grid, officers who chase on foot, and arrests. Chase units (2 at one star, then 3, 4, 5, 6; the helicopter from 3 stars) are sent from a street 90–170 m from you, out of your sight, already rolling with lights on, and drive the shortest way to you along the streets (worked out again every few seconds, gps.js nodePath), flat out on the straights and slowing only for real turns. They run at nearly their top speed from one star and all of it from three, and a cruiser in a chase is tuned past a street car (16% more top speed and pull when you've got a gap on it, 6% close up). Traffic pulls over to the curb and slows for a siren coming up behind, and a cruiser held up behind a car goes round it in the other lane when that's clear. Stop your car with them on you and they get out and come to your driver's door. Officers on foot run about as fast as you sprint
 - Roadblocks at 2+ stars: two cruisers park across the road ahead of where you're driving, officers guard them, and ramming them is a real crash
 - Tires can be shot out: cops at roadblocks aim for your tires as you drive at them; flats sag, spark, slow the car and pull it to that side. You can shoot out other cars' tires too
 - Every car has hinged doors that open when people get in and out
-- Escaping: break line of sight and police search where you were last seen
+- Escaping: break line of sight and police search where you were last seen. A cruiser within 35 m (or an officer within 12 m) keeps track of you even round a corner (unless you're lying low). To get away, get out past the search area (55 m + 12 m a star around where they last saw you, widening as they search) and stay unseen 10 s + 3 s a star (13 s at one star, 25 s at five), or stay hidden inside it 45 s + 10 s a star
 - Getting busted: fine, lost street cred, respawn at the police station
 - Chop shop: sell stolen cars for cash once the police lose you
 - Street cred ladder from the design doc (Nobody → Kingpin)

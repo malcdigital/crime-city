@@ -294,6 +294,30 @@ export class TrafficDriver {
     }
   }
 
+  // A cruiser with its siren on coming up behind in our direction (within ~35 m): we pull over
+  // for a couple of seconds (car.yieldT: police.js drives past cars that are). Returns 0..1, how
+  // far over to the curb.
+  sirenBehind(game, dt) {
+    const c = this.car;
+    const [fx, fz] = c.forward();
+    let hear = false;
+    if (!c.high && game.stars > 0) {
+      for (const u of game.police.units) {
+        const o = u.car;
+        if (!o || o.removed || !o.siren || !u.mounted || !(u.chasing || Math.abs(o.speed) > 6)) continue;
+        const ox = o.x - c.x;
+        const oz = o.z - c.z;
+        if (Math.abs(ox) > 40 || Math.abs(oz) > 40) continue;
+        const fwd = ox * fx + oz * fz;
+        const [gx, gz] = o.forward();
+        if (fwd < -2 && fwd > -38 && Math.abs(ox * fz - oz * fx) < 5 && gx * fx + gz * fz > 0.5) hear = true;
+      }
+    }
+    c.yieldT = hear ? 2.5 : Math.max(0, (c.yieldT || 0) - dt);
+    this.yieldK = Math.max(0, Math.min(1, (this.yieldK || 0) + (c.yieldT > 0 ? dt * 1.5 : -dt)));
+    return this.yieldK;
+  }
+
   // Slow down or stop for cars and people ahead. Remembers what made it stop (blockedBy).
   yieldTo(game, desired) {
     const c = this.car;
@@ -399,7 +423,11 @@ export class TrafficDriver {
     // One-way ramps: drive down the middle.
     const oneWay = this.from.ramp || this.to.ramp;
     const lane = laneOff(this.from, this.to);
-    const off = this.passing ? -lane : lane;
+    // Lights and siren coming up behind: over to the curb and slow right down to let it by.
+    const yieldK = this.sirenBehind(game, dt);
+    const edge = this.from.edgeTo?.get(this.to);
+    const curb = lane && edge?.w ? Math.sign(lane) * Math.max(Math.abs(lane), edge.w / 2 - 1.2) : lane;
+    const off = this.passing ? -lane : lane + (curb - lane) * yieldK;
     const lx0 = this.from.x - uz * off;
     const lz0 = this.from.z + ux * off;
     const along = (c.x - lx0) * ux + (c.z - lz0) * uz;
@@ -439,6 +467,7 @@ export class TrafficDriver {
     desired = this.haltAt(dt, desired, ux, uz);
     desired = this.obey(game, desired, ux, uz, dn, dt);
     desired = this.yieldTo(game, desired);
+    if (yieldK > 0) desired = Math.min(desired, 2.5);
     this.standoff(dt);
 
     const ctrl = { throttle: throttleFor(c, desired), steer: steerToward(c, tx, tz), handbrake: desired === 0 };
