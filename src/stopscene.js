@@ -143,16 +143,64 @@ export class StopScene {
       return { x: v.x + fx * 0.4 + fz * w, z: v.z + fz * 0.4 - fx * w, fx: v.x + fx * 0.4, fz: v.z + fz * 0.4 };
     }
     const [px, pz] = game.player.pos();
+    if (this.grabT != null) {
+      // (holding you: at your right side, a little behind, close enough to have your arm)
+      const h = this.grabH;
+      const fx = Math.sin(h);
+      const fz = Math.cos(h);
+      const rx = -Math.cos(h);
+      const rz = Math.sin(h);
+      return { x: px + rx * 0.5 - fx * 0.46, z: pz + rz * 0.5 - fz * 0.46, fx: px + fx * 0.6, fz: pz + fz * 0.6 };
+    }
     const d = dist(o.x, o.z, px, pz) || 1;
-    // (on foot, once he's up to you: in close at your side, to take hold of you)
-    const r = this.grabT != null ? 0.62 : 1.5;
-    return { x: px + ((o.x - px) / d) * r, z: pz + ((o.z - pz) / d) * r, fx: px, fz: pz };
+    return { x: px + ((o.x - px) / d) * 1.5, z: pz + ((o.z - pz) / d) * 1.5, fx: px, fz: pz };
   }
 
   // On foot: he takes hold of you (a hand on your arm, the other on your shoulder) for the rest
   // of the stop (enforcement.js updateFoot).
   grab() {
-    if (this.grabT == null) this.grabT = this.game.time;
+    if (this.grabT != null) return;
+    const P = this.game.player;
+    const o = this.officer;
+    this.grabT = this.game.time;
+    // (you're turned to face him as he comes in; he steps round to your side)
+    this.grabH = o ? Math.atan2(o.x - P.x, o.z - P.z) : P.heading;
+  }
+
+  // How far into the hold (0 him reaching, 1 he's got you), for both of you.
+  grabK() {
+    if (this.grabT == null || !this.officer) return 0;
+    const s = this.spot();
+    const near = dist(this.officer.x, this.officer.z, s.x, s.z) < 0.35;
+    if (!near) {
+      this.heldAt = null;
+      return 0;
+    }
+    this.heldAt ??= this.game.time;
+    const k = Math.min(1, (this.game.time - this.heldAt) / 0.45);
+    return k * k * (3 - 2 * k);
+  }
+
+  // You, held (main.js, after your own animation): your right arm twisted up behind your back,
+  // bent forward a little with your head down, pulling against it now and then.
+  posePlayer() {
+    const k = this.grabK();
+    const P = this.game.player;
+    const c = P.char;
+    P.heading = this.grabH;
+    c.group.rotation.y = this.grabH;
+    if (k <= 0) return;
+    const t = this.game.time;
+    const tug = Math.max(0, Math.sin(t * 2.3)) ** 4; // (a pull against it every few seconds)
+    restPose(c);
+    bendSpine(c, (0.3 + 0.1 * tug) * k, (0.12 - 0.15 * tug) * k, 0.08 * k);
+    c.neck.rotation.set(0.3 * k, -0.2 * k, 0);
+    c.group.updateMatrixWorld(true);
+    // (the right hand up in the small of the back, the elbow out to the side)
+    const behind = new THREE.Vector3(-0.2, 0.86, -0.08).lerp(new THREE.Vector3(0.02, 1.02, -0.26), k);
+    reachArm(c, 'R', behind, new THREE.Vector3(-1, 0.1, -0.5), null, null, 'group');
+    c.armL.rotation.set((-0.25 - 0.35 * tug) * k, 0, 0.25 * k);
+    c.elbowL.rotation.set(-0.5 * k, 0, 0);
   }
 
   // Each frame while the stop lasts. Returns 'fled' if you took off while he was walking up.
@@ -174,22 +222,24 @@ export class StopScene {
     o.script = {
       x: s.x, z: s.z, fx: s.fx, fz: s.fz, speed: WALK,
       pose: (c, t, speed) => {
-        if (grabbing && speed <= 0.2) {
-          // (both hands on you: one on your arm, one on your shoulder)
-          const k = Math.min(1, (game.time - this.grabT) / 0.35);
+        const k = grabbing ? this.grabK() : 0;
+        if (k > 0) {
+          // (your wrist in his left hand, twisted up behind your back; his right hand pressing
+          // on your shoulder; leaning into you)
           restPose(c);
-          bendSpine(c, 0.25 * k, 0, 0);
+          for (const j of ['legL', 'legR', 'kneeL', 'kneeR']) c[j].rotation.set(0, 0, 0);
+          c.legL.rotation.x = -0.25 * k; // (a step in)
+          c.kneeL.rotation.x = 0.3 * k;
+          bendSpine(c, 0.22 * k, 0, 0);
           c.group.updateMatrixWorld(true);
           P.char.group.updateMatrixWorld(true);
-          const tgt = (node, up = 0) => {
-            const w = node.getWorldPosition(new THREE.Vector3());
-            w.y += up;
+          const tgt = (node, off) => {
+            const w = node.localToWorld(off.clone());
             const l = c.group.worldToLocal(w);
-            // (reaching out to it over the first moment)
-            return new THREE.Vector3(0.18, 1.0, 0.3).lerp(l, k);
+            return new THREE.Vector3(0.15, 1.05, 0.35).lerp(l, k);
           };
-          reachArm(c, 'L', tgt(P.char.elbowR), new THREE.Vector3(1, -0.5, -0.4), null, null, 'group');
-          reachArm(c, 'R', tgt(P.char.chest, 0.17), new THREE.Vector3(-1, -0.5, -0.4), null, null, 'group');
+          reachArm(c, 'L', tgt(P.char.wristR, new THREE.Vector3(0, -0.05, 0)), new THREE.Vector3(1, -0.6, -0.3), null, null, 'group');
+          reachArm(c, 'R', tgt(P.char.armR, new THREE.Vector3(0, -0.14, 0)), new THREE.Vector3(-0.8, -0.3, -0.4), null, null, 'group');
           return;
         }
         if (speed > 0.2) return;
@@ -199,6 +249,16 @@ export class StopScene {
         if (waving) c.armR.rotation.x = -2.2 + Math.sin(t * 6) * 0.5;
       },
     };
+    if (grabbing && dist(o.x, o.z, s.x, s.z) < 2.2) {
+      // (in arm's reach: he steps right in to his spot beside you, and stays on you)
+      const k = Math.min(1, dt * 7);
+      o.x += (s.x - o.x) * k;
+      o.z += (s.z - o.z) * k;
+      o.script.x = o.x;
+      o.script.z = o.z;
+      o.script.fx = game.player.x;
+      o.script.fz = game.player.z;
+    }
     if (this.partner && this.partner.standing && !this.unit.carLost) {
       const car = this.unit.car;
       const [fx, fz] = car.forward();

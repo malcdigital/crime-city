@@ -205,8 +205,6 @@ export class Enforcement {
       game.hud.toast('The officer grabs your arm.', '#9fc3ff');
     }
     this.footGrab = true;
-    const o = p.scene?.officer;
-    if (o) pl.heading = Math.atan2(o.x - px, o.z - pz);
     game.askedAt = game.time;
     game.frisking = true;
     const line = p.why === 'gun' ? '"Hands where I can see em. Whose gun is that?"' : p.why === 'gambling' ? '"Y\'all shooting dice out here? Hands where I can see em."' : '"Hold up. You got anything on you I should know about?"';
@@ -241,6 +239,12 @@ export class Enforcement {
     p.stage = 'done';
     this.footCool = 150;
     this.footStop = null;
+  }
+
+  // You, held (main.js, after your own animation): see stopscene.js posePlayer.
+  posePlayer() {
+    const u = this.footStop || this.unit;
+    u?.pull?.scene?.posePlayer?.();
   }
 
   // Slipping him something: a dirty cop pockets it and lets you go (product and all); a straight

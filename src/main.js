@@ -3161,6 +3161,7 @@ class Game {
       if (pickup) pickup.late(dt);
       else if (this.postGame.active) this.postGame.late(dt, a);
       else if (this.dice.playing) this.dice.late(dt);
+      if (this.enforce.footGrab) this.enforce.posePlayer(); // (an officer's got hold of you: stopscene.js)
     }
 
     this.traffic.update(dt);
