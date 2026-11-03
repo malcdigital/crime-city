@@ -1453,7 +1453,7 @@ class Round {
       }
     }
     // (nobody close: one comes round the corner, out of sight for now)
-    if (!u && E && game.stars === 0) u = game.police.patrolNear?.(this.c.x, this.c.z, 50, 90) || game.police.patrolNear?.(this.c.x, this.c.z, 40, 150) || null;
+    if (!u && E && game.stars === 0) u = game.police.patrolNear?.(this.c.x, this.c.z, 28, 55) || game.police.patrolNear?.(this.c.x, this.c.z, 20, 120) || null;
     const look = pick(this.c.peds);
     if (look) this.c.fx?.say(look, 'Twelve! Twelve!', 2, 3);
     game.hud.toast(u ? '"Twelve! Twelve!" A patrol car spotted the game' : '"Twelve! Twelve!" Somebody thought they saw a cruiser', '#ff8080');

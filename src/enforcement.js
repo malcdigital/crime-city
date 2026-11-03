@@ -159,12 +159,15 @@ export class Enforcement {
           return;
         }
         // (pulled up as close as the road gets: he gets out and walks the rest)
-        const parked = d < 16 || (d < 42 && p.t > 2.5 && Math.abs(u.car.speed || 0) < 0.8);
+        p.idleT = Math.abs(u.car.speed || 0) < 0.8 ? (p.idleT || 0) + dt : 0; // (really stopped, not just slowing for a corner)
+        const parked = d < 16 || (d < 42 && p.idleT > 1);
         p.stillT = parked ? p.stillT + dt : 0;
-        if (p.stillT > 0.6) {
+        if (p.stillT > 0.25) {
           p.stage = 'stopped';
           p.t = 0;
-          p.scene = new StopScene(game, { unit: u, foot: true });
+          u.car.speed = 0; // (stopped dead before he gets out: no rolling into him)
+          p.carAt = [u.car.x, u.car.z];
+          p.scene = new StopScene(game, { unit: u, foot: true, hurry: true });
           if (!p.scene.officer) p.scene = null;
           p.at = [px, pz];
         }
@@ -347,6 +350,11 @@ export class Enforcement {
   pursue(u, dt) {
     const game = this.game;
     const c = u.car;
+    // (a stop on foot, once he's out of the car: it stays parked where it pulled up)
+    if (u.pull?.foot && u.pull.stage !== 'pursue') {
+      u.to = null;
+      return [c.x, c.z, 0];
+    }
     const v = game.player.vehicle;
     const [px, pz] = game.player.pos();
     let bx = px;

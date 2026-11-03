@@ -20,7 +20,8 @@ const WALK = 1.7; // m/s
 const MAX_WAIT = 14; // seconds: if he hasn't got there by then, he talks from where he is
 
 export class StopScene {
-  constructor(game, { tells = [], dirty = false, unit = null } = {}) {
+  constructor(game, { tells = [], dirty = false, unit = null, hurry = false } = {}) {
+    this.hurry = hurry; // (a call-out: he jogs over instead of strolling)
     this.game = game;
     this.tells = tells;
     this.dirty = dirty;
@@ -220,7 +221,7 @@ export class StopScene {
     const P = game.player;
     const grabbing = this.grabT != null && !game.player.vehicle;
     o.script = {
-      x: s.x, z: s.z, fx: s.fx, fz: s.fz, speed: WALK,
+      x: s.x, z: s.z, fx: s.fx, fz: s.fz, speed: this.hurry && dist(o.x, o.z, s.x, s.z) > 2.5 ? 5 : WALK,
       pose: (c, t, speed) => {
         const k = grabbing ? this.grabK() : 0;
         if (k > 0) {
@@ -249,7 +250,7 @@ export class StopScene {
         if (waving) c.armR.rotation.x = -2.2 + Math.sin(t * 6) * 0.5;
       },
     };
-    if (grabbing && dist(o.x, o.z, s.x, s.z) < 2.2) {
+    if (grabbing && dist(o.x, o.z, s.x, s.z) < 2.8) {
       // (in arm's reach: he steps right in to his spot beside you, and stays on you)
       const k = Math.min(1, dt * 7);
       o.x += (s.x - o.x) * k;
@@ -268,6 +269,8 @@ export class StopScene {
     }
     if (this.camLight) this.camLight.visible = Math.floor(game.time * 2) % 2 === 0;
     if (!this.ready && (dist(o.x, o.z, s.x, s.z) < 0.45 || this.t > MAX_WAIT)) this.ready = true;
+    // (a call-out: he runs straight up and takes hold of you, no stopping a step off first)
+    if (!this.ready && this.hurry && !game.player.vehicle && dist(o.x, o.z, game.player.x, game.player.z) < 2.4) this.ready = true;
     // Taking off while he's on his way.
     if (!this.ready) {
       const v = game.player.vehicle;
