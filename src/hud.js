@@ -103,6 +103,15 @@ export class Hud {
     if (game.stars === 0 && this.radioT > 0.4) this.radioT = 0.4;
 
     this.set('prompt', game.prompt || '');
+    // A stop's answer clock: a bar along the bottom of the prompt that runs out.
+    const ch = game.choice && game.choice.at === game.time && game.prompt ? game.choice : null;
+    const pe = $('prompt');
+    pe.classList.toggle('timed', !!ch);
+    if (ch) {
+      const k = Math.max(0, Math.min(1, ch.left / ch.total));
+      pe.style.setProperty('--left', k.toFixed(3));
+      pe.classList.toggle('low', ch.left < 3);
+    }
     const v = game.player.vehicle;
     this.set('clock', game.clockLong());
     const mph = v ? Math.round(Math.abs(v.speed) * 2.23694) : 0;

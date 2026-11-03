@@ -60,6 +60,10 @@ body.touch #sport .sh { display: none; }
 #minimap { position: absolute; left: 16px; bottom: 16px; width: 200px; height: 200px; border: 3px solid rgba(0,0,0,.6); border-radius: 6px; background: #222; }
 #prompt { position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); font-size: 18px; background: rgba(0,0,0,.55); padding: 8px 16px; border-radius: 4px; text-shadow: none; }
 #prompt:empty { display: none; }
+#prompt.timed { padding-bottom: 12px; }
+#prompt.timed::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: 4px; height: 4px; border-radius: 2px; background: linear-gradient(90deg, #ffd36b 0 calc(var(--left, 1) * 100%), rgba(255,255,255,.15) 0); }
+#prompt.timed.low::after { background: linear-gradient(90deg, #ff5a5a 0 calc(var(--left, 1) * 100%), rgba(255,255,255,.15) 0); animation: choicepulse .5s ease-in-out infinite alternate; }
+@keyframes choicepulse { to { opacity: .45; } }
 #progress { position: absolute; bottom: 170px; left: 50%; transform: translateX(-50%); width: 280px; height: 22px; background: rgba(0,0,0,.6); border-radius: 4px; overflow: hidden; }
 #progress-bar { height: 100%; width: 0; background: #e74c3c; }
 #progress-label { position: absolute; inset: 0; text-align: center; font-size: 13px; line-height: 22px; font-weight: 700; }

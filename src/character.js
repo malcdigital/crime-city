@@ -412,6 +412,13 @@ export function setDown(c, down, face = 'back') {
   FALLING.set(c, { t0: performance.now() / 1000, target, face });
 }
 
+// Lying down already, as it landed (ragdoll.js hands a body back this way): no fall to play.
+export function lieDown(c, face = 'back') {
+  const target = face === 'front' ? Math.PI / 2 : -Math.PI / 2;
+  c.group.rotation.x = target;
+  FALLING.set(c, { t0: performance.now() / 1000 - 2, target, face });
+}
+
 const sq = (k) => k * k;
 const ease = (k) => k * k * (3 - 2 * k);
 const seg = (t, a, b) => Math.max(0, Math.min(1, (t - a) / (b - a)));

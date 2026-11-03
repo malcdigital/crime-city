@@ -14,6 +14,7 @@ import { StopScene } from './stopscene.js';
 // After a ticket the cops leave you alone for a minute.
 export const SPEED_LIMIT = 45; // mph
 export const HIGHWAY_LIMIT = 65; // mph, on the highways
+export const CHOICE_TIME = 8; // seconds to answer a stop (go quietly / bribe / fight)
 const SPEEDING = 55; // mph: when they pull you over for it
 const FINES = { red: 150, speed: 200 };
 const MPH = 2.237;
@@ -216,7 +217,9 @@ export class Enforcement {
     if (!p.frisk) {
       if (a.dealFight) return this.footFight(u);
       if (a.dealNo) return this.footBribe(u, p);
-      if (a.dealYes || p.t > 20) {
+      game.choice = { left: CHOICE_TIME + 0.8 - p.t, total: CHOICE_TIME, at: game.time }; // (the bar under the prompt)
+      if (a.dealYes || p.t > CHOICE_TIME + 0.8) {
+        if (!a.dealYes) game.hud.toast('You froze up. He takes that as a yes.', '#9fc3ff');
         p.frisk = 0.01;
         p.t = 0;
       }

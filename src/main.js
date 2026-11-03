@@ -27,7 +27,9 @@ import { arrestScene } from './arrestscenes.js';
 import { CarDamage } from './cardamage.js';
 import { Parking } from './parking.js';
 import { Props } from './props.js';
-import { Enforcement } from './enforcement.js';
+import { CHOICE_TIME, Enforcement } from './enforcement.js';
+import { BreakFree } from './breakfree.js';
+import { Ragdolls } from './ragdoll.js';
 import { Travel } from './travel.js';
 import { Highway } from './highway.js';
 import { RampEditor, takeStartAt } from './rampeditor.js';
@@ -160,6 +162,7 @@ class Game {
     this.rhythm = new Rhythm(this); // how busy the streets are by time of day and district
     this.rhythm.update(0, true);
     this.traffic = new TrafficManager(this);
+    this.ragdolls = new Ragdolls(this); // (bodies sent flying by cars and knockouts)
     this.peds = new PedManager(this);
     this.hoops = this.city.courts.map((site) => new Hoops(this, site)); // (people shooting hoops at each court)
     this.football = new Football(this); // (football practice at Harbor Field)
@@ -1948,7 +1951,8 @@ class Game {
   // police.js read .ko). A jab only staggers.
   knockOut(t, fx, fz, fling) {
     if (!t.standing) return;
-    t.knockDown(fx, fz, fling);
+    t.knockDown(fx, fz, 0);
+    if (!t.standing) this.ragdolls.knock(t, fx, fz, 1.4 + (fling || 0) * 1.5); // (off their feet with the blow: ragdoll.js)
     if (t.state !== 'down') return;
     t.ko = true;
     t.t = 110 + Math.random() * 40;
@@ -2037,8 +2041,9 @@ class Game {
         // Only your driving kills outright; computer-driven cars knock people over.
         const fast = Math.abs(v.speed) > 9 && v.driver === 'player'; // ~20 mph and up is deadly
         const killed = fast ? t.takeHit(999, v.x, v.z) : false;
-        if (!killed) t.knockDown(v.x, v.z, 2);
-        v.speed *= 0.85;
+        if (!killed) t.knockDown(v.x, v.z, 0);
+        this.ragdolls.launch(t, v); // (sent flying with the car's momentum: ragdoll.js)
+        v.speed *= 0.92; // (a body's a fraction of a car's weight)
         if (v.driver === 'player') {
           if (t.isCop) this.crime(killed ? 'copKilled' : 'runOverCop', t.x, t.z);
           else if (t.isGang || t.isCrew || t.isSoldier) this.onPlayerHit(t, killed);
@@ -2588,8 +2593,10 @@ class Game {
     const inCar = !!this.player.vehicle;
     this.prompt = `${who}${details}: "Hands where I can see em." — ${pad ? '✕' : 'E'} go quietly · ${pad ? '○' : 'Q'} offer a bribe · ${pad ? '□' : 'R'} ${inCar ? 'floor it' : 'fight'}`;
     if (s.t < 0.6) return; // a beat before you can answer
+    // You get CHOICE_TIME to answer (the bar under the prompt); say nothing and you're going quietly.
+    this.choice = { left: CHOICE_TIME + 0.6 - s.t, total: CHOICE_TIME, at: this.time };
     if (a.dealFight && !a.dealYes && !a.dealNo) return this.fightStop(s, who);
-    const quiet = a.dealYes || s.t > 15;
+    const quiet = a.dealYes || s.t > CHOICE_TIME + 0.6;
     const bribe = a.dealNo && !quiet;
     if (!quiet && !bribe) return;
     this.stop = null;
@@ -2651,10 +2658,24 @@ class Game {
       this.hud.toast('You make a run for it!', '#ff8080');
       return;
     }
-    p.heading = Math.atan2(cop.x - p.x, cop.z - p.z);
-    this.sfx.punch?.();
     // Odds: about 2 in 3, a little better with more street cred.
     const win = Math.random() < Math.min(0.93, 0.82 + this.cred / 6000);
+    if (dist(cop.x, cop.z, px, pz) < 3.2 && !this.breakout) {
+      // Close enough to play it out: you tear loose (or step in) and throw the punch, then the
+      // outcome (breakfree.js).
+      const held = s.scene?.grabT != null && s.scene.officer === cop;
+      this.breakout = new BreakFree(this, cop, { held, win, done: (w) => this.fightOutcome(s, who, cop, w) });
+      return;
+    }
+    p.heading = Math.atan2(cop.x - p.x, cop.z - p.z);
+    this.sfx.punch?.();
+    this.fightOutcome(s, who, cop, win);
+  }
+
+  // How fighting out of a stop on foot ends: he's out cold, or he takes you down.
+  fightOutcome(s, who, cop, win) {
+    const p = this.player;
+    const [px, pz] = p.pos();
     if (win) {
       this.knockOut(cop, px, pz, 1.5);
       this.shakeCamera(0.25, 0.2);
@@ -2958,6 +2979,7 @@ class Game {
       this.quitHoldStep(dt, a);
     }
     stepFalls(); // (anyone tipping over: character.js)
+    this.ragdolls.apply(); // (and anyone flying)
     if (this.animViewer.open) this.animViewer.render(this.renderer);
     else this.renderer.render(this.scene, this.camera);
     this.interactWasHeld = a.interactHeld;
@@ -3073,6 +3095,11 @@ class Game {
     }
 
     const p = this.player;
+    if (this.breakout) {
+      // (mid-scene: nothing else from you till it plays out)
+      a.fire = a.firePressed = a.aim = a.aimPressed = a.melee = a.enter = a.interact = a.jump = a.crouch = a.sprint = false;
+      a.moveX = a.moveY = 0;
+    }
     this.drugs.update(dt, a);
     this.market.update(dt);
     this.president.update(dt);
@@ -3140,6 +3167,9 @@ class Game {
           p.sync();
         }
       }
+    } else if (this.breakout) {
+      // Fighting out of a stop: tearing loose and the punch (breakfree.js).
+      if (this.breakout.step(dt)) this.breakout = null;
     } else if (this.struggle) {
       this.updateStruggle(dt, a); // (an officer has hold of you: break free or go down)
     } else if (p.busy) {
@@ -3200,6 +3230,7 @@ class Game {
     this.football.update(dt);
     this.playground.update(dt);
     this.checkRunOver();
+    this.ragdolls.update(dt); // (bodies sent flying: ragdoll.js)
     this.handleInteractions(dt, a);
     if (this.struggle?.ui) {
       this.progress = this.struggle.ui; // (handleInteractions clears it)
