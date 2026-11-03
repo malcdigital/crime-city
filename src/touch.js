@@ -87,7 +87,7 @@ const BUTTONS = [
   ['left', '◀', B.LEFT, ['phone', 'menu', 'strip'], 'hold', 'dp'],
   ['right', '▶', B.RIGHT, ['phone', 'menu', 'strip'], 'hold', 'dp'],
   ['pause', '❚❚', B.OPTIONS, ['foot', 'car', 'phone', 'map', 'strip', 'stop', 'ball', 'qb', 'struggle'], 'hold', 'top'],
-  ['phone', '📱', B.CREATE, ['foot', 'car', 'phone'], 'hold', 'top'],
+  ['phone', '📱', B.CREATE, ['foot', 'car', 'phone', 'dice'], 'hold', 'top'],
   ['map', 'MAP', B.TOUCHPAD, ['foot', 'car', 'map'], 'hold', 'top txt'],
   ['spawn', 'CAR', B.R3, ['foot'], 'hold', 'top txt test'],
   // Quit the pickup game (tap, then tap SURE? to confirm: a stray tap won't forfeit the bet).
@@ -649,6 +649,22 @@ export class TouchControls {
       use.el.classList.toggle('long', text.length > 6);
     }
     const w = this.el.buttons.weapon;
+    // (the phone button: how many unread, pulsing when one comes in during a dice game, where
+    // nothing pops up over the game)
+    {
+      const pb = this.el.buttons.phone;
+      const n = game.hud.unread || 0;
+      if (pb) {
+        setText(pb.hint, n && !game.hud.phoneOpen ? String(n > 9 ? '9+' : n) : '');
+        pb.el.classList.toggle('badge', !!n && !game.hud.phoneOpen);
+        if (ctx === 'dice' && n > (this.seenUnread ?? n)) {
+          pb.el.classList.remove('ping');
+          void pb.el.offsetWidth;
+          pb.el.classList.add('ping');
+        }
+        this.seenUnread = n;
+      }
+    }
     // (the dice game's big buttons say what they'll do: ROLL / TAKE / STAND, LEAVE / PASS / GIVE BACK)
     if (ctx === 'dice' && game.dice?.touchLabels) {
       const L = game.dice.touchLabels();

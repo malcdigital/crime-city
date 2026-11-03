@@ -1364,3 +1364,10 @@ body.touch #dice-fx .dfx-die { width: 34px; height: 34px; padding: 5px; gap: 2px
 #dice-fx .dfx-you.up { color: #7ee081; }
 #dice-fx .dfx-you.down { color: #ff6b6b; }
 #dice-panel .dp-chip.call { background: #ffd23f22; color: #ffe27a; border: 1px solid #ffd23f88; white-space: normal; }
+/* (a text or a headline came in while you're in a dice game: the phone line pulses instead of a pop-up) */
+#phone-hint.ping { animation: phone-ping 1.6s ease-out; }
+@keyframes phone-ping { 0%, 40% { color: #ffd23f; transform: scale(1.18); text-shadow: 0 0 10px rgba(255,210,63,.8); } 100% { transform: scale(1); } }
+/* (the phone button's unread count, and its pulse when a text comes in during a dice game) */
+#touch .tb-phone.badge .th { position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 3px; box-sizing: border-box; border-radius: 8px; background: #e53935; color: #fff; font-size: 10px; font-weight: 900; line-height: 16px; text-align: center; margin: 0; opacity: 1; }
+#touch .tb-phone.ping { animation: phone-ping-btn 1.6s ease-out; }
+@keyframes phone-ping-btn { 0%, 40% { box-shadow: 0 0 0 4px rgba(255,210,63,.85); transform: scale(1.15); } 100% { box-shadow: 0 0 0 0 rgba(255,210,63,0); transform: scale(1); } }

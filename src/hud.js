@@ -174,10 +174,21 @@ export class Hud {
     // (in a 1-on-1, 33 or the 3-point contest, or their intros: no texts or headlines popping up
     // over the game; they still land in the phone, read them after)
     const S = game.sport;
-    const quiet = !!(S?.active && (S.t3 || S.t33 || !S.solo)) || !!game.contestCine?.open || !!game.matchup?.open;
-    if (quiet !== this.quiet) {
+    // (in a dice game too: nothing pops up over it, but the phone still says what's new, with a
+    // little pulse when something comes in)
+    const dice = !!game.dice?.playing;
+    const quiet = !!(S?.active && (S.t3 || S.t33 || !S.solo)) || !!game.contestCine?.open || !!game.matchup?.open || dice;
+    if (dice && this.unread > (this.seenUnread ?? this.unread)) {
+      const h = $('phone-hint');
+      h.classList.remove('ping');
+      void h.offsetWidth;
+      h.classList.add('ping');
+    }
+    this.seenUnread = this.unread;
+    if (quiet !== this.quiet || dice !== this.quietDice) {
       this.quiet = quiet;
-      $('phone-hint').classList.toggle('hidden', quiet);
+      this.quietDice = dice;
+      $('phone-hint').classList.toggle('hidden', quiet && !dice);
       if (quiet) {
         this.phoneToastT = 0;
         $('phone-toast').classList.add('hidden');
