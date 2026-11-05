@@ -59,6 +59,7 @@ import { markRecoil, markFlinch, PUNCH_T, FIGHT_STYLES, PISTOL_STYLES } from './
 import { stepFalls } from './character.js';
 import { Shops } from './shops.js';
 import { Interiors } from './interiors.js';
+import { StoreRooms } from './storerooms.js';
 import { enterCar, exitCar, jackCar } from './carscenes.js';
 import { makePerson, restPose, bendSpine } from './character.js';
 // (back on your feet after a scene: upright, the joints at rest)
@@ -234,6 +235,7 @@ class Game {
     this.drugs = new Drugs(this);
     this.bank = new Bank(this);
     this.interiors = new Interiors(this); // (inside the gun shops: src/interiors.js)
+    this.storeRooms = new StoreRooms(this); // (inside the stores you can rob: src/storerooms.js, src/robbery.js)
     if (this.shops.refundSafehouse) {
       // The city was rebuilt: the old safehouse is refunded (it's back on the market).
       this.shops.refundSafehouse = false;
@@ -847,6 +849,9 @@ class Game {
       // (at the range: the paper first, if it's nearer)
       const rg = this.interiors?.rangeShot(ox, oy, oz, dx, dy, dz, hit.t);
       if (rg) hit = { t: rg.t, type: 'range', x: rg.wx, y: rg.wy, z: rg.wz };
+      // (in a store: a camera shot out, the booth glass cracked: storerooms.js)
+      const sr = !rg && this.storeRooms?.shot(ox, oy, oz, dx, dy, dz, hit.t);
+      if (sr) hit = { t: sr.t, type: 'store', x: sr.x, y: sr.y, z: sr.z };
       if (k < 4) this.effects.tracer(mx, my, mz, hit.x, hit.y, hit.z);
       if (hit.type === 'char') {
         const c = hit.target;
@@ -2254,43 +2259,18 @@ class Game {
 
     if (drugsBusy) return; // the drug prompt has the interact button
 
-    // Store robberies.
-    const store = city.stores.find((s) => dist(s.x, s.z, p.x, p.z) < s.r);
-    if (store) {
-      if (store.cooldown > 0) this.prompt = `${store.name} was robbed recently. Come back later.`;
-      else if (a.interactHeld) {
-        if (this.robbing !== store) {
-          this.robbing = store;
-          store.robT = 0;
-          this.crime('robberyAlarm', store.x, store.z, `at ${store.name}`);
-        }
-        store.robT += dt;
-        this.progress = { value: store.robT / 4, label: `Emptying the register at ${store.name}` };
-        if (store.robT >= 4) {
-          const take = randInt(4, 12) * 100;
-          this.cash += take;
-          this.crime('robbery', store.x, store.z);
-          this.hud.news(`${store.name} robbed. Suspect took $${take}.`);
-          this.hud.toast(`+$${take}  +${CRIMES.robbery.cred} cred`);
-          store.cooldown = 150;
-          store.signMesh.material.color.setHex(0x555555);
-          this.robbing = null;
-          this.save();
-        }
-      } else {
-        this.robbing = null;
-        this.prompt = `Hold ${input.label('interact')} to rob ${store.name}`;
-      }
+    // Store robberies: inside the store (src/storerooms.js, src/robbery.js).
+    if (this.storeRooms.inside) {
+      this.storeRooms.interact(a);
     } else if (this.shops.interact(a, dt)) {
-      this.robbing = null;
+      // (a shop's menu)
     } else if (this.crewInteraction(a)) {
-      this.robbing = null;
+      // (your crew)
     } else if (this.travel.interact(a)) {
-      this.robbing = null; // hail a taxi, take the bus
+      // (hail a taxi, take the bus)
     } else if (this.turfWars.interact(a, dt)) {
-      this.robbing = null;
+      // (turf)
     } else {
-      this.robbing = null;
       const v = this.nearestVehicle(3.8);
       if (v) {
         const occupied = v.driver && v.driver !== 'player';
@@ -2415,7 +2395,7 @@ class Game {
     let free = len;
     for (const b of this.city.los) {
       if (Math.abs((b.minX + b.maxX) / 2 - ox) > 60 || Math.abs((b.minZ + b.maxZ) / 2 - oz) > 60) continue;
-      if (b.cut && this.interiors?.camThrough(b)) continue; // (a shop's front wall, from inside: the cutaway)
+      if (b.cut && (this.interiors?.camThrough(b) || this.storeRooms?.camThrough(b))) continue; // (a shop's front wall, from inside: the cutaway)
       const t = rayHitBox(ox, oy, oz, ddx / len, ddy / len, ddz / len, b, 0.25);
       if (t !== null && t < free) free = t;
     }
@@ -2499,6 +2479,7 @@ class Game {
     if (this.cine) this.cineCamera(dt);
     if (this.travel.active) this.travel.camera(); // riding a taxi or bus: the cut scene's shots
     this.interiors?.camera(this.camera); // (inside: under the ceiling; the front wall fades when it's out behind you)
+    this.storeRooms?.camera(this.camera);
   }
 
   // Police holding you at gunpoint: they won't fire for a while unless you shoot. Stand
@@ -3222,6 +3203,7 @@ class Game {
     this.shops.update(dt);
     this.bank.update(dt);
     this.interiors.update(dt);
+    this.storeRooms.update(dt);
     this.property.update(dt);
     for (const v of this.vehicles) {
       if (v.driver === null && !v.removed) {
@@ -3281,12 +3263,6 @@ class Game {
     this.vehicles = this.vehicles.filter((v) => !v.removed);
     this.cleanupVehicles();
 
-    for (const s of this.city.stores) {
-      if (s.cooldown > 0) {
-        s.cooldown -= dt;
-        if (s.cooldown <= 0) s.signMesh.material.color.setHex(0xffffff);
-      }
-    }
 
     // Health slowly comes back when you stay out of trouble.
     if (this.time - this.lastHurt > 6) this.health = Math.min(100, this.health + dt * 6);
@@ -3294,7 +3270,8 @@ class Game {
     this.updateWanted(dt);
     const [px, pz] = p.pos();
     const room = this.interiors.inside; // (inside: the shop's name and its district)
-    this.district = room ? `${room.shop.name}, ${room.shop.district}` : districtAt(px, pz);
+    const store = this.storeRooms.inside; // (in a store you can rob)
+    this.district = room ? `${room.shop.name}, ${room.shop.district}` : store ? `${store.name}, ${districtAt(px, pz)}` : districtAt(px, pz);
     this.turf = room ? null : this.turfWars.turfAt(px, pz);
     this.updateCamera(dt, a);
 

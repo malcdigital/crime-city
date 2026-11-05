@@ -117,6 +117,9 @@ const VERBS = [
   [/^use the atm/i, 'ATM'], [/^tag/i, 'TAG'], [/^recruit/i, 'RECRUIT'], [/^send/i, 'SEND'], [/^mod/i, 'MOD'],
   [/^take the bus/i, 'BUS'], [/^hail/i, 'TAXI'], [/^get in the .*game/i, 'JOIN'], [/^get in\b/i, 'ENTER'], [/^carjack/i, 'JACK'], [/^get out/i, 'EXIT'], [/^start/i, 'START'], [/^shop|^browse/i, 'SHOP'],
   [/^enter|^go in|^go inside/i, 'ENTER'], [/^talk/i, 'TALK'], [/^leave/i, 'EXIT'], [/^look at/i, 'LOOK'],
+  // (robbing a store: robbery.js)
+  [/^pull your bandana up/i, 'MASK'], [/^pull your bandana down/i, 'UNMASK'], [/^tell (him|her) to hurry/i, 'HURRY'],
+  [/^stop (him|her)/i, 'STOP'], [/^make (him|her) open the safe/i, 'SAFE'],
 ];
 // Simple icons (white, drawn at 24×24) for the buttons that are things rather than actions.
 const svg = (body, fill = false) => `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="${fill ? 'currentColor' : 'none'}" stroke="${fill ? 'none' : 'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;

@@ -43,6 +43,7 @@ export function pushCircle(x, z, r, boxes) {
   let nx = 0;
   let nz = 0;
   for (const b of candidates(boxes, x - r, x + r, z - r, z + r)) {
+    if (b.off) continue; // (switched off for now: an open door's lock, storerooms.js)
     if (x + r < b.minX || x - r > b.maxX || z + r < b.minZ || z - r > b.maxZ) continue;
     if (b.ob) {
       // A rotated box: work in its own frame.
@@ -154,6 +155,7 @@ function crosses(b, ax, az, bx, bz, pad = 0) {
 // True if the line from a to b passes through any box (used for line of sight).
 export function segmentBlocked(ax, az, bx, bz, boxes) {
   for (const b of candidates(boxes, Math.min(ax, bx), Math.max(ax, bx), Math.min(az, bz), Math.max(az, bz))) {
+    if (b.off) continue;
     if (crosses(b, ax, az, bx, bz)) return true;
   }
   return false;
@@ -164,6 +166,7 @@ export function segmentBlockedPad(ax, az, bx, bz, boxes, pad) {
   const minX = Math.min(ax, bx) - pad, maxX = Math.max(ax, bx) + pad;
   const minZ = Math.min(az, bz) - pad, maxZ = Math.max(az, bz) + pad;
   for (const b of candidates(boxes, minX, maxX, minZ, maxZ)) {
+    if (b.off) continue;
     if (b.maxX < minX || b.minX > maxX || b.maxZ < minZ || b.minZ > maxZ) continue;
     if (crosses(b, ax, az, bx, bz, pad)) return true;
   }

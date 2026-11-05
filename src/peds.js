@@ -85,6 +85,7 @@ export class Ped {
 
   scare(fromX, fromZ, gun = false) {
     if (this.state === 'down' || this.state === 'dead' || this.state === 'sting') return;
+    if (this.inStore && this.inStore.scare(this, fromX, fromZ, gun)) return; // (in a store: robbery.js)
     // A shop owner being shaken down stays at his store: he ducks, then stands back up.
     if (this.shopkeeper) {
       this.state = 'cower';
@@ -181,6 +182,7 @@ export class Ped {
 
   update(dt) {
     const game = this.game;
+    if (this.inStore && this.inStore.step(this, dt)) return; // (in a store: storerooms.js)
     if (this.groggy && stepGroggy(this, dt, game)) return; // (coming round: groggy.js)
     let tx = this.x;
     let tz = this.z;

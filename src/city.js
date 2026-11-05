@@ -132,6 +132,10 @@ function windowTexture(rng) {
 // (the store -7..7, the range on past it), z 0..Z1 in from the street; SHOP_H: its ceiling.
 export const SHOP_FOOT = [-7.3, 28.3, 14.6];
 export const SHOP_H = 4.3;
+// A store you can rob (src/storerooms.js builds the inside): one storey, its walls and ceiling
+// the rooms' own; the city puts a roof on it at STORE_H. Its frame: the door at the origin (the
+// middle of the front wall's outside face, the floor's height), x along the street, z inward.
+export const STORE_H = 4.2;
 
 // Box with window UVs scaled to its size, so windows stay the same size on every building.
 function buildingGeo(w, h, d) {
@@ -987,6 +991,11 @@ export function buildCity(scene) {
     los.push(r.box);
     return r;
   };
+  // (a roof over rooms someone else builds: it doesn't block sight lines down at street level)
+  const noSight = (r) => {
+    const k = los.indexOf(r.box);
+    if (k >= 0) los.splice(k, 1);
+  };
   // Something on a building that goes where it goes: make(r) builds it (world space) from the
   // building's record, again after a live edit.
   const buildingPart = (r, mat, make, opts) => {
@@ -1196,6 +1205,7 @@ export function buildCity(scene) {
   const rampLawns = []; // ramp land: grass at street level
   const frontages = new Map(); // block -> the building on its front side (for storefronts)
   const hollows = []; // (the gun shops' buildings, their ground floors open: src/interiors.js)
+  const storeHollows = []; // (the stores you can rob: their insides, src/storerooms.js)
   for (const b of blocks) {
     bKey = b.key; // (its buildings' ids: buildingedits.js)
     if (!b.lot && b.type !== 'ramps' && !b.country) slabs.push(b.poly);
@@ -1327,18 +1337,27 @@ export function buildCity(scene) {
         placed.push(f);
       },
       store: () => {
-        // A little shop on the front sidewalk, the name over the door.
+        // A little shop on the front sidewalk, the name over the door. Its ground floor is
+        // storerooms.js's (walls, the inside); here just its roof.
         const s = b.frontSide;
-        const w = 22;
-        const d = 16;
-        const cx = s.mx - s.nx * (b.sw + d / 2 + 0.3);
-        const cz = s.mz - s.nz * (b.sw + d / 2 + 0.3);
+        const w = 16;
+        const d = 13;
+        const in0 = b.sw + 0.3;
+        const ox = s.mx - s.nx * in0;
+        const oz = s.mz - s.nz * in0;
+        const cx = ox - s.nx * (d / 2);
+        const cz = oz - s.nz * (d / 2);
         const ang = Math.atan2(s.uz, s.ux);
-        building(cx, cz, w, d, 5, lam(0xe8d9b5), ang);
+        const oy = groundY(ox - s.nx * 1, oz - s.nz * 1);
+        const roof = building(cx, cz, w, d, 0.8, lam(0xe8d9b5), ang, oy + STORE_H, { solid: false });
+        roof.store = b.store;
+        noSight(roof); // (its walls are storerooms.js's; the roof over them would block every line inside)
+        const hol = { b, ox, oz, oy, nx: s.nx, nz: s.nz, w, d, name: b.store };
+        storeHollows.push(hol);
         const rotY = Math.atan2(s.nx, s.nz);
-        const signMesh = sign(b.store.toUpperCase(), cx + s.nx * (d / 2 + 0.06), 4.3, cz + s.nz * (d / 2 + 0.06), rotY, 12, 1.8, '#27ae60');
+        const signMesh = sign(b.store.toUpperCase(), ox + s.nx * 0.06, oy + 4.6, oz + s.nz * 0.06, rotY, 10, 1.3, '#27ae60');
         const fp = frontPoint(b);
-        stores.push({ name: b.store, x: fp.x, z: fp.z, r: 2.8, cooldown: 0, signMesh, block: b, heading: fp.heading + Math.PI });
+        stores.push({ name: b.store, x: fp.x, z: fp.z, r: 2.8, cooldown: 0, signMesh, block: b, heading: fp.heading + Math.PI, hollow: hol });
         placed.push({ R: rect4(cx, cz, w / 2, d / 2, s.ux, s.uz), cx, cz, w, d, ang, nx: s.nx, nz: s.nz, h: 5, front: true });
         frontages.set(b, { x: cx + s.nx * (d / 2), z: cz + s.nz * (d / 2), h: 5, nx: s.nx, nz: s.nz, ux: s.ux, uz: s.uz });
       },
@@ -1426,6 +1445,26 @@ export function buildCity(scene) {
       const ang = Math.atan2(s.uz, s.ux);
       const hgt = height();
       const base = b.padY - 0.6;
+      if (b.type === 'store') {
+        // (a store on a lot: one storey, its inside storerooms.js's; here its roof and sign)
+        const sw = 14;
+        const sd = 12;
+        const ox = cx + s.nx * (sd / 2);
+        const oz = cz + s.nz * (sd / 2);
+        const oy = b.padY;
+        const roof = building(cx, cz, sw, sd, 0.8, lam(0xd8cdb8), ang, oy + STORE_H, { solid: false });
+        roof.store = b.store;
+        noSight(roof);
+        const hol = { b, ox, oz, oy, nx: s.nx, nz: s.nz, w: sw, d: sd, name: b.store };
+        storeHollows.push(hol);
+        const rotY = Math.atan2(s.nx, s.nz);
+        const signMesh = sign(b.store.toUpperCase(), ox + s.nx * 0.06, oy + 4.6, oz + s.nz * 0.06, rotY, 9, 1.3, '#27ae60');
+        const fx = s.mx + s.nx * 0.5;
+        const fz = s.mz + s.nz * 0.5;
+        stores.push({ name: b.store, x: fx, z: fz, r: 2.8, cooldown: 0, signMesh, block: b, heading: rotY + Math.PI, hollow: hol });
+        frontages.set(b, { x: ox, z: oz, h: STORE_H, nx: s.nx, nz: s.nz, ux: s.ux, uz: s.uz, y0: oy });
+        continue;
+      }
       const house = building(cx, cz, w, d, hgt + 0.6, pickMat(), ang, base);
       buildingPart(house, roofMat, (r) => {
         const roof = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4);
@@ -1434,13 +1473,6 @@ export function buildCity(scene) {
         roof.rotateY(-r.ang);
         return roof.translate(r.cx, r.base + r.h + 1.3, r.cz);
       }, { cast: true });
-      if (b.type === 'store') {
-        const rotY = Math.atan2(s.nx, s.nz);
-        const signMesh = sign(b.store.toUpperCase(), cx + s.nx * (d / 2 + 0.06), b.padY + 4, cz + s.nz * (d / 2 + 0.06), rotY, 10, 1.6, '#27ae60');
-        const fx = s.mx + s.nx * 0.5;
-        const fz = s.mz + s.nz * 0.5;
-        stores.push({ name: b.store, x: fx, z: fz, r: 2.8, cooldown: 0, signMesh, block: b, heading: rotY + Math.PI });
-      }
       frontages.set(b, { x: cx + s.nx * (d / 2), z: cz + s.nz * (d / 2), h: hgt, nx: s.nx, nz: s.nz, ux: s.ux, uz: s.uz, y0: b.padY });
       if (rng() < 0.7) tree(cx - s.nx * (d / 2 + 4) + s.ux * rr(-6, 6), cz - s.nz * (d / 2 + 4) + s.uz * rr(-6, 6));
       continue;
@@ -1881,7 +1913,7 @@ export function buildCity(scene) {
     windowMats, colliders, los, crates, blocks, stores, chop, station, hospital, gangHome, crewHome, spawn,
     get markings() { return markings; },
     nodes, edges: GRAPH.edges, nearestNode, blockAt, groundY, paved, heightAt, roadY, drawMap, size: MAP, hilly: true,
-    storefront, frontPoint, edgeAt, streetAt, onPier, hollows,
+    storefront, frontPoint, edgeAt, streetAt, onPier, hollows, storeHollows,
     ribbons, piers, terrainImg, drawSites: (ctx, s) => { drawCourt(ctx, s); drawField(ctx, s); drawPark(ctx, s); drawLots(ctx, s); }, // (the map: mapart.js)
     buildings, buildingById, editBuilding, removeBuilding, buildingAt: (x, z) => (x === undefined ? buildingAt(...(globalThis.__game?.player.pos() || [0, 0])) : buildingAt(x, z)),
     byKey: new Map(blocks.map((b) => [b.key, b])),
