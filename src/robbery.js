@@ -54,6 +54,7 @@ const LINES = {
   safe: ['The safe? Alright… alright.', 'It\'s on a timer, I swear… okay, okay.'],
   masked: ['Take that thing off in my store.', 'Mask off in here, man.'],
   hi: ['Hey, welcome in.', 'How you doing?', 'Let me know if you need anything.'],
+  alarmed: ['Take it. You ain\'t got long.', 'Here, take it and go. Go.', 'Sure, sure. Take your time.', 'Whatever you say, man.'],
 };
 
 export class Robbery {
@@ -209,14 +210,16 @@ export class Robbery {
   }
 
   // The silent alarm or a 911 call: the cops are on their way to the store now.
+  // The alarm's tripped (the button under the counter, or someone's on the phone to 911): the
+  // register's light goes red, and 20-28 s later dispatch puts it out to the units (then the
+  // star, the radio call, the nearest car on its way: about half a minute or more all told).
   alarm(r, why) {
     const rob = r.rob;
     if (rob && rob.alarm) return;
     if (rob) rob.alarm = true;
     const game = this.game;
-    const { x, z } = r.store;
-    game.crime('robberyAlarm', x, z, `at ${r.name}`);
-    game.pursuit?.radio?.(`Dispatch: ${why} at ${r.name}, ${streetAt(x, z) || districtAt(x, z)}. Units respond.`, true);
+    r.alarmLit = game.time;
+    this.pending.push({ r, at: game.time + rand(20, 28), kind: 'dispatch', why });
   }
 
   // The robbery's over (you left): it's reported now, or a little later if there's nobody left
@@ -239,13 +242,14 @@ export class Robbery {
     if (r.lock) r.lock.off = true;
     const someone = [r.clerk, r.guard, ...r.customers].some((c) => c && c.standing) || rob.callers;
     // (calls still on their way for this one are folded into the report)
-    this.pending = this.pending.filter((q) => q.r !== r);
+    this.pending = this.pending.filter((q) => q.r !== r || q.kind === 'dispatch');
     if (!rob.took && !rob.alarm && !rob.fired) {
       // (nothing taken and no harm done: a scare, but they still call it in)
       this.pending.push({ r, at: game.time + 4, kind: 'attempt', idd: rob.idd, how: rob.how });
       return;
     }
-    this.pending.push({ r, at: game.time + (someone ? 1.5 : 35), kind: 'robbery', idd: rob.idd, how: rob.how, take: rob.took || 0 });
+    // (the clerk on the phone to 911 once you're out the door; nobody able to: found later)
+    this.pending.push({ r, at: game.time + (someone ? rand(8, 14) : 40), kind: 'robbery', idd: rob.idd, how: rob.how, take: rob.took || 0 });
   }
 
   // A report comes in: a 911 call (the robbery's still going: the cops head over), an attempt,
@@ -256,6 +260,12 @@ export class Robbery {
     const { x, z } = r.store;
     if (q.kind === 'call') {
       if (r.rob) this.alarm(r, 'Robbery in progress, 911 call');
+      return;
+    }
+    if (q.kind === 'dispatch') {
+      // (now they're coming)
+      game.crime('robberyAlarm', x, z, `at ${r.name}`);
+      game.pursuit?.radio?.(`Dispatch: ${q.why} at ${r.name}, ${streetAt(x, z) || districtAt(x, z)}. Units respond.`, true);
       return;
     }
     if (q.kind === 'attempt') {
@@ -395,6 +405,7 @@ export class Robbery {
       if (R.walk(r, p, ox, oz, 4.2, dt)) {
         // (out the door, running; a few seconds later they've called it in)
         rob.callers = (rob.callers || 0) + 1;
+        game.hud.toast('A customer got out the door: they\'ll be calling it in', '#9fc3ff');
         if (!rob.alarm) this.pending.push({ r, at: game.time + 6, kind: 'call' });
         R.release(r, p, true);
       }
@@ -476,7 +487,7 @@ export class Robbery {
           this.alarm(r, 'Silent alarm');
           rob.phase = 'bag';
           rob.need += 2;
-          this.say(r, r.prof.name, pick(LINES.hurry));
+          this.say(r, r.prof.name, pick(LINES.alarmed));
           return 'bag';
         }
         rob.phase = 'fight';

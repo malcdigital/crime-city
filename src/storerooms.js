@@ -401,6 +401,10 @@ export class StoreRooms {
       g.rotation.y = rot;
       box(x - 0.18, x + 0.18, 1.22, 1.36, z - 0.06, z + 0.04, 0x55707a).rotation.y = rot;
       r.register = { x, z };
+      // (the alarm light on the register: green, blinking red once the silent alarm's tripped)
+      r.regLed = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), new THREE.MeshBasicMaterial({ color: 0x2ecc40 }));
+      r.regLed.position.set(x + 0.15, 1.27, z);
+      root.add(r.regLed);
       // (the cash drawer, under it: it slides out toward whoever's behind the counter)
       const dg = new THREE.Group();
       dg.position.set(x, 0.92, z);
@@ -578,6 +582,10 @@ export class StoreRooms {
           }));
         } else r.doors.update(dt, pushers);
         if (r.catTail) r.catTail.rotation.y = Math.sin(game.time * 2.2) * 0.4;
+        if (r.regLed) {
+          const lit = r.alarmLit != null && game.time - r.alarmLit < 240;
+          r.regLed.material.color.setHex(lit ? (Math.floor(game.time * 3) % 2 ? 0xff1a1a : 0x330000) : 0x2ecc40);
+        }
         // (the drawer out while he's in it; the safe door open once it's cracked)
         const dw = r.drawer;
         if (dw) {
