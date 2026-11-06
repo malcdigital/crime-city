@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { reachArm } from './character.js';
 import { dist, pick, rand } from './util.js';
 import { streetAt, districtAt } from './city.js';
 
@@ -204,6 +205,7 @@ export class Robbery {
       this.report(q);
     }
     this.pending = this.pending.filter((q) => !q.done);
+    this.poseYou();
   }
 
   // The silent alarm or a 911 call: the cops are on their way to the store now.
@@ -519,6 +521,8 @@ export class Robbery {
         return 'give';
       }
       case 'done':
+        // (the safe's open: he backs off from it, out of the door's way, hands up)
+        if (rob.dial >= 8 && !R.walk(r, p, r.safe.x - 0.5, r.safe.z - 1.3, 1.1, dt)) return 'walk';
         look();
         return 'hands';
       case 'toSafe': {
@@ -543,6 +547,7 @@ export class Robbery {
           const [lo, hi] = TAKE.safe[r.kind];
           const take = game.time < (r.safeUntil || 0) ? Math.round(rand(lo, hi) * 0.1 / 10) * 10 : Math.round(rand(lo, hi) / 10) * 10;
           r.safeUntil = game.time + 1800;
+          r.safeOpenT = game.time + 60; // (the door swings open, and stays a while)
           game.cash += take;
           rob.took = (rob.took || 0) + take;
           rob.phase = 'done';
@@ -665,6 +670,32 @@ export class Robbery {
     return true;
   }
 
+  // Your hand out for the bag (from the clerk) or into the drawer (the register).
+  grab(from, r = null) {
+    const game = this.game;
+    let x;
+    let z;
+    if (from) [x, z] = [from.x, from.z];
+    else [x, z] = this.rooms.world(r, r.register.x, r.register.z);
+    this.reachT = game.time;
+    this.reachAt = [x, z];
+  }
+
+  // (every frame, after your own animation: the reach)
+  poseYou() {
+    const game = this.game;
+    const k = (game.time - (this.reachT ?? -9)) / 0.55;
+    if (k < 0 || k > 1) return;
+    const pl = game.player;
+    const c = pl.char;
+    const w = Math.sin(k * Math.PI); // (out and back)
+    c.group.updateMatrixWorld(true);
+    const t = c.group.worldToLocal(new THREE.Vector3(this.reachAt[0], game.city.groundY(pl.x, pl.z) + 1.0, this.reachAt[1]));
+    const L = Math.hypot(t.x, t.z) || 1;
+    const tgt = new THREE.Vector3(-0.2, 1.1, 0.25).lerp(new THREE.Vector3((t.x / L) * 0.6, 1.05, (t.z / L) * 0.6), w);
+    reachArm(c, 'L', tgt, new THREE.Vector3(1, -0.5, -0.3), null, null, 'group');
+  }
+
   takeBag(r) {
     const game = this.game;
     const rob = r.rob;
@@ -675,6 +706,7 @@ export class Robbery {
     rob.took = (rob.took || 0) + take;
     rob.bagged = true;
     rob.phase = 'done';
+    this.grab(r.clerk);
     this.lastHow = rob.how;
     if (r.clerk?.bagMesh) r.clerk.bagMesh.visible = false;
     game.hud.toast(`+$${take.toLocaleString('en-US')}  ${r.name}`, '#7ee081');
@@ -717,6 +749,8 @@ export class Robbery {
       rob.took = (rob.took || 0) + take;
       rob.register = take;
       this.lastHow = rob.how;
+      r.drawerOpenT = game.time + 90;
+      this.grab(null, r);
       game.hud.toast(`+$${take.toLocaleString('en-US')} from the register`, '#7ee081');
       game.save?.();
     }

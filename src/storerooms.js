@@ -4,6 +4,7 @@ import { aimPose, flinchPose } from './combatpose.js';
 import { STORE_H } from './city.js';
 import { DoorSet, doorLeaf } from './doors.js';
 import { navStep } from './nav.js';
+import { pushCircle } from './collision.js';
 import { dist, pick, rand, lerpAngle } from './util.js';
 import { signTexture } from './shops.js';
 import { Robbery, STORE_GUNS } from './robbery.js';
@@ -24,6 +25,10 @@ import { Robbery, STORE_GUNS } from './robbery.js';
 // stick-up is robbery.js.
 
 const H = 3.6; // (the ceiling)
+const JOINTS = ['spine', 'chest', 'neck', 'armL', 'armR', 'elbowL', 'elbowR', 'wristL', 'wristR', 'legL', 'legR', 'kneeL', 'kneeR'];
+const _v = new THREE.Vector3();
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
 const SEE = 80; // (closer than this: the room's drawn)
 const PEOPLE = 70; // (closer than this: the clerk and the customers are there)
 const KINDS = {
@@ -348,7 +353,18 @@ export class StoreRooms {
     const sx = hw - 0.7;
     const sz = zb - 0.7;
     box(sx - 0.45, sx + 0.45, 0, 0.95, sz - 0.4, sz + 0.4, 0x2f3338, { solid: true });
-    box(sx - 0.12, sx + 0.12, 0.45, 0.69, sz - 0.42, sz - 0.39, 0xb0b4b8);
+    // (its door, on the side facing the room: hinged at one edge, swings open when it's cracked)
+    const sd = new THREE.Group();
+    sd.position.set(sx - 0.47, 0.05, sz + 0.38);
+    root.add(sd);
+    const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.82, 0.74), mat(0x3a3f45));
+    leaf.position.set(0, 0.41, -0.37);
+    sd.add(leaf);
+    const dial = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.04, 14), mat(0xb0b4b8));
+    dial.rotation.z = Math.PI / 2;
+    dial.position.set(-0.04, 0.5, -0.37);
+    sd.add(dial);
+    r.safeDoor = { g: sd, dial, open: 0, want: 0 };
     r.safe = { x: sx - 0.95, z: sz, face: [1, 0] };
 
     // ---- The store itself ----
@@ -380,6 +396,18 @@ export class StoreRooms {
       g.rotation.y = rot;
       box(x - 0.18, x + 0.18, 1.22, 1.36, z - 0.06, z + 0.04, 0x55707a).rotation.y = rot;
       r.register = { x, z };
+      // (the cash drawer, under it: it slides out toward whoever's behind the counter)
+      const dg = new THREE.Group();
+      dg.position.set(x, 0.92, z);
+      root.add(dg);
+      const tray = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.08, 0.34), mat(0x1c1c1c));
+      dg.add(tray);
+      for (let k = 0; k < 4; k++) {
+        const bills = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.03, 0.12), mat(0x6f9a5a));
+        bills.position.set(-0.13 + k * 0.087, 0.04, 0);
+        dg.add(bills);
+      }
+      r.drawer = { g: dg, x, z, open: 0, want: 0 };
     };
     const cam = (x, y, z, ax, az) => {
       // (a dome camera on the ceiling, a red light: shoot it out and it's blind)
@@ -545,6 +573,22 @@ export class StoreRooms {
           }));
         } else r.doors.update(dt, pushers);
         if (r.catTail) r.catTail.rotation.y = Math.sin(game.time * 2.2) * 0.4;
+        // (the drawer out while he's in it; the safe door open once it's cracked)
+        const dw = r.drawer;
+        if (dw) {
+          const k = r.clerk?.pose;
+          dw.want = k === 'bag' || k === 'give' || r.rob?.register || game.time < (r.drawerOpenT || 0) ? 1 : 0;
+          dw.open += (dw.want - dw.open) * Math.min(1, dt * 6);
+          const [fx, fz] = r.glass ? [0, 1] : r.clerkSpot.face.map((v) => -v);
+          dw.g.position.set(dw.x + fx * 0.28 * dw.open, 0.92, dw.z + fz * 0.28 * dw.open);
+        }
+        const sd = r.safeDoor;
+        if (sd) {
+          sd.want = game.time < (r.safeOpenT || 0) ? 1 : 0;
+          sd.open += (sd.want - sd.open) * Math.min(1, dt * (sd.want ? 2.2 : 1));
+          sd.g.rotation.y = 1.7 * sd.open; // (out into the room)
+          if (r.clerk?.pose === 'dial') sd.dial.rotation.x = Math.sin(game.time * 6) * 1.2;
+        }
         for (const c of r.cams) if (c.alive) c.led.visible = Math.floor(game.time * 1.5) % 2 === 0;
       }
     }
@@ -661,15 +705,55 @@ export class StoreRooms {
   walk(r, p, lx, lz, speed, dt) {
     const [tx, tz] = this.world(r, lx, lz);
     const d = dist(p.x, p.z, tx, tz);
-    if (d < 0.25) {
+    // (how it's going: someone standing on the spot, a shelf in the way: after a moment
+    // without getting closer, near enough is there)
+    const key = `${lx.toFixed(2)},${lz.toFixed(2)}`;
+    if (p.walkKey !== key) {
+      p.walkKey = key;
+      p.walkBest = d;
+      p.walkStall = 0;
+    }
+    if (d < p.walkBest - 0.04) {
+      p.walkBest = d;
+      p.walkStall = 0;
+    } else p.walkStall += dt;
+    if (d < 0.3 || (d < 1.6 && p.walkStall > 0.8) || p.walkStall > 3) {
       p.speed = 0;
       return true;
     }
-    const s = Math.min(speed, d * 3 + 0.3);
-    const h = navStep(p, tx, tz, s, dt, this.game, 0.3);
-    if (h !== null) p.heading = lerpAngle(p.heading, h, Math.min(1, dt * 9));
-    p.speed = s;
+    const s = Math.min(speed, d * 2.2 + 0.35);
+    const ox = p.x;
+    const oz = p.z;
+    if (d < 1.2) {
+      // (the last step: straight in, no swerving round people)
+      p.x += ((tx - p.x) / d) * Math.min(d, s * dt);
+      p.z += ((tz - p.z) / d) * Math.min(d, s * dt);
+      const q = pushCircle(p.x, p.z, 0.3, this.game.city.colliders);
+      p.x = q.x;
+      p.z = q.z;
+    } else navStep(p, tx, tz, s, dt, this.game, 0.3);
+    // (facing the way they're going on average, not every little sidestep round a shelf or a
+    // person: their velocity smoothed over a few tenths of a second)
+    const vx = (p.x - ox) / Math.max(dt, 1e-3);
+    const vz = (p.z - oz) / Math.max(dt, 1e-3);
+    const kv = Math.min(1, dt * 5);
+    p.vxS = (p.vxS ?? vx) + (vx - (p.vxS ?? vx)) * kv;
+    p.vzS = (p.vzS ?? vz) + (vz - (p.vzS ?? vz)) * kv;
+    if (Math.hypot(p.vxS, p.vzS) > 0.35) p.heading = lerpAngle(p.heading, Math.atan2(p.vxS, p.vzS), Math.min(1, dt * 6));
+    p.speed = Math.hypot(vx, vz);
     return false;
+  }
+
+  // A shelf to look at that nobody else is at (and you're not standing in front of).
+  pickSpot(r, p) {
+    const pl = this.game.player;
+    const free = r.browse.filter((b) => {
+      if (b === p.spot) return false;
+      if (r.customers.some((c) => c !== p && c.spot === b)) return false;
+      const [wx, wz] = this.world(r, b[0], b[1]);
+      return dist(wx, wz, pl.x, pl.z) > 1.4;
+    });
+    return pick(free.length ? free : r.browse);
   }
 
   // Walk a route of spots in turn (key: which route, so a new one starts from its first spot);
@@ -737,9 +821,15 @@ export class StoreRooms {
       // (the clerk: at his post behind the counter, watching the store)
       if (this.walk(r, p, r.clerkSpot.x, r.clerkSpot.z, 1.4, dt)) {
         const pl = game.player;
-        if (this.inside === r) this.facePoint(p, pl.x, pl.z, dt, 3);
-        else this.face(r, p, ...r.clerkSpot.face, dt, 3);
-        pose = 'lean';
+        const paying = r.customers.find((c) => c.ss === 'pay' && c.speed < 0.2 && c.payT < 2.8);
+        if (paying) {
+          this.facePoint(p, paying.x, paying.z, dt, 4);
+          pose = 'ring';
+        } else {
+          if (this.inside === r) this.facePoint(p, pl.x, pl.z, dt, 3);
+          else this.face(r, p, ...r.clerkSpot.face, dt, 3);
+          pose = 'lean';
+        }
       }
     }
     this.place(r, p, dt, pose);
@@ -754,7 +844,7 @@ export class StoreRooms {
       return null;
     }
     if (p.ss === 'browse') {
-      p.spot ??= pick(r.browse);
+      p.spot ??= this.pickSpot(r, p);
       if (this.walk(r, p, p.spot[0], p.spot[1], p.walkSpeed, dt)) {
         p.ss = 'look';
         p.lookT = rand(2.5, 6);
@@ -771,7 +861,7 @@ export class StoreRooms {
           p.spot = r.pay;
         } else {
           p.ss = 'browse';
-          p.spot = pick(r.browse);
+          p.spot = this.pickSpot(r, p);
         }
       }
       return 'browse';
@@ -790,91 +880,176 @@ export class StoreRooms {
   }
 
   // Where they are and how they stand. pose: null (walking or standing), 'lean' (on the
-  // counter), 'browse' (looking at the shelf), 'pay', 'hands' (hands up), 'cower', 'aim' (a gun
-  // on you), 'bag' (filling a bag at the register), 'film' (phone up), 'dial' (at the safe),
-  // 'reach' (a hand going under the counter), 'stand'.
+  // counter), 'ring' (ringing someone up), 'browse' (at a shelf, taking things down to look at
+  // them), 'pay' (money over the counter), 'hands' (hands up), 'cower' (down with the hands over
+  // the head), 'aim' (a gun on you), 'draw' (coming up from under the counter with it), 'bag'
+  // (into the drawer and into the bag), 'give' (the bag held out to you), 'film' (phone up),
+  // 'dial' (at the safe), 'reach' (a hand going under the counter), 'bat', 'stand'.
+  // Every joint eases from the last frame's pose to this one's, so nothing snaps.
   place(r, p, dt, pose) {
     const game = this.game;
     const c = p.char;
-    p.phase += dt * p.speed * 4;
-    animateWalk(c, p.phase, Math.min(1, p.speed / 1.5));
+    const pl = game.player;
+    // (the walk cycle by how fast they really went, eased: no flicker between steps and standing)
+    p.animSpeed = (p.animSpeed ?? 0) + (p.speed - (p.animSpeed ?? 0)) * Math.min(1, dt * 8);
+    p.phase += dt * p.animSpeed * 4;
+    animateWalk(c, p.phase, Math.min(1, p.animSpeed / 1.5));
+    if (pose !== p.pose) {
+      p.pose = pose;
+      p.poseAt = game.time;
+    }
+    const since = game.time - (p.poseAt ?? 0);
     let yOff = 0;
-    const t = game.time + (p.id || 0);
+    const t = game.time + (p.seed ??= Math.random() * 20);
     const gun = p.gunMesh;
-    if (gun) gun.visible = pose === 'aim' || pose === 'draw';
+    if (gun) gun.visible = pose === 'aim' || (pose === 'draw' && since > 0.3);
     if (p.batMesh) p.batMesh.visible = pose === 'bat';
     if (p.phoneProp) p.phoneProp.visible = pose === 'film';
     if (p.bagMesh) p.bagMesh.visible = pose === 'bag' || pose === 'give';
-    if (p.speed < 0.2) {
+    // (a point in their own frame, from a world point)
+    const own = (wx, wy, wz) => {
+      c.group.updateMatrixWorld(true);
+      return c.group.worldToLocal(_v.set(wx, wy, wz));
+    };
+    const still = p.animSpeed < 0.25;
+    if (still && pose) {
       if (pose === 'lean') {
-        bendSpine(c, 0.14 + Math.sin(t * 1.6) * 0.02, 0, 0);
+        bendSpine(c, 0.14 + Math.sin(t * 1.6) * 0.02, Math.sin(t * 0.4) * 0.08, 0);
         c.armL.rotation.set(-0.7, 0, 0.12);
         c.elbowL.rotation.set(-0.75, 0, 0);
         c.armR.rotation.set(-0.7, 0, -0.12);
         c.elbowR.rotation.set(-0.75, 0, 0);
+        c.neck.rotation.set(0.05, Math.sin(t * 0.5) * 0.25, 0);
+      } else if (pose === 'ring') {
+        // (scanning: the right hand passing things over the scanner, the left at the register)
+        bendSpine(c, 0.2, 0, 0);
+        const sw = Math.sin(t * 4);
+        c.armR.rotation.set(-1.0, 0, -0.25 + sw * 0.25);
+        c.elbowR.rotation.set(-0.9 - sw * 0.2, 0, 0);
+        c.armL.rotation.set(-0.95, 0, 0.2);
+        c.elbowL.rotation.set(-1.1 + Math.max(0, Math.sin(t * 2.3)) * 0.4, 0, 0);
+        c.neck.rotation.set(0.3, 0, 0);
       } else if (pose === 'browse') {
-        c.neck.rotation.set(0.2, Math.sin(t * 0.7) * 0.35, 0);
-        c.armR.rotation.set(-0.5 + Math.max(0, Math.sin(t * 0.9)) * -0.7, 0, -0.1);
-        c.elbowR.rotation.set(-0.8, 0, 0);
+        // (a look along the shelf; now and then a hand up to take something down, a look at it
+        // in both hands, then back it goes)
+        const cyc = (t * 0.22) % 1;
+        const up = cyc < 0.15 ? cyc / 0.15 : cyc < 0.55 ? 1 : cyc < 0.7 ? 1 - (cyc - 0.55) / 0.15 : 0;
+        const hold = cyc > 0.2 && cyc < 0.5 ? 1 : 0;
+        c.neck.rotation.set(0.15 + 0.25 * hold, Math.sin(t * 0.7) * 0.35 * (1 - up), 0);
+        reachArm(c, 'R', _a.set(-0.12, 1.25 + 0.2 * (1 - hold) * up, 0.35 + 0.15 * (1 - hold) * up), _b.set(-1, -0.5, -0.3), null, null, 'group');
+        if (hold) reachArm(c, 'L', _a.set(0.08, 1.2, 0.32), _b.set(1, -0.5, -0.3), null, null, 'group');
+        bendSpine(c, 0.08 * up, 0, 0);
       } else if (pose === 'pay') {
-        c.armR.rotation.set(-0.9, 0, -0.1);
-        c.elbowR.rotation.set(-0.6, 0, 0);
+        // (cash held out over the counter)
+        reachArm(c, 'R', _a.set(-0.1, 1.15, 0.5 + Math.sin(t * 2) * 0.03), _b.set(-1, -0.6, -0.2), null, null, 'group');
+        c.neck.rotation.set(0.2, 0, 0);
       } else if (pose === 'hands') {
-        // (hands up, palms out, shaking a little)
-        const sh = Math.sin(t * 22) * 0.03;
-        c.armL.rotation.set(-2.8 + sh, 0, 0.35);
-        c.armR.rotation.set(-2.8 - sh, 0, -0.35);
-        c.elbowL.rotation.set(-1.2, 0, 0);
-        c.elbowR.rotation.set(-1.2, 0, 0);
-        bendSpine(c, -0.08, 0, 0);
+        // (hands up, palms out, shaking; up fast, then they sag a little and get pushed back up)
+        const sh = Math.sin(t * 23) * 0.025;
+        const sag = since > 1 ? Math.max(0, Math.sin(t * 0.7)) * 0.15 : 0;
+        c.armL.rotation.set(-2.75 + sh + sag, 0, 0.42);
+        c.armR.rotation.set(-2.75 - sh + sag, 0, -0.42);
+        c.elbowL.rotation.set(-1.25 + sag, 0, 0);
+        c.elbowR.rotation.set(-1.25 + sag, 0, 0);
+        bendSpine(c, -0.06, 0, 0);
+        c.neck.rotation.set(-0.1 + Math.sin(t * 3.1) * 0.04, 0, 0);
+        if (p.storeRole === 'customer') yOff = -0.04 * Math.min(1, since * 3); // (knees giving a bit)
       } else if (pose === 'cower') {
-        yOff = crouchPose(c, 1);
-        c.armL.rotation.x = -2.7;
-        c.armR.rotation.x = -2.7;
-        c.elbowL.rotation.x = c.elbowR.rotation.x = -1.6;
-      } else if (pose === 'aim' || pose === 'draw') {
+        // (down low, both hands over the head, rocking; the head down)
+        const k = Math.min(1, since * 3);
+        yOff = crouchPose(c, k);
+        const rock = Math.sin(t * 2.6) * 0.06;
+        bendSpine(c, 0.5 * k + rock, 0, 0);
+        c.neck.rotation.set(0.5 * k, 0, 0);
+        c.armL.rotation.set(-2.5, 0, 0.6);
+        c.armR.rotation.set(-2.5, 0, -0.6);
+        c.elbowL.rotation.set(-2.1, 0, 0);
+        c.elbowR.rotation.set(-2.1, 0, 0);
+      } else if (pose === 'draw') {
+        // (down under the counter for it, then up with it on you)
+        const k = Math.min(1, since / 0.35);
+        if (since < 0.35) {
+          yOff = crouchPose(c, 0.6 * Math.sin(k * Math.PI));
+          bendSpine(c, 0.45 * Math.sin(k * Math.PI), 0, 0);
+          c.armR.rotation.set(0.1, 0, -0.2);
+          c.armL.rotation.set(0.1, 0, 0.2);
+        } else p.tw = aimPose(c, p.storeWeapon === 'shotgun' ? 'shotgun' : 'pistol', 0, game.time, 'R', 'two');
+      } else if (pose === 'aim') {
         p.tw = aimPose(c, p.storeWeapon === 'shotgun' ? 'shotgun' : 'pistol', 0, game.time, 'R', 'two');
       } else if (pose === 'bat') {
-        // (a bat up over the shoulder)
         c.armR.rotation.set(-2.6, 0, -0.3);
         c.elbowR.rotation.set(-1.4, 0, 0);
         c.armL.rotation.set(-2.2, 0, 0.4);
         c.elbowL.rotation.set(-1.6, 0, 0);
-      } else if (pose === 'bag' || pose === 'give') {
-        // (bent over the register stuffing a bag; giving it: held out)
-        const k = pose === 'give' ? 0 : 1;
-        bendSpine(c, 0.25 * k, 0, 0);
-        c.armL.rotation.set(-1.0 - 0.3 * Math.sin(t * 7) * k, 0, 0.1);
-        c.elbowL.rotation.set(-0.8, 0, 0);
-        c.armR.rotation.set(-1.25, 0, -0.1);
-        c.elbowR.rotation.set(-0.4 - 0.5 * k, 0, 0);
+      } else if (pose === 'bag') {
+        // (the drawer's open: the right hand in it for the bills, over to the bag held open in
+        // the left, again and again, glancing up at you)
+        bendSpine(c, 0.22, 0, 0);
+        const reg = r.register;
+        const [wx, wz] = this.world(r, reg.x, reg.z);
+        const cyc = (t * 1.5) % 1;
+        const inDrawer = cyc < 0.45;
+        const k = inDrawer ? Math.sin((cyc / 0.45) * Math.PI) : 0;
+        const dr = own(wx, r.oy + 0.98, wz);
+        _a.set(-0.08, 1.12, 0.32).lerp(dr, inDrawer ? 0.5 + 0.4 * k : 0.15);
+        reachArm(c, 'R', _a, _b.set(-1, -0.5, -0.3), null, null, 'group');
+        reachArm(c, 'L', _a.set(0.1, 1.05, 0.34), _b.set(1, -0.6, -0.2), null, null, 'group');
+        const look = cyc > 0.6 && cyc < 0.8;
+        if (look) {
+          const pv = own(pl.x, r.oy + 1.6, pl.z);
+          c.neck.rotation.set(-0.1, Math.max(-1, Math.min(1, Math.atan2(pv.x, pv.z))), 0);
+        } else c.neck.rotation.set(0.45, 0, 0);
+      } else if (pose === 'give') {
+        // (the bag held out to you, the other hand still up)
+        const pv = own(pl.x, r.oy + 1.1, pl.z);
+        const L = Math.hypot(pv.x, pv.z) || 1;
+        reachArm(c, 'L', _a.set((pv.x / L) * 0.55, 1.15, Math.max(0.2, (pv.z / L) * 0.55)), _b.set(1, -0.6, -0.2), null, null, 'group');
+        c.armR.rotation.set(-2.6, 0, -0.4);
+        c.elbowR.rotation.set(-1.2, 0, 0);
+        c.neck.rotation.set(0.05, 0, 0);
       } else if (pose === 'reach') {
-        // (one hand still up, the other going down under the counter)
-        bendSpine(c, 0.18, 0, 0.12);
+        // (one hand still up, the other going down under the counter, eyes on you)
+        const k = Math.min(1, since / 0.5);
+        bendSpine(c, 0.12 + 0.12 * k, 0, 0.1 * k);
         c.armL.rotation.set(-2.6, 0, 0.3);
         c.elbowL.rotation.set(-1.2, 0, 0);
-        c.armR.rotation.set(0.15, 0, -0.25);
-        c.elbowR.rotation.set(-0.2, 0, 0);
-        yOff = -0.08;
+        c.armR.rotation.set(0.15 * k, 0, -0.25 * k);
+        c.elbowR.rotation.set(-0.3 * k, 0, 0);
+        yOff = -0.1 * k;
+        c.neck.rotation.set(-0.15, Math.sin(t * 5) * 0.12, 0); // (watching you)
       } else if (pose === 'film') {
+        // (phone up in both hands, holding it on you, a little sway)
         const b = Math.sin(t * 1.3) * 0.04;
-        c.armR.rotation.set(-1.35 + b, 0, -0.35);
-        c.armL.rotation.set(-1.3 + b, 0, 0.35);
-        c.elbowR.rotation.set(-0.85, 0, 0);
-        c.elbowL.rotation.set(-0.85, 0, 0);
+        reachArm(c, 'R', _a.set(-0.06, 1.55 + b, 0.38), _b.set(-1, -0.6, -0.3), null, null, 'group');
+        reachArm(c, 'L', _a.set(0.06, 1.55 + b, 0.38), _b.set(1, -0.6, -0.3), null, null, 'group');
+        c.neck.rotation.set(0.12, 0, 0);
       } else if (pose === 'dial') {
-        yOff = crouchPose(c, 0.7);
-        c.armR.rotation.set(-1.3, 0, -0.1);
-        c.elbowR.rotation.set(-0.4, 0, 0);
-        c.wristR.rotation.z = Math.sin(t * 6) * 0.6;
+        // (down at the safe: the left hand on the door, the right working the dial)
+        yOff = crouchPose(c, 0.75);
+        bendSpine(c, 0.15, 0, 0);
+        reachArm(c, 'R', _a.set(-0.08, 0.75 + Math.sin(t * 7) * 0.02, 0.48), _b.set(-1, -0.4, -0.2), null, null, 'group');
+        c.wristR.rotation.z = Math.sin(t * 6) * 0.7;
+        reachArm(c, 'L', _a.set(0.22, 0.85, 0.46), _b.set(1, -0.4, -0.2), null, null, 'group');
+        c.neck.rotation.set(0.2, 0, 0);
       }
     }
-    if (pose !== 'aim' && pose !== 'draw') p.tw = 0;
+    if (pose !== 'aim' && !(pose === 'draw' && since >= 0.35)) p.tw = 0;
     flinchPose(c, game.time);
+    // (ease every joint from where it was: quick when walking, softer between poses)
+    const ease = 1 - Math.exp(-dt * (p.animSpeed > 0.4 ? 22 : pose === 'aim' || pose === 'draw' ? 18 : 11));
+    p.prevQ ??= {};
+    for (const j of JOINTS) {
+      const q = c[j].quaternion;
+      const pq = p.prevQ[j];
+      if (pq) q.copy(pq.slerp(q, ease));
+      p.prevQ[j] = (pq || new THREE.Quaternion()).copy(q);
+    }
+    p.yS = (p.yS ?? yOff) + (yOff - (p.yS ?? yOff)) * Math.min(1, dt * 10);
     const y = game.city.groundY(p.x, p.z);
-    c.group.position.set(p.x, y + yOff, p.z);
+    c.group.position.set(p.x, y + p.yS, p.z);
     c.group.rotation.x = 0;
-    c.group.rotation.y = p.heading + (p.tw || 0);
+    p.twS = (p.twS ?? 0) + ((p.tw || 0) - (p.twS ?? 0)) * Math.min(1, dt * 12);
+    c.group.rotation.y = p.heading + p.twS;
   }
 
   // Their gun (or bat), in their right hand, made when they first go for it.
