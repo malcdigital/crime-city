@@ -326,6 +326,9 @@ export class Streets {
         // (two lights wanting the same corner share one pole, a head facing each way)
         const share = here.find((q) => q.type === ctl.type && Math.hypot(q.x - px, q.z - pz) < 1.8);
         if (share) [px, pz] = [share.x, share.z];
+        // (never two stop signs on one corner, from neighbouring junctions or a sign slid back
+        // along the curb: the one there does for both; the cars still stop either way)
+        if (ctl.type === 'stop' && !share && this.knockables.some((q) => Math.hypot(q.x - px, q.z - pz) < 5)) continue;
         const y = gy(px, pz);
         if (!share) here.push({ x: px, z: pz, y, type: ctl.type });
         const face = Math.atan2(a.ux, a.uz); // the face points back toward the driver
