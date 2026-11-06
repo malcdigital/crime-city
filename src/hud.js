@@ -57,6 +57,45 @@ export class Hud {
     setRich($(id), value); // (arrows as our own icons: icons.js)
   }
 
+  // The speedometer while you're driving: a dial (0-120 mph), its needle eased, the number in
+  // the middle. Gone on foot.
+  speedo(mph, dt) {
+    const el = $('speed');
+    if (!this.spd) {
+      // (made once: the dial's track, the lit arc up to your speed, ticks every 20, the needle)
+      const arc = 'M14 62 A46 46 0 0 1 106 62';
+      let ticks = '';
+      for (let k = 0; k <= 6; k++) {
+        const a = Math.PI * (1 - k / 6);
+        const c = Math.cos(a);
+        const s = Math.sin(a);
+        ticks += `<line x1="${60 + c * 38}" y1="${62 - s * 38}" x2="${60 + c * 44}" y2="${62 - s * 44}"/>`;
+      }
+      el.innerHTML = `<svg viewBox="0 0 120 70" aria-hidden="true"><path class="spd-track" d="${arc}"/><path class="spd-fill" d="${arc}" pathLength="100"/><g class="spd-ticks">${ticks}</g><line class="spd-needle" x1="60" y1="36" x2="60" y2="18"/></svg><div class="spd-num">0</div><div class="spd-unit">MPH</div>`;
+      this.spd = { fill: el.querySelector('.spd-fill'), needle: el.querySelector('.spd-needle'), num: el.querySelector('.spd-num'), v: 0, shown: null, last: -1 };
+    }
+    const S = this.spd;
+    const on = mph != null;
+    if (S.shown !== on) {
+      S.shown = on;
+      el.classList.toggle('hidden', !on);
+    }
+    if (!on) {
+      S.v = 0;
+      return;
+    }
+    S.v += (mph - S.v) * Math.min(1, (dt || 0.016) * 8);
+    const k = Math.max(0, Math.min(1, S.v / 120));
+    S.fill.setAttribute('stroke-dasharray', `${(k * 100).toFixed(1)} 100`);
+    S.fill.classList.toggle('hot', S.v > 90);
+    S.needle.setAttribute('transform', `rotate(${(k * 180 - 90).toFixed(1)} 60 62)`);
+    const n = Math.round(mph);
+    if (n !== S.last) {
+      S.last = n;
+      S.num.textContent = n;
+    }
+  }
+
   update(game, dt) {
     this.set('cash', `$${game.cash.toLocaleString('en-US')}`);
     if (game.bank) this.set('bank-line', `Bank $${Math.round(game.bank.balance).toLocaleString('en-US')}${game.bank.stashTotal() ? ` · Stash $${Math.round(game.bank.stashTotal()).toLocaleString('en-US')}` : ''}`);
@@ -114,9 +153,7 @@ export class Hud {
     }
     const v = game.player.vehicle;
     this.set('clock', game.clockLong());
-    const mph = v ? Math.round(Math.abs(v.speed) * 2.23694) : 0;
-    const lim = v && v.high ? 65 : 45;
-    this.set('speed', v ? `${mph} mph${mph > lim ? ` · limit ${lim}` : ''}` : '');
+    this.speedo(v ? Math.abs(v.speed) * 2.23694 : null, dt);
 
     const prog = $('progress');
     if (game.progress) {
