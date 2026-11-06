@@ -271,7 +271,9 @@ export class StoreRooms {
       let at = a0;
       for (const [h0, h1, y0, y1] of [...holes].sort((p, q) => p[0] - q[0])) {
         piece(at, h0, opts.low ?? 0, STORE_H);
-        piece(h0, h1, opts.low ?? 0, y0);
+        // (below the opening: a window's sill wall; under a doorway just the foundation, which
+        // you walk over)
+        piece(h0, h1, opts.low ?? 0, y0, y0 > 0 ? opts : { ...opts, solid: false, stops: false });
         piece(h0, h1, y1, STORE_H, y0 > 0 || !opts.solid ? opts : { ...opts, solid: false, stops: true });
         at = h1;
       }
