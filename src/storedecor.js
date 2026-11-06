@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { shelfRun } from './stock.js';
 
 // The stores' decor (storerooms.js builds the rooms; this dresses them): floors and ceilings,
 // trim, signs and posters, and the things every kind of store has about it. All of it's
@@ -42,9 +43,9 @@ function drawText(g, w, h, bg, lines, { border = null, glow = false } = {}) {
   }
 }
 
-// Materials that glow with the rooms (storerooms.js and interiors.js glow() set their emissive
-// to the night's level): the vertex-colored one and the sign sheets.
-export const GLOW_MATS = [];
+// (the materials that glow with the rooms: glowmats.js)
+import { GLOW_MATS } from './glowmats.js';
+export { GLOW_MATS };
 // Every plain-colored piece shares one material, its color in its vertices (so a store's
 // trim, fittings and odds and ends are one draw call). Its glow is tinted by that color too.
 const VCOL = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -311,11 +312,26 @@ export function decorate(d) {
     r.aisleXs.forEach((x, i) => {
       aisleSign(x, (az0 + az1) / 2, i + 1, AISLES[i] || 'GROCERY');
       // (an end cap facing the door: cases of something on special, a price card on top)
-      const ec = (goodsTex(`endcap-${i}`, [['#e74c3c', '#f1c40f'], ['#3498db', '#ecf0f1'], ['#27ae60', '#f39c12']][i % 3]));
       B(x - 0.42, x + 0.42, 0, 0.12, az0 - 0.42, az0, 0x6a6a6a);
-      const g = new THREE.BoxGeometry(0.84, 1.1, 0.4);
-      g.translate(x, 0.67, az0 - 0.21);
-      add(g, ec);
+      if (d.S) {
+        // (cases of soda stacked up, each with its label to the front; a step back up top)
+        const [c1, c2] = [[0xc1121f, 0xffffff], [0x1d4e89, 0xe9ecef], [0x2b9348, 0xffd60a]][i % 3];
+        for (let lay = 0; lay < 6; lay++) {
+          const step = lay >= 4;
+          for (let a = 0; a < 3; a++) for (let b = step ? 1 : 0; b < 2; b++) {
+            const cx = x - 0.27 + a * 0.27;
+            const cz = az0 - 0.105 - b * 0.2;
+            const y = 0.12 + lay * 0.13;
+            d.S.add('box', cx, y, cz, 0.26, 0.125, 0.19, lay % 2 ? c1 : c2 === 0xffffff ? 0xe63946 : c1, 0);
+            if (b === (step ? 1 : 0) || true) if (b === 0 || step) d.S.add('box', cx, y + 0.03, cz - 0.096, 0.2, 0.06, 0.004, c2, 0);
+          }
+        }
+      } else {
+        const ec = goodsTex(`endcap-${i}`, [['#e74c3c', '#f1c40f'], ['#3498db', '#ecf0f1'], ['#27ae60', '#f39c12']][i % 3]);
+        const g = new THREE.BoxGeometry(0.84, 1.1, 0.4);
+        g.translate(x, 0.67, az0 - 0.21);
+        add(g, ec);
+      }
       const card = tex(`deal-${i}`, 128, 64, '#ffd23f', [[['2 FOR $5', '$1.99', 'SALE'][i % 3], 26, '#b71c1c']], { border: '#b71c1c' });
       B(x - 0.3, x + 0.3, 1.22, 1.5, az0 - 0.22, az0 - 0.2, 0xffd23f);
       P(0.6, 0.28, x, 1.36, az0 - 0.225, 'z-', card);
@@ -348,9 +364,21 @@ export function decorate(d) {
       const zc0 = 3.85;
       const zc1 = Math.min(z1 - 0.15, 5.2);
       B(cx0 - 0.32, cx0 - 0.02, 0, 0.08, zc0, zc1, 0x333333);
-      const g = new THREE.BoxGeometry(0.3, 1.05, zc1 - zc0);
-      g.translate(cx0 - 0.17, 0.6, (zc0 + zc1) / 2);
-      add(g, candy);
+      if (d.S) {
+        // (a rack of little shelves: candy, gum, small bags)
+        B(cx0 - 0.05, cx0 - 0.02, 0.08, 1.15, zc0, zc1, 0x333333);
+        for (const zz of [zc0, zc1 - 0.02]) B(cx0 - 0.32, cx0 - 0.02, 0.08, 1.15, zz, zz + 0.02, 0x444444);
+        B(cx0 - 0.32, cx0 - 0.02, 1.13, 1.17, zc0, zc1, 0xc0392b);
+        for (const y of [0.1, 0.36, 0.62, 0.88]) {
+          B(cx0 - 0.32, cx0 - 0.05, y - 0.015, y, zc0, zc1, 0x555555);
+          B(cx0 - 0.33, cx0 - 0.32, y - 0.04, y + 0.03, zc0, zc1, 0xf2f2ee);
+          shelfRun(d.S, { x0: cx0 - 0.32, z0: zc0 + 0.03, ux: 0, uz: 1, nx: 1, nz: 0, len: zc1 - zc0 - 0.06, y, depth: 0.26, height: 0.22, goods: y > 0.8 ? ['candy'] : ['candy', 'snack'], rows: 1, gap: 0.006 });
+        }
+      } else {
+        const g = new THREE.BoxGeometry(0.3, 1.05, zc1 - zc0);
+        g.translate(cx0 - 0.17, 0.6, (zc0 + zc1) / 2);
+        add(g, candy);
+      }
     }
     // (on the counter: the card reader, a tip jar, gum by the register)
     B(cx0 + 0.1, cx0 + 0.26, 1.0, 1.06, 2.75, 2.95, 0x1a1a1a);

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { kit } from './storedecor.js';
+import { Stock, shelfRun } from './stock.js';
 
 // The gun shops' dressing (interiors.js builds them): a floor and a ceiling with some texture
 // to them, trim, the pegboard behind the guns, posters (safety, range rules, buy / sell /
@@ -83,27 +84,21 @@ export function decorateGunShop(d) {
   peg.map.repeat.set(4, 1);
   P(8.2, 2.1, -2.5, 1.95, BACK - 0.065, 'z-', peg);
   // (ammo on shelves behind the counter, right of the gate)
-  const ammo = sheet('gammo', 256, 128, (g, rnd) => {
-    g.fillStyle = '#3b2f25'; g.fillRect(0, 0, 256, 128);
-    const cols = ['#b7950b', '#7b241c', '#1f618d', '#145a32', '#5d6d7e', '#d35400'];
-    for (let row = 0; row < 4; row++) {
-      const y0 = 4 + row * 32;
-      g.fillStyle = '#6e5a42'; g.fillRect(0, y0 + 27, 256, 4);
-      for (let x = 2; x < 252;) {
-        const w = 14 + Math.floor(rnd() * 10);
-        g.fillStyle = cols[Math.floor(rnd() * cols.length)];
-        g.fillRect(x, y0 + 6, w - 2, 21);
-        g.fillStyle = 'rgba(255,255,255,.55)';
-        g.fillRect(x + 2, y0 + 12, w - 6, 4);
-        x += w;
-      }
-    }
-  });
   {
     const x0 = COUNTER.x1 + 0.4;
     const x1 = SX - 0.2;
-    d.box(x0, x1, 0, 2.3, BACK - 0.5, BACK, 0x4a3a2a, { solid: true });
-    P(x1 - x0 - 0.08, 2.1, (x0 + x1) / 2, 1.15, BACK - 0.505, 'z-', ammo);
+    // (a wooden shelf unit, boxes of rounds on every shelf, stacked three high)
+    d.box(x0, x1, 0, 2.3, BACK - 0.5, BACK, 0x4a3a2a, { solid: true }).visible = false;
+    B(x0, x1, 0, 2.3, BACK - 0.06, BACK - 0.02, 0x3b2f25);
+    for (const xx of [x0, x1 - 0.04]) B(xx, xx + 0.04, 0, 2.3, BACK - 0.5, BACK - 0.02, 0x4a3a2a);
+    B(x0, x1, 2.26, 2.3, BACK - 0.5, BACK - 0.02, 0x4a3a2a);
+    const S = new Stock(17 + shop.i);
+    for (const y of [0.08, 0.52, 0.96, 1.4, 1.84]) {
+      B(x0 + 0.04, x1 - 0.04, y - 0.03, y, BACK - 0.5, BACK - 0.06, 0x6e5a42);
+      B(x0 + 0.04, x1 - 0.04, y - 0.06, y, BACK - 0.51, BACK - 0.5, 0xf2efe6); // (the price strip)
+      shelfRun(S, { x0: x0 + 0.07, z0: BACK - 0.5, ux: 1, uz: 0, nx: 0, nz: 1, len: x1 - x0 - 0.14, y, depth: 0.4, height: 0.4, goods: ['ammo'], rows: 2, gap: 0.01 });
+    }
+    S.build(root);
     P(2.0, 0.34, (x0 + x1) / 2, 2.55, BACK - 0.03, 'z-', tex('ammo-hdr', 256, 44, hex(L.trim), [['AMMUNITION', 26, '#ffd23f']]));
   }
   // (a slatwall on the right of holsters, scopes and lights)

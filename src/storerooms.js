@@ -8,7 +8,9 @@ import { pushCircle, segmentBlocked } from './collision.js';
 import { dist, pick, rand, lerpAngle } from './util.js';
 import { signTexture } from './shops.js';
 import { Robbery, STORE_GUNS } from './robbery.js';
-import { decorate, GLOW_MATS } from './storedecor.js';
+import { decorate, kit, GLOW_MATS } from './storedecor.js';
+import { Stock, shelfRun } from './stock.js';
+import { PHONE } from './quality.js';
 
 // The stores you can rob (districts.js STORES), each a one-storey building you walk into
 // (city.js leaves it hollow: city.storeHollows). Built here like the gun shops (interiors.js):
@@ -33,6 +35,7 @@ const _m4 = new THREE.Matrix4();
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const SEE = 80; // (closer than this: the room's drawn)
+const NEAR = PHONE ? 18 : 28; // (closer than this: the shelves are stocked in 3D; further, flat pictures)
 const PEOPLE = 70; // (closer than this: customers come and go)
 const STAFF = 160; // (closer than this: the clerk (and the guard) are at work)
 const KINDS = {
@@ -232,6 +235,14 @@ export class StoreRooms {
     game.scene.add(root);
     root.updateMatrixWorld(true);
     r.root = root;
+    // (close up: the shelves' boards and frames and everything on them, in 3D (stock.js); r.far:
+    // the flat pictures of them that stand in from further off)
+    r.near = new THREE.Group();
+    root.add(r.near);
+    r.far = [];
+    const S = new Stock([...store.name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 2147483647, 7) || 7);
+    const NK = kit(r.near, mat, texMat, canvasTex);
+    const ROWS = PHONE ? 1 : 2;
     const _p = new THREE.Vector3();
     const _q = new THREE.Vector3();
     const glass = new THREE.MeshLambertMaterial({ color: 0xb8d8e8, transparent: true, opacity: 0.25, depthWrite: false });
@@ -376,20 +387,87 @@ export class StoreRooms {
     // ---- The store itself ----
     const shelf = texMat(shelfTex());
     const cooler = texMat(coolerTex());
+    // What's in each aisle (stock.js GOODS), by store and aisle; the bottom shelf gets the bulky
+    // stuff.
+    const AISLE_GOODS = {
+      mart: [['chips', 'snack', 'candy'], ['bread', 'crackers', 'cereal', 'soup'], ['detergent', 'rolls', 'soup', 'tuna']],
+      market: [['cereal', 'crackers'], ['soup', 'tuna', 'pasta'], ['chips', 'snack', 'soda2']],
+      deli: [['chips', 'snack', 'candy'], ['bread', 'soup', 'pasta', 'crackers'], ['detergent', 'rolls']],
+    }[kind];
+    const BOTTOM = { mart: ['case12', 'soda2', 'detergent'], market: ['case12', 'rolls', 'detergent'], deli: ['case12', 'soda2'] }[kind];
+    let aisleN = 0;
     const unit = (x, z0, z1) => {
       // (an aisle unit, along z: goods both sides)
       box(x - 0.45, x + 0.45, 0, 0.12, z0, z1, 0x6a6a6a, { solid: true });
       const m = box(x - 0.42, x + 0.42, 0.12, 1.55, z0, z1, shelf, { solid: true, stops: false });
       m.material = [shelf, shelf, mat(0xbdbdbd), mat(0xbdbdbd), mat(0x9a9a9a), mat(0x9a9a9a)];
+      r.far.push(m);
+      // close up: a pegboard spine, shelf boards with a price strip on the edge, end panels, a
+      // cap on top, and the goods
+      const goods = AISLE_GOODS?.[aisleN++ % 3] || ['cereal', 'soup', 'chips'];
+      NK.B(x - 0.035, x + 0.035, 0.12, 1.55, z0, z1, 0xb9b9b4);
+      NK.B(x - 0.43, x + 0.43, 1.55, 1.59, z0, z1, 0x8f8f8f);
+      for (const zz of [z0, z1 - 0.025]) NK.B(x - 0.43, x + 0.43, 0.0, 1.59, zz, zz + 0.025, 0xa3a3a3);
+      const LV = [0.12, 0.47, 0.82, 1.17];
+      for (const sd of [-1, 1]) {
+        LV.forEach((y, li) => {
+          if (li) NK.B(Math.min(x + sd * 0.035, x + sd * 0.42), Math.max(x + sd * 0.035, x + sd * 0.42), y - 0.022, y, z0, z1, 0x9c9c9c);
+          NK.B(Math.min(x + sd * 0.42, x + sd * 0.432), Math.max(x + sd * 0.42, x + sd * 0.432), y - 0.05, y + 0.004, z0, z1, 0xf2f2ee);
+          shelfRun(S, { x0: x + sd * 0.42, z0: z0 + 0.04, ux: 0, uz: 1, nx: -sd, nz: 0, len: z1 - z0 - 0.08, y, depth: 0.36, height: li === 3 ? 0.36 : 0.32, goods: li === 0 ? BOTTOM || goods : goods, rows: li === 3 ? ROWS : 1 }); // (one deep: you only see the fronts; the top shelf two, you see over it)
+        });
+      }
       for (let z = z0 + 1.2; z < z1 - 0.6; z += 2.2) {
         r.browse.push([x - 0.95, z, [1, 0]]);
         r.browse.push([x + 0.95, z, [-1, 0]]);
       }
     };
+    const coolerGlass = new THREE.MeshLambertMaterial({ color: 0xd6eef8, transparent: true, opacity: 0.18, depthWrite: false });
+    const coolerLight = new THREE.MeshBasicMaterial({ color: 0xf2fbff });
+    let coolerN = 0;
     const coolers = (x0, x1, z0, z1, faceX) => {
       const m = box(x0, x1, 0, 2.3, z0, z1, cooler, { solid: true, stops: false });
       const side = mat(0xd5dbe0);
       m.material = faceX ? [faceX > 0 ? cooler : side, faceX < 0 ? cooler : side, side, side, side, side] : [side, side, side, side, side, cooler];
+      r.far.push(m);
+      // close up: glass doors (frames, handles), lit shelves inside, bottles and cans on them
+      const goods = kind === 'liquor' ? ['beer', 'beer', 'soda'] : kind === 'market' && coolerN === 0 ? ['milk', 'juice', 'milk'] : coolerN % 2 ? ['soda', 'water', 'soda2', 'juice'] : ['beer', 'soda', 'water', 'soda'];
+      coolerN++;
+      const alongX = !faceX;
+      const a0 = alongX ? x0 : z0;
+      const a1 = alongX ? x1 : z1;
+      const face = alongX ? z0 : x1; // (the glass)
+      const back = alongX ? z1 : x0;
+      const inw = alongX ? 1 : -1; // (from the glass in toward the back)
+      const R2 = (p0, p1, q0, q1, y0, y1, c) => (alongX ? NK.B(p0, p1, y0, y1, q0, q1, c) : NK.B(q0, q1, y0, y1, p0, p1, c));
+      const lo = (q) => Math.min(q, face + inw * 0.0), hi = (q) => Math.max(q, face);
+      R2(a0, a1, Math.min(back, back - inw * 0.03), Math.max(back, back - inw * 0.03), 0, 2.3, 0xe9eef1); // (the back: bright)
+      R2(a0, a1, lo(back), hi(back), 2.1, 2.3, 0xd5dbe0); // (the top, over the doors)
+      R2(a0, a1, lo(back), hi(back), 0, 0.12, 0x3a3f45); // (the kick plate)
+      for (const p of [a0, a1 - 0.04]) R2(p, p + 0.04, lo(back), hi(back), 0, 2.3, 0xc4ccd2); // (the ends)
+      const depth = Math.abs(back - face) - 0.08;
+      for (const y of [0.12, 0.55, 0.98, 1.41, 1.84]) {
+        if (y > 0.13) R2(a0 + 0.04, a1 - 0.04, Math.min(face + inw * 0.05, back), Math.max(face + inw * 0.05, back), y - 0.018, y, 0xcfd6db);
+        shelfRun(S, alongX
+          ? { x0: a0 + 0.06, z0: face + 0.06, ux: 1, uz: 0, nx: 0, nz: 1, len: a1 - a0 - 0.12, y, depth: depth - 0.04, height: 0.38, goods, rows: ROWS, gap: 0.006 }
+          : { x0: face - 0.06, z0: a0 + 0.06, ux: 0, uz: 1, nx: -1, nz: 0, len: a1 - a0 - 0.12, y, depth: depth - 0.04, height: 0.38, goods, rows: ROWS, gap: 0.006 });
+      }
+      // doors: a frame between each, a handle, a strip of light inside
+      const doorW = 0.76;
+      const nD = Math.max(1, Math.round((a1 - a0) / doorW));
+      const dw = (a1 - a0) / nD;
+      for (let k = 0; k <= nD; k++) {
+        const p = a0 + k * dw;
+        R2(p - 0.025, p + 0.025, Math.min(face, face - inw * 0.03), Math.max(face, face - inw * 0.03), 0.12, 2.1, 0x9aa3ab);
+        if (k < nD) {
+          R2(p + 0.07, p + 0.09, Math.min(face - inw * 0.03, face - inw * 0.07), Math.max(face - inw * 0.03, face - inw * 0.07), 0.8, 1.5, 0x5c636a);
+          const g = new THREE.BoxGeometry(alongX ? 0.03 : 0.02, 1.9, alongX ? 0.02 : 0.03);
+          g.translate(alongX ? p + 0.05 : face + inw * 0.04, 1.1, alongX ? face + inw * 0.04 : p + 0.05);
+          NK.add(g, coolerLight);
+        }
+      }
+      const gl = new THREE.BoxGeometry(alongX ? a1 - a0 : 0.01, 1.98, alongX ? 0.01 : a1 - a0);
+      gl.translate(alongX ? (a0 + a1) / 2 : face - 0.005, 1.11, alongX ? face - 0.005 : (a0 + a1) / 2);
+      NK.add(gl, coolerGlass);
       if (faceX) for (let z = z0 + 1; z < z1 - 0.6; z += 2.4) r.browse.push([faceX > 0 ? x1 + 0.7 : x0 - 0.7, z, [-faceX, 0]]);
       else for (let x = x0 + 1; x < x1 - 0.6; x += 2.4) r.browse.push([x, z0 - 0.7, [0, 1]]);
     };
@@ -450,7 +528,17 @@ export class StoreRooms {
       r.counter = { x: cx0 - 0.9, z: 3.2 }; // (where you stand across from him)
       r.pay = [cx0 - 0.75, 2.6, [1, 0]];
       const sm = texMat(smokesTex());
-      box(hw - 0.32, hw - 0.04, 1.15, 2.4, 1.4, z1, sm).material = [mat(0x2a2a2a), sm, mat(0x2a2a2a), mat(0x2a2a2a), mat(0x2a2a2a), mat(0x2a2a2a)];
+      const smk = box(hw - 0.32, hw - 0.04, 1.15, 2.4, 1.4, z1, sm);
+      smk.material = [mat(0x2a2a2a), sm, mat(0x2a2a2a), mat(0x2a2a2a), mat(0x2a2a2a), mat(0x2a2a2a)];
+      r.far.push(smk);
+      // (close up: the rack, rows of packs on little shelves)
+      NK.B(hw - 0.06, hw - 0.04, 1.15, 2.4, 1.4, z1, 0x2a2a2a);
+      NK.B(hw - 0.32, hw - 0.04, 2.38, 2.44, 1.4, z1, 0x1c1c1c);
+      for (let y = 1.15; y < 2.3; y += 0.104) {
+        NK.B(hw - 0.3, hw - 0.06, y - 0.012, y, 1.4, z1, 0x3a3a3a);
+        NK.B(hw - 0.31, hw - 0.3, y - 0.03, y + 0.01, 1.4, z1, 0xd8d8d8);
+        shelfRun(S, { x0: hw - 0.3, z0: 1.42, ux: 0, uz: 1, nx: 1, nz: 0, len: z1 - 1.44, y, depth: 0.2, height: 0.09, goods: ['pack'], rows: 1, gap: 0.004 });
+      }
       box(cx0 + 0.1, cx0 + 0.7, 1.0, 1.06, z1 - 0.9, z1 - 0.2, 0xf5f5f5); // (the lottery tickets)
       // (aisles, coolers along the back and the left)
       const xs = kind === 'market' ? [-hw + 2.4, -hw + 5.0, -hw + 7.6].filter((x) => x < cx0 - 1.6) : [-hw + 2.6, -hw + 5.4].filter((x) => x < cx0 - 1.6);
@@ -506,11 +594,38 @@ export class StoreRooms {
       r.counter = { x: 1.8, z: gz - 0.9 };
       r.pay = [1.8, gz - 0.75, [0, 1]];
       const lm = texMat(liquorTex());
-      box(gx0 + 0.1, hw - 0.1, 0.4, 2.8, zb - 0.45, zb - 0.05, lm).material = [mat(0x3b2a1e), mat(0x3b2a1e), mat(0x3b2a1e), mat(0x3b2a1e), mat(0x3b2a1e), lm];
-      box(-hw, -hw + 0.5, 0, 2.6, 1.2, zb - 1.0, lm, { solid: true }).material = [lm, mat(0x3b2a1e), mat(0x3b2a1e), mat(0x3b2a1e), mat(0x3b2a1e), mat(0x3b2a1e)];
+      const bw = box(gx0 + 0.1, hw - 0.1, 0.4, 2.8, zb - 0.45, zb - 0.05, lm);
+      bw.material = [mat(0x3b2a1e), mat(0x3b2a1e), mat(0x3b2a1e), mat(0x3b2a1e), mat(0x3b2a1e), lm];
+      const lw = box(-hw, -hw + 0.5, 0, 2.6, 1.2, zb - 1.0, lm, { solid: true });
+      lw.material = [lm, mat(0x3b2a1e), mat(0x3b2a1e), mat(0x3b2a1e), mat(0x3b2a1e), mat(0x3b2a1e)];
+      r.far.push(bw, lw);
+      // (close up: wooden shelves, bottles on them: behind the clerk, and down the left wall)
+      const BOOZE = ['liquor', 'liquor', 'wine', 'pint'];
+      NK.B(gx0 + 0.1, hw - 0.1, 0.4, 2.8, zb - 0.07, zb - 0.05, 0x3b2a1e);
+      for (const y of [0.4, 0.88, 1.36, 1.84, 2.32]) {
+        NK.B(gx0 + 0.1, hw - 0.1, y - 0.03, y, zb - 0.45, zb - 0.07, 0x5a4030);
+        shelfRun(S, { x0: gx0 + 0.15, z0: zb - 0.45, ux: 1, uz: 0, nx: 0, nz: 1, len: hw - gx0 - 0.3, y, depth: 0.36, height: 0.44, goods: BOOZE, rows: ROWS });
+      }
+      NK.B(-hw, -hw + 0.03, 0, 2.6, 1.2, zb - 1.0, 0x3b2a1e);
+      NK.B(-hw, -hw + 0.5, 2.56, 2.62, 1.2, zb - 1.0, 0x2b1a12);
+      for (const y of [0.08, 0.58, 1.08, 1.58, 2.08]) {
+        NK.B(-hw, -hw + 0.5, y - 0.04, y, 1.2, zb - 1.0, 0x5a4030);
+        shelfRun(S, { x0: -hw + 0.5, z0: 1.24, ux: 0, uz: 1, nx: -1, nz: 0, len: zb - 2.28, y, depth: 0.44, height: 0.46, goods: y < 0.1 ? ['beer', 'liquor'] : BOOZE, rows: ROWS });
+      }
       for (let z = 2.2; z < zb - 1.6; z += 2.4) r.browse.push([-hw + 1.2, z, [-1, 0]]);
       const isl = box(-hw + 2.4, -hw + 3.4, 0, 1.4, 2.4, gz - 0.2, lm, { solid: true, stops: false });
       isl.material = [lm, lm, mat(0x3b2a1e), mat(0x3b2a1e), mat(0x3b2a1e), mat(0x3b2a1e)];
+      r.far.push(isl);
+      {
+        const ix = -hw + 2.9;
+        NK.B(ix - 0.03, ix + 0.03, 0, 1.4, 2.4, gz - 0.2, 0x3b2a1e);
+        NK.B(ix - 0.5, ix + 0.5, 1.37, 1.42, 2.4, gz - 0.2, 0x2b1a12);
+        for (const zz of [2.4, gz - 0.23]) NK.B(ix - 0.5, ix + 0.5, 0, 1.42, zz, zz + 0.03, 0x4a3426);
+        for (const sd of [-1, 1]) for (const y of [0.04, 0.5, 0.96]) {
+          NK.B(Math.min(ix, ix + sd * 0.5), Math.max(ix, ix + sd * 0.5), y - 0.04, y, 2.4, gz - 0.2, 0x5a4030);
+          shelfRun(S, { x0: ix + sd * 0.5, z0: 2.44, ux: 0, uz: 1, nx: -sd, nz: 0, len: gz - 2.68, y, depth: 0.44, height: 0.42, goods: ['wine', 'liquor', 'pint'], rows: ROWS });
+        }
+      }
       r.browse.push([-hw + 4.0, 3.4, [-1, 0]]);
       coolers(-hw + 0.6, gx0 - 0.4, zb - 0.75, zb, 0);
       cam(gx0 + 0.3, H - 0.05, gz - 0.3, -0.5, -0.8);
@@ -546,7 +661,11 @@ export class StoreRooms {
     // (the clerk's alarm button: under the counter, by his knee)
     r.alarm = { x: r.clerkSpot.x - r.clerkSpot.face[0] * 0.4, z: r.clerkSpot.z - r.clerkSpot.face[1] * 0.4 };
     // (the dressing: floors, trim, signs, the things about the place: storedecor.js)
-    decorate({ r, root, kind, hw, zb, H, BR, box, mat, texMat, canvasTex });
+    decorate({ r, root, kind, hw, zb, H, BR, box, mat, texMat, canvasTex, S, NK });
+    S.build(r.near);
+    NK.flush();
+    r.near.visible = false;
+    r.nearOn = false;
     // (the way out the door, and just outside it)
     r.door = [0, 0.9];
     r.outside = [0, -1.6];
@@ -564,6 +683,13 @@ export class StoreRooms {
       const dc = Math.hypot(cam.x - r.cx, cam.z - r.cz);
       const show = dc < SEE;
       if (r.root.visible !== show) r.root.visible = show;
+      // (close up: the 3D stock; further off: the flat pictures of it)
+      const near = show && dc < NEAR;
+      if (r.nearOn !== near) {
+        r.nearOn = near;
+        r.near.visible = near;
+        for (const m of r.far) m.visible = !near;
+      }
       const dp = Math.hypot(p.x - r.cx, p.z - r.cz);
       this.people(r, dp, dt);
       if (!p.vehicle && !p.high && dp < 14) {
