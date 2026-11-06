@@ -25,7 +25,10 @@ export const CFG = {
   START_FIELD_GAME: null,
   // Testing switch: a few seconds in, a dice game on a corner in a rival gang's turf near the
   // start, and you put a few steps from it (dice.js): 'craps', 'celo', true (either), or false.
-  START_NEAR_DICE: 'craps',
+  START_NEAR_DICE: false,
+  // Testing switch: start on foot on the sidewalk at a store's door, facing in (the name of one
+  // of districts.js STORES: 'Corner 24/7', 'Liquor Barn', 'Pawn King'...), or null.
+  START_NEAR_STORE: 'Corner 24/7',
   // Testing switch: the interchange editor in the pause menu (reshape the ramps, then drive them).
   RAMP_EDITOR: true,
 

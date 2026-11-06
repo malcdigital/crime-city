@@ -276,7 +276,16 @@ class Game {
     document.getElementById('intro').classList.add('hidden');
     this.hud.show();
     this.hud.clock = () => this.clockText();
-    if (CFG.START_ON_FOOT) {
+    const atStore = CFG.START_NEAR_STORE && this.storeRooms.rooms.find((r) => r.name === CFG.START_NEAR_STORE);
+    if (atStore) {
+      // (testing: on foot outside a store's door, facing in: storerooms.js)
+      if (this.player.vehicle) this.player.exit();
+      const [x, z] = this.storeRooms.world(atStore, 0, -2.5);
+      this.player.x = x;
+      this.player.z = z;
+      this.player.heading = this.camYaw = this.storeRooms.heading(atStore, 0, 1);
+      this.player.sync?.();
+    } else if (CFG.START_ON_FOOT) {
       // (testing: on foot at a set spot)
       const [x, z, deg] = CFG.START_ON_FOOT;
       this.player.x = x;
@@ -303,7 +312,7 @@ class Game {
     }
     // Own a safehouse? You wake up there.
     const home = this.shops.respawnPoint();
-    if (home && !this.player.vehicle && !CFG.START_ON_FOOT) {
+    if (home && !this.player.vehicle && !CFG.START_ON_FOOT && !atStore) {
       this.player.x = home.x;
       this.player.z = home.z + 3;
       this.player.sync?.();
