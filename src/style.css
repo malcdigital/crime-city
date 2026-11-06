@@ -229,7 +229,9 @@ body.touch #sport .sh { display: none; }
 #bigmap .bm-war { color: #ff6b6b; font-weight: 700; }
 #bigmap .bm-legend-tab { position: absolute; top: 16px; right: 16px; background: rgba(0,0,0,.72); padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; z-index: 2; }
 #bigmap .bm-legend-tab.open { top: 16px; right: 296px; }
-#bigmap .bm-legend { position: absolute; top: 16px; right: 16px; width: 270px; max-height: calc(100vh - 90px); overflow-y: auto; background: rgba(0,0,0,.72); padding: 8px 8px; border-radius: 8px; font-size: 13px; }
+#bigmap .bm-legend { position: absolute; top: 16px; right: 16px; width: 270px; max-height: calc(100vh - 90px); display: flex; flex-direction: column; overflow: hidden; background: rgba(0,0,0,.72); padding: 8px 8px; border-radius: 8px; font-size: 13px; }
+#bigmap .bm-legend-list { overflow-y: auto; min-height: 0; flex: 1 1 auto; }
+#bigmap .bm-sheet-head { display: none; }
 #bigmap .lg-head { font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; opacity: .55; padding: 8px 6px 3px; }
 #bigmap .lg-row { display: flex; align-items: center; gap: 9px; padding: 4px 6px; border-radius: 6px; cursor: pointer; line-height: 1.25; }
 #bigmap .lg-row:hover { background: rgba(255,255,255,.1); }
@@ -248,7 +250,50 @@ body.touch #bigmap .lg-row.layer { padding-top: 7px; padding-bottom: 7px; }
 #bigmap .lg-pin { width: 12px !important; height: 12px !important; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: #ffd23f; }
 #bigmap .lg-you { font-size: 12px; }
 #bigmap .bm-help { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.7); padding: 8px 14px; border-radius: 8px; font-size: 13px; white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; }
-@media (max-width: 640px) { #bigmap .bm-legend { top: auto; bottom: 56px; width: auto; left: 16px; max-height: 34vh; } }
+/* Quick-find chips (top), the place card (bottom), and the phone layout (.compact: phones,
+   tablets, small windows): three round buttons in the corner and the legend as a sheet. */
+#bigmap .bm-chips { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 2; }
+#bigmap .bm-chip { display: flex; align-items: center; gap: 7px; background: rgba(10,12,16,.84); color: #fff; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; padding: 4px 12px 4px 4px; font: 700 13px Arial, sans-serif; cursor: pointer; white-space: nowrap; flex: none; }
+#bigmap .bm-chip:hover { background: rgba(40,46,56,.92); }
+#bigmap .bm-chip.on { background: #ffd23f; color: #111; border-color: #ffd23f; }
+#bigmap .bm-chip-ic { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font: 900 13px Arial, sans-serif; color: #fff; flex: none; }
+#bigmap .bm-corner { display: none; }
+#bigmap .bm-btn { width: 44px; height: 44px; border-radius: 50%; background: rgba(10,12,16,.86); color: #fff; border: 1px solid rgba(255,255,255,.18); display: grid; place-items: center; font: 900 18px Arial, sans-serif; cursor: pointer; padding: 0; }
+#bigmap .bm-btn.on { background: #2d6cdf; border-color: #2d6cdf; }
+#bigmap .bm-card { position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); width: min(440px, calc(100% - 32px)); box-sizing: border-box; background: rgba(12,14,18,.95); border: 1px solid rgba(255,255,255,.14); border-radius: 14px; padding: 10px 12px 12px; z-index: 4; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+#bigmap .bc-top { display: flex; align-items: center; gap: 10px; }
+#bigmap .bc-ic { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none; font: 900 18px Arial, sans-serif; color: #fff; }
+#bigmap .bc-ic.sq { border-radius: 8px; width: 28px; height: 28px; margin: 3px; }
+#bigmap .bc-ic .lg-bus svg { width: 30px; height: 30px; }
+#bigmap .bc-name { flex: 1; min-width: 0; }
+#bigmap .bc-t { font: 800 15px Arial, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#bigmap .bc-s { font-size: 12px; opacity: .7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#bigmap .bc-x { background: none; border: 0; color: #fff; font-size: 18px; width: 36px; height: 36px; cursor: pointer; flex: none; }
+#bigmap .bc-d { font-size: 13px; margin: 7px 0 10px; color: #dfe3e8; }
+#bigmap .bc-d b { color: #ffd23f; }
+#bigmap .bc-b { display: flex; gap: 8px; }
+#bigmap .bc-b button { flex: 1; min-height: 40px; border-radius: 10px; border: 1px solid rgba(255,255,255,.16); background: #232a35; color: #fff; font: 700 13px Arial, sans-serif; cursor: pointer; padding: 4px 6px; white-space: nowrap; }
+#bigmap .bc-b button[data-a=pin] { background: #ffd23f; color: #111; border-color: #ffd23f; }
+#bigmap .bc-b button[data-a=pin].on { background: #3a3f48; color: #fff; border-color: rgba(255,255,255,.2); }
+#bigmap .bc-b i { font-style: normal; opacity: .65; margin-right: 6px; font-size: 11px; }
+#bigmap .lg-heat { width: 14px !important; height: 14px !important; border-radius: 3px; background: linear-gradient(90deg, #3b6cff, #ff3b3b); opacity: .45; }
+#bigmap .lg-heat.on { opacity: 1; }
+#bigmap.compact .bm-chips { top: 8px; left: calc(8px + env(safe-area-inset-left)); right: calc(64px + env(safe-area-inset-right)); transform: none; overflow-x: auto; scrollbar-width: none; }
+#bigmap.compact .bm-chips::-webkit-scrollbar { display: none; }
+#bigmap.compact .bm-corner { display: flex; flex-direction: column; gap: 8px; position: absolute; top: 8px; right: calc(8px + env(safe-area-inset-right)); z-index: 3; }
+#bigmap.compact .bm-legend-tab { display: none; }
+body.touch #bigmap.compact .bm-help { display: none; }
+#bigmap.compact .bm-help { bottom: 8px; font-size: 12px; padding: 6px 12px; }
+#bigmap.compact .bm-info { top: auto; bottom: 8px; left: 50%; transform: translateX(-50%); font-size: 12px; line-height: 1.4; padding: 6px 10px; min-width: 0; max-width: calc(100% - 300px); text-align: center; }
+body:not(.touch) #bigmap.compact .bm-info { bottom: 46px; }
+#bigmap.compact .bm-card { bottom: calc(8px + env(safe-area-inset-bottom)); width: min(460px, calc(100% - 16px)); }
+body:not(.touch) #bigmap.compact .bm-card { bottom: 44px; }
+#bigmap.compact .bm-legend.sheet { top: auto; right: auto; left: 50%; bottom: 0; width: min(560px, calc(100% - 16px)); max-height: 62vh; transform: translateX(-50%); border-radius: 14px 14px 0 0; padding: 0 8px 8px; background: rgba(12,14,18,.95); font-size: 13px; z-index: 4; transition: transform .25s ease; box-sizing: border-box; }
+#bigmap.compact .bm-legend.sheet.shut { transform: translate(-50%, 105%); pointer-events: none; }
+#bigmap.compact .bm-sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 4px 4px 6px; font: 800 14px Arial, sans-serif; position: relative; flex: none; }
+#bigmap.compact .bm-sheet-head::before { content: ''; position: absolute; top: 5px; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: rgba(255,255,255,.3); }
+#bigmap .bm-sheet-x { background: none; border: 0; color: #fff; font-size: 18px; width: 36px; height: 32px; cursor: pointer; }
+body.touch #bigmap .lg-row { padding-top: 6px; padding-bottom: 6px; }
 
 #health { width: 104px !important; left: 22px !important; }
 #armor { position: absolute; left: 132px; bottom: 6px; width: 84px; height: 6px; background: rgba(0,0,0,.6); border-radius: 3px; overflow: hidden; }
@@ -640,10 +685,7 @@ body.touch #phone-body .ph-row { padding: 11px 8px; }
   #shop .shop-head { padding: 8px 14px; }
   #shop .shop-title { font-size: 16px; }
   #shop .shop-detail, #shop .shop-help { padding: 6px 14px; font-size: 11px; }
-  #bigmap .bm-info { font-size: 11px; padding: 6px 9px; min-width: 0; max-width: 40vw; top: auto; bottom: 8px; left: 50%; transform: translateX(-50%); }
   #bigmap .bm-help { display: none; }
-  #bigmap .bm-legend { width: 220px; font-size: 11px; top: 44px; left: 8px; right: auto; bottom: auto; max-height: calc(100vh - 52px); }
-  #bigmap .bm-legend-tab, #bigmap .bm-legend-tab.open { top: 8px; left: 8px; right: auto; }
   #clip .clip-box { width: min(560px, 80vw); }
   /* Pause menu: resume and the graphics switch first, the rest scrolls below. */
   #pause .intro-card { display: flex; flex-direction: column; }

@@ -2976,7 +2976,7 @@ class Game {
       this.moves.show();
     } else if (this.mapView.open) {
       // Full map: the game is paused underneath.
-      if (a.map || a.closeClip || a.pause) this.mapView.hide();
+      if (a.map || a.pause || (a.closeClip && !this.mapView.back())) this.mapView.hide();
       else this.mapView.update(dt, a);
     } else if (a.map && !this.paused && !this.activeGame()) {
       this.mapView.show();

@@ -39,8 +39,8 @@ const BUTTONS = [
   ['fire', 'FIRE', B.R2, ['foot'], 'fire', 'big red'],
   ['aim', 'AIM', B.L2, ['foot'], 'toggle', 'mid'],
   ['reload', '□', B.SQUARE, ['strip', 'qb'], 'hold', 'sm'], // (on foot: hold the GUN button to reload)
-  ['cross', '✕', B.CROSS, ['foot', 'car', 'phone', 'menu', 'strip', 'map', 'stop', 'qb', 'struggle'], 'hold', 'sm'],
-  ['circle', '○', B.CIRCLE, ['foot', 'car', 'phone', 'menu', 'map', 'stop', 'qb'], 'hold', 'sm'],
+  ['cross', '✕', B.CROSS, ['foot', 'car', 'phone', 'menu', 'strip', 'stop', 'qb', 'struggle'], 'hold', 'sm'],
+  ['circle', '○', B.CIRCLE, ['foot', 'car', 'phone', 'menu', 'stop', 'qb'], 'hold', 'sm'],
   ['fight', '□', B.SQUARE, ['stop'], 'hold', 'sm'], // (a police stop: fight back)
   // Pickup basketball (streetball.js): NBA 2K style.
   // Street dice (dice.js): roll, walk away, and craps' with / fade.
@@ -72,23 +72,20 @@ const BUTTONS = [
   ['rjuke', 'JUKE', 18, ['qb'], 'hold', 'sm txt'],
   ['rspin', 'SPIN', 21, ['qb'], 'hold', 'sm txt'],
   ['rstiff', 'STIFF', 20, ['qb'], 'hold', 'sm txt'],
-  ['tri', '△', B.TRIANGLE, ['map', 'qb'], 'hold', 'sm'], // (on foot and in the car, USE gets you in and out)
+  ['tri', '△', B.TRIANGLE, ['qb'], 'hold', 'sm'], // (on foot and in the car, USE gets you in and out)
   ['crouch', 'DUCK', B.L3, ['foot'], 'hold', 'sm txt'],
   ['weapon', 'GUN', B.L1, ['foot', 'strip'], 'weapon', 'sm txt'],
   ['use', 'USE', B.UP, ['foot', 'car'], 'hold', 'pill'], // (not in a pickup game: QUIT leaves it)
   ['gas', 'GAS', B.R2, ['car'], 'hold', 'pedal green'],
   ['brake', 'BRAKE', B.L2, ['car'], 'hold', 'pedal'],
   ['hand', 'HAND\nBRAKE', B.R1, ['car'], 'hold', 'mid txt'],
-  ['zin', 'ZOOM +', B.R2, ['map'], 'hold', 'mid txt'],
-  ['zout', 'ZOOM −', B.L2, ['map'], 'hold', 'mid txt'],
-  ['heat', '□', B.SQUARE, ['map'], 'hold', 'sm'],
-  ['up', '▲', B.UP, ['phone', 'menu', 'map', 'strip'], 'hold', 'dp'],
-  ['down', '▼', B.DOWN, ['phone', 'menu', 'map', 'strip'], 'hold', 'dp'],
+  ['up', '▲', B.UP, ['phone', 'menu', 'strip'], 'hold', 'dp'],
+  ['down', '▼', B.DOWN, ['phone', 'menu', 'strip'], 'hold', 'dp'],
   ['left', '◀', B.LEFT, ['phone', 'menu', 'strip'], 'hold', 'dp'],
   ['right', '▶', B.RIGHT, ['phone', 'menu', 'strip'], 'hold', 'dp'],
-  ['pause', '❚❚', B.OPTIONS, ['foot', 'car', 'phone', 'map', 'strip', 'stop', 'ball', 'qb', 'struggle'], 'hold', 'top'],
+  ['pause', '❚❚', B.OPTIONS, ['foot', 'car', 'phone', 'strip', 'stop', 'ball', 'qb', 'struggle'], 'hold', 'top'],
   ['phone', '📱', B.CREATE, ['foot', 'car', 'phone', 'dice'], 'hold', 'top'],
-  ['map', 'MAP', B.TOUCHPAD, ['foot', 'car', 'map'], 'hold', 'top txt'],
+  ['map', 'MAP', B.TOUCHPAD, ['foot', 'car'], 'hold', 'top txt'],
   ['spawn', 'CAR', B.R3, ['foot'], 'hold', 'top txt test'],
   // Quit the pickup game (tap, then tap SURE? to confirm: a stray tap won't forfeit the bet).
   ['quit', 'QUIT', -1, ['ball', 'qb'], 'quit', 'top txt'],
@@ -102,7 +99,6 @@ const HINTS = {
   phone: { cross: 'ok', circle: 'back' },
   menu: { cross: 'buy', circle: 'leave' },
   strip: { cross: 'give', reload: 'drop', weapon: 'close' },
-  map: { cross: 'pin', circle: 'close', tri: 'legend', heat: 'heat' },
   stop: { cross: 'quietly', circle: 'bribe', fight: 'fight' },
   struggle: { cross: 'break free' },
   ball: { bblock: 'block', bd: 'hold' },

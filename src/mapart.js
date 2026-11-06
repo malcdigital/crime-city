@@ -202,7 +202,7 @@ export class MapArt {
   // Labels, on screen (toScreen(x, z) -> [sx, sy]): the districts, the freeways, the streets
   // the zoom allows, the bigger roads first; none over another. taken: boxes already used
   // (icons, other labels): [x0, y0, x1, y1].
-  labels(ctx, s, toScreen, W, H, taken = []) {
+  labels(ctx, s, toScreen, W, H, taken = [], big = 1) {
     const lod = LOD(s);
     const hit = (b) => taken.some((t) => b[0] < t[2] && b[2] > t[0] && b[1] < t[3] && b[3] > t[1]);
     const halo = (text, x, y, font, fill, stroke = 'rgba(10,12,16,.85)', lw = 3) => {
@@ -216,19 +216,25 @@ export class MapArt {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
-    // Districts: big from far off, fading as you come in.
-    const da = lod === 0 ? 0.62 : lod === 1 ? 0.32 : 0;
+    // Districts: in the background (faint, no halo to speak of), big from far off, fading as you
+    // come in; moved up or down off any icon, left out if there's no room.
+    const da = lod === 0 ? 0.42 : lod === 1 ? 0.24 : 0;
     if (da > 0) {
-      const size = Math.round(Math.max(12, Math.min(22, s * 32)));
+      const size = Math.round(Math.max(12, Math.min(22, s * 32)) * big);
       for (const d of DISTRICTS) {
-        const [sx, sy] = toScreen(...districtCenter(d));
-        const t = d.toUpperCase().split('').join(' ');
+        const [cx, cy] = toScreen(...districtCenter(d));
+        const t = d.toUpperCase().split('').join(' ');
         ctx.font = `900 ${size}px Arial`;
         const w = ctx.measureText(t).width;
-        const box = [sx - w / 2, sy - size / 2, sx + w / 2, sy + size / 2];
-        if (sx < -w || sx > W + w || sy < -20 || sy > H + 20) continue;
-        halo(t, sx, sy, `900 ${size}px Arial`, `rgba(235,238,242,${da})`, `rgba(10,12,16,${da * 0.7})`, 4);
-        taken.push(box);
+        if (cx < -w || cx > W + w || cy < -20 || cy > H + 20) continue;
+        for (const dy of [0, -1.2, 1.2, -2.4, 2.4]) {
+          const sy = cy + dy * size;
+          const box = [cx - w / 2, sy - size / 2, cx + w / 2, sy + size / 2];
+          if (hit(box)) continue;
+          halo(t, cx, sy, `900 ${size}px Arial`, `rgba(235,238,242,${da})`, `rgba(10,12,16,${da * 0.45})`, 3);
+          taken.push(box);
+          break;
+        }
       }
     }
     // Freeway names: a shield on each side of the ring, the crosstown at its ends.
@@ -259,7 +265,7 @@ export class MapArt {
     }
     // Street names along the streets, the important ones first, a few times each when there's
     // room, upright, never over anything else.
-    const size = lod >= 2 ? 12 : 11;
+    const size = Math.round((lod >= 2 ? 12 : 11) * big);
     for (const st of this.streetList) {
       if (s < (NAME_AT[st.cls] ?? 1.5)) continue;
       const font = `${st.rank >= 5 ? 800 : 700} ${size}px Arial`;

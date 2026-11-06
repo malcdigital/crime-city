@@ -40,6 +40,9 @@ const BUS_ICON = '<span class="lg-bus"><svg viewBox="0 0 14 14" width="14" heigh
 // A tiny helicopter for the legend.
 const HELI_SVG = '<svg width="18" height="18" viewBox="-10 -10 20 20"><rect x="-0.9" y="2" width="1.8" height="7" fill="#1c2a44" stroke="#fff" stroke-width="1"/><rect x="-2.6" y="7.6" width="5.2" height="1.4" fill="#1c2a44" stroke="#fff" stroke-width="1"/><ellipse cx="0" cy="-0.5" rx="3.6" ry="5" fill="#1c2a44" stroke="#fff" stroke-width="1"/><circle cx="-2.2" cy="1.5" r="1.1" fill="#ff3b3b"/><circle cx="2.2" cy="1.5" r="1.1" fill="#3b7bff"/><path d="M-8 -8L8 8M-8 8L8 -8" stroke="#fff" stroke-width="1.3"/></svg>';
 
+// Quick-find chips along the top: one tap routes to the nearest. [key, name, icon, color]
+const CHIPS = [['gun', 'Gun shop', 'gun', '#c0392b'], ['safe', 'Safehouse', 'safe', '#2c3e50'], ['plug', 'Plug', 'plug', '#6c3483'], ['store', 'Store', '$', '#1f8f4e'], ['bank', 'Bank', 'bank', '#1e8449']];
+
 // The layers you can switch off (in the legend, 1-6 on a keyboard).
 const LAYERS = [['turf', 'Turf (gangs, bases, claims)'], ['shops', 'Shops (guns, garage, chop shop, stores)'], ['business', 'Business (plugs, stash, kingpins)'], ['money', 'Money (banks, ATMs, homes, companies)'], ['transit', 'Bus stops'], ['police', 'Police']];
 
@@ -52,8 +55,15 @@ export class MapView {
     this.el.innerHTML = `
       <canvas></canvas>
       <div class="bm-info"></div>
-      <div class="bm-legend"></div>
+      <div class="bm-legend"><div class="bm-sheet-head"><span>Legend</span><button class="bm-sheet-x" aria-label="Close legend">✕</button></div><div class="bm-legend-list"></div></div>
       <div class="bm-legend-tab">Legend ▸</div>
+      <div class="bm-chips">${CHIPS.map(([k, name, ic, col]) => `<button class="bm-chip" data-k="${k}"><span class="bm-chip-ic" style="background:${col}">${iconSVG(ic, 13) || ic}</span>${name}</button>`).join('')}</div>
+      <div class="bm-corner">
+        <button class="bm-btn bm-close" aria-label="Close map">✕</button>
+        <button class="bm-btn bm-me" aria-label="Center on me"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/></svg></button>
+        <button class="bm-btn bm-leg" aria-label="Legend"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.5" cy="6.5" r="1.3" fill="currentColor"/><circle cx="4.5" cy="12" r="1.3" fill="currentColor"/><circle cx="4.5" cy="17.5" r="1.3" fill="currentColor"/></svg></button>
+      </div>
+      <div class="bm-card hidden"></div>
       <div class="bm-help"></div>`;
     document.body.appendChild(this.el);
     this.canvas = this.el.querySelector('canvas');
@@ -83,6 +93,18 @@ export class MapView {
       this.legendOpen = true;
     }
     this.el.querySelector('.bm-legend-tab').addEventListener('click', () => this.toggleLegend());
+    this.el.querySelector('.bm-sheet-x').addEventListener('click', () => this.legendOpen && this.toggleLegend());
+    this.el.querySelector('.bm-close').addEventListener('click', () => this.hide());
+    this.el.querySelector('.bm-me').addEventListener('click', () => this.recenter());
+    this.el.querySelector('.bm-leg').addEventListener('click', () => this.toggleLegend());
+    this.el.querySelector('.bm-chips').addEventListener('click', (e) => {
+      const b = e.target.closest('.bm-chip');
+      if (b) this.quickFind(b.dataset.k);
+    });
+    this.el.querySelector('.bm-card').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-a]');
+      if (b) this.cardAction(b.dataset.a);
+    });
     this.ctx = this.canvas.getContext('2d');
     this.info = this.el.querySelector('.bm-info');
     this.open = false;
@@ -92,6 +114,7 @@ export class MapView {
     this.canvas.addEventListener('mousedown', (e) => {
       if (this.game.input.touchMode) return; // (touch has its own handling below)
       drag = { x: e.clientX, y: e.clientY, moved: false };
+      this.tween = null;
     });
     addEventListener('mousemove', (e) => {
       if (!this.open || (!e.movementX && !e.movementY)) return;
@@ -101,6 +124,7 @@ export class MapView {
       const dy = e.clientY - drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
       if (drag.moved) {
+        this.tween = null;
         this.cx -= dx / this.scale;
         this.cz -= dy / this.scale;
         drag.x = e.clientX;
@@ -109,10 +133,7 @@ export class MapView {
     });
     addEventListener('mouseup', (e) => {
       if (!this.open || !drag) return;
-      if (!drag.moved) {
-        const [x, z] = this.toWorld(e.clientX, e.clientY);
-        this.toggleWaypoint(x, z);
-      }
+      if (!drag.moved && e.target === this.canvas) this.tapAt(e.clientX, e.clientY, 15);
       drag = null;
     });
     // Hovering a legend row highlights its marker on the map.
@@ -128,7 +149,15 @@ export class MapView {
       if (r && +r.dataset.i >= 0) {
         const e = this.pickable?.[+r.dataset.i];
         if (e?.kind === 'layer') this.toggleLayer(e.key);
-        else this.jumpTo(+r.dataset.i);
+        else if (e?.kind === 'heat') this.cycleHeat();
+        else {
+          this.jumpTo(+r.dataset.i);
+          // (on a phone the sheet covers the map: it slides away and the place's card comes up)
+          if (this.compact && e) {
+            this.toggleLegend();
+            if (e.kind !== 'you') this.openCard(e);
+          }
+        }
       }
     });
     // Touch: drag with one finger to pan, pinch with two to zoom, tap to set a waypoint.
@@ -144,6 +173,7 @@ export class MapView {
     this.canvas.addEventListener('pointermove', (e) => {
       const f = fingers.get(e.pointerId);
       if (!f || !this.open) return;
+      this.tween = null;
       if (fingers.size === 1) {
         this.cx -= (e.clientX - f[0]) / this.scale;
         this.cz -= (e.clientY - f[1]) / this.scale;
@@ -161,9 +191,23 @@ export class MapView {
       fingers.delete(e.pointerId);
       pinch = 0;
       if (tapStart && this.open && Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y) < 10 && e.timeStamp - tapStart.t < 450) {
-        const [x, z] = this.toWorld(e.clientX, e.clientY);
-        this.cursor = [x, z];
-        this.toggleWaypoint(x, z);
+        const x = e.clientX;
+        const y = e.clientY;
+        const last = this.lastTap;
+        if (this.picker) this.tapAt(x, y, 28);
+        else if (last && e.timeStamp - last.t < 320 && Math.hypot(x - last.x, y - last.y) < 40) {
+          // Double-tap: zoom in there (all the way in: back out to the neighborhood).
+          clearTimeout(this.tapTimer);
+          this.lastTap = null;
+          this.doubleTap(x, y);
+        } else {
+          this.lastTap = { x, y, t: e.timeStamp };
+          clearTimeout(this.tapTimer);
+          this.tapTimer = setTimeout(() => {
+            this.lastTap = null;
+            if (this.open) this.tapAt(x, y, 26);
+          }, 260);
+        }
       }
       tapStart = null;
     };
@@ -171,6 +215,7 @@ export class MapView {
     this.canvas.addEventListener('pointercancel', lift);
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
+      this.tween = null;
       this.zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY);
     }, { passive: false });
   }
@@ -179,18 +224,47 @@ export class MapView {
     return Math.min(innerWidth, innerHeight) * 0.9 / (1600 + MARGIN * 2);
   }
 
+  maxScale() {
+    return Math.max(this.fit() * 6, 6);
+  }
+
+  // Neighborhood level: about 300 m across the short side of the screen (street and place names
+  // showing).
+  hood() {
+    return clamp(Math.min(innerWidth, innerHeight) / 300, 1.45, this.maxScale());
+  }
+
+  // Phones, tablets and small windows: the map gets the whole screen (the legend's a sheet that
+  // slides up, three small buttons in the corner).
+  get compact() {
+    return this.game.input.touchMode || innerWidth < 900 || innerHeight < 500;
+  }
+
   show() {
     const game = this.game;
     this.open = true;
     this.el.classList.remove('hidden');
     this.art.buildBuildings(); // (in case any were moved or taken down: city.editBuilding)
     const [px, pz] = game.mapPos();
-    this.cx = 1600 / 2;
-    this.cz = 1600 / 2;
-    this.scale = this.fit();
+    // (open on you, at neighborhood level: pinch / wheel / R2 L2 out for the whole city)
+    this.scale = this.hood();
+    this.cx = px;
+    this.cz = pz;
+    this.tween = null;
     this.cursor = [px, pz]; // cursor starts on you
     this.mouse = null;
+    this.closeCard();
+    this.chip = -1;
     if (game.input.locked) game.input.unlock();
+    this.el.classList.toggle('compact', this.compact);
+    if (this.compact) this.legendOpen = false; // (on a phone the legend waits behind its button)
+    else {
+      try {
+        this.legendOpen = localStorage.getItem('crimecity.legend') !== 'closed';
+      } catch {
+        // Storage unavailable.
+      }
+    }
     this.applyLegend();
     this.setHelp();
     this.legendSel = 0;
@@ -202,17 +276,24 @@ export class MapView {
 
   toggleLegend() {
     this.legendOpen = !this.legendOpen;
-    try {
-      localStorage.setItem('crimecity.legend', this.legendOpen ? 'open' : 'closed');
-    } catch {
-      // Storage unavailable.
-    }
+    if (!this.compact) {
+      try {
+        localStorage.setItem('crimecity.legend', this.legendOpen ? 'open' : 'closed');
+      } catch {
+        // Storage unavailable.
+      }
+    } else if (this.legendOpen) this.closeCard(); // (one sheet at a time)
     this.applyLegend();
     this.setHelp();
   }
 
   applyLegend() {
-    this.el.querySelector('.bm-legend').classList.toggle('hidden', !this.legendOpen);
+    const lg = this.el.querySelector('.bm-legend');
+    // (a phone: the sheet slides up and down; otherwise the panel down the side shows or hides)
+    lg.classList.toggle('sheet', this.compact);
+    lg.classList.toggle('hidden', !this.legendOpen && !this.compact);
+    lg.classList.toggle('shut', !this.legendOpen);
+    this.el.querySelector('.bm-leg').classList.toggle('on', this.legendOpen);
     const tab = this.el.querySelector('.bm-legend-tab');
     tab.textContent = this.legendOpen ? 'Hide legend ▴' : 'Legend ▾';
     tab.classList.toggle('open', this.legendOpen);
@@ -223,20 +304,235 @@ export class MapView {
     if (this.picker) {
       setRich(this.el.querySelector('.bm-help'), pad
         ? 'Pick a bus stop · Left stick: move · D-pad ↑↓: next stop · ✕: ride there · ○: cancel'
-        : this.game.input.touchMode ? 'Pick a bus stop · Tap a stop to ride there · ▲▼: next stop · Drag: move · Pinch: zoom · ○: cancel'
+        : this.game.input.touchMode ? 'Pick a bus stop · Tap a stop to ride there · Drag: move · Pinch: zoom · ✕: cancel'
           : 'Pick a bus stop · Click a stop to ride there · ↑↓: next stop · Drag / WASD: move · Wheel: zoom · Esc: cancel');
       return;
     }
     const heat = this.heat ? `${this.heat} prices` : 'prices';
+    if (this.card) {
+      setRich(this.el.querySelector('.bm-help'), pad ? '✕: waypoint · □: bus · △: taxi · ○: back' : 'Enter: waypoint · B: bus · T: taxi · Esc: back');
+      return;
+    }
     setRich(this.el.querySelector('.bm-help'), pad
-      ? `Left stick: move · D-pad ↑↓: go to a place or a layer (✕ switches it) · △: ${this.legendOpen ? 'hide' : 'show'} legend · □: ${heat} · R2 / L2: zoom · ✕: waypoint · ○: close`
-      : `WASD / drag: move · ↑↓ / legend: go to a place · 1-6: layers · L: ${this.legendOpen ? 'hide' : 'show'} legend · H: ${heat} · Wheel: zoom · Enter / click: waypoint · M / Esc: close`);
+      ? `Left stick: move · D-pad ↑↓: places · ◀▶: nearest shop, plug, bank · △: legend · □: ${heat} · R2 / L2: zoom · R3: you · ✕: options · ○: close`
+      : this.game.input.touchMode ? 'Drag: move · Pinch or double-tap: zoom · Tap a place: options · Tap the map: waypoint'
+        : `WASD / drag: move · ↑↓: places · ←→: nearest shop, plug, bank · 1-6: layers · L: legend · H: ${heat} · C: you · Wheel: zoom · Click: options / waypoint · M: close`);
   }
 
   hide() {
     this.open = false;
     this.picker = null;
+    clearTimeout(this.tapTimer);
+    this.closeCard();
     this.el.classList.add('hidden');
+  }
+
+  // ○ / Esc: the card or the legend sheet first, then the map. True if it closed something.
+  back() {
+    if (this.card) {
+      this.closeCard();
+      return true;
+    }
+    if (this.compact && this.legendOpen) {
+      this.toggleLegend();
+      return true;
+    }
+    return false;
+  }
+
+  // Glide the view to a spot (re-center, double-tap, a quick-find).
+  glide(cx, cz, scale) {
+    // (a fixed third of a second, eased, however fast the frames come)
+    this.tween = { cx, cz, scale: clamp(scale, this.fit(), this.maxScale()), from: [this.cx, this.cz, this.scale], t0: performance.now() };
+  }
+
+  recenter() {
+    const [px, pz] = this.game.mapPos();
+    this.cursor = [px, pz];
+    this.mouse = null;
+    this.glide(px, pz, Math.max(this.scale, this.hood()));
+  }
+
+  doubleTap(sx, sy) {
+    const [wx, wz] = this.toWorld(sx, sy);
+    const max = this.maxScale();
+    const s = this.scale >= max * 0.98 ? this.hood() : Math.min(max, this.scale * 2.2);
+    // (the point tapped stays under your finger)
+    this.glide(wx - (sx - innerWidth / 2) / s, wz - (sy - innerHeight / 2) / s, s);
+  }
+
+  // What's on the map at a point on screen (a finger's reach): a legend entry, or a cluster.
+  hitAt(sx, sy, reach) {
+    let best = null;
+    let bd = reach;
+    for (const m of this.placedMarks || []) {
+      const d = Math.hypot(m.sx - sx, m.sy - sy) - (m.r - 8);
+      if (d < bd) {
+        bd = d;
+        best = m;
+      }
+    }
+    if (best && best.count > 1) return { cluster: best };
+    const want = best ? `${Math.round(best.x)},${Math.round(best.z)}` : null;
+    let hit = null;
+    let hd = reach;
+    for (const e of this.entries || []) {
+      if (e.head || e.x == null || e.kind === 'layer' || e.kind === 'heat' || e.kind === 'you') continue;
+      if (want && `${Math.round(e.x)},${Math.round(e.z)}` === want) return e;
+      const [x, y] = this.toScreen(e.x, e.z);
+      const d = Math.hypot(x - sx, y - sy) + (e.kind === 'swatch' ? 10 : 0);
+      if (d < hd) {
+        hd = d;
+        hit = e;
+      }
+    }
+    return hit;
+  }
+
+  // A tap or click on the map: a place opens its card, a cluster zooms in on it, the open
+  // map drops (or lifts) the waypoint.
+  tapAt(sx, sy, reach) {
+    const [x, z] = this.toWorld(sx, sy);
+    if (this.picker) return this.pickAt(x, z);
+    const hit = this.hitAt(sx, sy, reach);
+    if (hit?.cluster) {
+      const c = hit.cluster;
+      const [wx, wz] = this.toWorld(c.sx, c.sy);
+      this.glide(wx, wz, Math.max(this.scale * 2.5, 1.5));
+      return;
+    }
+    if (hit) {
+      this.cursor = [hit.x, hit.z];
+      this.openCard(hit);
+      return;
+    }
+    if (this.card || (this.compact && this.legendOpen)) {
+      this.back(); // (a tap off the card just puts it away)
+      return;
+    }
+    this.cursor = [x, z];
+    this.toggleWaypoint(x, z);
+  }
+
+  // ---- The place card: what it is, how far, and how to get there ----
+  openCard(e) {
+    if (!e || e.x == null) return;
+    const game = this.game;
+    const [px, pz] = game.mapPos();
+    const route = gpsRoute(game.city, px, pz, e.x, e.z);
+    const m = route ? routeLength(route) : dist(px, pz, e.x, e.z) * 1.3;
+    this.card = { ...e, m };
+    if (this.compact && this.legendOpen) this.toggleLegend();
+    this.renderCard();
+    this.setHelp();
+  }
+
+  closeCard() {
+    if (!this.card) return;
+    this.card = null;
+    this.el.querySelector('.bm-card').classList.add('hidden');
+    this.setHelp();
+  }
+
+  renderCard() {
+    const c = this.card;
+    const game = this.game;
+    const box = this.el.querySelector('.bm-card');
+    const fmtD = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.max(10, Math.round(m / 10) * 10)} m`);
+    const fmtT = (sec) => (sec < 60 ? `${Math.max(5, Math.round(sec / 5) * 5)} s` : `${Math.round(sec / 60)} min`);
+    const icon = c.kind === 'swatch' ? `<span class="bc-ic sq" style="background:${c.color}"></span>`
+      : c.kind === 'text' ? `<span class="bc-ic" style="background:#1d2b1f;color:${c.color}">${c.text}</span>`
+        : c.kind === 'pin' ? '<span class="bc-ic" style="background:#ffd23f;color:#111">★</span>'
+          : c.kind === 'bus' ? `<span class="bc-ic">${BUS_ICON}</span>`
+            : c.kind === 'heli' ? `<span class="bc-ic" style="background:#1c2a44">${HELI_SVG}</span>`
+              : `<span class="bc-ic" style="background:${c.color}">${iconSVG(c.text, 16) || c.text || ''}</span>`;
+    const w = this.waypoint;
+    const pinned = w && dist(w[0], w[1], c.x, c.z) < 3;
+    const pad = game.input.mode === 'pad' && !game.input.touchMode;
+    const kb = !pad && !game.input.touchMode;
+    const k = (p, b) => (pad ? `<i>${p}</i>` : kb ? `<i>${b}</i>` : '');
+    const fare = game.travel?.taxiFare?.(c.x, c.z);
+    const name = c.label.replace(/\s*\((rob it|guns, range|mods, respray|sell cars)\)/, '');
+    box.innerHTML = (`<div class="bc-top">${icon}<div class="bc-name"><div class="bc-t">${name}</div><div class="bc-s">${streetAt(c.x, c.z)} · ${districtAt(c.x, c.z)}</div></div><button class="bc-x" data-a="close" aria-label="Close">✕</button></div>
+      <div class="bc-d"><b>${fmtD(c.m)}</b> · ${fmtT(c.m / 5.5)} on foot · ${fmtT(c.m / 16)} driving</div>
+      <div class="bc-b"><button data-a="pin" class="${pinned ? 'on' : ''}">${k('✕', 'Enter')}${pinned ? 'Clear waypoint' : 'Set waypoint'}</button><button data-a="bus">${k('□', 'B')}Bus · $5</button><button data-a="taxi">${k('△', 'T')}Taxi${fare ? ` · $${fare}` : ''}</button></div>`);
+    box.classList.remove('hidden');
+  }
+
+  cardAction(a) {
+    const c = this.card;
+    if (!c) return;
+    const game = this.game;
+    if (a === 'close') return this.closeCard();
+    if (a === 'pin') {
+      const w = this.waypoint;
+      this.waypoint = w && dist(w[0], w[1], c.x, c.z) < 3 ? null : [c.x, c.z];
+      this.renderCard();
+      return;
+    }
+    const label = c.label.replace(/\s*\(.*\)$/, '').replace(/ · .*$/, '');
+    // (the bus: off to the nearest stop, and on to the one nearest the place; a taxi: called
+    // to the curb, and off you go)
+    const ok = a === 'bus' ? game.travel.busTo(c.x, c.z, label) : game.travel.taxiTo(c.x, c.z, label);
+    if (ok) this.hide();
+  }
+
+  // Quick-find (the chips along the top; ◀▶ / ←→): the nearest one, routed and framed with you.
+  nearest(k) {
+    const game = this.game;
+    const [px, pz] = game.mapPos();
+    const S = game.shops;
+    const best = (list, f) => [...list].filter(f || (() => true)).sort((a, b) => dist(a.x, a.z, px, pz) - dist(b.x, b.z, px, pz))[0];
+    if (k === 'gun') {
+      const g = best(S.gunShops);
+      return g && { kind: 'blip', color: g.color, text: 'gun', label: `${g.name} (guns, range)`, x: g.x, z: g.z };
+    }
+    if (k === 'safe') return { kind: 'blip', color: S.safehouse ? '#2c3e50' : '#7f8c8d', text: 'safe', label: S.safehouse ? 'Your safehouse' : 'Safehouse (for sale)', x: S.safe.x, z: S.safe.z };
+    if (k === 'plug') {
+      const p = best(game.drugs.plugs, (q) => !q.dead);
+      return p && { kind: 'blip', color: '#6c3483', text: 'plug', label: `Plug: ${p.name} (${p.product})`, x: p.x, z: p.z };
+    }
+    if (k === 'store') {
+      const st = best(game.city.stores, (q) => !(q.cooldown > 0)) || best(game.city.stores);
+      return st && { kind: 'text', color: st.cooldown > 0 ? '#777' : '#2ecc71', text: '$', label: `${st.name}${st.cooldown > 0 ? ' · robbed' : ''}`, x: st.x, z: st.z };
+    }
+    if (k === 'bank') {
+      const b = best(game.bank.banks || []);
+      const open = game.bank.open();
+      return b && { kind: 'blip', color: open ? '#1e8449' : '#566573', text: 'bank', label: `${b.name} (${open ? 'open' : 'closed'})`, x: b.x, z: b.z };
+    }
+    return null;
+  }
+
+  quickFind(k) {
+    const e = this.nearest(k);
+    if (!e) {
+      this.game.hud.toast('None on the map right now', '#9fc3ff');
+      return;
+    }
+    this.chip = CHIPS.findIndex((c) => c[0] === k);
+    this.el.querySelectorAll('.bm-chip').forEach((b, i) => b.classList.toggle('on', i === this.chip));
+    this.waypoint = [e.x, e.z];
+    this.cursor = [e.x, e.z];
+    this.mouse = null;
+    this.openCard(e);
+    // (frame you and it, clear of the chips up top and the card below)
+    const [px, pz] = this.game.mapPos();
+    // (top: the chips and the waypoint's distance tag over the pin; bottom: the card)
+    const card = this.el.querySelector('.bm-card');
+    const top = 96;
+    const bottom = (card.offsetHeight || 130) + (this.compact ? 20 : 64);
+    const room = Math.max(70, innerHeight - top - bottom);
+    const s = Math.min((innerWidth - 140) / Math.max(40, Math.abs(e.x - px)), room / Math.max(40, Math.abs(e.z - pz)), this.hood() * 1.3);
+    const sc = clamp(s, this.fit(), this.maxScale());
+    this.glide((px + e.x) / 2, (pz + e.z) / 2 + (bottom - top) / 2 / sc, sc);
+  }
+
+  cycleHeat() {
+    const order = [null, 'weed', 'pills', 'coke'];
+    this.heat = order[(order.indexOf(this.heat || null) + 1) % order.length];
+    this.legendHtml = '';
+    this.setHelp();
   }
 
   // Everything on the map, grouped. Each entry has a place: picking it in the legend (D-pad
@@ -253,6 +549,7 @@ export class MapView {
     const add = (kind, color, text, label, x, z) => out.push({ kind, color, text, label, x, z });
     head('Layers');
     for (const [k, name] of LAYERS) out.push({ kind: 'layer', key: k, on: this.layers[k], label: name, x: null, z: null });
+    out.push({ kind: 'heat', label: `Drug prices: ${this.heat ? `${this.heat} (tap for the next)` : 'off'}`, x: null, z: null });
     head('You');
     add('you', '#fff', '➤', 'You', px, pz);
     if (this.waypoint) add('pin', '#ffd23f', '', 'Waypoint', ...this.waypoint);
@@ -309,7 +606,7 @@ export class MapView {
 
   legend() {
     const entries = this.legendEntries();
-    const pickable = entries.filter((e) => !e.head && (e.x !== null || e.kind === 'layer'));
+    const pickable = entries.filter((e) => !e.head && (e.x !== null || e.kind === 'layer' || e.kind === 'heat'));
     this.entries = entries;
     this.legendSel = Math.min(this.legendSel ?? 0, pickable.length - 1);
     const sel = pickable[this.legendSel];
@@ -322,16 +619,17 @@ export class MapView {
       if (e.kind === 'bus') return BUS_ICON;
       if (e.kind === 'you') return '<span class="lg-you">▲</span>';
       if (e.kind === 'layer') return `<span class="lg-chk${e.on ? ' on' : ''}">${e.on ? '✓' : ''}</span>`;
+      if (e.kind === 'heat') return `<span class="lg-heat${this.heat ? ' on' : ''}"></span>`;
       return `<span class="lg-bl" style="background:${e.color}">${iconSVG(e.text, 12) || e.text}</span>`;
     };
     const html = entries.map((e) => {
       if (e.head) return `<div class="lg-head">${e.head}</div>`;
       const i = pickable.indexOf(e);
-      return `<div class="lg-row${e === sel && this.legendActive ? ' sel' : ''}${i < 0 ? ' off' : ''}${e.kind === 'layer' ? ` layer${e.on ? '' : ' hid'}` : ''}" data-i="${i}">${icon(e)}<span class="lg-l">${e.label}</span></div>`;
+      return `<div class="lg-row${e === sel && this.legendActive ? ' sel' : ''}${i < 0 ? ' off' : ''}${e.kind === 'layer' ? ` layer${e.on ? '' : ' hid'}` : ''}${e.kind === 'heat' ? ' layer' : ''}" data-i="${i}">${icon(e)}<span class="lg-l">${e.label}</span></div>`;
     }).join('');
     if (html !== this.legendHtml) {
       this.legendHtml = html;
-      const box = this.el.querySelector('.bm-legend');
+      const box = this.el.querySelector('.bm-legend-list');
       box.innerHTML = html;
       box.querySelector('.lg-row.sel')?.scrollIntoView({ block: 'nearest' });
     }
@@ -413,7 +711,7 @@ export class MapView {
 
   zoomAt(f, sx, sy) {
     const [wx, wz] = this.toWorld(sx, sy);
-    this.scale = clamp(this.scale * f, this.fit(), Math.max(this.fit() * 6, 6)); // (close enough for every building)
+    this.scale = clamp(this.scale * f, this.fit(), this.maxScale()); // (close enough for every building)
     // Keep the point under the mouse where it was.
     this.cx = wx - (sx - innerWidth / 2) / this.scale;
     this.cz = wz - (sy - innerHeight / 2) / this.scale;
@@ -467,6 +765,36 @@ export class MapView {
 
   update(dt, a) {
     const game = this.game;
+    if (this.tween) {
+      const t = this.tween;
+      const u = Math.min(1, (performance.now() - t.t0) / 350);
+      const k = 1 - (1 - u) ** 3;
+      const [fx, fz, fs] = t.from;
+      this.scale = fs * Math.exp(Math.log(t.scale / fs) * k);
+      this.cx = fx + (t.cx - fx) * k;
+      this.cz = fz + (t.cz - fz) * k;
+      if (u >= 1) this.tween = null;
+    }
+    if (this.el.classList.contains('compact') !== this.compact) {
+      // (the window changed size, or touch came in: the other layout)
+      this.el.classList.toggle('compact', this.compact);
+      if (this.compact) this.legendOpen = false; // (the sheet starts shut)
+      this.applyLegend();
+      this.setHelp();
+    }
+    // The place card's buttons: ✕ / Enter waypoint, □ / B the bus, △ / T a taxi.
+    if (this.card) {
+      if (a.mapWaypoint) return this.cardAction('pin'), this.draw();
+      if (game.input.hit?.('KeyB') || (a.mapHeat && !game.input.hit?.('KeyH'))) return this.cardAction('bus'), this.open && this.draw();
+      if (game.input.hit?.('KeyT') || (a.mapLegend && !game.input.hit?.('KeyL'))) return this.cardAction('taxi'), this.open && this.draw();
+    }
+    // ◀ ▶ / ← →: the quick-find chips, in turn.
+    if (!this.picker && (a.phoneLeft || a.phoneRight)) {
+      const n = CHIPS.length;
+      const i = this.chip < 0 ? (a.phoneRight ? 0 : n - 1) : (this.chip + (a.phoneRight ? 1 : -1) + n) % n;
+      this.quickFind(CHIPS[i][0]);
+    }
+    if (game.input.hit?.('KeyC') || game.input.btnHit?.(11)) this.recenter(); // (C / R3: back to you)
     // Cursor: the stick (or WASD) moves it; the view follows when it nears the edge.
     if (this.mouse && game.input.mode !== 'pad') this.cursor = this.toWorld(...this.mouse);
     // The legend: step through the places on the map; the cursor jumps to each.
@@ -488,6 +816,7 @@ export class MapView {
     const my = -(a.moveY - (a.arrowY || 0)); // arrow keys are for the legend here
     if (mx || my) {
       this.mouse = null;
+      this.tween = null;
       this.legendActive = false;
       const sp = 520 / this.scale; // screen pixels per second, in world units
       this.cursor[0] = clamp(this.cursor[0] + mx * sp * dt, -MARGIN, 1600 + MARGIN);
@@ -501,16 +830,20 @@ export class MapView {
     }
     if (a.mapLegend) this.toggleLegend();
     // □ / H: cycle the drug price heat map (off → weed → pills → coke).
-    if (a.mapHeat) {
-      const order = [null, 'weed', 'pills', 'coke'];
-      this.heat = order[(order.indexOf(this.heat || null) + 1) % order.length];
-      this.setHelp();
-    }
+    if (a.mapHeat) this.cycleHeat();
     const zoom = game.input.btnVal(7) - game.input.btnVal(6);
-    if (Math.abs(zoom) > 0.1) this.zoomAt(Math.exp(zoom * dt * 2), ...this.toScreen(...this.cursor));
-    const selLayer = this.legendActive && this.pickable?.[this.legendSel]?.kind === 'layer' ? this.pickable[this.legendSel] : null;
+    if (Math.abs(zoom) > 0.1) {
+      this.tween = null;
+      this.zoomAt(Math.exp(zoom * dt * 2), ...this.toScreen(...this.cursor));
+    }
+    const selK = this.legendActive && this.pickable?.[this.legendSel]?.kind;
+    const selLayer = selK === 'layer' || selK === 'heat' ? this.pickable[this.legendSel] : null;
     if (a.mapWaypoint) {
-      if (selLayer) this.toggleLayer(selLayer.key);
+      if (selLayer) {
+        if (selLayer.kind === 'heat') this.cycleHeat();
+        else this.toggleLayer(selLayer.key);
+      } else if (this.picker) this.toggleWaypoint(...this.cursor);
+      else if (this.hovered && this.hovered.kind !== 'you' && this.hovered.x != null) this.openCard(this.hovered); // (✕ on a place: its card)
       else this.toggleWaypoint(...this.cursor);
     }
     LAYERS.forEach(([k], i) => game.input.hit?.(`Digit${i + 1}`) && this.toggleLayer(k));
@@ -665,6 +998,7 @@ export class MapView {
     }
     if (!this.picker && L.transit && lod >= 1) for (const st of game.transit.shelters()) drawBusStop(ctx, ...this.toScreen(st.sx, st.sz), lod >= 2 ? 8 : 6);
     // (the markers, a count on the merged ones; their names close up)
+    this.placedMarks = placed;
     const taken = [];
     for (const m of placed) {
       ctx.fillStyle = m.color;
@@ -699,11 +1033,12 @@ export class MapView {
     }
     if (lod >= 2) {
       ctx.textAlign = 'left';
+      const fs = this.game.input.touchMode ? 13 : 11; // (bigger on a phone)
       for (const m of placed) {
         if (!m.name) continue;
-        ctx.font = '700 11px Arial';
+        ctx.font = `700 ${fs}px Arial`;
         const w = ctx.measureText(m.name).width;
-        const box = [m.sx + m.r + 3, m.sy - 8, m.sx + m.r + 7 + w, m.sy + 8];
+        const box = [m.sx + m.r + 3, m.sy - fs * 0.75, m.sx + m.r + 7 + w, m.sy + fs * 0.75];
         if (taken.some((t) => box[0] < t[2] && box[2] > t[0] && box[1] < t[3] && box[3] > t[1])) continue;
         ctx.lineWidth = 3;
         ctx.strokeStyle = 'rgba(10,12,16,.9)';
@@ -715,7 +1050,7 @@ export class MapView {
       ctx.textAlign = 'center';
     }
     // Street, freeway and district names, round everything above (mapart.js).
-    if (!heat) this.art.labels(ctx, s, (x, z) => this.toScreen(x, z), innerWidth, innerHeight, taken);
+    if (!heat) this.art.labels(ctx, s, (x, z) => this.toScreen(x, z), innerWidth, innerHeight, taken, this.game.input.touchMode ? 1.2 : 1);
     // Moving things: your crew, the cops, the gangs chasing you.
     for (const m of game.crew.following) if (m.alive && m.state !== 'inCar') dot(m.x, m.z, 4, '#7ee081');
     const flash = Math.floor(performance.now() / 250) % 2 === 0;
@@ -815,8 +1150,8 @@ export class MapView {
       }
       drawHeli(ctx, hx, hy, Math.PI - heli.heading, Math.max(1.5, Math.min(2.4, this.scale * 2)));
     }
-    // Cursor.
-    {
+    // Cursor (not on a touch screen: you point with your finger).
+    if (!this.game.input.touchMode) {
       const [sx, sy] = this.toScreen(...this.cursor);
       ctx.strokeStyle = '#fff';
       ctx.lineWidth = 2;
@@ -832,7 +1167,16 @@ export class MapView {
       ctx.lineTo(sx, sy + 16);
       ctx.stroke();
     }
-    this.drawCompass(ctx);
+    if (this.card) {
+      const [sx, sy] = this.toScreen(this.card.x, this.card.z);
+      const pulse = 19 + Math.sin(performance.now() / 180) * 2;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(sx, sy, pulse, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (!(this.compact && this.card)) this.drawCompass(ctx);
     if (heat) {
       const base = { weed: 40, pills: 85, coke: 190 }[this.heat];
       ctx.font = 'bold 15px Arial';
@@ -851,17 +1195,18 @@ export class MapView {
     this.info.innerHTML = this.blockInfo(hb);
     this.legend();
     if (this.picker) this.drawPicker(ctx);
-    else this.drawHover(ctx);
+    else if (!this.game.input.touchMode || this.card) this.drawHover(ctx);
+    this.info.classList.toggle('hidden', !!(this.compact && (this.card || this.legendOpen)));
   }
 
   // North (up the map) and a scale bar, down in the corner.
   drawCompass(ctx) {
     const touch = this.game.input.touchMode;
     // (down in the corner; up by the legend's tab when the legend's down the left side)
-    const lr = this.legendOpen ? this.el.querySelector('.bm-legend').getBoundingClientRect() : null;
+    const lr = this.legendOpen && !this.compact ? this.el.querySelector('.bm-legend').getBoundingClientRect() : null;
     const top = lr && lr.left < 120 && lr.width > 0;
     const x = top ? 136 : 34;
-    const y = top ? 31 : innerHeight - (touch ? 96 : 70);
+    const y = top ? 31 : innerHeight - (this.compact ? (touch ? 34 : 64) : touch ? 96 : 70);
     ctx.save();
     if (top) {
       ctx.translate(x, y);
@@ -974,6 +1319,7 @@ export class MapView {
     const entries = (this.entries || []).filter((e) => !e.head && e.x != null);
     let hit = null;
     if (this.rowHover != null && this.pickable && this.pickable[this.rowHover]) hit = this.pickable[this.rowHover];
+    else if (this.card) hit = this.card;
     else {
       const [mx, my] = this.mouse || this.toScreen(...this.cursor);
       let best = 15;
@@ -1012,7 +1358,7 @@ export class MapView {
     ctx.font = '600 13px Arial';
     const w = ctx.measureText(hit.label).width + 18;
     const bx = Math.max(8, Math.min(innerWidth - w - 8, sx - w / 2));
-    const by = sy - r - 34 < 8 ? sy + r + 8 : sy - r - 34;
+    const by = sy - r - 34 < 56 ? sy + r + 8 : sy - r - 34; // (not up under the chips)
     ctx.fillStyle = 'rgba(10,12,16,.92)';
     ctx.beginPath();
     ctx.roundRect ? ctx.roundRect(bx, by, w, 26, 6) : ctx.rect(bx, by, w, 26);

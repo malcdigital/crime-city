@@ -133,12 +133,65 @@ export class Travel {
     };
   }
 
+  // ---- From the map's place card ----
+  // What a taxi from here to there costs.
+  taxiFare(x, z) {
+    const [px, pz] = this.game.player.pos();
+    return TAXI_BASE + TAXI_PER_BLOCK * Math.max(1, Math.round(trip(px, pz, x, z) / BLOCK));
+  }
+
+  // Hail a taxi: one pulls up at the curb by you and takes you there. True if you're off.
+  taxiTo(x, z, label) {
+    const game = this.game;
+    const p = game.player;
+    const [px, pz] = p.pos();
+    if (this.ride) return false;
+    if (p.vehicle) return game.hud.toast('Get out of the car first', '#ff8080'), false;
+    if (game.storeRooms?.inside || game.interiors?.inside) return game.hud.toast('Step outside first', '#ff8080'), false;
+    if (dist(x, z, px, pz) < 60) return game.hud.toast("You're already here", '#9fc3ff'), false;
+    if (this.refuse('taxi')) return false;
+    const fare = this.taxiFare(x, z);
+    if (!game.bank.pay(fare)) return game.hud.toast(`You need ${money(fare)} for the taxi`, '#ff8080'), false;
+    game.sfx.cash?.();
+    const d = this.dropPoint(px, pz);
+    const car = d.from && d.to ? this.spawnAt('taxi', d.cx, d.cz, d.heading, undefined, d.from, d.to) : null;
+    this.start('taxi', x, z, fare, label, car);
+    return true;
+  }
+
+  // Take the bus: the waypoint goes on the stop nearest you, and that stop's list puts the one
+  // nearest the place first (then the waypoint moves on to the place when you get off).
+  busTo(x, z, label) {
+    const game = this.game;
+    const [px, pz] = game.player.pos();
+    const stops = game.transit?.stops || [];
+    if (!stops.length || this.ride) return false;
+    if (this.refuse('bus')) return false;
+    const near = (ax, az) => stops.reduce((b, s) => (dist(s.wx, s.wz, ax, az) < dist(b.wx, b.wz, ax, az) ? s : b));
+    const from = near(px, pz);
+    const to = near(x, z);
+    if (from === to || trip(px, pz, x, z) < 300) return game.hud.toast("It's close: walk it", '#9fc3ff'), false;
+    this.busGoal = { stop: to, x, z, label };
+    // (at the stop already: straight to the list)
+    if (!game.player.vehicle && dist(px, pz, from.wx, from.wz) < 6) {
+      game.mapView.hide();
+      this.busMenu(from);
+      return true;
+    }
+    game.mapView.waypoint = [from.wx, from.wz];
+    game.hud.toast(`Bus: walk to the stop on ${streetAt(from.sx, from.sz)} (waypoint), then ride to ${streetAt(to.sx, to.sz)}`, '#9fc3ff');
+    return true;
+  }
+
   // ---- Bus ----
   busMenu(from) {
     const game = this.game;
     const wp = game.mapView.waypoint;
     const stops = game.transit.stops.filter((s) => s !== from);
-    if (wp) stops.sort((a, b) => dist(a.sx, a.sz, wp[0], wp[1]) - dist(b.sx, b.sz, wp[0], wp[1]));
+    // (headed somewhere from the map: the stop nearest it first; else the one nearest the waypoint)
+    const goal = this.busGoal && this.busGoal.stop !== from ? this.busGoal : null;
+    const aim = goal ? [goal.x, goal.z] : wp;
+    if (aim) stops.sort((a, b) => dist(a.sx, a.sz, aim[0], aim[1]) - dist(b.sx, b.sz, aim[0], aim[1]));
     const go = (s) => this.start('bus', s.wx, s.wz, BUS_FARE, this.stopName(s), null, s, from);
     const list = () => [{
       label: 'Pick a stop on the map', price: 0, priceText: 'Map ›',
@@ -161,9 +214,9 @@ export class Travel {
         });
       },
     }, ...stops.map((s, k) => ({
-      label: `${wp && k === 0 ? '★ ' : ''}Route ${s.route.name} · ${this.stopName(s)}`,
+      label: `${aim && k === 0 ? '★ ' : ''}Route ${s.route.name} · ${this.stopName(s)}`,
       price: BUS_FARE,
-      detail: `${wp && k === 0 ? 'Closest stop to your waypoint · ' : ''}about ${this.minutes(s.sx, s.sz, BUS_SPEED)} min`,
+      detail: `${aim && k === 0 ? (goal ? `Closest stop to ${goal.label} · ` : 'Closest stop to your waypoint · ') : ''}about ${this.minutes(s.sx, s.sz, BUS_SPEED)} min`,
       can: true,
       buy: () => {
         game.shops.close();
@@ -301,6 +354,10 @@ export class Travel {
       pz = s.wz;
       r.car2 = this.spawnAt('bus', s.x, s.z, Math.atan2(s.ux, s.uz), s.route.color, s.from, s.to);
       r.cam = [s.x, s.z, Math.atan2(s.ux, s.uz), s.px, s.pz];
+      // (headed somewhere from the map: the waypoint moves on to it for the walk from here)
+      const g = this.busGoal;
+      if (g && g.stop === s) game.mapView.waypoint = [g.x, g.z];
+      this.busGoal = null;
     } else {
       px = drop.px;
       pz = drop.pz;
