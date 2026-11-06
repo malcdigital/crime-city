@@ -2380,6 +2380,11 @@ class Game {
         shoulder = 0.45;
         fov = this.arsenal.current().scope || 56; // (the hunting rifle's scope: zoomed in)
       }
+      // Inside a store or a gun shop: in close (the rooms are small, and the ceiling's low).
+      if (this.storeRooms?.inside || this.interiors?.inside) {
+        distBack = Math.min(distBack, this.aimingNow ? 2.3 : 3.0);
+        height = Math.min(height, this.aimingNow ? 0.4 : 0.75);
+      }
       // Camera over the shoulder of the gun hand (left when peeking left out of cover).
       if (this.player.gunHand === 'L') shoulder = -Math.max(shoulder, 0.35);
       else if (this.player.cover && !this.aimingNow) shoulder = 0.35;

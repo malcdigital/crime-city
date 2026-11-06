@@ -4,7 +4,7 @@ import { aimPose, flinchPose } from './combatpose.js';
 import { STORE_H } from './city.js';
 import { DoorSet, doorLeaf } from './doors.js';
 import { navStep } from './nav.js';
-import { pushCircle } from './collision.js';
+import { pushCircle, segmentBlocked } from './collision.js';
 import { dist, pick, rand, lerpAngle } from './util.js';
 import { signTexture } from './shops.js';
 import { Robbery, STORE_GUNS } from './robbery.js';
@@ -27,10 +27,13 @@ import { Robbery, STORE_GUNS } from './robbery.js';
 const H = 3.6; // (the ceiling)
 const JOINTS = ['spine', 'chest', 'neck', 'armL', 'armR', 'elbowL', 'elbowR', 'wristL', 'wristR', 'legL', 'legR', 'kneeL', 'kneeR'];
 const _v = new THREE.Vector3();
+const _fr = new THREE.Frustum();
+const _m4 = new THREE.Matrix4();
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const SEE = 80; // (closer than this: the room's drawn)
-const PEOPLE = 70; // (closer than this: the clerk and the customers are there)
+const PEOPLE = 70; // (closer than this: customers come and go)
+const STAFF = 160; // (closer than this: the clerk (and the guard) are at work)
 const KINDS = {
   'Corner 24/7': 'mart', 'Quick Mart': 'mart', 'Gas & Go': 'mart', 'Hilltop Market': 'market',
   'Liquor Barn': 'liquor', 'Night Owl Liquor': 'liquor', 'Late Nite Deli': 'deli', 'Pawn King': 'pawn',
@@ -279,7 +282,9 @@ export class StoreRooms {
         // (below the opening: a window's sill wall; under a doorway just the foundation, which
         // you walk over)
         piece(h0, h1, opts.low ?? 0, y0, y0 > 0 ? opts : { ...opts, solid: false, stops: false });
-        piece(h0, h1, y1, STORE_H, y0 > 0 || !opts.solid ? opts : { ...opts, solid: false, stops: true });
+        // (over a window: wall; over a doorway, the lintel: nothing to stop on, since sight
+        // lines (city.los) are flat and it would close the doorway to anyone finding a way in)
+        piece(h0, h1, y1, STORE_H, y0 > 0 || !opts.solid ? opts : { ...opts, solid: false, stops: false });
         at = h1;
       }
       piece(at, a1, opts.low ?? 0, STORE_H);
@@ -612,33 +617,87 @@ export class StoreRooms {
   // far off, gone (they come back when you do).
   people(r, dp, dt) {
     const game = this.game;
-    const here = dp < PEOPLE;
-    if (!here) {
-      if (dp > PEOPLE + 30) this.clearPeople(r);
+    // (the staff are there from well off, so nobody pops in behind the counter as you walk up)
+    if (dp > STAFF + 30) {
+      this.clearPeople(r);
       return;
     }
+    if (dp > STAFF) return;
     if (!r.clerk || r.clerk.removed) {
-      if (r.clerkGone && game.time < r.clerkGone) return; // (shot or hurt: nobody at the counter for a while)
-      r.clerk = this.addPerson(r, 'clerk', r.clerkSpot.x, r.clerkSpot.z);
+      if (!(r.clerkGone && game.time < r.clerkGone)) r.clerk = this.addPerson(r, 'clerk', r.clerkSpot.x, r.clerkSpot.z); // (shot or hurt: nobody at the counter for a while)
     }
     if (r.kind === 'market' && (!r.guard || r.guard.removed) && !(r.guardGone && game.time < r.guardGone)) r.guard = this.addPerson(r, 'guard', -2.2, 1.6);
     r.customers = r.customers.filter((c) => !c.removed && c.inStore);
-    if (r.rob) return;
+    if (r.rob || dp > PEOPLE) return;
     // (customers: a few at a time, fewer late at night)
     r.custT = (r.custT ?? rand(0, 4)) - dt;
     if (r.custT > 0) return;
-    r.custT = rand(8, 20);
+    r.custT = rand(6, 16);
     const m = game.clockMinutes?.() ?? 720;
     const late = m < 6 * 60 || m > 23 * 60;
     const [lo, hi] = CUSTOMERS[r.kind];
     const want = Math.max(0, Math.round(rand(lo, hi + 0.99) - (late ? 1 : 0)));
     if (r.customers.length >= Math.min(hi, want)) return;
-    // (one walks in the door; when you're not around, they're just in there)
-    const inside = dp > 25 || this.inside !== r;
-    const [sx, sz] = inside ? pick(r.browse) : r.outside;
-    const c = this.addPerson(r, 'customer', sx, sz);
-    c.ss = 'browse';
+    if (dp > 45) {
+      // (you're nowhere near: someone's just in there shopping)
+      const [sx, sz] = pick(r.browse);
+      const c = this.addPerson(r, 'customer', sx, sz);
+      c.ss = 'browse';
+      r.customers.push(c);
+      return;
+    }
+    // (you're close: nobody appears out of thin air; someone walking by turns in at the door)
+    const [dx, dz] = this.world(r, ...r.outside);
+    let best = null;
+    let bd = 16;
+    for (const q of game.peds.peds) {
+      if (q.inStore || q.keep || q.kid || q.shopkeeper || q.isPlug || q.loot || q.state !== 'walk' || q.removed) continue;
+      const d = dist(q.x, q.z, dx, dz);
+      if (d < bd && d > 2) {
+        bd = d;
+        best = q;
+      }
+    }
+    if (best) return this.recruit(r, best);
+    // (nobody passing: someone comes along the sidewalk from out of sight, round a corner or
+    // behind you, and heads for the door)
+    const cam = game.camera;
+    cam.updateMatrixWorld();
+    _fr.setFromProjectionMatrix(_m4.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+    const spots = [];
+    for (const side of [-1, 1]) {
+      for (let k = 4; k <= 18; k += 2) {
+        // (along the sidewalk out front, past the end of the building)
+        const lx = side * (r.w / 2 + k);
+        const lz = r.outside[1] - 0.6;
+        const [x, z] = this.world(r, lx, lz);
+        if (pushCircle(x, z, 0.4, game.city.colliders).hit) continue;
+        const y = game.city.groundY(x, z) + 1;
+        const seen = _fr.containsPoint(_v.set(x, y, z)) && !segmentBlocked(cam.position.x, cam.position.z, x, z, game.city.los);
+        if (!seen) spots.push([x, z]);
+      }
+    }
+    if (!spots.length) return;
+    const q = pick(spots);
+    const [lx, lz] = this.local(r, q[0], q[1]);
+    const c = this.addPerson(r, 'customer', lx, lz);
+    c.ss = 'enter';
     r.customers.push(c);
+  }
+
+  // Someone on the street goes in to shop.
+  recruit(r, p) {
+    p.keep = true;
+    p.sidewalk = false;
+    p.state = 'store';
+    p.ss = 'enter';
+    p.storeRole = 'customer';
+    p.room = r;
+    p.nerve = Math.random();
+    p.browseT = rand(2, 6);
+    p.spot = null;
+    p.inStore = { step: (q, dt) => this.stepPerson(r, q, dt), scare: (q, fx, fz, gun) => this.scarePerson(r, q, fx, fz, gun) };
+    r.customers.push(p);
   }
 
   addPerson(r, role, lx, lz) {
@@ -717,7 +776,7 @@ export class StoreRooms {
       p.walkBest = d;
       p.walkStall = 0;
     } else p.walkStall += dt;
-    if (d < 0.3 || (d < 1.6 && p.walkStall > 0.8) || p.walkStall > 3) {
+    if (d < 0.3 || (d < 1.6 && p.walkStall > 0.8)) {
       p.speed = 0;
       return true;
     }
@@ -838,12 +897,24 @@ export class StoreRooms {
 
   // Shopping: from shelf to shelf, a look at each, now and then up to the counter, then out.
   customerIdle(r, p, dt) {
+    if (p.ss === 'enter') {
+      // (in off the street: along the sidewalk to the door, through it, then off to the
+      // shelves; held up for good on the way, they think better of it and walk on)
+      const [ox, oz] = this.world(r, ...r.outside);
+      p.sidewalk = dist(p.x, p.z, ox, oz) > 5;
+      if (this.route(r, p, 'enter', [r.outside, [0, 1.6]], p.walkSpeed, dt)) {
+        p.sidewalk = false;
+        p.ss = 'browse';
+      } else if (p.walkStall > 4) this.release(r, p);
+      return null;
+    }
     if (p.ss === 'leave') {
       const [ox, oz] = r.outside;
       if (this.walk(r, p, ox, oz, p.walkSpeed, dt)) this.release(r, p);
       return null;
     }
     if (p.ss === 'browse') {
+      if (p.walkStall > 4) p.spot = this.pickSpot(r, p); // (can't get there: another shelf)
       p.spot ??= this.pickSpot(r, p);
       if (this.walk(r, p, p.spot[0], p.spot[1], p.walkSpeed, dt)) {
         p.ss = 'look';
