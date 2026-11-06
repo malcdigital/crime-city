@@ -8,6 +8,7 @@ import { pushCircle, segmentBlocked } from './collision.js';
 import { dist, pick, rand, lerpAngle } from './util.js';
 import { signTexture } from './shops.js';
 import { Robbery, STORE_GUNS } from './robbery.js';
+import { decorate, GLOW_MATS } from './storedecor.js';
 
 // The stores you can rob (districts.js STORES), each a one-storey building you walk into
 // (city.js leaves it hollow: city.storeHollows). Built here like the gun shops (interiors.js):
@@ -322,9 +323,9 @@ export class StoreRooms {
     box(hw - 0.02, hw, 0, H, 0.2, zb, inner);
     box(-hw, hw, 0, H, zb - 0.02, zb, inner);
     // (the floor, the ceiling and its lights, the threshold, the mat)
-    box(-hw, hw, -1.2, 0.02, 0.1, zb, floorC);
+    r.floorMesh = box(-hw, hw, -1.2, 0.02, 0.1, zb, floorC);
     box(-0.9, 0.9, -0.1, 0.02, -0.1, 0.2, trim);
-    box(-hw, hw, H, H + 0.08, 0.1, zb, 0xdedad2);
+    r.ceilMesh = box(-hw, hw, H, H + 0.08, 0.1, zb, 0xdedad2);
     box(-0.8, 0.8, 0.02, 0.035, 0.4, 1.4, 0x3a3f46);
     const glow = new THREE.MeshBasicMaterial({ color: kind === 'liquor' || kind === 'pawn' ? 0xffe6b0 : 0xf4fbff });
     for (let z = 2.2; z < zb - 0.5; z += 3.4) for (let x = -hw + 2; x < hw - 1; x += 4) box(x - 0.6, x + 0.6, H - 0.04, H - 0.01, z - 0.2, z + 0.2, glow);
@@ -441,8 +442,8 @@ export class StoreRooms {
     if (kind === 'mart' || kind === 'market' || kind === 'deli') {
       // The counter by the door on the right, the clerk behind it facing the aisles; the
       // cigarettes on the wall behind him; the back room behind that.
-      const cx0 = hw - 3.0;
-      const z1 = kind === 'deli' ? 4.6 : 5.4;
+      const cx0 = (r.counterX0 = hw - 3.0);
+      const z1 = (r.counterZ1 = kind === 'deli' ? 4.6 : 5.4);
       counterAlongZ(cx0, cx0 + 0.8, 1.4, z1);
       register(cx0 + 0.4, 2.3);
       r.clerkSpot = { x: hw - 1.3, z: 3.2, face: [-1, 0] };
@@ -455,6 +456,8 @@ export class StoreRooms {
       const xs = kind === 'market' ? [-hw + 2.4, -hw + 5.0, -hw + 7.6].filter((x) => x < cx0 - 1.6) : [-hw + 2.6, -hw + 5.4].filter((x) => x < cx0 - 1.6);
       const aisleEnd = kind === 'deli' ? zb - 3.6 : zb - 2.4;
       for (const x of xs) unit(x, 3.0, aisleEnd);
+      r.aisleXs = xs;
+      r.aisleZ = [3.0, aisleEnd];
       coolers(-hw, BR.x0 - 0.2, zb - 0.75, zb, 0);
       coolers(-hw, -hw + 0.75, 1.6, zb - 1.0, 1);
       if (kind === 'deli') {
@@ -488,8 +491,8 @@ export class StoreRooms {
       // The booth: bulletproof glass from the counter to the ceiling across the back right,
       // the clerk in it, the bottles behind him; a pass-through tray in the glass. The rest:
       // bottles round the walls, an island, a cooler.
-      const gz = 5.6;
-      const gx0 = -1.4;
+      const gz = (r.boothZ = 5.6);
+      const gx0 = (r.boothX0 = -1.4);
       box(gx0, hw, 0, 1.0, gz, gz + 0.6, 0x5a4030, { solid: true });
       box(gx0, hw, 1.0, 1.05, gz - 0.05, gz + 0.65, 0x2b2b2b);
       const bp = new THREE.MeshLambertMaterial({ color: 0xc8e4f0, transparent: true, opacity: 0.22, depthWrite: false });
@@ -542,6 +545,8 @@ export class StoreRooms {
     }
     // (the clerk's alarm button: under the counter, by his knee)
     r.alarm = { x: r.clerkSpot.x - r.clerkSpot.face[0] * 0.4, z: r.clerkSpot.z - r.clerkSpot.face[1] * 0.4 };
+    // (the dressing: floors, trim, signs, the things about the place: storedecor.js)
+    decorate({ r, root, kind, hw, zb, H, BR, box, mat, texMat, canvasTex });
     // (the way out the door, and just outside it)
     r.door = [0, 0.9];
     r.outside = [0, -1.6];
@@ -617,6 +622,7 @@ export class StoreRooms {
     const k = 0.2 + 0.6 * n;
     for (const m of MATS.values()) m.emissive.copy(m.color).multiplyScalar(k);
     for (const m of TEXMATS) m.emissive.setScalar(k);
+    for (const m of GLOW_MATS) m.emissive.setScalar(k);
     for (const r of this.rooms) for (const f of r.front) if (f.material.userData?.glow) f.material.emissive.copy(f.material.color).multiplyScalar(k);
   }
 
@@ -661,7 +667,9 @@ export class StoreRooms {
     for (const q of game.peds.peds) {
       if (q.inStore || q.keep || q.kid || q.shopkeeper || q.isPlug || q.loot || q.state !== 'walk' || q.removed) continue;
       const d = dist(q.x, q.z, dx, dz);
-      if (d < bd && d > 2) {
+      // (only someone with a clear way to the door: round a bend in the street, the building's
+      // own side wall would hold them up and they'd give up)
+      if (d < bd && d > 2 && !segmentBlocked(q.x, q.z, dx, dz, game.city.colliders)) {
         bd = d;
         best = q;
       }
@@ -679,7 +687,7 @@ export class StoreRooms {
         const lx = side * (r.w / 2 + k);
         const lz = r.outside[1] - 0.6;
         const [x, z] = this.world(r, lx, lz);
-        if (pushCircle(x, z, 0.4, game.city.colliders).hit) continue;
+        if (pushCircle(x, z, 0.4, game.city.colliders).hit || segmentBlocked(x, z, dx, dz, game.city.colliders)) continue;
         const y = game.city.groundY(x, z) + 1;
         const seen = _fr.containsPoint(_v.set(x, y, z)) && !segmentBlocked(cam.position.x, cam.position.z, x, z, game.city.los);
         if (!seen) spots.push([x, z]);
@@ -769,7 +777,7 @@ export class StoreRooms {
   }
 
   // Walk someone toward a spot in the store; true once they're there.
-  walk(r, p, lx, lz, speed, dt) {
+  walk(r, p, lx, lz, speed, dt, straight = false) {
     const [tx, tz] = this.world(r, lx, lz);
     const d = dist(p.x, p.z, tx, tz);
     // (how it's going: someone standing on the spot, a shelf in the way: after a moment
@@ -791,14 +799,21 @@ export class StoreRooms {
     const s = Math.min(speed, d * 2.2 + 0.35);
     const ox = p.x;
     const oz = p.z;
-    if (d < 1.2) {
-      // (the last step: straight in, no swerving round people)
+    if (d < 1.2 || straight) {
+      // (the last step: straight in, no swerving round people; and through the doorway)
       p.x += ((tx - p.x) / d) * Math.min(d, s * dt);
       p.z += ((tz - p.z) / d) * Math.min(d, s * dt);
       const q = pushCircle(p.x, p.z, 0.3, this.game.city.colliders);
       p.x = q.x;
       p.z = q.z;
-    } else navStep(p, tx, tz, s, dt, this.game, 0.3);
+    } else {
+      // (both ends in the store: steer round the shelves, never off out to the street to get
+      // round them)
+      const inRoom = (q) => Math.abs(q[0]) < r.hw && q[1] > 0.3 && q[1] < r.zb;
+      p.navLocal = inRoom(this.local(r, p.x, p.z)) && inRoom([lx, lz]);
+      navStep(p, tx, tz, s, dt, this.game, 0.3);
+      p.navLocal = false;
+    }
     // (facing the way they're going on average, not every little sidestep round a shelf or a
     // person: their velocity smoothed over a few tenths of a second)
     const vx = (p.x - ox) / Math.max(dt, 1e-3);
@@ -909,11 +924,26 @@ export class StoreRooms {
       // (in off the street: along the sidewalk to the door, through it, then off to the
       // shelves; held up for good on the way, they think better of it and walk on)
       const [ox, oz] = this.world(r, ...r.outside);
-      p.sidewalk = dist(p.x, p.z, ox, oz) > 5;
-      if (this.route(r, p, 'enter', [r.outside, [0, 1.6]], p.walkSpeed, dt)) {
+      p.enterDirect ??= !segmentBlocked(p.x, p.z, ox, oz, this.game.city.colliders); // (a clear way to the door: straight there)
+      p.sidewalk = !p.enterDirect && dist(p.x, p.z, ox, oz) > 5;
+      if (p.atDoor || this.route(r, p, 'enter', [r.outside, [0, 1.6]], p.walkSpeed, dt)) {
+        // (through the door for real before they start shopping: straight in from the step)
         p.sidewalk = false;
-        p.ss = 'browse';
-      } else if (p.walkStall > 4) this.release(r, p);
+        p.atDoor = true;
+        const lz = this.local(r, p.x, p.z)[1];
+        if (lz > 0.9 || this.walk(r, p, 0, 1.9, p.walkSpeed, dt, true)) {
+          p.atDoor = false;
+          p.ss = 'browse';
+        } else if (p.walkStall > 4) this.release(r, p);
+      } else if (p.walkStall > 4) {
+        // (the sidewalk's taking them the long way round, a bend in the street: straight for
+        // the door instead; held up again, they give up)
+        if (!p.enterDirect) {
+          p.enterDirect = true;
+          p.walkStall = 0;
+          p.walkBest = Infinity;
+        } else this.release(r, p);
+      }
       return null;
     }
     if (p.ss === 'leave') {

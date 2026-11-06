@@ -296,6 +296,7 @@ export function escapePoint(game, e, threatX, threatZ) {
 // Next point to head for on the way to (gx, gz): the goal itself if the way is clear,
 // otherwise out of the block onto the road, then along the road to an intersection.
 export function waypoint(game, e, gx, gz) {
+  if (e.navLocal) return [gx, gz]; // (inside a store, going somewhere in it: just steer round things)
   if (onSidewalks(game, e)) return sidewalkWaypoint(game, e, gx, gz);
   const { city } = game;
   if (!segmentBlockedPad(e.x, e.z, gx, gz, city.los, 0.3)) return [gx, gz];

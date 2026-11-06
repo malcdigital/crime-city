@@ -6,6 +6,8 @@ import { signTexture, specLine, gunPrice } from './shops.js';
 import { SHOP_FOOT, SHOP_H } from './city.js';
 import { DoorSet, doorLeaf } from './doors.js';
 import { gunModel as gunModelOf } from './gunmodels.js';
+import { decorateGunShop } from './gundecor.js';
+import { GLOW_MATS } from './storedecor.js';
 const gunModel = (id) => gunModelOf(id, imat); // (they glow a little, like the rest inside)
 
 // Interiors: places you walk into. For now the gun shops (src/gunshops.js), each the ground floor
@@ -273,10 +275,10 @@ export class Interiors {
       mat: new THREE.MeshBasicMaterial({ map: signTexture('RANGE', '#1b1b1b', '#ffd23f') }),
     }).rotation.y = -Math.PI / 2;
     // Floors and the ceiling.
-    box(-W, SX, -0.1, 0.02, 0, BACK, L.floor);
+    const floorMesh = box(-W, SX, -0.1, 0.02, 0, BACK, L.floor);
     box(-DOOR, DOOR, -0.1, 0.02, -0.3, 0, L.trim); // (the threshold)
     box(SX, SX + 0.3, -0.1, 0.02, SIDE_DOOR[0], SIDE_DOOR[1], L.trim);
-    box(FX0 + 0.18, FX1 - 0.18, H, SHOP_H, -0.12, ZB - 0.18, 0xd9d6cf);
+    const ceilMesh = box(FX0 + 0.18, FX1 - 0.18, H, SHOP_H, -0.12, ZB - 0.18, 0xd9d6cf);
     // (trim along the floor, the mat at the door)
     box(-W, -W + 0.05, 0, 0.18, 0, BACK, L.trim);
     box(-W, SX, 0, 0.18, BACK - 0.05, BACK, L.trim);
@@ -329,9 +331,8 @@ export class Interiors {
       // (where you stand to look at it: in front of the case)
       r.cases.push({ id, x: x + side * 1.1, z, gx: x, gz: z });
     });
-    // (a bench, a poster or two: it's lived in)
+    // (a bench by the window: it's lived in; the posters and the rest: gundecor.js)
     box(-3.4, -1.6, 0, 0.45, 0.6, 1.0, 0x4a3a2a, { solid: true });
-    for (const [x, c, z] of [[-W + 0.01, 0xb03a2e, 7.9], [SX - 0.01, 0x2e5ab0, 8.4]]) box(x - 0.01, x + 0.01, 1.6, 2.6, z - 0.4, z + 0.4, c);
     // The clerk, behind the counter, facing the door.
     const ck = shop.clerk;
     const c = makeCharacter({ ...ck.look, female: !!ck.female });
@@ -375,6 +376,8 @@ export class Interiors {
       r.lanes.push(lane);
     });
     for (const lx of LANES) box(lx - 1.6, lx + 1.6, 0.02, 0.032, BENCH - 0.18, BENCH - 0.05, 0xffd23f, R); // (where you stand)
+    // (the dressing: gundecor.js)
+    decorateGunShop({ r, root, rg, L, shop, imat, box, floorMesh, ceilMesh, W, SX, BACK, H, COUNTER, SIDE_DOOR, PART, D, BOOTH });
     return r;
   }
 
@@ -450,6 +453,7 @@ export class Interiors {
     const k = 0.2 + 0.6 * n;
     for (const m of IMATS.values()) m.emissive.copy(m.color).multiplyScalar(k);
     for (const r of this.rooms) for (const m of r.papers) m.emissive.setScalar(k);
+    for (const m of GLOW_MATS) m.emissive.setScalar(k);
     for (const r of this.rooms) for (const f of r.front) if (f.material.userData.glow) f.material.emissive.copy(f.material.color).multiplyScalar(k);
   }
 
