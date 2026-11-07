@@ -98,6 +98,26 @@ export class Sfx {
     }
   }
 
+  // A lookout's two-note whistle: up, then down (the cops are coming).
+  whistle(vol = 0.3) {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running' || vol < 0.02) return;
+    const t = ctx.currentTime;
+    for (const [f0, f1, dt, len] of [[1500, 2600, 0, 0.22], [2600, 1400, 0.3, 0.4]]) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(f0, t + dt);
+      o.frequency.exponentialRampToValueAtTime(f1, t + dt + len);
+      g.gain.setValueAtTime(0.0001, t + dt);
+      g.gain.exponentialRampToValueAtTime(vol, t + dt + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dt + len);
+      o.connect(g).connect(this.master);
+      o.start(t + dt);
+      o.stop(t + dt + len + 0.05);
+    }
+  }
+
   empty() {
     this.burst(0.15, 'highpass', 3000, 0.03, 0);
   }

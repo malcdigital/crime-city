@@ -78,7 +78,7 @@ export class Parking {
       }
     }
     // (and the parking lots - by the court, the field, the park: about half the spaces taken)
-    for (const sp of [...(city.court?.spots || []), ...(city.footballField?.spots || []), ...(city.lots?.spots || [])]) {
+    for (const sp of [...(city.court?.spots || []), ...(city.footballField?.spots || []), ...(city.lots?.spots || []), ...(city.projectSpots || [])]) {
       if (rng() > 0.55) continue;
       const r = rng();
       const type = r < 0.12 ? 'sports' : r < 0.3 ? 'van' : 'sedan';

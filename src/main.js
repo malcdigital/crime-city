@@ -25,6 +25,7 @@ import { StopScene } from './stopscene.js';
 import { Justice } from './jail.js';
 import { arrestScene } from './arrestscenes.js';
 import { CarDamage } from './cardamage.js';
+import { Projects } from './projects.js';
 import { Parking } from './parking.js';
 import { Props } from './props.js';
 import { CHOICE_TIME, Enforcement } from './enforcement.js';
@@ -251,6 +252,7 @@ class Game {
     this.bases = new Bases(this);
     this.backup = new Backup(this); // calling for backup (phone → Contacts)
     this.transit = new Transit(this); // buses, routes and bus stops
+    this.projects = new Projects(this); // (the Projects' courtyards and the life in them: projects.js, projectslife.js)
     this.parking = new Parking(this); // cars parked along the curbs
     this.props = new Props(this); // hydrants, trash cans, benches, litter, graffiti
     this.enforce = new Enforcement(this); // red lights, speeding and traffic stops
@@ -3267,6 +3269,7 @@ class Game {
     this.backup.update(dt);
     this.transit.update(dt);
     this.parking.update(dt);
+    this.projects.update(dt);
     this.props.update(dt);
     this.updateStop(dt, a);
     this.enforce.update(dt, a);
