@@ -1,3 +1,4 @@
+import { whenAzure, dressAzure } from './azure.js';
 import * as THREE from 'three';
 import { lam } from './character.js';
 import { pushCircle } from './collision.js';
@@ -8,6 +9,8 @@ import { carModel, driverGeometry, trimMat, glassMat, insideMat, setInsideNight 
 // world point where the car was hit, (dx, dz) the way into the car, strength in m/s.
 export const CRASH = { dent: null };
 const dentGap = new WeakMap(); // (a pair of cars grinding together: one dent every so often, not every frame)
+
+const _q0 = new THREE.Quaternion();
 
 export const VTYPES = {
   sedan: { armor: 5, w: 1.86, l: 4.65, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 30, accel: 9, brake: 20, rev: 8, value: 900, label: 'Sedan',
@@ -26,6 +29,9 @@ export const VTYPES = {
     colors: [0xf4f4f4, 0x7b4a24, 0xd8d8d0] },
   swat: { armor: 10, w: 2.4, l: 5.9, h: 2.2, cab: null, max: 32, accel: 10, brake: 20, rev: 7, value: 2200, label: 'SWAT van',
     colors: [0x1b1f24] },
+  // Your car (azure.js: the Azure V2 model): 125 mph flat out (max is before the drag: vehicle.js dynamics), the quickest off the line, the most grip.
+  azure: { armor: 5, w: 2.04, l: 4.55, h: 0.75, cab: [1.6, 0.5, 1.6, -0.3], max: 73, accel: 19, brake: 30, rev: 9, value: 9000, label: 'Azure',
+    colors: [0x1f8fd6] },
 };
 
 // Handling, after GTA V's handling.meta: max = peak tire grip (fTractionCurveMax, in g),
@@ -44,6 +50,7 @@ export function randomLook(typeName) {
 const HANDLING = {
   sedan: { max: 1.95, slide: 0.86, peak: 0.16, bias: 0.48 },
   sports: { max: 2.3, slide: 0.88, peak: 0.15, bias: 0.48 },
+  azure: { max: 2.65, slide: 0.9, peak: 0.14, bias: 0.48 },
   van: { max: 1.6, slide: 0.84, peak: 0.17, bias: 0.47 },
   police: { max: 2.1, slide: 0.87, peak: 0.16, bias: 0.48 },
   swat: { max: 1.65, slide: 0.85, peak: 0.17, bias: 0.47 },
@@ -185,7 +192,8 @@ export class Vehicle {
     g.add(body);
     const trim = new THREE.Mesh(M.trim, trimMat);
     trim.castShadow = true;
-    g.add(trim, new THREE.Mesh(M.inside, insideMat)); // (the cabin: seats, dash, wheel, floor)
+    this.insideMesh = new THREE.Mesh(M.inside, insideMat);
+    g.add(trim, this.insideMesh); // (the cabin: seats, dash, wheel, floor)
     this.bodyMesh = body;
     this.trimMesh = trim;
     if (M.glass) {
@@ -255,6 +263,8 @@ export class Vehicle {
       }
     }
     this.driverMesh = null;
+    // (your car: dressed in its model once that's loaded: azure.js)
+    if (this.typeName === 'azure') whenAzure(() => dressAzure(this));
   }
 
   // Whoever's at the wheel, seen through the glass (src/carmodels.js driverGeometry): you in
@@ -861,7 +871,9 @@ export class Vehicle {
           if (d.closeT <= 0) d.target = 0;
         }
         d.angle += (d.target - d.angle) * Math.min(1, dt * 6);
-        d.pivot.rotation.y = d.angle;
+        // (butterfly doors, your car's: up and forward to the model's open pose)
+        if (d.openQ) d.pivot.quaternion.slerpQuaternions(_q0, d.openQ, Math.min(1, Math.abs(d.angle) / 1.05));
+        else d.pivot.rotation.y = d.angle;
       }
     }
     if (this.lightR) {

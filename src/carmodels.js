@@ -603,6 +603,7 @@ const SPECS = {
     for (const sx of [1, -1]) for (let i = 0; i < 12; i++) m.trim.push(box(0.02, 0.07, 0.14, sx * (t.w / 2 - 0.03), 0.8 + (i % 2) * 0.07, -1.0 + i * 0.16, 0x111111));
     return m;
   },
+  azure: (t) => SPECS.sports(t), // (your car's frame: a sports car's; the model's drawn over it: azure.js)
   sports: (t) => car(t, { hood: 0.72, belt: 0.86, roof: 1.3, trunk: 0.9, wsBase: 0.62, roofF: -0.08, roofR: -0.62, rearBase: -1.5, bPillar: -0.62, seatZ: -0.5, noseY: 0.55, doors4: false, floor: 0.36, seatH: 0.72, inside: 0x1a1a1a, spoiler: true, mirror: 0x111111 }),
   van: (t) => van(t, { belt: 1.25, roof: 2.18, hood: 1.05, wsTop: 1.25, cabBack: 0.3, inside: 0x3a3b3e }),
   swat: (t) => van(t, {
@@ -684,6 +685,15 @@ const cache = new Map();
 export function carModel(typeName, t) {
   if (cache.has(typeName)) return cache.get(typeName);
   const s = (SPECS[typeName] || SPECS.sedan)(t);
+  if (typeName === 'azure') {
+    // (where the model has them: its wheels, its seat, its door hinges and lines)
+    s.wheels = { z: [1.42, -1.4], x: 0.94, r: 0.5, w: 0.3 };
+    s.seat = { x: 0.34, y: 0.5, floor: 0.33, z: -0.2, wheelZ: 0.36, lean: 0.5 };
+    s.door = { ...s.door, hinge: 0.75, len: 1.3, x: 0.86, bottom: 0.31, top: 0.84 };
+    s.belt = 0.84;
+    s.roof = 1.22;
+    s.lights = { head: [[0.88, 0.47, 2.25]], tail: [[0.8, 0.6, -2.25]] };
+  }
   const m = {
     paint: merge(s.paint.map((g) => {
       g = g.index ? g.toNonIndexed() : g;

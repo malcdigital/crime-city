@@ -25,6 +25,7 @@ import { StopScene } from './stopscene.js';
 import { Justice } from './jail.js';
 import { arrestScene } from './arrestscenes.js';
 import { CarDamage } from './cardamage.js';
+import { loadAzure } from './azure.js';
 import { Projects } from './projects.js';
 import { Parking } from './parking.js';
 import { Props } from './props.js';
@@ -163,6 +164,7 @@ class Game {
 
     const sp = this.city.spawn;
     this.player = new Player(this, sp.x, sp.z);
+    loadAzure(); // (your car's model: in the build, ready in a moment)
     this.vehicles = [];
     this.walkers = [];
     this.pickups = [];
@@ -189,7 +191,7 @@ class Game {
 
     // Parked cars at the curb near the start point.
     const [c1, c2] = sp.cars;
-    this.vehicles.push(new Vehicle(this.scene, 'sports', c1[0], c1[1], c1[2]));
+    this.vehicles.push(new Vehicle(this.scene, 'azure', c1[0], c1[1], c1[2])); // (your car: azure.js)
     this.vehicles.push(new Vehicle(this.scene, 'sedan', c2[0], c2[1], c2[2]));
 
     this.traffic.init();
@@ -3322,20 +3324,20 @@ class Game {
     const old = this.testCar;
     if (old && !old.removed && !old.exploded && !old.wrecked) {
       if (p.vehicle === old) {
-        this.hud.toast("You're already in your test car");
+        this.hud.toast("You're already in your Azure");
         return;
       }
       const d = dist(old.x, old.z, x, z);
       if (d < 200) {
         this.carPingT = 6;
-        this.hud.toast(`Your test car is ${Math.round(d)} m away`);
+        this.hud.toast(`Your Azure is ${Math.round(d)} m away`);
         return;
       }
       if (old.driver === null) old.dispose();
     }
     const h = p.vehicle ? p.vehicle.heading : p.heading;
     const side = p.vehicle ? 3.5 : 3;
-    const car = new Vehicle(this.scene, 'sports', x - Math.cos(h) * side, z + Math.sin(h) * side, h);
+    const car = new Vehicle(this.scene, 'azure', x - Math.cos(h) * side, z + Math.sin(h) * side, h); // (your car)
     // (not into a fence, a wall or a building: if that spot's blocked, the first clear one
     // around you: either side, ahead or behind, a few meters further out, turned either way)
     const clear = () => car.circles().every(([cx, cz]) => !pushCircle(cx, cz, car.radius + 0.35, this.city.colliders).hit);
@@ -3373,7 +3375,7 @@ class Game {
     p.x = car.x;
     p.z = car.z;
     p.enter(car);
-    this.hud.toast('Test car delivered');
+    this.hud.toast('Your Azure, delivered');
   }
 
   // Screen marker pointing at your test car after you ask for it.
