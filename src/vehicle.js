@@ -1,4 +1,4 @@
-import { whenAzure, dressAzure } from './azure.js';
+import { whenAzure, dressAzure, azureNight } from './azure.js';
 import * as THREE from 'three';
 import { lam } from './character.js';
 import { pushCircle } from './collision.js';
@@ -140,6 +140,7 @@ function barTexture() {
 // 0 = full day, 1 = full night.
 export function setCarNight(k) {
   setInsideNight(k);
+  azureNight(k);
   NIGHT = k;
   headMat.color.setRGB(0.85 + 0.15 * k, 0.83 + 0.15 * k, 0.72 + 0.2 * k);
   tailMat.color.setRGB(0.43 + 0.4 * k, 0.1 + 0.03 * k, 0.08 + 0.03 * k);
@@ -327,6 +328,7 @@ export class Vehicle {
     // Hazards blink amber; otherwise brake lights.
     this.blinkT = (this.blinkT || 0) + dt;
     const tail = this.hazard ? (Math.floor(this.blinkT * 1.6) % 2 === 0 ? amberMat : tailMat) : !on ? tailOffMat : this.braking ? brakeMat : tailMat;
+    if (this.azureTail) this.azureTail.emissiveIntensity = this.hazard ? (tail === amberMat ? 3 : 0.6) : !on ? 0.6 : this.braking ? 6 : 2.2;
     if (tail !== this.tailNow) {
       this.tailNow = tail;
       for (const m of this.tails) m.material = m.userData.broken ? brokenLightMat : tail;

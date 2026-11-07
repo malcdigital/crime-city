@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import AZURE_URL from './assets/azure.glb?url';
 
 // Your car: the Azure V2 (src/assets/azure.glb, a Blender model, in the build as data). It's a
@@ -18,9 +19,15 @@ import AZURE_URL from './assets/azure.glb?url';
 
 export const AZURE = { ready: false, parts: null, waiting: [] };
 
-export function loadAzure() {
+export function loadAzure(renderer) {
   if (AZURE.loading) return;
   AZURE.loading = true;
+  // (what the paint, the chrome and the canopy reflect: a soft studio, like the model's own renders)
+  if (renderer) {
+    const pm = new THREE.PMREMGenerator(renderer);
+    AZURE.env = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+    pm.dispose();
+  }
   new GLTFLoader().load(
     AZURE_URL,
     (gltf) => {
@@ -44,25 +51,40 @@ export function whenAzure(f) {
   else AZURE.waiting.push(f);
 }
 
-// The materials, for the game's lights (the model's are physically based; the city's aren't).
+// The materials: the model's own (metal, gloss, the glowing strips), so it looks the way it was
+// made; only the paint keeps its vertex colors (the gradient), and everything reflects the studio.
+const MATS = new Set();
+const PAINT = /cyan → blue/i;
 function convert(m) {
-  const name = m.name || '';
-  const color = m.color ? m.color.clone() : new THREE.Color(0xffffff);
-  if (/cyan → blue|Cyan → blue/i.test(name)) return new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 90, specular: 0x6a7a8a }); // (the paint: a gradient in its vertices)
-  if (/glass|canopy/i.test(name)) return new THREE.MeshPhongMaterial({ color, shininess: 110, specular: 0x9ab0c0 });
-  if (/instrument/i.test(name)) return new THREE.MeshBasicMaterial({ color });
-  if ((m.metalness ?? 0) > 0.4) return new THREE.MeshPhongMaterial({ color: color.clone().multiplyScalar(1.6), shininess: 60, specular: 0x777777 });
-  return new THREE.MeshLambertMaterial({ color });
+  const c = m.clone();
+  c.vertexColors = PAINT.test(m.name || '');
+  c.envMap = AZURE.env || null;
+  c.envMapIntensity = 1;
+  c.needsUpdate = true;
+  MATS.add(c);
+  return c;
+}
+
+// Night (0-1): the studio reflections fade so it doesn't glow in the dark.
+export function azureNight(k) {
+  for (const m of MATS) m.envMapIntensity = 1 - 0.8 * k;
 }
 
 function prepare(gltf) {
   const root = gltf.scenes[0] || gltf.scene;
   root.updateMatrixWorld(true);
-  const named = (n) => root.getObjectByName(n);
+  // (the loader drops the dots from names: "Wheel_Front_L.001" comes in as "Wheel_Front_L001")
+  const named = (base) => {
+    let hit = null;
+    root.traverse((o) => {
+      if (!hit && o.name.replace(/[.\s]/g, '').startsWith(base)) hit = o;
+    });
+    return hit;
+  };
   // The frames things are kept in: each wheel about its middle, each door about its hinge.
   const wheelNodes = {};
-  for (const k of ['Front_L', 'Front_R', 'Rear_L', 'Rear_R']) wheelNodes[k] = named(`Wheel_${k}.001`) || named(`Wheel_${k}`);
-  const doorNodes = { L: named('Door_Hinge_L.001') || named('Door_Hinge_L'), R: named('Door_Hinge_R.001') || named('Door_Hinge_R') };
+  for (const k of ['Front_L', 'Front_R', 'Rear_L', 'Rear_R']) wheelNodes[k] = named(`Wheel_${k}`);
+  const doorNodes = { L: named('Door_Hinge_L'), R: named('Door_Hinge_R') };
   const frameOf = (o) => {
     for (let p = o; p && p !== root; p = p.parent) {
       for (const [k, w] of Object.entries(wheelNodes)) if (p === w) return ['wheel', k, w];
@@ -87,7 +109,7 @@ function prepare(gltf) {
   const tmp = new THREE.Matrix4();
   root.traverse((o) => {
     if (!o.isMesh) return;
-    if (/studio floor/i.test(o.name)) return;
+    if (/studio[\s_]*floor/i.test(o.name)) return;
     const [kind, k, frame] = frameOf(o);
     inv.copy(frame ? frame.matrixWorld : new THREE.Matrix4()).invert();
     tmp.multiplyMatrices(inv, o.matrixWorld);
@@ -96,8 +118,8 @@ function prepare(gltf) {
       g.applyMatrix4(tmp);
       if (g.index) g = g.toNonIndexed();
       for (const a of Object.keys(g.attributes)) if (a !== 'position' && a !== 'normal' && a !== 'color') g.deleteAttribute(a);
-      const lightKind = /^headlight/i.test(src.name) ? 'head' : /^tail light/i.test(src.name) ? 'tail' : null;
-      const mat = lightKind ? lightKind : matFor(src);
+      const mat = matFor(src);
+      if (/^tail light/i.test(src.name)) mat.userData.tail = true;
       if (!(mat instanceof THREE.Material && mat.vertexColors) && g.attributes.color) g.deleteAttribute('color');
       if (mat instanceof THREE.Material && mat.vertexColors && !g.attributes.color) {
         const n = g.attributes.position.count;
@@ -113,23 +135,19 @@ function prepare(gltf) {
       add(kind === 'body' ? 'body' : `${kind}:${k}`, mat, g);
     }
   });
-  const parts = { body: [], wheels: {}, doors: {}, head: null, tail: null };
+  const parts = { body: [], wheels: {}, doors: {} };
   for (const [key, b] of buckets) {
     const out = [];
     for (const [mat, geos] of b) {
       const g = mergeGeometries(geos, false);
       if (!g) continue;
       g.computeBoundingSphere();
-      if (mat === 'head') parts.head = (parts.head || []).concat([g]);
-      else if (mat === 'tail') parts.tail = (parts.tail || []).concat([g]);
-      else out.push([g, mat]);
+      out.push([g, mat]);
     }
     if (key === 'body') parts.body = out;
     else if (key.startsWith('wheel:')) parts.wheels[key.slice(6)] = out;
     else parts.doors[key.slice(5)] = out;
   }
-  parts.head = parts.head && mergeGeometries(parts.head, false);
-  parts.tail = parts.tail && mergeGeometries(parts.tail, false);
   // the doors' hinges (where they sit on the car) and their open pose (the animation's widest)
   for (const [k, d] of Object.entries(doorNodes)) {
     if (!d) continue;
@@ -166,24 +184,17 @@ export function dressAzure(v) {
   // (the procedural car stays, unseen: it's what the damage and the seat work from)
   for (const m of [v.bodyMesh, v.trimMesh, v.glassMesh, v.insideMesh]) if (m) m.visible = false;
   for (const m of [...v.heads, ...v.tails]) m.visible = false;
-  // the body
-  for (const [geo, mat] of P.body) {
-    const m = new THREE.Mesh(geo, mat);
-    m.castShadow = true;
-    g.add(m);
-  }
-  // the lights: the model's, switched by the car (updateLights swaps their material)
+  // the body (its light strips always lit, like the model; the tail lights brighten when you
+  // brake: vehicle.js updateLights)
   v.heads = [];
   v.tails = [];
-  if (P.head) {
-    const h = new THREE.Mesh(P.head, HIDE);
-    g.add(h);
-    v.heads.push(h);
-  }
-  if (P.tail) {
-    const t = new THREE.Mesh(P.tail, HIDE);
-    g.add(t);
-    v.tails.push(t);
+  for (const [geo, mat0] of P.body) {
+    const mat = mat0.userData.tail ? mat0.clone() : mat0;
+    const m = new THREE.Mesh(geo, mat);
+    m.castShadow = true;
+    m.userData.azure = true;
+    g.add(m);
+    if (mat0.userData.tail) v.azureTail = mat;
   }
   v.headOn = null;
   v.tailNow = null;
@@ -196,6 +207,7 @@ export function dressAzure(v) {
     for (const [geo, mat] of pieces) {
       const m = new THREE.Mesh(geo, mat);
       m.castShadow = true;
+      m.userData.azure = true;
       w.add(m);
     }
   }
@@ -208,6 +220,7 @@ export function dressAzure(v) {
     for (const [geo, mat] of D.pieces) {
       const m = new THREE.Mesh(geo, mat);
       m.castShadow = true;
+      m.userData.azure = true;
       d.pivot.add(m);
     }
     d.openQ = D.open; // (vehicle.js: angle 0 -> shut, the full open angle -> this pose)

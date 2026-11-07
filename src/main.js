@@ -164,7 +164,7 @@ class Game {
 
     const sp = this.city.spawn;
     this.player = new Player(this, sp.x, sp.z);
-    loadAzure(); // (your car's model: in the build, ready in a moment)
+    loadAzure(this.renderer); // (your car's model: in the build, ready in a moment)
     this.vehicles = [];
     this.walkers = [];
     this.pickups = [];
@@ -3087,6 +3087,7 @@ class Game {
         this.wastedT -= dt;
         if (this.wastedT <= 0) this.afterWasted();
       }
+      this.ambient(dt); // (the city carries on round you: traffic, people, games)
       this.aimingNow = false;
       this.inventory.open = false;
       this.hud.inventoryStrip(this, this.inventory);
@@ -3315,6 +3316,44 @@ class Game {
       this.saveT = 0;
       this.save();
     }
+  }
+
+  // While you're BUSTED or WASTED: everyone but you and the police keeps going (the cops are in
+  // the arrest scene or holding cover, arrestPlay), so the street doesn't freeze around you.
+  ambient(dt) {
+    this.walkers.length = 0;
+    this.walkers.push(this.player);
+    for (const p of this.peds.peds) if (p.standing) this.walkers.push(p);
+    this.traffic.update(dt);
+    this.gang.update(dt);
+    this.crew.update(dt);
+    this.shops.update(dt);
+    this.interiors.update(dt);
+    this.storeRooms.update(dt);
+    for (const v of this.vehicles) {
+      if (v.driver === null && !v.removed) v.update(dt, { throttle: 0, steer: 0, handbrake: !v.runaway }, this.city.colliders);
+    }
+    resolveCarCollisions(this.vehicles.filter((v) => !v.removed));
+    for (const v of this.vehicles) {
+      this.highway.updateLayer(v);
+      v.groundY = this.highway.groundFor(v);
+      v.groundAt ||= (x, z) => (v.high ? this.highway.heightAt(x, z, v.y) ?? v.groundY : this.city.groundY(x, z));
+      v.sync(dt);
+    }
+    this.peds.update(dt);
+    for (const h of this.hoops) h.update(dt);
+    this.dice.update(dt);
+    this.football.update(dt);
+    this.playground.update(dt);
+    this.ragdolls.update(dt);
+    this.streets.update(dt);
+    this.dayNight.update();
+    this.rhythm.update(dt);
+    this.transit.update(dt);
+    this.parking.update(dt);
+    this.projects.update(dt);
+    this.props.update(dt);
+    this.vehicles = this.vehicles.filter((v) => !v.removed);
   }
 
   // Testing: R3 / V gives you one test car. If yours is still around, it points you to it instead.
