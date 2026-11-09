@@ -36,7 +36,7 @@ export default {
     root(a, 0, R.y(t), R.z(t), 0, R.pitch(t));
     if (adjust.runner) a.group.position.add(adjust.runner);
     const run = jointsOf(a, () => {
-      animateWalk(a, t * 13 + 0.4, 1);
+      animateWalk(a, t * 13 + 0.4, 1 - 0.45 * ramp(t, 0.12, TC)); // (the stride shortening as he's caught: the longer shins kick back into the tackler)
       fbPose(a, { lower: ['run'], upper: ['tuck', 6] });
     });
     // (hit from behind: the head and chest thrown back, the free arm flung forward, the legs

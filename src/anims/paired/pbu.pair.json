@@ -27,7 +27,8 @@
     }
   },
   "events": {
-    "swat": 7
+    "swat": 7,
+    "touch": 4
   },
   "clips": {
     "receiver": "pbu.receiver.json",
@@ -40,7 +41,7 @@
     "framesOver": 0,
     "underTurfCm": {
       "receiver": 0,
-      "defender": 0.2068
+      "defender": 0
     }
   }
 }

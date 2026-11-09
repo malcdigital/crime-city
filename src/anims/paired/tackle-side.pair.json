@@ -29,20 +29,20 @@
   "events": {
     "contact": 9,
     "down": 26,
-    "touch": 11
+    "touch": 12
   },
   "clips": {
     "runner": "tackle-side.runner.json",
     "tackler": "tackle-side.tackler.json"
   },
   "contact": {
-    "worstCm": 1.4903,
-    "atFrame": 29,
+    "worstCm": 1.4638,
+    "atFrame": 32,
     "tolCm": 1.5,
     "framesOver": 0,
     "underTurfCm": {
       "runner": 0,
-      "tackler": 6.9516
+      "tackler": 2.5059
     }
   }
 }
