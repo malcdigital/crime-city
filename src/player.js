@@ -7,6 +7,7 @@ import { makeCharacter, animateWalk, setDown, crouchPose, crouchWalk, bendSpine,
 export const PLAYER_H = 1.778; // (5'10")
 const COMBO = ['jab', 'cross', 'hook', 'uppercut', 'kick']; // (press after press)
 import { pushCircle } from './collision.js';
+import { seatPose } from './carscenes.js';
 import { clamp, lerp, lerpAngle } from './util.js';
 import { aimPose, lowReady, fightStance, markPunch, punchPose, reloadPose, kneelPose, flinchPose, flinching, PUNCH_T } from './combatpose.js';
 const _aim = new THREE.Vector3();
@@ -241,8 +242,9 @@ export class Player {
   showWeapon(id) {
     this.weaponId = id;
     const left = this.gunHand === 'L';
-    for (const [k, g] of Object.entries(this.guns)) g.visible = k === id && !left;
-    for (const [k, g] of Object.entries(this.gunsL)) g.visible = k === id && left;
+    const out = !this.vehicle; // (put away while you drive: hands on the wheel)
+    for (const [k, g] of Object.entries(this.guns)) g.visible = out && k === id && !left;
+    for (const [k, g] of Object.entries(this.gunsL)) g.visible = out && k === id && left;
   }
 
   setHand(hand) {
@@ -395,6 +397,12 @@ export class Player {
   }
 
   sync() {
+    if (this.vehicle?.rider?.char === this.char) return; // (riding in the seat: vehicle.js carries you)
+    // (on your feet: your standing size, whatever cut the getting-out short: carscenes.js sizes)
+    if (this.char.seated && !this.vehicle && !this.scene) {
+      this.char.seated = false;
+      if (this.char.baseScale) this.char.group.scale.setScalar(this.char.baseScale);
+    }
     const y = this.gy();
     const down = this.char.group.rotation.x !== 0;
     this.char.group.position.set(this.x, down ? y + 0.2 : y + (this.vehicle ? 0 : this.poseY), this.z);
@@ -415,8 +423,12 @@ export class Player {
     this.lowProfile = false;
     this.cover = null;
     this.poseY = 0;
-    vehicle.openDoor(-1, 0.9);
-    this.char.group.visible = false;
+    // (you stay in the seat while you drive, riding with the car: seen through the glass as
+    // yourself, fitted under the roof; the scene that got you in shut the door)
+    seatPose(this.char, vehicle, -1);
+    this.showWeapon(this.weaponId);
+    this.char.group.visible = true;
+    vehicle.seat({ char: this.char, live: () => this.vehicle === vehicle && !this.game.arrestS });
     this.game.crew?.playerEntered(vehicle);
   }
 
@@ -446,6 +458,7 @@ export class Player {
     v.openDoor(-1, 1.6);
     this.vehicle = null;
     this.char.group.visible = true;
+    this.showWeapon(this.weaponId);
     this.cover = null;
     this.crouched = false;
     this.lowProfile = false;
@@ -601,6 +614,7 @@ export class Player {
     this.vehicle = null;
     this.speed = 0;
     this.char.group.visible = true;
+    this.showWeapon(this.weaponId);
     const r = pushCircle(this.x, this.z, 0.4, this.boxes());
     this.x = r.x;
     this.z = r.z;

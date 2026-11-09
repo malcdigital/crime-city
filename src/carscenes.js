@@ -18,7 +18,8 @@ const ease = (k) => k * k * (3 - 2 * k);
 const seg = (t, a, b) => Math.max(0, Math.min(1, (t - a) / (b - a)));
 const lerp = (a, b, k) => a + (b - a) * k;
 const angLerp = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * k;
-const HIP = 0.9; // (hip height on the rig, at scale 1)
+const HIP = 0.9;
+const _q0 = new THREE.Quaternion(); // (hip height on the rig, at scale 1)
 
 // The car's frame: local x (its left) and z (forward) to the world, and the way a local
 // direction faces in the world.
@@ -54,12 +55,14 @@ export function doorSpot(v, side = -1) {
     belt: M.belt,
     roof: M.roof,
     wheelZ: seat.wheelZ,
+    pedalZ: seat.pedalZ ?? seat.z + 0.84, // (carmodels.js cabin: the pedals)
     hinge: D.hinge,
     len: D.len,
     doorX: D.x,
     lean: seat.lean || 0.12,
-    green: M.green || null,
-    roofHw: M.roofHw ?? W - 0.2,
+    green: M.cabin?.outline || M.green || null,
+    ceilOff: M.cabin ? 0.02 : 0.05, // (a measured headliner: just its own thickness; the drawn glass: the roof's)
+    roofHw: M.cabin?.hw ?? M.roofHw ?? W - 0.2,
   };
 }
 
@@ -225,7 +228,9 @@ const _d = new THREE.Vector3();
 function doorPoint(v, side, lx, ly, lz) {
   const d = v.doors?.[side];
   if (!d) return null;
-  d.pivot.rotation.y = d.angle;
+  // (posed as the car poses it: a butterfly door, the Azure's, up and forward on its hinge)
+  if (d.openQ) d.pivot.quaternion.slerpQuaternions(_q0, d.openQ, Math.min(1, Math.abs(d.angle) / 1.05));
+  else d.pivot.rotation.y = d.angle;
   d.pivot.updateMatrixWorld(true);
   return d.pivot.localToWorld(_d.set(lx, ly, lz)).clone();
 }
@@ -268,14 +273,14 @@ function headOver(c, v, S) {
 // roof, down the back glass), less a little for the roof's own thickness.
 function ceiling(S, z) {
   const G = S.green;
-  if (!G) return S.roof - 0.08;
+  if (!G) return S.roof - S.ceilOff;
   const [[z0, y0], [z1, y1], [z2, y2], [z3, y3]] = G;
   let y;
   if (z >= z0 || z <= z3) y = Math.min(y0, y3);
   else if (z > z1) y = lerp(y1, y0, (z - z1) / (z0 - z1));
   else if (z >= z2) y = y1;
   else y = lerp(y2, y3, (z2 - z) / (z2 - z3));
-  return y - 0.08;
+  return y - S.ceilOff;
 }
 // Keep the head inside the cabin: while it's within the car's sides and up into the roof, the
 // windshield or the back glass, fix it: ducking in or out (dir +1) bend forward more; sitting
@@ -295,42 +300,185 @@ function underRoof(c, v, S, bend, dir) {
   }
   return bend;
 }
-// How to sit in this seat so the head's inside the cabin (the real you is taller sitting than
-// the driver drawn in the window): worked out once, with the character already in the seat,
-// trying a slide down in the seat, laying the back back, a slouch (the chest curled forward over
-// a laid-back lower back) and the chin down, and taking the least of it that fits. Returns
-// { drop, a (lie back), curl, neck }; apply it with seatFit().
+// How to sit in this seat, worked out once with the character already in it (sitPose, square to
+// the wheel). The people here are tall in the body for the cars, so:
+//   - the head under the roof: down into the cushion (never below the floor), lying back, a little
+//     slouch, the chin down; the least of it that fits (a hunch looks worst, so it costs most)
+//   - the hands to the wheel: lying back takes the shoulders away from it, so the hips slide
+//     forward on the seat until the arms reach (as long as the head stays clear)
+//   - the feet on the floor: the thighs out along the seat and the knees opened up until the soles
+//     rest on it (shins down in a van, legs out long in a low car), never through it
+// Returns { drop, a (lie back), curl, neck, fwd, legs: [hip, knee] }; apply it with seatFit().
+const _s = new THREE.Vector3();
+const _w = new THREE.Vector3();
 function fitSeat(c, v, S) {
-  const y0 = c.group.position.y;
-  let best = null;
-  for (let drop = 0; drop <= 0.351; drop += 0.035) {
-    for (let a = S.lean; a <= 1.25; a += 0.07) {
-      for (const curl of [0, 0.2, 0.4, 0.6, 0.8]) {
-        for (const neck of [0.25, 0.5, 0.75, 1.0]) {
-          const cost = a + drop * 4 + curl * 0.8 + neck * 0.3;
-          if (best && cost >= best.cost) continue;
-          c.group.position.y = y0 - drop;
-          c.spine.rotation.x = -a * 0.9;
-          c.chest.rotation.x = -a * 0.1 + curl;
-          c.neck.rotation.x = neck;
-          if (headOver(c, v, S) < -0.05) best = { drop, a, curl, neck, cost };
+  const F = carFrame(v);
+  const p0 = c.group.position.clone();
+  const sc = c.group.scale.y || 1;
+  const pose = (b, fwd = 0) => {
+    const [fx, fz] = F.w(0, fwd);
+    const [ox, oz] = F.w(0, 0);
+    c.group.position.set(p0.x + fx - ox, p0.y - b.drop, p0.z + fz - oz);
+    c.spine.rotation.x = -b.a * 0.9;
+    c.chest.rotation.x = -b.a * 0.1 + b.curl;
+    c.neck.rotation.x = b.neck;
+  };
+  const maxDrop = Math.max(0.03, S.seat[1] - 0.04 - (S.floor - 0.02));
+  const search = (fwd) => {
+    let best = null;
+    for (let drop = 0; drop <= maxDrop + 1e-6; drop += 0.03) {
+      for (let a = S.lean; a <= 1.35; a += 0.06) {
+        for (const curl of [0, 0.15, 0.3, 0.45, 0.6]) {
+          for (const neck of [0, 0.25, 0.5, 0.75]) {
+            const cost = a + drop * 3 + curl * 1.8 + neck * 0.4;
+            if (best && cost >= best.cost) continue;
+            pose({ drop, a, curl, neck }, fwd);
+            if (headOver(c, v, S) < -0.03) best = { drop, a, curl, neck, cost };
+          }
         }
       }
     }
+    return best;
+  };
+  // (the hips' height over the floor at full size, and the room ahead of them to the pedals)
+  const hipAt = (b, fwd) => {
+    pose(b, fwd);
+    c.group.updateMatrixWorld(true);
+    c.legL.getWorldPosition(_s);
+    v.group.worldToLocal(_s);
+    return { h: (_s.y - S.floor - 0.03) / sc, room: (S.pedalZ - _s.z) / sc };
+  };
+  const arm = 0.52 * sc; // (shoulder to the wrist, nearly straight: it's 0.54 at full stretch)
+  const [gx, gz] = F.w(S.seat[0] + 0.17, S.wheelZ ?? 0);
+  const grip = _w.set(gx, F.y + S.belt + 0.04, gz);
+  const reach = () => {
+    c.group.updateMatrixWorld(true);
+    return c.armL.getWorldPosition(_s).distanceTo(grip);
+  };
+  // Fitted twice: the head first, then forward on the seat till the hands reach the wheel (while
+  // the head's clear and the feet still find the pedals), then the head again from there (forward,
+  // under the flat of the roof, there's often less lying back to do).
+  let fwd = 0;
+  let best = null;
+  for (let pass = 0; pass < 2; pass++) {
+    best = search(fwd) || best;
+    if (!best) break;
+    if (S.wheelZ == null || pass === 1) break;
+    pose(best, fwd);
+    for (let f = fwd + 0.03; f <= 0.25 + 1e-6 && reach() > arm; f += 0.03) {
+      pose(best, f);
+      if (headOver(c, v, S) >= -0.03) break; // (into the windshield: no further)
+      if (legsFor(hipAt(best, f)).short > 0.25) break; // (the feet can go on under the dash, out of sight; not much past it)
+      fwd = f;
+    }
   }
-  c.group.position.y = y0;
   if (!best) console.warn('carscenes: no seat pose fits this cabin', v.typeName);
-  return best || { drop: 0.35, a: 0.6, curl: 0.8, neck: 1.0 };
+  best = { ...(best || { drop: maxDrop, a: 0.9, curl: 0.6, neck: 0.75 }), fwd };
+  best.legs = legsFor(hipAt(best, fwd)).legs;
+  c.group.position.copy(p0);
+  return best;
 }
-// The fitted seat pose at k (0..1), over whatever bend the scene's set.
-function seatFit(c, fit, k) {
+// The legs from a hip h over the floor with room ahead of it to the pedals (at full size): the soles
+// on the floor and the feet as near the pedals as they'll go, the thighs level or the knees up in a
+// tight footwell. Returns { legs: [hip, knee] (bendLeg), short: how far they still reach past }.
+function legsFor({ h, room }) {
+  let best = null;
+  for (let thigh = 1.2; thigh <= 2.15; thigh += 0.05) {
+    const down = h - L1 * Math.cos(thigh); // (what the shin has to come down)
+    const sh = Math.acos(Math.max(-1, Math.min(1, down / SHIN_L))); // (the shin's lean forward)
+    const ahead = L1 * Math.sin(thigh) + SHIN_L * Math.sin(sh);
+    const over = Math.max(0, ahead - room);
+    const cost = over * 4 + Math.abs(ahead - room) * 0.5 + Math.abs(thigh - 1.45) * 0.3;
+    if (!best || cost < best.cost) best = { cost, legs: [thigh, thigh - sh], short: over };
+  }
+  return best;
+}
+const L1 = 0.44; // (character.js: the thigh, and the knee to the sole)
+const SHIN_L = 0.43;
+// Seated, a person's drawn a touch smaller (the people here are big for the cars: tall in the
+// body, long in the leg). It eases in as you lower into the seat and out as you rise from it,
+// passing through the door, where you don't see it. base: the standing size.
+const SEAT_K = 0.88;
+function sizes(c) {
+  if (!c.seated) c.baseScale = c.group.scale.y || 1;
+  const base = c.baseScale;
+  return { base, sit: base * SEAT_K };
+}
+// (worked out once per car type and body size: it's a search)
+const FITS = new Map();
+function cachedFit(c, v, S) {
+  const key = `${v.typeName}|${S.sx}|${(c.group.scale.y || 1).toFixed(3)}`;
+  if (!FITS.has(key)) FITS.set(key, fitSeat(c, v, S));
+  return FITS.get(key);
+}
+
+// Sitting in the seat, ready to drive: the same pose getting in ends on and getting out starts
+// from (fitted under the roof, hands on the wheel). Used while you drive: you stay in the car,
+// riding in the seat (vehicle.js rider), not swapped for the figure drawn in the window.
+export function seatPose(c, v, side = -1) {
+  const F = carFrame(v);
+  const S = doorSpot(v, side);
+  const { sit } = sizes(c);
+  c.group.scale.setScalar(sit);
+  c.seated = true;
+  const [x, z] = F.w(S.seat[0], S.seat[2]);
+  const y = F.y + S.seat[1] - 0.04 - HIP * sit;
+  const yaw = F.yaw(0, 1);
+  rest(c);
+  place(c, x, y, z, yaw);
+  sitPose(c, 1);
+  const fit = cachedFit(c, v, S);
+  rest(c);
+  place(c, x, y, z, yaw);
+  sitPose(c, 1);
+  bendSpine(c, 0, 0, 0);
+  c.neck.rotation.set(0, 0, 0);
+  seatFit(c, fit, 1, F);
+  handsOnWheel(c, F, S);
+}
+
+// The figure drawn in the window (carmodels.js driverGeometry: anyone else driving): how far it
+// lies back, and how far down in the seat, so its head is under this car's roof. The head's top
+// is about 0.8 above the seat, leaning back about the hips.
+export function drawnDriverFit(v) {
+  const S = doorSpot(v, -1);
+  const { y, z, lean = 0 } = v.model.seat;
+  const H = 0.8 * SEAT_K; // (drawn at the seated size, like you: vehicle.js showDriver)
+  for (let drop = 0; drop <= 0.16; drop += 0.04) {
+    for (let a = lean; a <= 1.2; a += 0.05) {
+      const hy = y - drop + H * Math.cos(a);
+      const hz = z - 0.05 - H * Math.sin(a);
+      // (the head's front and back corners too)
+      // (under the roof's outside by a few centimeters: what you'd see poke through)
+      const ok = [-0.12, 0, 0.12].every((dz) => hy + Math.abs(dz) * 0.3 < ceiling(S, hz + dz) + S.ceilOff - 0.05);
+      if (ok) return { lean: a, drop, k: SEAT_K };
+    }
+  }
+  return { lean: 1.1, drop: 0.16, k: SEAT_K };
+}
+
+// The fitted seat pose at k (0..1), over whatever bend the scene's set. F: the car's frame (the
+// slide forward on the seat is along the car).
+function seatFit(c, fit, k, F) {
   if (!fit || k <= 0) return;
   const q = Math.min(1, k * 2); // (down in the seat and the chin in first, then lie back)
   c.group.position.y -= fit.drop * q;
   const r = Math.max(0, (k - 0.4) / 0.6); // (lie back once you're round to the wheel)
+  if (F && fit.fwd) {
+    const [fx, fz] = F.w(0, fit.fwd * r);
+    const [ox, oz] = F.w(0, 0);
+    c.group.position.x += fx - ox;
+    c.group.position.z += fz - oz;
+  }
   c.spine.rotation.x += -fit.a * 0.9 * r;
   c.chest.rotation.x += -fit.a * 0.1 * r + fit.curl * q;
   c.neck.rotation.x = fit.neck * q + c.neck.rotation.x * (1 - q);
+  // (the feet down onto the floor as the legs come in)
+  if (fit.legs) {
+    const [hip, knee] = fit.legs;
+    bendLeg(c.legL, c.kneeL, lerp(1.45, hip, r), lerp(1.25, knee, r));
+    bendLeg(c.legR, c.kneeR, lerp(1.45, hip, r), lerp(1.3, knee, r));
+  }
 }
 
 // ---- In ----
@@ -352,8 +500,8 @@ export function enterCar(c, v, side = -1, { from = null, groundY = null, fromDuc
   const [bx, bz] = F.w(...B);
   const start = from || [ax, az];
   const gy = groundY ? groundY(ax, az) : F.y;
-  const sc = c.group.scale.y || 1;
-  const seatY = F.y + S.seat[1] - 0.04 - HIP * sc;
+  const { base, sit } = sizes(c);
+  const seatY = F.y + S.seat[1] - 0.04 - HIP * sit;
   const [seatX, seatZ] = F.w(S.seat[0], S.seat[2]);
   const faceCar = F.yaw(-sx, 0);
   const faceSit = F.yaw(sx, 0.35); // (back to the seat)
@@ -425,6 +573,8 @@ export function enterCar(c, v, side = -1, { from = null, groundY = null, fromDuc
         slideLean = Math.sin(q * Math.PI) * 0.3 * -sx;
       }
     }
+    c.group.scale.setScalar(lerp(base, sit, ease(seg(t, T.step, T.sit)))); // (a touch smaller sitting: sizes())
+    c.seated = t >= T.sit;
     place(c, x, y, z, yaw);
     bendSpine(c, bend, 0, slideLean);
     c.neck.rotation.set(Math.max(0, bend) * 0.3, 0, 0);
@@ -434,14 +584,14 @@ export function enterCar(c, v, side = -1, { from = null, groundY = null, fromDuc
         rest(c);
         place(c, seatX, seatY, seatZ, faceFwd);
         sitPose(c, 1);
-        fit = fitSeat(c, v, S);
+        fit = cachedFit(c, v, S);
         rest(c);
         place(c, x, y, z, yaw);
         sitPose(c, 1);
         bendSpine(c, bend, 0, 0);
         c.neck.rotation.set(Math.max(0, bend) * 0.3, 0, 0);
       }
-      seatFit(c, fit, seatK);
+      seatFit(c, fit, seatK, F);
     }
     if (t >= T.step && seatK < 0.5) bend = underRoof(c, v, S, bend, 1);
     // (hands: the outside handle, riding it as it swings open; the far hand on the roof edge
@@ -486,8 +636,9 @@ export function exitCar(c, v, side = -1, { groundY = null, onDone = null } = {})
   const S = doorSpot(v, side);
   const sx = S.sx;
   const none = S.none || !v.doors?.[side];
-  const sc = c.group.scale.y || 1;
-  const seatY = F.y + S.seat[1] - 0.04 - HIP * sc;
+  const { base, sit } = sizes(c); // (getting out: from the seated size back up to standing; a cop who rode
+  c.seated = true; // along unseen starts from his standing size, as he was)
+  const seatY = F.y + S.seat[1] - 0.04 - HIP * sit;
   const [seatX, seatZ] = F.w(S.seat[0], S.seat[2]);
   const [bx, bz] = F.w(sx * (S.doorX + 0.3), S.hinge - S.len * 0.5);
   const [fx, fz] = F.w(sx * (S.doorX + 1.3), S.hinge - S.len * 0.8);
@@ -536,20 +687,22 @@ export function exitCar(c, v, side = -1, { groundY = null, onDone = null } = {})
       bend = 0;
       animateWalk(c, t * 10, 0.7 * (1 - seg(t, T.step - 0.15, T.step)));
     }
+    c.group.scale.setScalar(lerp(sit, base, ease(seg(t, T.swing, T.up))));
+    c.seated = t < T.up;
     place(c, x, y, z, yaw);
     if (!fit) {
       // (worked out once, sitting square in the seat)
       rest(c);
       place(c, seatX, seatY, seatZ, faceFwd);
       sitPose(c, 1);
-      fit = fitSeat(c, v, S);
+      fit = cachedFit(c, v, S);
       rest(c);
       place(c, x, y, z, yaw);
       if (t < T.up) sitPose(c, t < T.swing ? 1 : 1 - ease(seg(t, T.swing, T.up)));
     }
     bendSpine(c, bend, 0, 0);
     c.neck.rotation.set(Math.max(0, bend) * 0.3, 0, 0);
-    seatFit(c, fit, seatK);
+    seatFit(c, fit, seatK, F);
     if (t < T.up && seatK < 0.5) bend = underRoof(c, v, S, bend, 1);
     // (hands on the wheel, the near one to the door; then on the door frame to push up and out)
     if (t < 0.3) handsOnWheel(c, F, S, none ? null : hand === 'L' ? 'R' : 'L');

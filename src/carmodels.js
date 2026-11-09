@@ -647,7 +647,7 @@ function wheelGeometry(r, w) {
 // A seated driver (hands on the wheel), painted in their colors: skin, shirt, pants.
 const driverCache = new Map();
 export function driverGeometry(look, seatAt, wheelZ) {
-  const key = `${look.skin}|${look.shirt}|${look.pants}|${look.hair}|${seatAt.x}|${seatAt.y}|${seatAt.z}|${seatAt.floor}|${wheelZ}`;
+  const key = `${look.skin}|${look.shirt}|${look.pants}|${look.hair}|${seatAt.x}|${seatAt.y}|${seatAt.z}|${seatAt.floor}|${seatAt.lean}|${wheelZ}`;
   if (driverCache.has(key)) return driverCache.get(key);
   const { x, y, z, lean = 0 } = seatAt;
   // (the upper body, leaned back about the hips: low cars lay you back)
@@ -688,7 +688,11 @@ export function carModel(typeName, t) {
   if (typeName === 'azure') {
     // (where the model has them: its wheels, its seat, its door hinges and lines)
     s.wheels = { z: [1.42, -1.4], x: 0.94, r: 0.5, w: 0.3 };
-    s.seat = { x: 0.34, y: 0.5, floor: 0.33, z: -0.2, wheelZ: 0.36, lean: 0.5 };
+    // (measured off the model: the cushion's top at 0.48, the wheel at z 0.42, the canopy's
+    // underside 1.21 flat from z -0.55 to 0.1, the windshield down to 0.8 at z 0.85, the back
+    // glass to 0.95 at z -0.95)
+    s.seat = { x: 0.34, y: 0.49, floor: 0.32, z: -0.04, wheelZ: 0.42, pedalZ: 0.7, lean: 0.6 }; // (forward on the cushion: room to lie back under the flat of the canopy)
+    s.cabin = { outline: [[0.85, 0.8], [0.12, 1.2], [-0.55, 1.2], [-0.95, 0.95]], hw: 0.6 };
     s.door = { ...s.door, hinge: 0.75, len: 1.3, x: 0.86, bottom: 0.31, top: 0.84 };
     s.belt = 0.84;
     s.roof = 1.22;
@@ -709,6 +713,7 @@ export function carModel(typeName, t) {
     wheel: wheelGeometry(s.wheels.r, s.wheels.w),
     lights: s.lights,
     seat: s.seat,
+    cabin: s.cabin || null, // (a model's own cabin: its headliner's outline [z, y], measured, and the half-width at the top)
     green: s.green, // (the cabin's side outline, [z, y] front to back: the windshield, the roof, the back)
     roofHw: s.hwG ? s.hwG(99) : t.w / 2, // (half the width across the top of the door openings)
     door: null,

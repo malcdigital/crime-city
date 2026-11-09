@@ -1,8 +1,8 @@
-import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import AZURE_URL from "./assets/azure.glb?url";
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import AZURE_URL from './assets/azure.glb?url';
 
 // Your car: the Azure V2 (src/assets/azure.glb, a Blender model, in the build as data). It's a
 // vehicle type of its own (vehicle.js 'azure': 125 mph, quick, grippy) that drives and crashes
@@ -35,19 +35,19 @@ export function loadAzure(renderer) {
       AZURE.parts = prepare(gltf);
       AZURE.ready = true;
     } catch (e) {
-      console.warn("Azure: could not prepare the model", e);
+      console.warn('Azure: could not prepare the model', e);
     }
     for (const f of AZURE.waiting) f();
     AZURE.waiting = [];
   };
-  const fail = (e) => console.warn("Azure: could not load the model", e);
+  const fail = (e) => console.warn('Azure: could not load the model', e);
   const loader = new GLTFLoader();
-  if (AZURE_URL.startsWith("data:")) {
+  if (AZURE_URL.startsWith('data:')) {
     try {
-      const bin = atob(AZURE_URL.slice(AZURE_URL.indexOf(",") + 1));
+      const bin = atob(AZURE_URL.slice(AZURE_URL.indexOf(',') + 1));
       const buf = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-      loader.parse(buf.buffer, "", done, fail);
+      loader.parse(buf.buffer, '', done, fail);
     } catch (e) {
       fail(e);
     }
@@ -66,7 +66,13 @@ const MATS = new Set();
 const PAINT = /cyan → blue/i;
 function convert(m) {
   const c = m.clone();
-  c.vertexColors = PAINT.test(m.name || "");
+  c.vertexColors = PAINT.test(m.name || '');
+  // (the glass: smoked, but you can see who's driving)
+  if (/smoked glass|smoked canopy/i.test(m.name || '')) {
+    c.transparent = true;
+    c.opacity = 0.62;
+    c.depthWrite = false;
+  }
   c.envMap = AZURE.env || null;
   c.envMapIntensity = 1;
   c.needsUpdate = true;
@@ -86,23 +92,20 @@ function prepare(gltf) {
   const named = (base) => {
     let hit = null;
     root.traverse((o) => {
-      if (!hit && o.name.replace(/[.\s]/g, "").startsWith(base)) hit = o;
+      if (!hit && o.name.replace(/[.\s]/g, '').startsWith(base)) hit = o;
     });
     return hit;
   };
   // The frames things are kept in: each wheel about its middle, each door about its hinge.
   const wheelNodes = {};
-  for (const k of ["Front_L", "Front_R", "Rear_L", "Rear_R"])
-    wheelNodes[k] = named(`Wheel_${k}`);
-  const doorNodes = { L: named("Door_Hinge_L"), R: named("Door_Hinge_R") };
+  for (const k of ['Front_L', 'Front_R', 'Rear_L', 'Rear_R']) wheelNodes[k] = named(`Wheel_${k}`);
+  const doorNodes = { L: named('Door_Hinge_L'), R: named('Door_Hinge_R') };
   const frameOf = (o) => {
     for (let p = o; p && p !== root; p = p.parent) {
-      for (const [k, w] of Object.entries(wheelNodes))
-        if (p === w) return ["wheel", k, w];
-      for (const [k, d] of Object.entries(doorNodes))
-        if (p === d) return ["door", k, d];
+      for (const [k, w] of Object.entries(wheelNodes)) if (p === w) return ['wheel', k, w];
+      for (const [k, d] of Object.entries(doorNodes)) if (p === d) return ['door', k, d];
     }
-    return ["body", null, null];
+    return ['body', null, null];
   };
   const mats = new Map();
   const matFor = (m) => {
@@ -129,36 +132,22 @@ function prepare(gltf) {
       let g = o.geometry.clone();
       g.applyMatrix4(tmp);
       if (g.index) g = g.toNonIndexed();
-      for (const a of Object.keys(g.attributes))
-        if (a !== "position" && a !== "normal" && a !== "color")
-          g.deleteAttribute(a);
+      for (const a of Object.keys(g.attributes)) if (a !== 'position' && a !== 'normal' && a !== 'color') g.deleteAttribute(a);
       const mat = matFor(src);
       if (/^tail light/i.test(src.name)) mat.userData.tail = true;
-      if (
-        !(mat instanceof THREE.Material && mat.vertexColors) &&
-        g.attributes.color
-      )
-        g.deleteAttribute("color");
-      if (
-        mat instanceof THREE.Material &&
-        mat.vertexColors &&
-        !g.attributes.color
-      ) {
+      if (!(mat instanceof THREE.Material && mat.vertexColors) && g.attributes.color) g.deleteAttribute('color');
+      if (mat instanceof THREE.Material && mat.vertexColors && !g.attributes.color) {
         const n = g.attributes.position.count;
-        g.setAttribute(
-          "color",
-          new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3),
-        );
+        g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3));
       }
       // (a color attribute in VEC4: down to three)
       if (g.attributes.color && g.attributes.color.itemSize === 4) {
         const c4 = g.attributes.color;
         const c3 = new Float32Array(c4.count * 3);
-        for (let i = 0; i < c4.count; i++)
-          c3.set([c4.getX(i), c4.getY(i), c4.getZ(i)], i * 3);
-        g.setAttribute("color", new THREE.BufferAttribute(c3, 3));
+        for (let i = 0; i < c4.count; i++) c3.set([c4.getX(i), c4.getY(i), c4.getZ(i)], i * 3);
+        g.setAttribute('color', new THREE.BufferAttribute(c3, 3));
       }
-      add(kind === "body" ? "body" : `${kind}:${k}`, mat, g);
+      add(kind === 'body' ? 'body' : `${kind}:${k}`, mat, g);
     }
   });
   const parts = { body: [], wheels: {}, doors: {} };
@@ -170,8 +159,8 @@ function prepare(gltf) {
       g.computeBoundingSphere();
       out.push([g, mat]);
     }
-    if (key === "body") parts.body = out;
-    else if (key.startsWith("wheel:")) parts.wheels[key.slice(6)] = out;
+    if (key === 'body') parts.body = out;
+    else if (key.startsWith('wheel:')) parts.wheels[key.slice(6)] = out;
     else parts.doors[key.slice(5)] = out;
   }
   // the doors' hinges (where they sit on the car) and their open pose (the animation's widest)
@@ -181,11 +170,7 @@ function prepare(gltf) {
     let open = null;
     for (const clip of gltf.animations || []) {
       for (const tr of clip.tracks) {
-        if (
-          !tr.name.startsWith(`${d.name}.`) ||
-          !tr.name.endsWith(".quaternion")
-        )
-          continue;
+        if (!tr.name.startsWith(`${d.name}.`) || !tr.name.endsWith('.quaternion')) continue;
         const v = tr.values;
         let best = -1;
         for (let i = 0; i < v.length; i += 4) {
@@ -200,12 +185,7 @@ function prepare(gltf) {
     parts.doors[k] = {
       pieces: parts.doors[k] || [],
       at,
-      open:
-        open ||
-        new THREE.Quaternion().setFromAxisAngle(
-          new THREE.Vector3(1, 0, 0),
-          1.2,
-        ),
+      open: open || new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 1.2),
     };
   }
   // its size, wheels out (for the car's frame: vehicle.js / carmodels.js take these numbers)
@@ -221,8 +201,7 @@ export function dressAzure(v) {
   v.azureDressed = true;
   const g = v.group;
   // (the procedural car stays, unseen: it's what the damage and the seat work from)
-  for (const m of [v.bodyMesh, v.trimMesh, v.glassMesh, v.insideMesh])
-    if (m) m.visible = false;
+  for (const m of [v.bodyMesh, v.trimMesh, v.glassMesh, v.insideMesh]) if (m) m.visible = false;
   for (const m of [...v.heads, ...v.tails]) m.visible = false;
   // the body (its light strips always lit, like the model; the tail lights brighten when you
   // brake: vehicle.js updateLights)
@@ -240,7 +219,7 @@ export function dressAzure(v) {
   v.tailNow = null;
   // the wheels: the model's wheel inside each of the car's own (left = +x = the model's "R")
   for (const w of v.wheels) {
-    const key = `${w.userData.front ? "Front" : "Rear"}_${w.userData.left ? "R" : "L"}`;
+    const key = `${w.userData.front ? 'Front' : 'Rear'}_${w.userData.left ? 'R' : 'L'}`;
     const pieces = P.wheels[key];
     if (!pieces) continue;
     w.material = HIDE;
@@ -253,7 +232,7 @@ export function dressAzure(v) {
   }
   // the doors: on the car's pivots, moved to the model's hinges (driver's side, -1, is +x: "R")
   for (const [side, d] of Object.entries(v.doors || {})) {
-    const D = P.doors[+side === -1 ? "R" : "L"];
+    const D = P.doors[+side === -1 ? 'R' : 'L'];
     if (!D) continue;
     for (const c of d.pivot.children) c.visible = false;
     d.pivot.position.copy(D.at);

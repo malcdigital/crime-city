@@ -1,4 +1,5 @@
 import { whenAzure, dressAzure, azureNight } from './azure.js';
+import { drawnDriverFit } from './carscenes.js';
 import * as THREE from 'three';
 import { lam } from './character.js';
 import { pushCircle } from './collision.js';
@@ -11,6 +12,7 @@ export const CRASH = { dent: null };
 const dentGap = new WeakMap(); // (a pair of cars grinding together: one dent every so often, not every frame)
 
 const _q0 = new THREE.Quaternion();
+const _m = new THREE.Matrix4();
 
 export const VTYPES = {
   sedan: { armor: 5, w: 1.86, l: 4.65, h: 0.95, cab: [1.8, 0.7, 2.2, -0.2], max: 30, accel: 9, brake: 20, rev: 8, value: 900, label: 'Sedan',
@@ -271,12 +273,19 @@ export class Vehicle {
   // Whoever's at the wheel, seen through the glass (src/carmodels.js driverGeometry): you in
   // your colors, a cop in uniform, anyone else in their own. look: { skin, shirt, pants, hair }.
   showDriver() {
-    const on = !!this.driver && !this.exploded && !this.jacking && this.driver !== 'entering';
+    const on = !!this.driver && !this.exploded && !this.jacking && this.driver !== 'entering' && !this.rider;
     if (on) {
       const look = this.driverLook || (this.ownLook ??= randomLook(this.typeName));
       if (this.driverMesh?.userData.look !== look) {
         if (this.driverMesh) this.group.remove(this.driverMesh);
-        this.driverMesh = new THREE.Mesh(driverGeometry(look, this.model.seat, this.model.seat.wheelZ), trimMat);
+        // (laid back and down in the seat as far as this car's roof needs: carscenes.js)
+        this.driverFit ??= drawnDriverFit(this);
+        const seat = { ...this.model.seat, y: this.model.seat.y - this.driverFit.drop, lean: this.driverFit.lean };
+        this.driverMesh = new THREE.Mesh(driverGeometry(look, seat, this.model.seat.wheelZ), trimMat);
+        // (the seated size, scaled about the seat: carscenes.js sizes)
+        const k = this.driverFit.k ?? 1;
+        this.driverMesh.scale.setScalar(k);
+        this.driverMesh.position.set(seat.x * (1 - k), seat.y * (1 - k), seat.z * (1 - k));
         this.driverMesh.userData.look = look;
         this.group.add(this.driverMesh);
       }
@@ -886,7 +895,29 @@ export class Vehicle {
     }
     this.updateLights(dt);
     this.showDriver();
+    this.carryRider();
     this.crash = Math.max(0, this.crash - dt * 20);
+  }
+
+  // Whoever's riding in the seat (you, while you drive: carscenes.js seatPose) goes where the
+  // car goes, tilting with it. rider: { char, local (its place in the car), live() }.
+  seat(rider) {
+    this.group.updateMatrixWorld(true);
+    rider.char.group.updateMatrixWorld(true);
+    rider.local = _m.copy(this.group.matrixWorld).invert().multiply(rider.char.group.matrixWorld).clone();
+    this.rider = rider;
+  }
+
+  carryRider() {
+    const r = this.rider;
+    if (!r) return;
+    if (!r.live() || this.removed) {
+      this.rider = null;
+      return;
+    }
+    this.group.updateMatrixWorld(true);
+    _m.multiplyMatrices(this.group.matrixWorld, r.local);
+    _m.decompose(r.char.group.position, r.char.group.quaternion, r.char.group.scale);
   }
 
   dispose() {
