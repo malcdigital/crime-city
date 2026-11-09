@@ -6,37 +6,43 @@ export function lam(color) {
   return matCache.get(color);
 }
 
-const SPINE_Y = 0.9; // (the spine pivot: hip height)
-const THIGH = new THREE.BoxGeometry(0.22, 0.46, 0.26);
-const SHIN = new THREE.BoxGeometry(0.2, 0.44, 0.24);
-const BODY = new THREE.BoxGeometry(0.56, 0.42, 0.32); // (the chest: shoulders to mid-back)
-const BELLY = new THREE.BoxGeometry(0.54, 0.36, 0.31); // (the lower back and belly)
-const CHEST_Y = 1.22; // (the mid-back pivot)
-const NECK_Y = 1.62;
+// The body's proportions are a real adult's (at scale 1 the model is 1.97 tall, MODEL_H): the
+// hips at 52% of the height, the knees at 28%, the shoulders at 80%, the head an eighth of it
+// (chin to crown). So people fit in cars, on stools and on benches the way real ones do.
+export const RIG = { hip: 1.02, knee: 0.56, chest: 1.3, shoulder: 1.57, neck: 1.66, head: 1.84, crown: 1.97 };
+const SPINE_Y = RIG.hip; // (the spine pivot: hip height)
+export const L1 = RIG.hip - RIG.knee; // (the thigh: hip to knee)
+const THIGH = new THREE.BoxGeometry(0.22, 0.48, 0.26);
+const SHIN = new THREE.BoxGeometry(0.2, 0.53, 0.24);
+const BODY = new THREE.BoxGeometry(0.56, 0.38, 0.32); // (the chest: shoulders to mid-back)
+const BELLY = new THREE.BoxGeometry(0.54, 0.3, 0.31); // (the lower back and belly)
+const CHEST_Y = RIG.chest; // (the mid-back pivot)
+const NECK_Y = RIG.neck;
 const ARM = new THREE.BoxGeometry(0.16, 0.34, 0.18); // (the upper arm)
 const FOREARM = new THREE.BoxGeometry(0.15, 0.3, 0.17);
 const DELT = new THREE.BoxGeometry(0.2, 0.18, 0.22); // (the shoulder cap)
-const HAND = new THREE.BoxGeometry(0.14, 0.14, 0.14);
-const HEAD = new THREE.BoxGeometry(0.32, 0.34, 0.32);
-const CAP = new THREE.BoxGeometry(0.36, 0.1, 0.36);
-const BRIM = new THREE.BoxGeometry(0.34, 0.04, 0.16);
-const BAND = new THREE.BoxGeometry(0.34, 0.08, 0.34);
+const HAND = new THREE.BoxGeometry(0.13, 0.16, 0.13);
+const HEAD = new THREE.BoxGeometry(0.26, 0.26, 0.27);
+const NECKB = new THREE.BoxGeometry(0.13, 0.12, 0.13);
+const CAP = new THREE.BoxGeometry(0.3, 0.09, 0.31);
+const BRIM = new THREE.BoxGeometry(0.28, 0.035, 0.14);
+const BAND = new THREE.BoxGeometry(0.28, 0.07, 0.29);
 // A woman's build: narrower shoulders and waist, a bust, hair.
-const BODY_F = new THREE.BoxGeometry(0.5, 0.42, 0.3);
-const BELLY_F = new THREE.BoxGeometry(0.44, 0.36, 0.28);
+const BODY_F = new THREE.BoxGeometry(0.5, 0.38, 0.3);
+const BELLY_F = new THREE.BoxGeometry(0.44, 0.3, 0.28);
 const BUST = new THREE.BoxGeometry(0.38, 0.13, 0.07);
 const DELT_F = new THREE.BoxGeometry(0.17, 0.16, 0.2);
 const ARM_F = new THREE.BoxGeometry(0.14, 0.34, 0.16);
 const FOREARM_F = new THREE.BoxGeometry(0.13, 0.3, 0.15);
 const HIPS_F = new THREE.BoxGeometry(0.5, 0.16, 0.31); // (a little wider at the hips than the waist)
-const HAIR_TOP = new THREE.BoxGeometry(0.36, 0.11, 0.36);
-const HAIR_BANGS = new THREE.BoxGeometry(0.34, 0.07, 0.05);
-const THIGH_F = new THREE.BoxGeometry(0.2, 0.46, 0.24);
-const SHIN_F = new THREE.BoxGeometry(0.17, 0.44, 0.21);
-const HAIR_LONG = new THREE.BoxGeometry(0.34, 0.44, 0.08);
-const HAIR_TAIL = new THREE.BoxGeometry(0.1, 0.32, 0.1);
-const HAIR_BUN = new THREE.BoxGeometry(0.15, 0.14, 0.14);
-const HAIR_SIDE = new THREE.BoxGeometry(0.05, 0.34, 0.24);
+const HAIR_TOP = new THREE.BoxGeometry(0.3, 0.09, 0.3);
+const HAIR_BANGS = new THREE.BoxGeometry(0.28, 0.06, 0.05);
+const THIGH_F = new THREE.BoxGeometry(0.2, 0.48, 0.24);
+const SHIN_F = new THREE.BoxGeometry(0.17, 0.53, 0.21);
+const HAIR_LONG = new THREE.BoxGeometry(0.28, 0.4, 0.07);
+const HAIR_TAIL = new THREE.BoxGeometry(0.09, 0.3, 0.09);
+const HAIR_BUN = new THREE.BoxGeometry(0.13, 0.12, 0.12);
+const HAIR_SIDE = new THREE.BoxGeometry(0.05, 0.28, 0.2);
 export const HAIR_COLORS = [0x120c0a, 0x1c120d, 0x2b1a12, 0x3b2416, 0x5a3a22, 0x8a5a33, 0xc9a35a, 0x7a2e16];
 export const HAIR_STYLES = ['long', 'pony', 'bun'];
 
@@ -88,12 +94,12 @@ export function makeCharacter({ shirt = 0x3366aa, pants = 0x222222, skin = 0xc68
   // The character faces +z, so its right side is local -x.
   // Legs: hip pivot (thigh) with a knee pivot (shin) so they can bend.
   const leg = (x) => {
-    const hip = pivot(x, 0.9);
-    add(female ? THIGH_F : THIGH, pants, 0, -0.22, 0, hip);
+    const hip = pivot(x, RIG.hip);
+    add(female ? THIGH_F : THIGH, pants, 0, -0.23, 0, hip);
     const knee = new THREE.Group();
-    knee.position.set(0, -0.44, 0);
+    knee.position.set(0, -L1, 0);
     hip.add(knee);
-    add(female ? SHIN_F : SHIN, pants, 0, -0.21, 0, knee);
+    add(female ? SHIN_F : SHIN, pants, 0, -0.265, 0, knee);
     return [hip, knee];
   };
   const [legL, kneeL] = leg(0.13);
@@ -111,17 +117,17 @@ export function makeCharacter({ shirt = 0x3366aa, pants = 0x222222, skin = 0xc68
   const neck = new THREE.Group();
   neck.position.set(0, NECK_Y - CHEST_Y, 0);
   chest.add(neck);
-  add(female ? BELLY_F : BELLY, shirt, 0, 1.08 - SPINE_Y, 0, spine);
-  add(female ? BODY_F : BODY, shirt, 0, 1.41 - CHEST_Y, 0, chest);
+  add(female ? BELLY_F : BELLY, shirt, 0, 1.15 - SPINE_Y, 0, spine);
+  add(female ? BODY_F : BODY, shirt, 0, 1.43 - CHEST_Y, 0, chest);
   if (female) {
-    add(BUST, shirt, 0, 1.4 - CHEST_Y, 0.17, chest);
-    add(HIPS_F, pants, 0, 0.94 - SPINE_Y, 0, spine);
+    add(BUST, shirt, 0, 1.43 - CHEST_Y, 0.17, chest);
+    add(HIPS_F, pants, 0, 1.05 - SPINE_Y, 0, spine);
   }
   // Arms: the shoulder (armL / armR), the elbow and the wrist, each a pivot of its own.
   // An elbow bends with a negative x (the forearm comes forward); a wrist the same way.
   const arm = (x) => {
     const sh = new THREE.Group();
-    sh.position.set(x, 1.56 - CHEST_Y, 0);
+    sh.position.set(x, RIG.shoulder - CHEST_Y, 0);
     chest.add(sh);
     add(female ? DELT_F : DELT, shirt, 0, -0.04, 0, sh);
     add(female ? ARM_F : ARM, shirt, 0, -0.16, 0, sh);
@@ -132,35 +138,36 @@ export function makeCharacter({ shirt = 0x3366aa, pants = 0x222222, skin = 0xc68
     const wr = new THREE.Group();
     wr.position.set(0, -0.28, 0);
     el.add(wr);
-    add(HAND, skin, 0, -0.06, 0, wr);
+    add(HAND, skin, 0, -0.07, 0, wr);
     return [sh, el, wr];
   };
   const SH = female ? 0.33 : 0.37; // (the shoulders: narrower on a woman)
   const [armL, elbowL, wristL] = arm(SH);
   const [armR, elbowR, wristR] = arm(-SH);
   const hd = (geo, color, x, y, z) => add(geo, color, x, y - NECK_Y, z, neck);
-  hd(HEAD, skin, 0, 1.8, 0);
+  hd(NECKB, skin, 0, 1.68, 0);
+  hd(HEAD, skin, 0, RIG.head, 0);
   if (cap) {
-    hd(CAP, cap, 0, 2.0, 0);
-    hd(BRIM, cap, 0, 1.96, 0.22);
+    hd(CAP, cap, 0, 1.99, 0);
+    hd(BRIM, cap, 0, 1.955, 0.19);
   }
-  if (bandana) hd(BAND, bandana, 0, 1.9, 0);
+  if (bandana) hd(BAND, bandana, 0, 1.91, 0);
   if (female) {
     // Hair: on top (under a cap if there's one), and down the back long, in a ponytail or a bun.
     const hc = hair ?? HAIR_COLORS[Math.floor(Math.random() * HAIR_COLORS.length)];
     const st = hairStyle ?? HAIR_STYLES[Math.floor(Math.random() * HAIR_STYLES.length)];
     if (!cap) {
-      hd(HAIR_TOP, hc, 0, 2.0, -0.01);
-      hd(HAIR_BANGS, hc, 0, 1.93, 0.16); // (a fringe over the forehead)
+      hd(HAIR_TOP, hc, 0, 1.99, -0.01);
+      hd(HAIR_BANGS, hc, 0, 1.93, 0.14); // (a fringe over the forehead)
     }
     if (st === 'long') {
-      hd(HAIR_LONG, hc, 0, 1.76, -0.17);
-      hd(HAIR_SIDE, hc, 0.175, 1.8, -0.04);
-      hd(HAIR_SIDE, hc, -0.175, 1.8, -0.04);
+      hd(HAIR_LONG, hc, 0, 1.78, -0.15);
+      hd(HAIR_SIDE, hc, 0.145, 1.82, -0.03);
+      hd(HAIR_SIDE, hc, -0.145, 1.82, -0.03);
     } else if (st === 'pony') {
-      hd(HAIR_BUN, hc, 0, 1.92, -0.18);
-      hd(HAIR_TAIL, hc, 0, 1.72, -0.22);
-    } else hd(HAIR_BUN, hc, 0, 2.0, -0.12);
+      hd(HAIR_BUN, hc, 0, 1.92, -0.16);
+      hd(HAIR_TAIL, hc, 0, 1.74, -0.2);
+    } else hd(HAIR_BUN, hc, 0, 1.99, -0.11);
   }
 
   return { group: g, female, spine, chest, neck, legL, legR, kneeL, kneeR, armL, armR, elbowL, elbowR, wristL, wristR };
@@ -355,13 +362,11 @@ export function straightArms(c, side = '') {
   if (side !== 'R') c.elbowL.rotation.x = c.wristL.rotation.x = 0;
 }
 
-const L1 = 0.44;
-const L2 = 0.44;
 // Bend at the hips and knees: thigh forward by `hip` rad, shin back by `knee` rad.
 // Returns how far to lower the body so the feet stay on the ground.
 // (the drop comes back in world meters: scaled by the person's size). The foot is the bottom of
 // the shin box, so a tilted shin stands on its front or back edge: that corner's what touches.
-const SHIN_L = 0.43; // (knee to the sole)
+const SHIN_L = 0.53; // (knee to the sole)
 const SHIN_D = 0.12; // (half the shin's depth: how far its edge is off the middle)
 const LEG_H = L1 + SHIN_L;
 export function bendLeg(hipP, kneeP, hip, knee) {

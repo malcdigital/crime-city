@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { animateWalk, bendLeg, bendSpine, reachArm, restPose, fallPose } from './character.js';
+import { animateWalk, bendLeg, bendSpine, reachArm, restPose, fallPose, RIG, L1 } from './character.js';
 
 // Getting in and out of cars, and pulling someone out of theirs: scenes played on the characters
 // themselves (you, a cop, anyone), fitted live to the car's own model (carmodels.js: where its
@@ -18,8 +18,8 @@ const ease = (k) => k * k * (3 - 2 * k);
 const seg = (t, a, b) => Math.max(0, Math.min(1, (t - a) / (b - a)));
 const lerp = (a, b, k) => a + (b - a) * k;
 const angLerp = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * k;
-const HIP = 0.9;
-const _q0 = new THREE.Quaternion(); // (hip height on the rig, at scale 1)
+const HIP = RIG.hip; // (hip height on the rig, at scale 1)
+const _q0 = new THREE.Quaternion();
 
 // The car's frame: local x (its left) and z (forward) to the world, and the way a local
 // direction faces in the world.
@@ -249,14 +249,14 @@ function gripAt(c, side, p, up = 0.05) {
 const _h = new THREE.Vector3();
 function crown(c, v) {
   c.group.updateMatrixWorld(true);
-  c.neck.localToWorld(_h.set(0, 2.04 - 1.62, 0));
+  c.neck.localToWorld(_h.set(0, RIG.crown + 0.06 - RIG.neck, 0)); // (the crown, a cap on it)
   v.group.updateMatrixWorld(true);
   v.group.worldToLocal(_h);
   return _h;
 }
 // How far the head's into the roof or the glass (its top corners against the cabin outline;
 // below zero: clear by that much). Only while it's inside the car's sides.
-const HEAD_PTS = [[0, 0.42, 0], [0, 0.4, 0.13], [0, 0.4, -0.12], [0.11, 0.4, 0], [-0.11, 0.4, 0], [0, 0.3, 0.15]];
+const HEAD_PTS = [[0, 0.37, 0], [0, 0.35, 0.12], [0, 0.35, -0.12], [0.1, 0.35, 0], [-0.1, 0.35, 0], [0, 0.26, 0.14]]; // (neck-local: the cap's top and the head's corners)
 function headOver(c, v, S) {
   c.group.updateMatrixWorld(true);
   v.group.updateMatrixWorld(true);
@@ -393,12 +393,11 @@ function legsFor({ h, room }) {
   }
   return best;
 }
-const L1 = 0.44; // (character.js: the thigh, and the knee to the sole)
-const SHIN_L = 0.43;
+const SHIN_L = 0.53; // (character.js: the knee to the sole)
 // Seated, a person's drawn a touch smaller (the people here are big for the cars: tall in the
 // body, long in the leg). It eases in as you lower into the seat and out as you rise from it,
 // passing through the door, where you don't see it. base: the standing size.
-const SEAT_K = 0.88;
+const SEAT_K = 1; // (real proportions now: nobody's drawn smaller sitting; kept as a knob)
 function sizes(c) {
   if (!c.seated) c.baseScale = c.group.scale.y || 1;
   const base = c.baseScale;

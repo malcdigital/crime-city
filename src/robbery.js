@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { reachArm } from './character.js';
+import { reachArm, RIG } from './character.js';
 import { dist, pick, rand } from './util.js';
 import { streetAt, districtAt } from './city.js';
 
@@ -73,8 +73,9 @@ export class Robbery {
     game.masked = on;
     const c = game.player.char;
     if (!this.mask) {
-      this.mask = new THREE.Mesh(new THREE.BoxGeometry(0.345, 0.17, 0.345), new THREE.MeshLambertMaterial({ color: 0x1e7d32 }));
-      this.mask.position.set(0, 1.72 - 1.62, 0.006);
+      // (round the lower half of the head: character.js RIG, the head 0.26 tall about RIG.head)
+      this.mask = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.13, 0.285), new THREE.MeshLambertMaterial({ color: 0x1e7d32 }));
+      this.mask.position.set(0, RIG.head - 0.06 - RIG.neck, 0.006);
       c.neck.add(this.mask);
     }
     this.mask.visible = on;
