@@ -229,12 +229,13 @@ export function raycast(game, ox, oy, oz, dx, dy, dz, maxT, ignore = null, solid
   for (const c of solidOnly ? [] : game.characters()) {
     if (c === ignore || !c.alive) continue;
     const y = c.high && c.gy ? c.gy() : game.city.groundY(c.x, c.z);
-    const top = !c.standing ? y + 0.5 : c.crouched ? y + 1.1 : y + 1.95;
+    const k = c.char?.group.scale.y ?? 1; // (their size: the model's 1.97 tall)
+    const top = !c.standing ? y + 0.5 : c.crouched ? y + 1.1 * k : y + 1.97 * k;
     const r = c.standing ? 0.33 : 0.9;
     const t = rayBox(ox, oy, oz, dx, dy, dz, c.x - r, y, c.z - r, c.x + r, top, c.z + r);
     if (t !== null && t < best.t) {
       const hy = oy + dy * t;
-      best = { t, type: 'char', target: c, head: c.standing && hy > y + (c.crouched ? 0.85 : 1.68 * (c.char?.group.scale.y ?? 1)) }; // (above the chin: 1.71 on the model)
+      best = { t, type: 'char', target: c, head: c.standing && hy > y + (c.crouched ? 0.85 : 1.66) * k }; // (above the neck: 1.66 on the model, scaled to their height)
     }
   }
   for (const v of game.vehicles) {

@@ -72,9 +72,8 @@ function aimAt(c, p) {
 }
 // Down on one knee (the left), the right foot planted: returns how far the hips drop.
 function kneel(c, k) {
-  const dl = bendLeg(c.legL, c.kneeL, 0.3 * k, 2.0 * k);
-  const dr = bendLeg(c.legR, c.kneeR, 1.5 * k, 1.6 * k);
-  return Math.max(dl, dr) * 0.85;
+  bendLeg(c.legL, c.kneeL, 0.3 * k, 2.0 * k);
+  return bendLeg(c.legR, c.kneeR, 1.6 * k, 1.95 * k); // (as far down as the planted foot lets it: the left knee on the ground)
 }
 // A baton in a cop's hand (for 'beaten').
 function baton(c) {

@@ -524,7 +524,9 @@ function toward(c, side, x, z, el, wr, k) {
 // Down on the right knee, the left foot planted forward: shooting low. Returns the drop.
 export function kneelPose(c) {
   bendSpine(c, 0.06);
-  const d1 = bendLeg(c.legL, c.kneeL, 1.35, 1.45);
-  const d2 = bendLeg(c.legR, c.kneeR, 0.15, 1.85);
-  return -Math.min(0.62, Math.max(d1, d2) * 0.82);
+  // (the front thigh about level, the foot flat under the knee; the hips come down as far as
+  // that foot lets them, which puts the back knee on the ground)
+  const d1 = bendLeg(c.legL, c.kneeL, 1.55, 1.9);
+  bendLeg(c.legR, c.kneeR, 0.15, 1.85);
+  return -d1;
 }

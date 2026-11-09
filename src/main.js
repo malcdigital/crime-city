@@ -58,7 +58,7 @@ import { QbcCine } from './qbccine.js';
 import { DriveCine } from './drivecine.js';
 import { AnimViewer } from './animviewer.js';
 import { markRecoil, markFlinch, PUNCH_T, FIGHT_STYLES, PISTOL_STYLES } from './combatpose.js';
-import { stepFalls } from './character.js';
+import { stepFalls, RIG } from './character.js';
 import { Shops } from './shops.js';
 import { Interiors } from './interiors.js';
 import { StoreRooms } from './storerooms.js';
@@ -792,7 +792,8 @@ class Game {
 
   // Where a locked-on shot goes: torso by default, head after a flick up on the right stick.
   lockAimPoint(t) {
-    const y = this.city.groundY(t.x, t.z) + (t.standing ? (this.lockHead ? 1.8 : 1.3) : 0.3);
+    const k = t.char?.group.scale.y ?? 1; // (their size: character.js RIG, the head's middle and the chest)
+    const y = this.city.groundY(t.x, t.z) + (t.standing ? (this.lockHead ? RIG.head : 1.36) * k : 0.3);
     return [t.x, y, t.z];
   }
 
