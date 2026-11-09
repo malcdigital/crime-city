@@ -247,8 +247,10 @@ export function arrestScene(kind, P, cops, { car = null, groundY = (x, z) => 0, 
       const behindK = ease(seg(t, 1.5, 2.3));
       if (behindK <= 0 && bend > 0) {
         // (hands down on the car first)
-        reachArm(P, 'L', new THREE.Vector3(0.35, 1.0, 0.45), new THREE.Vector3(1, 0, 0), null, null, 'body');
-        reachArm(P, 'R', new THREE.Vector3(-0.35, 1.0, 0.45), new THREE.Vector3(-1, 0, 0), null, null, 'body');
+        // (flat on top of it, either side of the chest: the belt line in your own frame)
+        const top = (belt - sgy) / (P.group.scale.y || 1) + 0.04;
+        reachArm(P, 'L', new THREE.Vector3(0.35, top, 0.62), new THREE.Vector3(1, 0, 0), null, null, 'group');
+        reachArm(P, 'R', new THREE.Vector3(-0.35, top, 0.62), new THREE.Vector3(-1, 0, 0), null, null, 'group');
       } else if (behindK > 0) handsBehind(P, Math.max(behindK, up > 0 ? 1 : 0));
       S.pos = [px, pz];
       if (t >= 0.9 && !S.slammed) {
