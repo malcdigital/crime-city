@@ -54,8 +54,8 @@ function handsUp(c, k) {
 // Hands behind the back, wrists together (k 0..1 from wherever: lerped from the side).
 function handsBehind(c, k, from = null) {
   if (k <= 0) return;
-  const L = new THREE.Vector3(0.05, 0.98, -0.2);
-  const R = new THREE.Vector3(-0.05, 0.98, -0.2);
+  const L = new THREE.Vector3(0.05, 1.06, -0.2); // (at the small of the back, over the seat)
+  const R = new THREE.Vector3(-0.05, 1.06, -0.2);
   const L0 = from?.L || new THREE.Vector3(0.3, 0.9, 0.05);
   const R0 = from?.R || new THREE.Vector3(-0.3, 0.9, 0.05);
   reachArm(c, 'L', L0.clone().lerp(L, k), new THREE.Vector3(1, 0, -0.6), null, null, 'group');
@@ -239,7 +239,7 @@ export function arrestScene(kind, P, cops, { car = null, groundY = (x, z) => 0, 
       if (shove > 0 && shove < 1) animateWalk(P, t * 13, 0.7);
       // (bent over the car: the chest down on it, the head turned)
       const bend = ease(seg(t, 0.82, 1.0)) * (1 - up);
-      const rest = Math.max(0, (P.group.scale.y || 1) * 1.35 - (belt - sgy) + 0.1);
+      const rest = Math.max(0, (P.group.scale.y || 1) * 1.45 - (belt - sgy) + 0.1);
       bendSpine(P, bend * Math.min(1.35, 0.6 + rest), 0, 0);
       P.neck.rotation.set(-0.3 * bend, 1.0 * bend, 0);
       bendLeg(P.legL, P.kneeL, 0.15 * bend, 0.15 * bend);
@@ -329,8 +329,8 @@ export function arrestScene(kind, P, cops, { car = null, groundY = (x, z) => 0, 
         place(P, p0[0], gy, p0[1], beaten ? toward1 : dir);
         if (beaten) {
           const push = Math.sin(seg(t, 0.35, 0.8) * Math.PI);
-          reachArm(P, 'L', new THREE.Vector3(0.18, 1.35, 0.25 + 0.3 * push), new THREE.Vector3(1, -0.5, 0), null, null, 'group');
-          reachArm(P, 'R', new THREE.Vector3(-0.18, 1.35, 0.25 + 0.3 * push), new THREE.Vector3(-1, -0.5, 0), null, null, 'group');
+          reachArm(P, 'L', new THREE.Vector3(0.18, 1.4, 0.25 + 0.3 * push), new THREE.Vector3(1, -0.5, 0), null, null, 'group');
+          reachArm(P, 'R', new THREE.Vector3(-0.18, 1.4, 0.25 + 0.3 * push), new THREE.Vector3(-1, -0.5, 0), null, null, 'group');
           const hit = strikes.reduce((m, h) => Math.max(m, Math.exp(-(((t - h) / 0.08) ** 2))), 0);
           bendSpine(P, 0.5 * hit, 0.4 * hit, 0.2 * hit);
           P.neck.rotation.set(0.6 * hit, 0.5 * hit, 0);

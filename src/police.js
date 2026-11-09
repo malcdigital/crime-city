@@ -48,7 +48,7 @@ export class Officer {
       gun.rotation.x = Math.PI / 2;
       this.char.wristR.add(gun);
       const vest = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 0.36), new THREE.MeshLambertMaterial({ color: 0x3a3f46 }));
-      vest.position.set(0, 1.3 - this.char.spine.position.y, 0);
+      vest.position.set(0, 1.36 - this.char.spine.position.y, 0); // (belly to chest)
       this.char.spine.add(vest);
     }
     this.crouched = false;

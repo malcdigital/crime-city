@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { lam, setShirt, bendLeg, crouchPose } from './character.js';
+import { lam, setShirt, bendLeg, crouchPose, RIG } from './character.js';
 import { rand, dist, lerpAngle, pick } from './util.js';
 import { safetyAt, turnout, quietNote } from './safety.js';
 
@@ -21,7 +21,7 @@ const GATE = [614, 618]; // in the north fence (x), onto Market St
 const STREET_Z = 910; // Market St's curb
 const PLAZA = { x: 678, z: 929, r: 11 };
 const KID = 0.62; // children's size
-const KID_HIP = 0.9 * KID;
+const KID_HIP = RIG.hip * KID; // (character.js: a child is the same body, scaled)
 const NEAR = 150;
 const FAR = 200;
 
@@ -797,7 +797,7 @@ export class Playground {
       bendLeg(c.legL, c.kneeL, 1.5, 1.5);
       bendLeg(c.legR, c.kneeR, 1.5, 1.5);
       c.armL.rotation.x = c.armR.rotation.x = -0.45;
-      return pg.seat.y - 0.9;
+      return pg.seat.y - (RIG.hip - 0.12) * (c.group.scale.y || 1); // (the hips half a thigh's depth over the seat: the thighs rest on it)
     }
     const t = this.game.time;
     let y = (pg.y || 0) + 0.04;

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { dist, rand, pick, lerpAngle } from './util.js';
 import { fbPose, fbBallAt, fbBallQuat, PICK_T } from './footballpose.js';
-import { bendLeg, bendSpine, reachArm } from './character.js';
+import { bendLeg, bendSpine, reachArm, RIG } from './character.js';
 import { ThrowMeter, PERFECT, meterRate } from './throwmeter.js';
 import { HeatFx } from './heatfx.js';
 
@@ -38,9 +38,9 @@ const FIRE_WIN = 1.2; // (on fire: the green 20% wider)
 const READ_SLOW = 0.5; // (the drive, reading the field after the drop: drivereads.js)
 const HITCAM_SLOW = 0.65; // (the QB Challenge's hit cam following a deep ball)
 export const CTYPES = {
-  bullet: { max: 40, T: (L) => 0.25 + L / 26, win: 0.05, err: 0.35, h: 1.3 }, // (on a line: quick, the least forgiving)
-  touch: { max: 46, T: (L) => 0.5 + L / 19, win: 0.065, err: 0.45, h: 1.35 }, // (over the top of somebody, dropped in)
-  lob: { max: 52, T: (L) => 0.8 + L / 15, win: 0.08, err: 0.6, h: 1.5 }, // (high, hangs, the deepest)
+  bullet: { max: 40, T: (L) => 0.25 + L / 26, win: 0.05, err: 0.35, h: 1.35 }, // (on a line: quick, the least forgiving)
+  touch: { max: 46, T: (L) => 0.5 + L / 19, win: 0.065, err: 0.45, h: 1.39 }, // (over the top of somebody, dropped in)
+  lob: { max: 52, T: (L) => 0.8 + L / 15, win: 0.08, err: 0.6, h: 1.52 }, // (high, hangs, the deepest)
 };
 const ROUTES = ['go', 'post', 'out', 'slant', 'curl'];
 // Catching is timed on the release: hold ✕ (K / click; CATCH on a phone) and you run to where
@@ -705,7 +705,7 @@ export const FieldModes = {
         S.winding = true;
       }
       if (fbBallAt(h.char, _v)) [S.x, S.y, S.z] = [_v.x, _v.y, _v.z];
-      else [S.x, S.y, S.z] = [h.x, 1.15, h.z];
+      else [S.x, S.y, S.z] = [h.x, 1.23, h.z];
       if (S.winding && h.fb.throwT <= 0.12) {
         S.winding = false;
         const off = Math.random() < 0.15 ? rand(1.2, 2.2) : rand(0, 0.6);
@@ -715,7 +715,7 @@ export const FieldModes = {
         const d = dist(S.x, S.z, tx, tz);
         const lob = Math.random() < 0.3;
         const T = lob ? 0.85 + d / 15 : 0.35 + d / 22;
-        S.flight = { p0: [S.x, S.y, S.z], p1: [tx, 1.3, tz], T, t: 0, vy0: (1.3 - S.y + 0.5 * G * T * T) / T, to: o, lob };
+        S.flight = { p0: [S.x, S.y, S.z], p1: [tx, 1.35, tz], T, t: 0, vy0: (1.35 - S.y + 0.5 * G * T * T) / T, to: o, lob };
         S.holder = null;
         h.fb.relT = 0.4;
       }
@@ -789,7 +789,7 @@ export const FieldModes = {
       const sip = k < 1.8 ? Math.sin((Math.PI * k) / 1.8) : 0;
       bendSpine(c, 0.28 * (1 - sip) - 0.06 * sip, 0, 0);
       c.neck.rotation.set(-0.08 - 0.5 * sip, 0, 0);
-      _v.set(-0.2 + 0.16 * sip, 0.98 + 0.62 * sip, 0.42 - 0.24 * sip);
+      _v.set(-0.2 + 0.16 * sip, 1.09 + 0.56 * sip, 0.42 - 0.24 * sip); // (on the knee, up to the mouth)
       reachArm(c, 'R', _v, _w.set(-1, -0.6, -0.2), null, null, 'body');
       c.armL.rotation.set(-0.95, 0, 0.12);
       c.elbowL.rotation.set(-1.1, 0, 0);
@@ -801,7 +801,7 @@ export const FieldModes = {
         c.wristR.add(bt);
       }
       bt.visible = true;
-      return (B?.seatY ?? 0.46) - 0.9;
+      return (B?.seatY ?? 0.46) - (RIG.hip - 0.12) * (c.group.scale.y || 1); // (the hips just over the seat: the thighs on it)
     }
     const S = this.side;
     if (S && (p === S.a || p === S.b)) {

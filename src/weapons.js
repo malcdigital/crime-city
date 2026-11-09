@@ -234,7 +234,7 @@ export function raycast(game, ox, oy, oz, dx, dy, dz, maxT, ignore = null, solid
     const t = rayBox(ox, oy, oz, dx, dy, dz, c.x - r, y, c.z - r, c.x + r, top, c.z + r);
     if (t !== null && t < best.t) {
       const hy = oy + dy * t;
-      best = { t, type: 'char', target: c, head: c.standing && hy > y + (c.crouched ? 0.85 : 1.6) };
+      best = { t, type: 'char', target: c, head: c.standing && hy > y + (c.crouched ? 0.85 : 1.68 * (c.char?.group.scale.y ?? 1)) }; // (above the chin: 1.71 on the model)
     }
   }
   for (const v of game.vehicles) {

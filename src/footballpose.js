@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { bendSpine, bendLeg, reachArm, lowestPoint } from './character.js';
+import { bendSpine, bendLeg, reachArm, lowestPoint, RIG } from './character.js';
 import { twoHandBall } from './passpose.js';
 
 // Football poses with the spine (yours in gridiron.js, everybody else's in football.js: the same
@@ -44,8 +44,8 @@ function qbSetLegs(c) {
 }
 function snapHands(c) {
   c.neck.rotation.set(-0.5, 0, 0); // (eyes downfield over the line)
-  reachArm(c, 'R', _a.set(-0.07, 0.98, 0.45), _b.set(-1, -0.4, -0.3), _c.set(0, -0.5, 1), null, 'group');
-  reachArm(c, 'L', _a.set(0.07, 0.98, 0.45), _b.set(1, -0.4, -0.3), _c.set(0, -0.5, 1), null, 'group');
+  reachArm(c, 'R', _a.set(-0.07, 1.09, 0.45), _b.set(-1, -0.4, -0.3), _c.set(0, -0.5, 1), null, 'group');
+  reachArm(c, 'L', _a.set(0.07, 1.09, 0.45), _b.set(1, -0.4, -0.3), _c.set(0, -0.5, 1), null, 'group'); // (1.09: just under the hips, RIG.hip 1.02)
   grip(c, 'two');
 }
 
@@ -101,8 +101,8 @@ export function holdBall(c, look = 0, still = true, now = 0) {
 function holdHands(c, look = 0) {
   bendUpper(c, 0.16, look * 0.3, 0);
   c.neck.rotation.set(-0.08, look * 0.6, 0);
-  reachArm(c, 'R', _a.set(-0.07, 1.3, 0.32), _b.set(-1, -0.6, -0.2), _c.set(0.2, 0.3, 1), null, 'body');
-  reachArm(c, 'L', _a.set(0.07, 1.3, 0.32), _b.set(1, -0.6, -0.2), _c.set(-0.2, 0.3, 1), null, 'body');
+  reachArm(c, 'R', _a.set(-0.07, 1.35, 0.32), _b.set(-1, -0.6, -0.2), _c.set(0.2, 0.3, 1), null, 'body');
+  reachArm(c, 'L', _a.set(0.07, 1.35, 0.32), _b.set(1, -0.6, -0.2), _c.set(-0.2, 0.3, 1), null, 'body'); // (1.35: at the chest, just over the mid-back RIG.chest)
   grip(c, 'two');
 }
 // (set: feet out to shoulder width, knees soft, the front (left) foot a half step ahead, alive
@@ -131,8 +131,8 @@ export function pocketStance(c, look = 0, step = 0, moving = 0) {
 function pocketHands(c, look = 0) {
   bendUpper(c, 0.16, 0.32 + look * 0.15, 0); // (the chest a little round toward the target)
   c.neck.rotation.set(-0.08, 0.62 + look * 0.3, 0); // (the eyes on it)
-  reachArm(c, 'R', _a.set(-0.15, 1.3, 0.25), _b.set(-1, -0.6, -0.3), _c.set(0.25, 0.3, 1), null, 'body');
-  reachArm(c, 'L', _a.set(-0.03, 1.31, 0.33), _b.set(1, -0.6, -0.2), _c.set(-0.15, 0.3, 1), null, 'body');
+  reachArm(c, 'R', _a.set(-0.15, 1.35, 0.25), _b.set(-1, -0.6, -0.3), _c.set(0.25, 0.3, 1), null, 'body');
+  reachArm(c, 'L', _a.set(-0.03, 1.36, 0.33), _b.set(1, -0.6, -0.2), _c.set(-0.15, 0.3, 1), null, 'body'); // (at the chest, as holdHands)
   grip(c, 'two');
 }
 function pocketLegs(c, step = 0, moving = 0) {
@@ -206,7 +206,7 @@ function tuckArm(c, speed = 0) {
   const lean = 0.08 + 0.2 * clamp01(speed / 7);
   bendUpper(c, lean, 0, 0);
   c.neck.rotation.set(-lean * 0.9, 0, 0);
-  reachArm(c, 'R', _a.set(-0.29, 1.27, 0.3), _b.set(-0.3, -0.75, -1), _c.set(0.35, 0.05, 1), _d.set(-0.6, 1, 0), 'body');
+  reachArm(c, 'R', _a.set(-0.29, 1.33, 0.3), _b.set(-0.3, -0.75, -1), _c.set(0.35, 0.05, 1), _d.set(-0.6, 1, 0), 'body'); // (1.33: the ribs)
   grip(c, 'tuck');
 }
 
@@ -222,7 +222,7 @@ export function pickupPose(c, k) {
   c.legR.rotation.z = -0.12 * e;
   bendSpine(c, 0.2 + 0.85 * e, 0, 0);
   c.neck.rotation.set(0.25 * e, 0, 0); // (eyes down on it)
-  const y = 0.98 - 0.62 * e;
+  const y = 1.09 - 0.65 * e; // (from just under the hips down to the ball)
   reachArm(c, 'R', _a.set(-0.1, y, 0.42 + 0.08 * e), _b.set(-1, -0.4, -0.3), _c.set(0.1, -1, 0.4), null, 'group');
   reachArm(c, 'L', _a.set(0.1, y, 0.42 + 0.08 * e), _b.set(1, -0.4, -0.3), _c.set(-0.1, -1, 0.4), null, 'group');
   grip(c, k < 0.5 ? null : 'two');
@@ -279,7 +279,7 @@ export function catchPose(c, high) {
   return fbPose(c, { upper: ['catch', high] });
 }
 function catchHands(c, high) {
-  const y = high ? 2.06 : 1.42;
+  const y = high ? 2.06 : 1.45; // (low: the chest)
   const z = high ? 0.32 : 0.5;
   bendUpper(c, high ? -0.18 : 0.12, 0, 0);
   c.neck.rotation.set(high ? -0.6 : -0.1, 0, 0);
@@ -308,8 +308,8 @@ export function griddyPose(c, t) {
   c.neck.rotation.set(goggles ? -0.15 : -0.05, -0.25 * side * tap, 0);
   if (goggles) {
     // (the goggles: fingers ringed round the eyes, elbows out)
-    reachArm(c, 'L', _a.set(0.09, 1.8, 0.24), _b.set(1, 0.1, -0.3), null, null, 'group');
-    reachArm(c, 'R', _a.set(-0.09, 1.8, 0.24), _b.set(-1, 0.1, -0.3), null, null, 'group');
+    reachArm(c, 'L', _a.set(0.09, RIG.head, 0.24), _b.set(1, 0.1, -0.3), null, null, 'group');
+    reachArm(c, 'R', _a.set(-0.09, RIG.head, 0.24), _b.set(-1, 0.1, -0.3), null, null, 'group');
   } else {
     const sw = Math.sin(beat * Math.PI);
     c.armL.rotation.set(-0.45 - 0.75 * sw, 0, -0.18);
@@ -366,8 +366,8 @@ function reachBackArms(c, side) {
   const far = side > 0 ? 'R' : 'L';
   // (the near hand out and back behind the shoulder, palm toward the ball; the far one across
   // the chest after it)
-  reachArm(c, near, _a.set(0.55 * side, 1.5, -0.55), _b.set(side, -0.6, 0.3), _c.set(0.4 * side, 0.3, -1), _d.set(0, 1, 0), 'group');
-  reachArm(c, far, _a.set(0.32 * side, 1.38, -0.12), _b.set(-side, -0.6, 0.4), _c.set(0.5 * side, 0.2, -0.8), _d.set(0, 1, 0), 'group');
+  reachArm(c, near, _a.set(0.55 * side, 1.52, -0.55), _b.set(side, -0.6, 0.3), _c.set(0.4 * side, 0.3, -1), _d.set(0, 1, 0), 'group');
+  reachArm(c, far, _a.set(0.32 * side, 1.42, -0.12), _b.set(-side, -0.6, 0.4), _c.set(0.5 * side, 0.2, -0.8), _d.set(0, 1, 0), 'group');
 }
 
 // Laid out (a diving catch) or going down in a tackle: k 0..1 tipped forward onto the stomach.
@@ -481,8 +481,8 @@ export function pickPose(c, k) {
     const e = ease((k - 0.5) / 0.5);
     bendSpine(c, 0.3 * e, 0, 0);
     c.neck.rotation.set(-0.2, 0, 0);
-    reachArm(c, 'L', _a.set(0.06, 2.1 - 0.85 * e, 0.3 - 0.05 * e), _b.set(1, -0.3, -0.2), null, null, 'group');
-    reachArm(c, 'R', _a.set(-0.06, 2.1 - 0.85 * e, 0.3 - 0.05 * e), _b.set(-1, -0.3, -0.2), null, null, 'group');
+    reachArm(c, 'L', _a.set(0.06, 2.1 - 0.79 * e, 0.3 - 0.05 * e), _b.set(1, -0.3, -0.2), null, null, 'group');
+    reachArm(c, 'R', _a.set(-0.06, 2.1 - 0.79 * e, 0.3 - 0.05 * e), _b.set(-1, -0.3, -0.2), null, null, 'group'); // (down to the chest, 1.31)
   }
   return -lowestPoint(c) + 0.55 * up;
 }
@@ -502,7 +502,7 @@ function catchRunArms(c, k) {
   bendUpper(c, 0.32 - 0.1 * g, 0, 0);
   c.neck.rotation.set(-0.35 + 0.2 * g, 0, 0);
   const z = 0.55 * e - 0.3 * g;
-  const y = 1.32 - 0.15 * g;
+  const y = 1.35 - 0.12 * g; // (chest high)
   reachArm(c, 'L', _a.set(0.1, y, 0.15 + z), _b.set(1, -0.4, -0.2), null, null, 'group');
   reachArm(c, 'R', _a.set(-0.1, y, 0.15 + z), _b.set(-1, -0.4, -0.2), null, null, 'group');
 }
@@ -534,7 +534,7 @@ export function pickScoopPose(c, k) {
   bendLeg(c.legR, c.kneeR, 0.1 + 0.5 * d, 0.2 + 0.8 * d);
   bendSpine(c, 0.15 + 0.85 * d, 0, 0);
   c.neck.rotation.set(-0.5 * d, 0, 0);
-  const y = 1.25 - 0.95 * d;
+  const y = 1.31 - 0.95 * d; // (the chest down to just off the turf)
   reachArm(c, 'L', _a.set(0.1, y, 0.35 + 0.15 * d), _b.set(1, -0.3, -0.3), null, null, 'group');
   reachArm(c, 'R', _a.set(-0.1, y, 0.35 + 0.15 * d), _b.set(-1, -0.3, -0.3), null, null, 'group');
   return -lowestPoint(c);
@@ -551,7 +551,7 @@ export function swatPose(c, k, side = 1) {
   c.neck.rotation.set(-0.55 + 0.3 * sw, 0, 0);
   const n = side > 0 ? 'L' : 'R';
   const o = side > 0 ? 'R' : 'L';
-  reachArm(c, n, _a.set(0.25 * side - 0.4 * side * sw, 2.3 - 0.9 * sw, 0.15 + 0.35 * sw), _b.set(side, 0, -0.3), null, null, 'group');
+  reachArm(c, n, _a.set(0.25 * side - 0.4 * side * sw, 2.3 - 0.86 * sw, 0.15 + 0.35 * sw), _b.set(side, 0, -0.3), null, null, 'group');
   c['arm' + o].rotation.set(-0.8, 0, -side * 0.7);
   c['elbow' + o].rotation.set(-0.5, 0, 0);
   return -lowestPoint(c) + 0.4 * up;
@@ -680,7 +680,7 @@ function stiffArmArms(c, k, speed = 5) {
   c.chest.rotation.set(0, 0, 0);
   bendUpper(c, 0.25 + 0.1 * m, -0.4 * m, 0);
   c.neck.rotation.set(-0.3, 0.3 * m, 0);
-  reachArm(c, 'L', _a.set(mix(0.3, 0.12, m), mix(1.15, 1.35, m), mix(0.2, 0.78, m)), _b.set(1, -0.6, -0.2), _c.set(0, 0.6, 1), _d.set(0, 0, -1), 'body');
+  reachArm(c, 'L', _a.set(mix(0.3, 0.12, m), mix(1.23, 1.4, m), mix(0.2, 0.78, m)), _b.set(1, -0.6, -0.2), _c.set(0, 0.6, 1), _d.set(0, 0, -1), 'body');
 }
 
 // ---- The layers ----

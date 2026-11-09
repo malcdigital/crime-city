@@ -48,8 +48,8 @@ export function aidStep(o, dt, game) {
   // (where his chest is on the ground, and a spot kneeling beside it, on our side)
   const face = G ? G.face : D.char.group.rotation.x > 0 ? 'front' : 'back';
   const hs = face === 'front' ? 1 : -1; // (rolling over turns him round: the same spot either way)
-  const chx = D.x + Math.sin(D.heading) * 1.15 * hs;
-  const chz = D.z + Math.cos(D.heading) * 1.15 * hs;
+  const chx = D.x + Math.sin(D.heading) * 1.23 * hs; // (his chest: 1.23 up the body from the feet)
+  const chz = D.z + Math.cos(D.heading) * 1.23 * hs;
   const qx = Math.cos(D.heading) * hs;
   const qz = -Math.sin(D.heading) * hs;
   o.aidSide ??= (o.x - chx) * qx + (o.z - chz) * qz >= 0 ? 1 : -1;
@@ -109,7 +109,7 @@ export function aidStep(o, dt, game) {
     if (o.aidT < 1.6) reachArm(c, 'L', tgt(D.char.neck, 0, shake), new THREE.Vector3(1, -0.5, -0.4), null, null, 'group');
     else {
       // (left hand up to the radio on his shoulder, head turned to it)
-      reachArm(c, 'L', new THREE.Vector3(0.14, 1.38, 0.1), new THREE.Vector3(1, -0.6, -0.3), null, null, 'group');
+      reachArm(c, 'L', new THREE.Vector3(0.14, 1.42, 0.1), new THREE.Vector3(1, -0.6, -0.3), null, null, 'group');
       c.neck.rotation.set(0.1, 0.45, 0);
       if (!o.aidRadio) {
         o.aidRadio = true;

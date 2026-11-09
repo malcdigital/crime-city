@@ -534,7 +534,7 @@ export class Gridiron {
     } else {
       b.x = px + fx * 0.15 - fz * 0.3;
       b.z = pz + fz * 0.15 + fx * 0.3;
-      b.y = 1.15;
+      b.y = 1.23;
     }
     if (!fbBallQuat(p.char, b.mesh.quaternion)) b.mesh.rotation.set(0, p.heading, 0); // (tucked: along the forearm)
   }

@@ -128,7 +128,7 @@ export function aimPose(c, weapon, pitch = 0, now = 0, hand = 'R', style = 'two'
     const beta = BLADE * mx;
     aimFrame(c, beta, p + kick);
     // (the butt in the shoulder pocket, pushed back by the kick; the grip a hand's width up it)
-    _b.set(-0.19 * mx, 1.6, 0.17).addScaledVector(_a, -(weapon === 'shotgun' ? 0.09 : 0.05) * k);
+    _b.set(-0.19 * mx, 1.65, 0.17).addScaledVector(_a, -(weapon === 'shotgun' ? 0.09 : 0.05) * k);
     _t.copy(_b).addScaledVector(_a, 0.22).addScaledVector(_u, -0.06);
     reachArm(c, gs, _t, _p.set(-0.8 * mx, -0.6, -0.1), _a, _u);
     _s.copy(_b).addScaledVector(_a, 0.5).addScaledVector(_u, -0.1);
@@ -142,8 +142,8 @@ export function aimPose(c, weapon, pitch = 0, now = 0, hand = 'R', style = 'two'
     // rides up a little with it.
     const beta = -0.55 * mx;
     aimFrame(c, beta, p);
-    _t.set(-Math.abs(c.armR.position.x) * mx, 1.56, 0).addScaledVector(_a, 0.55 - 0.05 * k);
-    _t.y += 0.1 + 0.07 * k;
+    _t.set(-Math.abs(c.armR.position.x) * mx, 1.57, 0).addScaledVector(_a, 0.55 - 0.05 * k);
+    _t.y += 0.13 + 0.07 * k; // (the shoulder's at 1.57, the eye about 1.85)
     _g.copy(_u);
     kickAim(0.5 * k);
     reachArm(c, gs, _t, _p.set(-1 * mx, -0.4, -0.2), _a, _u);
@@ -157,8 +157,8 @@ export function aimPose(c, weapon, pitch = 0, now = 0, hand = 'R', style = 'two'
     // the gun at chin height, a little lean back; a shot throws the muzzle in and up.
     const beta = -0.35 * mx;
     aimFrame(c, beta, p);
-    _t.set(-Math.abs(c.armR.position.x) * mx, 1.56, 0).addScaledVector(_a, 0.45 - 0.05 * k).addScaledVector(_l, 0.08 * mx);
-    _t.y += 0.03 + 0.04 * k;
+    _t.set(-Math.abs(c.armR.position.x) * mx, 1.57, 0).addScaledVector(_a, 0.45 - 0.05 * k).addScaledVector(_l, 0.08 * mx);
+    _t.y += 0.07 + 0.04 * k; // (the chin's at 1.71)
     _top.copy(_l).multiplyScalar(mx); // (the gun's top: turned in)
     _g.copy(_top).addScaledVector(_u, 0.6).normalize();
     kickAim(0.45 * k);
@@ -172,7 +172,7 @@ export function aimPose(c, weapon, pitch = 0, now = 0, hand = 'R', style = 'two'
   // Two hands: arms out in a triangle, the gun at chin height on the centre line.
   const beta = BLADE_PISTOL * mx;
   aimFrame(c, beta, p + 0.32 * k);
-  _t.set(-0.02 * mx, 1.55, 0).addScaledVector(_a, 0.44 - 0.05 * k).addScaledVector(_u, 0.03 * k);
+  _t.set(-0.02 * mx, 1.62, 0).addScaledVector(_a, 0.44 - 0.05 * k).addScaledVector(_u, 0.03 * k);
   reachArm(c, gs, _t, _p.set(-0.5 * mx, -1, -0.2), _a, _u);
   // (the support hand round the grip from the other side, fingers wrapping across)
   _s.copy(_t).addScaledVector(_l, 0.07 * mx).addScaledVector(_u, -0.05).addScaledVector(_a, -0.03);
@@ -222,7 +222,7 @@ export function reloadPose(c, weapon, k, hand = 'R') {
     const H = R[0].copy(_b).addScaledVector(_a, 0.48).addScaledVector(_u, -0.1); // (handguard)
     const M = R[1].copy(_b).addScaledVector(_a, 0.32).addScaledVector(_u, -0.2); // (mag)
     const In = R[2].copy(_b).addScaledVector(_a, 0.32).addScaledVector(_u, -0.13);
-    const Belt = R[3].set(0.22 * mx, 1.0, 0.16);
+    const Belt = R[3].set(0.22 * mx, 1.1, 0.16);
     const Ch = R[4].copy(_b).addScaledVector(_a, 0.06).addScaledVector(_u, 0.1).addScaledVector(_l, 0.05 * mx);
     const Pull = R[5].copy(Ch).addScaledVector(_a, -0.12);
     along([[0, H], [0.12, M], [0.3, Belt], [0.42, Belt], [0.58, M], [0.64, In], [0.72, Ch], [0.8, Pull], [0.88, Ch], [1, H]], k, _s);
@@ -234,10 +234,10 @@ export function reloadPose(c, weapon, k, hand = 'R') {
   // up with a new one into the grip, then over the top to rack the slide.
   const beta = 0.15 * mx;
   aimFrame(c, beta, 0.55);
-  _t.set(-0.06 * mx, 1.36, 0.3);
+  _t.set(-0.06 * mx, 1.4, 0.3);
   reachArm(c, gs, _t, _p.set(-0.6 * mx, -1, 0), _a, _u);
   const G = R[0].copy(_t).addScaledVector(_l, 0.07 * mx).addScaledVector(_u, -0.05);
-  const Belt = R[1].set(0.22 * mx, 1.0, 0.12);
+  const Belt = R[1].set(0.22 * mx, 1.1, 0.12);
   const Mag = R[2].copy(_t).addScaledVector(_u, -0.2);
   const In = R[3].copy(_t).addScaledVector(_u, -0.12);
   const Top = R[4].copy(_t).addScaledVector(_u, 0.1).addScaledVector(_a, 0.02);
@@ -262,11 +262,12 @@ function fightPt(out, x, y, z, tw) {
 // The stances. blade: how side-on; lead / rear: the fists (fight frame); poles: which way the
 // elbows point (body frame); lean: forward over the hips; legs: [lead hip, lead knee, rear hip,
 // rear knee]; bounce, sway (side to side), shoulder (the lead shoulder rolled up), chin (tucked).
+// (Heights on the model: the chin at 1.71, the eyes about 1.85, the belly 1.15.)
 export const FIGHT_STYLES = {
-  orthodox: { name: 'Orthodox', blade: 0.5, lead: [0.1, 1.68, 0.4], rear: [-0.1, 1.64, 0.22], leadPole: [0.75, -1, -0.15], rearPole: [-0.8, -1, -0.1], lean: 0.12, legs: [0.38, 0.62, -0.22, 0.32], bounce: 0.025, sway: 0, shoulder: 0, chin: 0.12 },
-  philly: { name: 'Philly shell', blade: 0.85, lead: [-0.12, 1.2, 0.26], rear: [-0.13, 1.72, 0.14], leadPole: [0.8, -0.4, -0.2], rearPole: [-0.9, -1, 0], lean: -0.03, legs: [0.28, 0.35, -0.32, 0.62], bounce: 0.012, sway: 0, shoulder: 0.16, chin: 0.2 },
-  peekaboo: { name: 'Peek-a-boo', blade: 0.25, lead: [0.07, 1.7, 0.3], rear: [-0.07, 1.68, 0.27], leadPole: [0.25, -1, 0.1], rearPole: [-0.25, -1, 0.1], lean: 0.3, legs: [0.6, 1.0, 0.1, 0.8], bounce: 0.018, sway: 0.13, shoulder: 0, chin: 0.25 },
-  street: { name: 'Street', blade: 0.3, lead: [0.2, 1.5, 0.42], rear: [-0.22, 1.46, 0.32], leadPole: [1, -0.6, -0.2], rearPole: [-1, -0.6, -0.2], lean: 0.02, legs: [0.25, 0.35, -0.15, 0.25], bounce: 0.04, sway: 0, shoulder: 0, chin: 0.05 },
+  orthodox: { name: 'Orthodox', blade: 0.5, lead: [0.1, 1.75, 0.4], rear: [-0.1, 1.72, 0.22], leadPole: [0.75, -1, -0.15], rearPole: [-0.8, -1, -0.1], lean: 0.12, legs: [0.38, 0.62, -0.22, 0.32], bounce: 0.025, sway: 0, shoulder: 0, chin: 0.12 },
+  philly: { name: 'Philly shell', blade: 0.85, lead: [-0.12, 1.27, 0.26], rear: [-0.13, 1.78, 0.14], leadPole: [0.8, -0.4, -0.2], rearPole: [-0.9, -1, 0], lean: -0.03, legs: [0.28, 0.35, -0.32, 0.62], bounce: 0.012, sway: 0, shoulder: 0.16, chin: 0.2 },
+  peekaboo: { name: 'Peek-a-boo', blade: 0.25, lead: [0.07, 1.76, 0.3], rear: [-0.07, 1.75, 0.27], leadPole: [0.25, -1, 0.1], rearPole: [-0.25, -1, 0.1], lean: 0.3, legs: [0.6, 1.0, 0.1, 0.8], bounce: 0.018, sway: 0.13, shoulder: 0, chin: 0.25 },
+  street: { name: 'Street', blade: 0.3, lead: [0.2, 1.52, 0.42], rear: [-0.22, 1.49, 0.32], leadPole: [1, -0.6, -0.2], rearPole: [-1, -0.6, -0.2], lean: 0.02, legs: [0.25, 0.35, -0.15, 0.25], bounce: 0.04, sway: 0, shoulder: 0, chin: 0.05 },
 };
 const styleOf = (u) => FIGHT_STYLES[u.fightStyle] || FIGHT_STYLES.orthodox;
 
@@ -364,7 +365,7 @@ export function punchPose(c, now) {
     const w = Math.max(load, go) * (1 - back);
     const x = mix(S.lead[0], 0.42 * Math.sin(ang) + 0.04, w);
     const z = mix(S.lead[2], 0.5 * Math.cos(ang) + 0.12, w);
-    fightPt(_t, x, mix(S.lead[1] + bob, 1.64, load * (1 - back)), z, tw);
+    fightPt(_t, x, mix(S.lead[1] + bob, 1.72, load * (1 - back)), z, tw);
     const up = (1 - back) * load;
     reachArm(c, 'L', _t, _p.set(mix(S.leadPole[0], 0.9, up), mix(S.leadPole[1], 0.35, up), mix(S.leadPole[2], -0.3, up)));
     guard(c, 'R', tw, bob, S);
@@ -380,10 +381,10 @@ export function punchPose(c, now) {
     const tw = base - 0.1 * dip * (1 - drive) + 0.75 * drive * (1 - back);
     const g = S.rear;
     let x = mix(g[0], -0.1, dip);
-    let y = mix(g[1] + bob, 1.16, dip);
+    let y = mix(g[1] + bob, 1.24, dip);
     let z = mix(g[2], 0.24, dip);
     x = mix(x, 0.0, drive);
-    y = mix(y, 1.8, drive);
+    y = mix(y, 1.84, drive);
     z = mix(z, 0.42, drive);
     fightPt(_t, mix(x, g[0], back), mix(y, g[1] + bob, back), mix(z, g[2], back), tw);
     reachArm(c, 'R', _t, _p.set(mix(-0.3, -0.15, drive), -1, mix(-0.2, 0.25, drive)));
@@ -411,7 +412,7 @@ export function punchPose(c, now) {
   if (kind === 'jab') {
     // Lead hand straight out at his chin, the lead shoulder rolling up behind it.
     const tw = base - 0.1 * k;
-    fightPt(_t, mix(S.lead[0], 0.0, k), mix(S.lead[1] + bob, 1.62, k), mix(S.lead[2] - dip * 0.08, 0.85, k), tw);
+    fightPt(_t, mix(S.lead[0], 0.0, k), mix(S.lead[1] + bob, 1.7, k), mix(S.lead[2] - dip * 0.08, 0.85, k), tw);
     reachArm(c, 'L', _t, _p.set(mix(S.leadPole[0], 0.5, k), mix(S.leadPole[1], -1, k), mix(S.leadPole[2], -0.6, k)));
     guard(c, 'R', tw, bob, S);
     bendSpine(c, lean + 0.06 * k, -0.1 * k, S.shoulder + 0.08 * k);
@@ -420,7 +421,7 @@ export function punchPose(c, now) {
   // Cross: the rear hand straight through the middle, the hips and shoulders turning square and
   // past it, the weight onto the front foot.
   const tw = base + 0.8 * k - 0.05 * dip;
-  fightPt(_t, mix(S.rear[0], 0.0, k), mix(S.rear[1] + bob, 1.62, k), mix(S.rear[2] - dip * 0.06, 0.88, k), tw);
+  fightPt(_t, mix(S.rear[0], 0.0, k), mix(S.rear[1] + bob, 1.7, k), mix(S.rear[2] - dip * 0.06, 0.88, k), tw);
   reachArm(c, 'R', _t, _p.set(mix(S.rearPole[0], -0.5, k), mix(S.rearPole[1], -1, k), mix(S.rearPole[2], -0.6, k)));
   guard(c, 'L', tw, bob, S);
   bendSpine(c, lean + 0.1 * k, 0.3 * k, S.shoulder * (1 - k));

@@ -459,7 +459,7 @@ export const DriveReads = {
     b.z = pz + Math.cos(p.heading) * 0.2;
     // (how high it gets to him: on the power it's chest high; short, it dies low at his knees;
     // long, it sails up over his head. That picks his catch: drCatchKind)
-    const ty = clamp(TY.h + clamp(((pw - need) / this.winFor(kind, need)) * 0.5, -1, 0.9) + rand(-0.12, 0.12), 0.45, 2.3);
+    const ty = clamp(TY.h + clamp(((pw - need) / this.winFor(kind, need)) * 0.5, -1, 0.9) + rand(-0.12, 0.12), 0.55, 2.3); // (0.55: the knees)
     fb.launch(tx, ty, tz, TY.T(dist(px, pz, tx, tz)), 'pass', w);
     b.style = kind === 'lob' ? 'lob' : 'bullet';
     b.throwKind = kind;
@@ -899,9 +899,9 @@ export const DriveReads = {
     const moving = (db.speed || 0) > 2.5;
     if (w && dW < 0.9 && Math.random() < 0.45) return 'tip';
     if (dD > 1.1 && dD < 2.4) return 'dive';
-    if (b.y < 0.8) return 'pickScoop';
+    if (b.y < 0.92) return 'pickScoop'; // (under mid-thigh)
     if (moving && dir > 0.55 && L > 14) return 'pickShoulder';
-    if (moving && b.style !== 'lob' && b.y < 1.7) return 'pickRun';
+    if (moving && b.style !== 'lob' && b.y < 1.76) return 'pickRun';
     return 'pick';
   },
   // How your receiver takes it (football.js starts it CATCHES[kind].lead s before it gets there,
@@ -917,9 +917,9 @@ export const DriveReads = {
     const uz = (b.p1[2] - b.p0[2]) / L;
     const dir = Math.sin(w.heading) * ux + Math.cos(w.heading) * uz; // (+: running the ball's way)
     const moving = (w.fb.adjV ?? w.speed ?? 0) > 2.5;
-    if (y < 0.95) return 'pickScoop';
+    if (y < 1.06) return 'pickScoop'; // (under the hips)
     if (moving && dir > 0.55 && (L > 24 || (b.style === 'lob' && L > 14))) return 'pickShoulder';
-    if (y > 1.6) return 'pick';
+    if (y > 1.65) return 'pick'; // (over the shoulders)
     if (moving) return 'pickRun';
     return null;
   },

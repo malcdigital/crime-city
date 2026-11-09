@@ -159,19 +159,19 @@ export class BreakFree {
     const yank = seg(t, 0.02, 0.2);
     const k0 = 1 - seg(t, 0.0, 0.1); // (still held, the first instant)
     // (the right hand: up behind the back, ripped out to the side, then...)
-    _a.set(0.02, 1.02, -0.26).lerp(_b.set(-0.5, 1.15, -0.05), yank);
+    _a.set(0.02, 1.12, -0.26).lerp(_b.set(-0.5, 1.23, -0.05), yank); // (heights: the small of the back, the waist)
     if (v === 'elbow') {
       // ...driven back into him: the elbow out behind you, the fist at your chest.
       const el = seg(t, 0.2, 0.32) * (1 - seg(t, 0.36, 0.48));
-      _a.lerp(_b.set(-0.12, 1.36, 0.22), el);
+      _a.lerp(_b.set(-0.12, 1.4, 0.22), el);
       reachArm(c, 'R', _a, _p.set(-0.7, 0.15, -1).normalize(), null, null, 'group');
       bendSpine(c, mix(0.3, 0.05, yank), -0.5 * el + 0.15 * yank, -0.1 * el);
     } else if (v === 'spin') {
       // ...tucked in to the chest as you spin, both hands up.
       const tuck = seg(t, 0.12, 0.3);
-      _a.lerp(_b.set(-0.12, 1.4, 0.25), tuck);
+      _a.lerp(_b.set(-0.12, 1.44, 0.25), tuck);
       reachArm(c, 'R', _a, _p.set(-1, -0.4, -0.2), null, null, 'group');
-      reachArm(c, 'L', _b.set(0.12, 1.42, 0.25), _p.set(1, -0.4, -0.2), null, null, 'group');
+      reachArm(c, 'L', _b.set(0.12, 1.45, 0.25), _p.set(1, -0.4, -0.2), null, null, 'group');
       bendSpine(c, mix(0.3 * k0, 0.18, tuck), 0.3 * tuck, 0);
       // (the feet: a pivot, knees bent)
       bendLeg(c.legL, c.kneeL, 0.25 * tuck, 0.45 * tuck);
@@ -179,9 +179,9 @@ export class BreakFree {
     } else {
       // ...both hands come up to shove him.
       const up = seg(t, 0.15, 0.4);
-      _a.lerp(_b.set(-0.14, 1.32, 0.3), up);
+      _a.lerp(_b.set(-0.14, 1.37, 0.3), up);
       reachArm(c, 'R', _a, _p.set(-1, -0.6, -0.3), null, null, 'group');
-      reachArm(c, 'L', _b.set(0.14, 1.3, 0.3).lerp(_p.set(0.25, 0.95, 0.05), 1 - up), _p.set(1, -0.6, -0.3), null, null, 'group');
+      reachArm(c, 'L', _b.set(0.14, 1.35, 0.3).lerp(_p.set(0.25, 0.95, 0.05), 1 - up), _p.set(1, -0.6, -0.3), null, null, 'group');
       bendSpine(c, mix(0.3, 0.1, yank), 0.2 * yank, 0);
     }
     c.neck.rotation.set(mix(0.3, -0.05, yank), 0, 0);
@@ -195,8 +195,8 @@ export class BreakFree {
   shove(c, t) {
     const out = seg(t, FIRST.shove - 0.08, FIRST.shove) * (1 - seg(t, FIRST.shove + 0.08, FIRST.shove + 0.25));
     if (out <= 0) return;
-    reachArm(c, 'R', _a.set(-0.16, 1.36, mix(0.3, 0.62, out)), _p.set(-1, -0.6, -0.2), null, null, 'group');
-    reachArm(c, 'L', _a.set(0.16, 1.36, mix(0.3, 0.62, out)), _p.set(1, -0.6, -0.2), null, null, 'group');
+    reachArm(c, 'R', _a.set(-0.16, 1.4, mix(0.3, 0.62, out)), _p.set(-1, -0.6, -0.2), null, null, 'group');
+    reachArm(c, 'L', _a.set(0.16, 1.4, mix(0.3, 0.62, out)), _p.set(1, -0.6, -0.2), null, null, 'group');
     bendSpine(c, 0.15 * out, 0, 0);
     bendLeg(c.legL, c.kneeL, 0.45 * out, 0.4 * out);
     bendLeg(c.legR, c.kneeR, -0.35 * out, 0.15 * out);
@@ -220,9 +220,9 @@ export class BreakFree {
     const lost = seg(t, 0.04, 0.24); // (his grip gone)
     const up = seg(t, 0.3, 0.6);
     // (hands: reaching where your arm was, flung off, then up in front of him)
-    _a.set(0.15, 1.05, 0.4).lerp(_b.set(0.3, 1.0, 0.15), lost).lerp(_b.set(0.16, 1.4, 0.3), up);
+    _a.set(0.15, 1.15, 0.4).lerp(_b.set(0.3, 1.0, 0.15), lost).lerp(_b.set(0.16, 1.44, 0.3), up);
     reachArm(c, 'L', _a, _p.set(1, -0.6, -0.3), null, null, 'group');
-    _a.set(-0.15, 1.1, 0.35).lerp(_b.set(-0.32, 1.0, 0.1), lost).lerp(_b.set(-0.16, 1.4, 0.3), up);
+    _a.set(-0.15, 1.19, 0.35).lerp(_b.set(-0.32, 1.0, 0.1), lost).lerp(_b.set(-0.16, 1.44, 0.3), up);
     reachArm(c, 'R', _a, _p.set(-1, -0.6, -0.3), null, null, 'group');
     bendSpine(c, 0.15 * (1 - lost) - 0.12 * lost * (1 - up), 0, 0);
     if (!this.win && this.landed) {

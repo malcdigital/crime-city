@@ -650,31 +650,35 @@ export function driverGeometry(look, seatAt, wheelZ) {
   const key = `${look.skin}|${look.shirt}|${look.pants}|${look.hair}|${seatAt.x}|${seatAt.y}|${seatAt.z}|${seatAt.floor}|${seatAt.lean}|${wheelZ}`;
   if (driverCache.has(key)) return driverCache.get(key);
   const { x, y, z, lean = 0 } = seatAt;
+  // (drawn at an average man's size, 0.89 of the rig (character.js RIG), the hips just under
+  // the seat's height as yours are: carscenes.js seatPose. So the crown's about 0.8 over the seat)
+  const hy = y - 0.04;
   // (the upper body, leaned back about the hips: low cars lay you back)
   const up = [];
-  up.push(box(0.4, 0.44, 0.24, x, y + 0.28, z - 0.08, look.shirt, -0.15)); // (the chest)
-  up.push(box(0.18, 0.07, 0.18, x, y + 0.52, z - 0.06, look.skin)); // (the neck)
-  up.push(box(0.2, 0.22, 0.22, x, y + 0.64, z - 0.04, look.skin)); // (the head)
-  if (look.hair !== undefined) up.push(box(0.21, 0.06, 0.23, x, y + 0.76, z - 0.05, look.hair));
+  up.push(box(0.46, 0.27, 0.26, x, hy + 0.115, z - 0.09, look.shirt, -0.15)); // (the belly)
+  up.push(box(0.5, 0.34, 0.28, x, hy + 0.365, z - 0.07, look.shirt, -0.15)); // (the chest, up to the shoulders)
+  up.push(box(0.12, 0.11, 0.12, x, hy + 0.59, z - 0.05, look.skin)); // (the neck)
+  up.push(box(0.23, 0.23, 0.24, x, hy + 0.73, z - 0.04, look.skin)); // (the head: chin to crown, an eighth of the height)
+  if (look.hair !== undefined) up.push(box(0.24, 0.05, 0.25, x, hy + 0.83, z - 0.05, look.hair));
   const tilt = (g) => g.translate(0, -y, -z).rotateX(-lean).translate(0, y, z);
   const parts = up.map(tilt);
-  const shoulder = new THREE.Vector3(0, 0.45, -0.05).applyAxisAngle(new THREE.Vector3(1, 0, 0), -lean);
+  const shoulder = new THREE.Vector3(0, hy + 0.49 - y, -0.05).applyAxisAngle(new THREE.Vector3(1, 0, 0), -lean);
   // (the thighs forward along the seat, the shins down and forward to the pedals, the feet
-  // flat on the floor: never through it)
+  // flat on the floor: never through it. Thigh 0.41, shin 0.43 to the ankle)
   const floor = seatAt.floor ?? y - 0.2;
-  const knee = [z + 0.42, y + 0.05];
+  const knee = [z + 0.39, hy + 0.04];
   const foot = floor + 0.07;
   const drop = knee[1] - foot;
-  const reach = Math.sqrt(Math.max(0.01, 0.42 * 0.42 - drop * drop));
+  const reach = Math.sqrt(Math.max(0.01, 0.43 * 0.43 - drop * drop));
   for (const s of [1, -1]) {
     const lx = x + s * 0.11;
-    parts.push(bar([lx, y + 0.06, z - 0.02], [lx, knee[1], knee[0]], 0.15, look.pants, 0.15));
-    parts.push(bar([lx, knee[1], knee[0]], [lx, foot + 0.02, knee[0] + reach], 0.12, look.pants, 0.13));
-    parts.push(box(0.11, 0.08, 0.24, lx, foot, knee[0] + reach + 0.06, look.shoes ?? 0x141414)); // (the shoe)
+    parts.push(bar([lx, hy, z - 0.02], [lx, knee[1], knee[0]], 0.18, look.pants, 0.2));
+    parts.push(bar([lx, knee[1], knee[0]], [lx, foot + 0.02, knee[0] + reach], 0.15, look.pants, 0.17));
+    parts.push(box(0.11, 0.08, 0.26, lx, foot, knee[0] + reach + 0.07, look.shoes ?? 0x141414)); // (the shoe)
   }
   // (the arms out to the wheel, the hands on it)
-  for (const s of [1, -1]) parts.push(bar([x + s * 0.22, y + shoulder.y, z + shoulder.z], [x + s * 0.15, y + 0.42, wheelZ + 0.05], 0.09, look.shirt));
-  for (const s of [1, -1]) parts.push(box(0.08, 0.08, 0.08, x + s * 0.15, y + 0.42, wheelZ + 0.08, look.skin));
+  for (const s of [1, -1]) parts.push(bar([x + s * 0.26, y + shoulder.y, z + shoulder.z], [x + s * 0.15, y + 0.42, wheelZ + 0.05], 0.12, look.shirt));
+  for (const s of [1, -1]) parts.push(box(0.1, 0.1, 0.1, x + s * 0.15, y + 0.42, wheelZ + 0.08, look.skin));
   const g = merge(parts);
   driverCache.set(key, g);
   return g;

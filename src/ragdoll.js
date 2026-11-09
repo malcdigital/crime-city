@@ -3,7 +3,7 @@ import { restPose, fallPose, lieDown } from './character.js';
 import { pushCircle } from './collision.js';
 
 // Hit by a car: the body goes flying with real momentum instead of just tipping over.
-// A body is two points, the feet and the head, held 1.7 m apart (position-based dynamics):
+// A body is two points, the feet and the head, held 1.74 m apart (position-based dynamics):
 // gravity pulls on both, they hit the ground (bounce, slide, friction), walls push them out,
 // and cars are solid boxes they hit and ride on. A car's bumper sweeps the legs at the car's
 // speed while the head lags, so at speed the body wraps onto the hood, rides up the windshield
@@ -71,7 +71,7 @@ export class Ragdolls {
     const vx = fx * s;
     const vz = fz * s;
     const sp = Math.abs(s);
-    const L = 1.7 * (c.group.scale.y || 1);
+    const L = 1.74 * (c.group.scale.y || 1); // (the feet to the middle of the head)
     const gy = this.ground(t, t.x, t.z, 0);
     // (which side of the car's middle they were on: they glance off that way)
     const lat = -(t.x - v.x) * fz + (t.z - v.z) * fx;
@@ -102,7 +102,7 @@ export class Ragdolls {
   knock(t, fx, fz, power = 3) {
     if (this.has(t)) return;
     const c = t.char;
-    const L = 1.7 * (c.group.scale.y || 1);
+    const L = 1.74 * (c.group.scale.y || 1); // (the feet to the middle of the head)
     let dx = t.x - fx;
     let dz = t.z - fz;
     const d = Math.hypot(dx, dz) || 1;

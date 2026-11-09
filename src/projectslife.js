@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { makeCharacter, makePerson, setHeight, setShirt, bendLeg, bendSpine, crouchPose, restPose, SKIN_TONES } from './character.js';
+import { makeCharacter, makePerson, setHeight, setShirt, bendLeg, bendSpine, crouchPose, restPose, SKIN_TONES, RIG, L1 } from './character.js';
 import { safetyAt, turnout } from './safety.js';
 import { GANGS } from './turf.js';
 import { dist, rand, pick, lerpAngle } from './util.js';
@@ -701,7 +701,7 @@ export class ProjectsLife {
     const t = game.time + (p.seed || 0);
     const gy = game.city.groundY(p.x, p.z);
     const s = c.group.scale.y || 1;
-    const hip = 0.9 * s;
+    const hip = RIG.hip * s;
     const arms = (lx, ly, lz, rx, ry, rz, el = 0, er = 0) => {
       c.armL.rotation.set(lx, ly, lz);
       c.armR.rotation.set(rx, ry, rz);
@@ -709,8 +709,12 @@ export class ProjectsLife {
       c.elbowR.rotation.set(er, 0, 0);
     };
     if (pj.role === 'sit') {
-      bendLeg(c.legL, c.kneeL, 1.5, 1.5);
-      bendLeg(c.legR, c.kneeR, 1.5, 1.5);
+      // (the thighs on the seat, sloping down to the knee as far as it takes for the shins, straight
+      // down, to stand the feet on the ground: a short person's thighs slope more)
+      const hy = (pj.seat.y - gy) / s + 0.12; // (the hips over the ground, in the rig's own meters)
+      const th = Math.acos(Math.max(Math.cos(1.5), Math.min(Math.cos(1.1), (hy - RIG.knee) / L1)));
+      bendLeg(c.legL, c.kneeL, th, th);
+      bendLeg(c.legR, c.kneeR, th, th);
       const a = pj.act;
       if (a === 'cards') {
         // (hands forward over the table; now and then one comes up and slaps a domino down)
@@ -734,7 +738,7 @@ export class ProjectsLife {
         arms(-0.45, 0, 0.1, -0.45, 0, -0.1, -0.6, -0.6);
         c.neck.rotation.set(0, Math.sin(t * 0.35) * 0.6, 0);
       }
-      return pj.seat.y - gy - hip + 0.04;
+      return pj.seat.y - gy - hip + 0.12 * s; // (the hips half a thigh's depth over the seat: the thighs rest on it, the feet reach the ground)
     }
     if (pj.role === 'kid') {
       const P = pj.pose;
@@ -743,13 +747,13 @@ export class ProjectsLife {
         bendLeg(c.legL, c.kneeL, 1.4, 1.2 + Math.sin(t * 2.2) * 0.4);
         bendLeg(c.legR, c.kneeR, 1.4, 1.2 + Math.sin(t * 2.2) * 0.4);
         arms(-2.7, 0, 0, -2.7, 0, 0);
-        y = pj.y - gy - 0.9 * KID;
+        y = pj.y - gy - (RIG.hip - 0.12) * KID;
       } else if (P === 'ride') {
         bendLeg(c.legL, c.kneeL, 1.3, 1.4);
         bendLeg(c.legR, c.kneeR, 1.3, 1.4);
         arms(-1.3, 0, 0, -1.3, 0, 0, -0.4, -0.4);
         bendSpine(c, 0.2 + Math.sin(t * 5) * 0.1, 0, 0);
-        y = pj.y - gy - 0.9 * KID;
+        y = pj.y - gy - (RIG.hip - 0.12) * KID;
       } else if (P === 'climb') {
         arms(-2.6 + Math.sin(t * 7) * 0.3, 0, 0, -2.6 - Math.sin(t * 7) * 0.3, 0, 0);
         bendLeg(c.legL, c.kneeL, 0.6 + Math.sin(t * 7) * 0.4, 1);
@@ -759,7 +763,7 @@ export class ProjectsLife {
         bendLeg(c.legL, c.kneeL, 1.5, 0.2);
         bendLeg(c.legR, c.kneeR, 1.5, 0.2);
         arms(-2.4, 0, 0.4, -2.4, 0, -0.4);
-        y = pj.y - gy - 0.9 * KID;
+        y = pj.y - gy - (RIG.hip - 0.12) * KID;
       }
       return y;
     }

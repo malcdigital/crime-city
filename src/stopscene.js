@@ -114,15 +114,15 @@ export class StopScene {
     }
     if (this.has('body cam')) {
       const cam = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.05), lam(0x111111));
-      cam.position.set(-0.1, 1.42, 0.18);
+      cam.position.set(-0.1, 1.45, 0.18); // (on the chest)
       add(cam, c.group);
       this.camLight = new THREE.Mesh(new THREE.SphereGeometry(0.022, 6, 4), new THREE.MeshBasicMaterial({ color: 0xff2222 }));
-      this.camLight.position.set(-0.1, 1.47, 0.21);
+      this.camLight.position.set(-0.1, 1.5, 0.21);
       add(this.camLight, c.group);
     }
     if (this.has('calls it in')) {
       const radio = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.12, 0.05), lam(0x161616));
-      radio.position.set(0.22, 1.58, 0.15);
+      radio.position.set(0.22, 1.55, 0.17); // (up by the collarbone)
       add(radio, c.group);
     }
     if (this.has('reads you your rights')) {
@@ -198,7 +198,7 @@ export class StopScene {
     c.neck.rotation.set(0.3 * k, -0.2 * k, 0);
     c.group.updateMatrixWorld(true);
     // (the right hand up in the small of the back, the elbow out to the side)
-    const behind = new THREE.Vector3(-0.2, 0.86, -0.08).lerp(new THREE.Vector3(0.02, 1.02, -0.26), k);
+    const behind = new THREE.Vector3(-0.2, 0.98, -0.08).lerp(new THREE.Vector3(0.02, 1.12, -0.26), k);
     reachArm(c, 'R', behind, new THREE.Vector3(-1, 0.1, -0.5), null, null, 'group');
     c.armL.rotation.set((-0.25 - 0.35 * tug) * k, 0, 0.25 * k);
     c.elbowL.rotation.set(-0.5 * k, 0, 0);
@@ -237,7 +237,7 @@ export class StopScene {
           const tgt = (node, off) => {
             const w = node.localToWorld(off.clone());
             const l = c.group.worldToLocal(w);
-            return new THREE.Vector3(0.15, 1.05, 0.35).lerp(l, k);
+            return new THREE.Vector3(0.15, 1.15, 0.35).lerp(l, k);
           };
           reachArm(c, 'L', tgt(P.char.wristR, new THREE.Vector3(0, -0.05, 0)), new THREE.Vector3(1, -0.6, -0.3), null, null, 'group');
           reachArm(c, 'R', tgt(P.char.armR, new THREE.Vector3(0, -0.14, 0)), new THREE.Vector3(-0.8, -0.3, -0.4), null, null, 'group');

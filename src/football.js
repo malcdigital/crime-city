@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { lam, setShirt, bendLeg, bendSpine } from './character.js';
+import { lam, setShirt, bendLeg, bendSpine, RIG } from './character.js';
 import { startPair, playClip, tackleKind } from './pairedplay.js';
 import { fbPose, CATCHES, POCKET_CLOSE, PocketFeet, fbBallAt, fbBallQuat, PICK_T } from './footballpose.js';
 import { rand, dist, lerpAngle, pick } from './util.js';
@@ -246,11 +246,11 @@ export class Football {
         // Tucked under the arm.
         b.x = p.x + fx * 0.15 - fz * 0.3;
         b.z = p.z + fz * 0.15 + fx * 0.3;
-        b.y = 1.15;
+        b.y = 1.23;
       } else {
         b.x = p.x + fx * 0.3;
         b.z = p.z + fz * 0.3;
-        b.y = 1.15;
+        b.y = 1.23;
       }
       if (!fbBallQuat(p.char, b.mesh.quaternion)) b.mesh.rotation.set(0, p.heading, 0); // (tucked: along the forearm)
     }
@@ -306,7 +306,7 @@ export class Football {
       if (this.throwing && b.holder === qb && qb.fb.throwT <= 0.12) {
         this.throwing = false;
         const [tx, tz] = this.throwTo;
-        this.launch(tx, 1.3, tz, this.throwT, 'pass', w);
+        this.launch(tx, 1.35, tz, this.throwT, 'pass', w); // (chest high)
         qb.fb.relT = 0.4; // (the follow-through)
       }
       if (this.t > 9) {
@@ -846,7 +846,7 @@ export class Football {
         bendSpine(c, -0.15, Math.sin(f.cheerT * 9) * 0.15, 0);
         c.neck.rotation.set(-0.25, 0, 0);
       }
-      return f.seatY - 0.9;
+      return f.seatY - (RIG.hip - 0.12) * (c.group.scale.y || 1); // (the hips just over the seat: the thighs on it)
     }
     // The rest: a lower body and an upper body, or one whole-body move (footballpose.js fbPose),
     // the same for you (gridiron.js late) and everyone.
@@ -951,7 +951,7 @@ export class Football {
         if (!moving) lower = ['step', 1];
       } else if (b.mode === 'flight' && b.to === p && b.T - b.t < 0.6) {
         if (b.kind === 'pass' && f.reachBack) hands = ['reachBack', f.reachBack]; // (thrown behind him: twisting back for it)
-        else if (b.kind === 'pass') hands = ['catch', b.style === 'lob' || b.p1[1] > 1.5];
+        else if (b.kind === 'pass') hands = ['catch', b.style === 'lob' || b.p1[1] > 1.52];
         else hands = ['catch', false]; // (a toss or a handoff: hands out at the chest)
       } else if ((f.role === 'db' || f.role === 'lb') && (this.phase === 'play' || this.match?.mode === 'drive') && b.mode === 'flight' && b.kind === 'pass') {
         hands = ['reachBall']; // (going up for it)
