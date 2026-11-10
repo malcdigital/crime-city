@@ -63,7 +63,7 @@ import { Shops } from './shops.js';
 import { Interiors } from './interiors.js';
 import { StoreRooms } from './storerooms.js';
 import { enterCar, exitCar, jackCar } from './carscenes.js';
-import { makePerson, restPose, bendSpine } from './character.js';
+import { makePerson, restPose, bendSpine, setHeight } from './character.js';
 // (back on your feet after a scene: upright, the joints at rest)
 const restoreStanding = (c) => {
   restPose(c);
@@ -1818,7 +1818,9 @@ class Game {
   jackScene(v) {
     const p = this.player;
     const look = v.ownLook || {};
-    const victim = makePerson({ shirt: look.shirt, pants: look.pants, skin: look.skin }, 0.3);
+    // (the driver you saw through the glass, the same build: carmodels.js draws an average man)
+    const victim = makePerson({ shirt: look.shirt, pants: look.pants, skin: look.skin }, 0);
+    setHeight(victim, 1.75);
     this.scene.add(victim.group);
     v.jacking = true; // (the driver you see through the glass is this one now)
     this.lockTarget = null;
@@ -1833,7 +1835,7 @@ class Game {
         ped.t = 1.4;
         ped.jacked = true;
         ped.threat = [p.x, p.z];
-        v.jacking = false;
+        // (v.jacking stays on till you're in: the car's own drawn driver mustn't come back in the seat)
       },
       onDone: () => {
         v.jacking = false;

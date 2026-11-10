@@ -738,38 +738,44 @@ export function exitCar(c, v, side = -1, { groundY = null, onDone = null } = {})
 export function jackCar(j, victim, v, side = -1, { from = null, groundY = null, onPulled = null, onDone = null } = {}) {
   const F = carFrame(v);
   const S = doorSpot(v, side);
+  const sx = S.sx;
+  // (spots beside the car, in its frame: x out from the door, z along the car)
+  const at = (out, z) => F.w(sx * (S.doorX + out), z);
   const [sxw, szw] = F.w(...S.stand);
   const start = from || [sxw, szw];
   const gy = groundY ? groundY(sxw, szw) : F.y;
   const vsc = victim.group.scale.y || 1;
   const seatY = F.y + S.seat[1] - 0.04 - HIP * vsc; // (sat as anyone sits: seatPose)
   const [seatX, seatZ] = F.w(S.seat[0], S.seat[2]);
-  const [outX, outZ] = F.w(S.sx * (S.doorX + 1.2), S.hinge - S.len * 0.9);
-  const [downX, downZ] = F.w(S.sx * (S.doorX + 2.2), S.hinge - S.len * 1.2);
-  const vgy = groundY ? groundY(downX, downZ) : F.y;
-  const faceCar = F.yaw(-S.sx, 0);
+  // The choreography, so nobody goes through anybody: you grab him from the front of the opening,
+  // then step back and out, hauling him out past you, behind you along the car; you let go and he
+  // stumbles on and goes down, face first, clear of you; you walk round behind the open door and
+  // get in.
+  const [hx, hz] = at(1.3, S.hinge - S.len * 0.62 - 0.1); // (you, hauling: out from the door)
+  const [ox, oz] = at(0.45, S.seat[2] - 0.45); // (him: out of the opening, on his feet, behind you)
+  const [dnX, dnZ] = at(1.8, S.seat[2] - 0.95); // (him: down)
+  const [ax, az] = at(0.5, S.hinge - S.len - 0.32); // (you: behind the door, where getting in starts)
+  const vgy = groundY ? groundY(dnX, dnZ) : F.y;
+  const faceCar = F.yaw(-sx, 0);
   const faceFwd = F.yaw(0, 1);
+  const throwYaw = Math.atan2(dnX - ox, dnZ - oz);
   const path = walkTo(v, F, start, S.stand, faceCar);
   const walkLen = Math.max(0.15, path.len);
-  const T = { yank: walkLen, grab: walkLen + 0.3, pull: walkLen + 0.65, out: walkLen + 1.15, fall: walkLen + 1.2, down: walkLen + 2.3, enter: walkLen + 1.45 };
-  // (then the way in: the enter scene from its duck on, from where j's standing, played to the
-  // end: sitting back and pulling the door shut)
-  const enter = enterCar(j, v, side, { from: [sxw, szw], groundY, fromDuck: true });
+  const T = { yank: walkLen, grab: walkLen + 0.3, pull: walkLen + 0.65, out: walkLen + 1.2, fall: walkLen + 1.25, down: walkLen + 2.3, enter: walkLen + 2.2 };
+  // (then the way in: the enter scene from its duck on, from behind the door, played to the end:
+  // sitting back and pulling the door shut)
+  const enter = enterCar(j, v, side, { from: [ax, az], groundY, fromDuck: true });
   let pulled = false;
   let opened = false;
   let fit = null;
   const s = new Scene(T.enter + enter.len, (t) => {
-    // The victim: in the seat, hands up, dragged out by the collar, thrown down. (Once he's
-    // down, onPulled hands him over to the street: he's a ped from then on.)
+    // The victim: at the wheel as the car's driver was, hands up when the door flies open,
+    // dragged out by the collar, thrown down. (Once he's down, onPulled hands him over to the
+    // street: he's a ped from then on.)
     if (!pulled) restPose(victim);
     if (pulled) {
       // (his now)
     } else if (t < T.out) {
-      const k = ease(seg(t, T.pull, T.out));
-      const x = lerp(seatX, outX, k);
-      const z = lerp(seatZ, outZ, k);
-      const y = lerp(seatY, gy, ease(seg(t, T.pull + 0.1, T.out)));
-      const yaw = angLerp(faceFwd, faceCar + Math.PI, ease(seg(t, T.grab, T.out)));
       if (!fit) {
         // (sitting as anyone sits in this car: under its roof, worked out once: fitSeat)
         place(victim, seatX, seatY, seatZ, faceFwd);
@@ -777,34 +783,42 @@ export function jackCar(j, victim, v, side = -1, { from = null, groundY = null, 
         fit = cachedFit(victim, v, S);
         restPose(victim);
       }
+      const k = ease(seg(t, T.pull, T.out));
+      const x = lerp(seatX, ox, k);
+      const z = lerp(seatZ, oz, k);
+      const y = lerp(seatY, gy, ease(seg(t, T.pull + 0.1, T.out)));
+      const yaw = angLerp(faceFwd, throwYaw, ease(seg(t, T.grab, T.out)));
       place(victim, x, y, z, yaw);
       sitPose(victim, 1 - ease(seg(t, T.pull + 0.1, T.out)));
-      // (hands up by his head when the door flies open, not through the roof; grabbing at the
-      // arms pulling him)
-      const up = ease(seg(t, T.yank, T.grab));
-      victim.armL.rotation.set(-1.75 * up, 0, 0.45 * up);
-      victim.armR.rotation.set(-1.6 * up, 0, -0.45 * up);
-      victim.elbowL.rotation.set(-1.7 * up, 0, 0);
-      victim.elbowR.rotation.set(-1.6 * up, 0, 0);
-      let bend = Math.sin(seg(t, T.pull, T.out) * Math.PI) * 0.5;
+      const bend = Math.sin(seg(t, T.pull, T.out) * Math.PI) * 0.5;
       bendSpine(victim, bend, 0, 0);
-      // (sat back in the seat till he's yanked, then up off it, the head ducked out under the
-      // roof edge as he comes)
-      seatFit(victim, fit, 1 - ease(seg(t, T.pull - 0.1, T.pull + 0.2)), F);
+      // (sat back in the seat till he's yanked, then up off it over half a second, the head
+      // ducked out under the roof edge as he comes)
+      seatFit(victim, fit, 1 - ease(seg(t, T.pull - 0.25, T.pull + 0.3)), F);
       underRoof(victim, v, S, bend, 1);
+      // (hands on the wheel, as the driver you saw through the glass; up by his head when the
+      // door flies open, grabbing at the arms pulling him)
+      const up = ease(seg(t, T.yank, T.grab));
+      if (up <= 0) handsOnWheel(victim, F, S);
+      else {
+        victim.armL.rotation.set(-1.75 * up, 0, 0.45 * up);
+        victim.armR.rotation.set(-1.6 * up, 0, -0.45 * up);
+        victim.elbowL.rotation.set(-1.7 * up, 0, 0);
+        victim.elbowR.rotation.set(-1.6 * up, 0, 0);
+      }
     } else {
-      // (stumbling out and going down hard, face first)
+      // (stumbling on and going down hard, face first, away from you)
       const k = ease(seg(t, T.out, T.fall + 0.5));
-      const x = lerp(outX, downX, k);
-      const z = lerp(outZ, downZ, k);
+      const x = lerp(ox, dnX, k);
+      const z = lerp(oz, dnZ, k);
       const P = fallPose(victim, seg(t, T.out - 0.1, T.down) * 1.3, 'front');
       victim.group.position.set(x, vgy + 0.2 + P.y, z);
-      victim.group.rotation.set(0, faceCar + Math.PI, 0);
+      victim.group.rotation.set(0, throwYaw, 0);
       victim.group.rotation.order = 'YXZ';
       victim.group.rotation.x = P.rot;
       if (!pulled && t >= T.down) {
         pulled = true;
-        onPulled?.(x, z, faceCar + Math.PI);
+        onPulled?.(x, z, throwYaw);
       }
     }
     // The jacker.
@@ -819,24 +833,33 @@ export function jackCar(j, victim, v, side = -1, { from = null, groundY = null, 
         z = w.z;
         yaw = w.yaw;
         animateWalk(j, w.phase, 0.9 * w.amt);
-      } else {
-        // (leaning in, then hauling back and to the side)
+      } else if (t < T.out) {
+        // (leaning in to grab him, then stepping back and out, hauling, turning with him)
         const haul = ease(seg(t, T.pull, T.out));
-        const back = Math.sin(seg(t, T.pull, T.out + 0.2) * Math.PI);
-        const [bx, bz] = F.w(S.sx * (S.doorX + 0.6 + 0.45 * back), S.hinge - S.len * 0.62 - 0.3 * haul);
-        x = bx;
-        z = bz;
-        yaw = angLerp(faceCar, faceCar + 0.9 * S.sx, haul);
-        bendSpine(j, 0.5 * ease(seg(t, T.yank, T.grab)) * (1 - haul) - 0.2 * back, 0.4 * haul, 0);
-        bendLeg(j.legL, j.kneeL, 0.4 * back, 0.6 * back);
-        bendLeg(j.legR, j.kneeR, -0.2 * back, 0.3 * back);
+        x = lerp(sxw, hx, haul);
+        z = lerp(szw, hz, haul);
+        victim.group.updateMatrixWorld(true);
+        victim.chest.getWorldPosition(_c);
+        yaw = t < T.pull ? faceCar : Math.atan2(_c.x - x, _c.z - z);
+        const lean = Math.sin(seg(t, T.pull, T.out) * Math.PI);
+        bendSpine(j, 0.45 * ease(seg(t, T.yank, T.grab)) * (1 - haul) - 0.22 * lean, 0, 0);
+        if (haul > 0 && haul < 1) animateWalk(j, t * 9, 0.5);
+        bendLeg(j.legL, j.kneeL, 0.35 * lean, 0.55 * lean);
+      } else {
+        // (letting go, a beat while he stumbles clear, then round behind the open door)
+        const k = ease(seg(t, T.out + 0.45, T.enter));
+        x = lerp(hx, ax, k);
+        z = lerp(hz, az, k);
+        const toA = Math.atan2(ax - hx, az - hz);
+        yaw = k < 0.95 ? angLerp(toA, faceCar, ease(seg(t, T.enter - 0.2, T.enter))) : faceCar;
+        if (k > 0 && k < 1) animateWalk(j, t * 10, 0.75);
       }
       place(j, x, gy, z, yaw);
       // (hands: the handle, then the collar, both hands, hauling)
       if (t >= T.yank - 0.1 && t < T.grab) {
-        const [hx, hz] = F.w(S.handle[0], S.handle[2]);
-        handTo(j, S.sx > 0 ? 'L' : 'R', hx, F.y + S.handle[1], hz);
-      } else if (t >= T.grab && t < T.out + 0.1) {
+        const [hhx, hhz] = F.w(S.handle[0], S.handle[2]);
+        handTo(j, sx > 0 ? 'L' : 'R', hhx, F.y + S.handle[1], hhz);
+      } else if (t >= T.grab && t < T.out) {
         victim.group.updateMatrixWorld(true);
         victim.chest.getWorldPosition(_c);
         handTo(j, 'L', _c.x + 0.08, _c.y + 0.15, _c.z);
