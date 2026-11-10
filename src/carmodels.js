@@ -258,7 +258,7 @@ function steeringWheel(x, y, z, tilt = 0.45) {
 // Dashboard, steering wheel, gauges, the radio, vents, the console and shifter, pedals, the
 // seats, carpet and mats, the headliner, the mirror and visors: a car's cabin.
 function cabin(o) {
-  const { hwIn, belt, dashZ, seatZ, rearZ, driverX, color, seats = 4, wheelY = belt + 0.05, floor = 0.42, sh = 1, roof = belt + 0.5, wsTop = null } = o;
+  const { hwIn, belt, dashZ, seatZ, rearZ, driverX, color, seats = 4, wheelY = belt + 0.05, floor = 0.42, sh = 1, roof = belt + 0.5, wsTop = null, roofBack = null, roofHw = null } = o;
   const P = palette(color);
   const out = [];
   const back = (rearZ ?? seatZ) - 0.55;
@@ -322,15 +322,18 @@ function cabin(o) {
   out.push(...seat(driverX, cy, seatZ, P, { sh }));
   if (seats >= 2) out.push(...seat(-driverX, cy, seatZ, P, { sh }));
   if (seats >= 4 && rearZ !== undefined) {
-    out.push(...seat(0, cy + 0.02, rearZ, P, { w: W2 - 0.12, bench: true, rests: 3 }));
+    out.push(...seat(0, cy + 0.02, rearZ, P, { w: W2 - 0.12, bench: true, rests: 3, sh: 0.8 }));
     // (the parcel shelf behind it, its speakers)
     out.push(box(W2 - 0.1, 0.03, 0.4, 0, belt + 0.02, rearZ - 0.62, P.dash));
     for (const s of [1, -1]) out.push(disc(0.06, 0.012, s * 0.45, belt + 0.04, rearZ - 0.62, 0x0b0c0e, -Math.PI / 2, 14));
   }
   // The headliner under the roof, the dome light, the mirror, the visors.
+  // (only as far back as the roof goes: past it, it stuck out over the back glass)
   const front = wsTop ?? dashZ - 0.45;
-  out.push(box(W2 - 0.06, 0.02, front - back - 0.15, 0, roof - 0.04, (front + back) / 2 - 0.05, P.head));
-  out.push(box(0.14, 0.012, 0.08, 0, roof - 0.055, (front + back) / 2, 0xfff4d6)); // (the dome light)
+  const hb = Math.max(back + 0.1, roofBack != null ? roofBack + 0.05 : back + 0.1);
+  const hlW = Math.min(W2 - 0.06, roofHw != null ? roofHw * 2 - 0.04 : W2); // (no wider than the roof: the glass slopes in)
+  out.push(box(hlW, 0.02, front - hb - 0.05, 0, roof - 0.04, (front + hb) / 2 - 0.025, P.head));
+  out.push(box(0.14, 0.012, 0.08, 0, roof - 0.055, (front + hb) / 2, 0xfff4d6)); // (the dome light)
   out.push(box(0.22, 0.06, 0.02, 0, roof - 0.12, front - 0.02, 0x1a1b1d)); // (the mirror)
   out.push(box(0.2, 0.05, 0.004, 0, roof - 0.12, front - 0.032, 0x8fa3b5));
   out.push(box(0.02, 0.06, 0.02, 0, roof - 0.07, front - 0.01, 0x1a1b1d));
@@ -409,6 +412,8 @@ function car(t, s) {
     trim.push(box(0.16, 0.12, 0.08, sx * (hwB + 0.12), belt + 0.1, wsBase * k - 0.12, s.mirror ?? BLACK));
     trim.push(box(0.1, 0.04, 0.06, sx * (hwB + 0.04), belt + 0.06, wsBase * k - 0.12, BLACK));
   }
+  // (the wheel wells: dark inside the arches, so you don't see through the body over the tires)
+  for (const [az, ay, ar] of arches) for (const sx of [1, -1]) trim.push(box(0.04, ay + ar - 0.28, 2 * ar + 0.12, sx * (W - 0.12 - 0.12 - 0.04), (ay + ar + 0.28) / 2, az, 0x0d0d0e));
   // (bumpers, the grille, plates, the exhaust)
   trim.push(box(t.w - 0.02, 0.2, 0.14, 0, 0.44, L - 0.02, s.bumper ?? DARK));
   trim.push(box(t.w - 0.02, 0.2, 0.14, 0, 0.44, -L + 0.02, s.bumper ?? DARK));
@@ -436,7 +441,7 @@ function car(t, s) {
       if (s.doors4) inside.push(box(0.05, 0.05, 0.3, sx * (wallX - 0.06), belt - 0.33, (z0 + z1) / 2 + 0.1, P.dash2)); // (an armrest)
     }
   }
-  inside.push(...cabin({ hwIn: hwB - 0.06, belt, dashZ: wsBase * k - 0.15, seatZ: s.seatZ * k, rearZ: s.doors4 ? s.rearSeatZ * k : undefined, driverX: 0.38, color: s.inside, seats: s.doors4 ? 4 : 2, floor: s.floor ?? 0.42, sh: s.seatH ?? 1, roof, wsTop: roofF * k }));
+  inside.push(...cabin({ hwIn: hwB - 0.06, belt, dashZ: wsBase * k - 0.15, seatZ: s.seatZ * k, rearZ: s.doors4 ? s.rearSeatZ * k : undefined, driverX: 0.38, color: s.inside, seats: s.doors4 ? 4 : 2, floor: s.floor ?? 0.42, sh: s.seatH ?? 1, roof, wsTop: roofF * k, roofBack: roofR * k, roofHw: hwR }));
   return {
     paint, glass, trim, inside, green, hwG, hwBody, belt, roof, insideColor: s.inside,
     door: { hinge: wsBase * k - 0.05, len: wsBase * k - 0.05 - bZ, bottom: 0.4, top: belt, x: hwBody(belt - 0.2) + 0.01 },
@@ -446,7 +451,9 @@ function car(t, s) {
   };
 }
 
-const SEDAN = { hood: 0.88, belt: 1.0, roof: 1.47, trunk: 1.02, wsBase: 0.95, roofF: 0.2, roofR: -0.78, rearBase: -1.35, bPillar: -0.25, seatZ: -0.35, rearSeatZ: -1.15, doors4: true, inside: 0x3a3b3e };
+// (a four-door's greenhouse: the roof runs back over the rear seat, the back glass down to a short
+// trunk; the rear seat under the roof, its headrests under the glass)
+const SEDAN = { hood: 0.88, belt: 1.0, roof: 1.47, trunk: 1.02, wsBase: 0.95, roofF: 0.15, roofR: -1.0, rearBase: -1.6, bPillar: -0.3, seatZ: -0.25, rearSeatZ: -0.85, doors4: true, inside: 0x3a3b3e };
 
 // A one-box van (van, the SWAT truck): a short hood, a glass cab up front, a solid cargo body.
 function van(t, s) {
