@@ -742,7 +742,7 @@ export function jackCar(j, victim, v, side = -1, { from = null, groundY = null, 
   const start = from || [sxw, szw];
   const gy = groundY ? groundY(sxw, szw) : F.y;
   const vsc = victim.group.scale.y || 1;
-  const seatY = F.y + S.seat[1] + 0.06 - HIP * vsc;
+  const seatY = F.y + S.seat[1] - 0.04 - HIP * vsc; // (sat as anyone sits: seatPose)
   const [seatX, seatZ] = F.w(S.seat[0], S.seat[2]);
   const [outX, outZ] = F.w(S.sx * (S.doorX + 1.2), S.hinge - S.len * 0.9);
   const [downX, downZ] = F.w(S.sx * (S.doorX + 2.2), S.hinge - S.len * 1.2);
@@ -752,11 +752,13 @@ export function jackCar(j, victim, v, side = -1, { from = null, groundY = null, 
   const path = walkTo(v, F, start, S.stand, faceCar);
   const walkLen = Math.max(0.15, path.len);
   const T = { yank: walkLen, grab: walkLen + 0.3, pull: walkLen + 0.65, out: walkLen + 1.15, fall: walkLen + 1.2, down: walkLen + 2.3, enter: walkLen + 1.45 };
-  // (then the way in: the enter scene from its duck on, from where j's standing)
-  let enter = null;
+  // (then the way in: the enter scene from its duck on, from where j's standing, played to the
+  // end: sitting back and pulling the door shut)
+  const enter = enterCar(j, v, side, { from: [sxw, szw], groundY, fromDuck: true });
   let pulled = false;
   let opened = false;
-  const s = new Scene(T.enter + 1.2, (t) => {
+  let fit = null;
+  const s = new Scene(T.enter + enter.len, (t) => {
     // The victim: in the seat, hands up, dragged out by the collar, thrown down. (Once he's
     // down, onPulled hands him over to the street: he's a ped from then on.)
     if (!pulled) restPose(victim);
@@ -768,15 +770,28 @@ export function jackCar(j, victim, v, side = -1, { from = null, groundY = null, 
       const z = lerp(seatZ, outZ, k);
       const y = lerp(seatY, gy, ease(seg(t, T.pull + 0.1, T.out)));
       const yaw = angLerp(faceFwd, faceCar + Math.PI, ease(seg(t, T.grab, T.out)));
+      if (!fit) {
+        // (sitting as anyone sits in this car: under its roof, worked out once: fitSeat)
+        place(victim, seatX, seatY, seatZ, faceFwd);
+        sitPose(victim, 1);
+        fit = cachedFit(victim, v, S);
+        restPose(victim);
+      }
       place(victim, x, y, z, yaw);
       sitPose(victim, 1 - ease(seg(t, T.pull + 0.1, T.out)));
-      // (hands up when the door flies open; grabbing at the arms pulling him)
+      // (hands up by his head when the door flies open, not through the roof; grabbing at the
+      // arms pulling him)
       const up = ease(seg(t, T.yank, T.grab));
-      victim.armL.rotation.set(-2.2 * up, 0, 0.5 * up);
-      victim.armR.rotation.set(-2.0 * up, 0, -0.5 * up);
-      victim.elbowL.rotation.set(-1.4 * up, 0, 0);
-      victim.elbowR.rotation.set(-1.3 * up, 0, 0);
-      bendSpine(victim, Math.sin(seg(t, T.pull, T.out) * Math.PI) * 0.5, 0, 0);
+      victim.armL.rotation.set(-1.75 * up, 0, 0.45 * up);
+      victim.armR.rotation.set(-1.6 * up, 0, -0.45 * up);
+      victim.elbowL.rotation.set(-1.7 * up, 0, 0);
+      victim.elbowR.rotation.set(-1.6 * up, 0, 0);
+      let bend = Math.sin(seg(t, T.pull, T.out) * Math.PI) * 0.5;
+      bendSpine(victim, bend, 0, 0);
+      // (sat back in the seat till he's yanked, then up off it, the head ducked out under the
+      // roof edge as he comes)
+      seatFit(victim, fit, 1 - ease(seg(t, T.pull - 0.1, T.pull + 0.2)), F);
+      underRoof(victim, v, S, bend, 1);
     } else {
       // (stumbling out and going down hard, face first)
       const k = ease(seg(t, T.out, T.fall + 0.5));
@@ -837,7 +852,6 @@ export function jackCar(j, victim, v, side = -1, { from = null, groundY = null, 
       s.yaw = yaw;
     } else {
       // In, the rest of the way: the enter scene from where the duck starts.
-      enter ||= enterCar(j, v, side, { from: [sxw, szw], groundY, fromDuck: true });
       enter.update(Math.max(0, t - T.enter - enter.t));
       s.pos = enter.pos;
       s.yaw = enter.yaw;
