@@ -45,6 +45,7 @@ import { GangManager, CrewManager, MAX_CREW } from './gang.js';
 import { Hud } from './hud.js';
 import { Effects } from './effects.js';
 import { Sfx } from './audio.js';
+import { Soundscape } from './soundscape.js';
 import { AirCam, ClipPlayer } from './aircam.js';
 import { TurfManager, GANGS } from './turf.js';
 import { Arsenal, WEAPONS, raycast, rayBox, rayHitBox } from './weapons.js';
@@ -160,6 +161,7 @@ class Game {
     this.clipPlayer = new ClipPlayer();
     this.effects = new Effects(this.scene);
     this.sfx = new Sfx();
+    this.sound = new Soundscape(this); // (the engine, tires, sirens, the city: soundscape.js)
     this.arsenal = new Arsenal();
 
     const sp = this.city.spawn;
@@ -1932,6 +1934,18 @@ class Game {
     const pad = this.input.mode === 'pad';
     if (g) g.textContent = `Pistol grip: ${PISTOL_STYLES[this.style.grip]} ▸ ${pad || this.input.touchMode ? '' : '(G)'}`;
     if (f) f.textContent = `Fight style: ${FIGHT_STYLES[this.style.fight].name} ▸ ${pad || this.input.touchMode ? '' : '(B)'}`;
+    const sb = document.getElementById('sound-btn');
+    if (sb) sb.textContent = `Sound: ${this.sfx.volume > 0 ? `${Math.round(this.sfx.volume * 100)}%` : 'Off'} ▸`;
+  }
+
+  // The pause menu's Sound button: 100%, 70%, 40%, off, round again (kept in the browser).
+  cycleVolume() {
+    const steps = [1, 0.7, 0.4, 0];
+    const i = steps.findIndex((v) => Math.abs(v - this.sfx.volume) < 0.05);
+    this.sfx.setVolume(steps[(i + 1) % steps.length]);
+    this.sfx.unlock();
+    this.sfx.click();
+    this.showStyle();
   }
 
   punch() {
@@ -3002,12 +3016,15 @@ class Game {
     this.ragdolls.apply(); // (and anyone flying)
     if (this.animViewer.open) this.animViewer.render(this.renderer);
     else this.renderer.render(this.scene, this.camera);
+    this.sound.update(dt, a, !!this.ticked);
+    this.ticked = false;
     this.interactWasHeld = a.interactHeld;
     this.input.endFrame();
     requestAnimationFrame((t) => this.frame(t));
   }
 
   update(dt, a) {
+    this.ticked = true; // (the game ran this frame: soundscape.js fades its voices when it doesn't)
     this.time += dt;
     this.flushHeldNews(); // (stash news held through a game)
     if (this.cine || this.stop || this.travel.active) {
@@ -3464,6 +3481,7 @@ document.getElementById('quit-game').addEventListener('click', () => game.quitPi
 document.getElementById('anim-btn').addEventListener('click', () => game.animViewer.show());
 document.getElementById('grip-btn').addEventListener('click', () => game.cycleStyle('grip'));
 document.getElementById('fight-btn').addEventListener('click', () => game.cycleStyle('fight'));
+document.getElementById('sound-btn').addEventListener('click', () => game.cycleVolume());
 game.showStyle();
 // Interchange editor (testing) in the pause menu.
 if (game.rampEditor) {

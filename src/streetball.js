@@ -1379,6 +1379,7 @@ export class Streetball {
       this.game.sfx?.swish?.();
       return;
     }
+    this.game.sfx?.rim?.();
     const side = rand(-1, 1);
     const sp = rand(1.5, 3.2);
     const L = Math.hypot(side, 1);
@@ -4284,7 +4285,9 @@ export class Streetball {
       const fx = Math.sin(p.heading);
       const fz = Math.cos(p.heading);
       const Y = this.you;
-      this.dribble = (this.dribble || 0) + dt * (this.t33 ? DRIBBLE33 : Y.sizeUp ? 12 : 9); // (33: a slow, easy bounce)
+      const dr0 = this.dribble || 0;
+      this.dribble = dr0 + dt * (this.t33 ? DRIBBLE33 : Y.sizeUp ? 12 : 9); // (33: a slow, easy bounce)
+      if (Math.floor(this.dribble / Math.PI) !== Math.floor(dr0 / Math.PI) && !Y.dunk && b.mode === 'held' && b.y < 0.6) game.sfx?.bounce?.(0.7); // (the dribble: each time it meets the floor)
       if (Y.dunk) {
         // (in the hands going up: where the dunk's arms have it)
         dunkBall(b, game.player.char, Y.dunkTwo ?? true, Y.dunk.hand ?? 1, _v1, _v2);
@@ -4701,6 +4704,7 @@ export class Streetball {
           S.streak = 0;
           if (s?.type !== 'layup' && s?.type !== 'dunk') this.heatResult('you', false);
         }
+        game.sfx?.rim?.();
         const side = rand(-1, 1);
         const sp = rand(1.5, 3.2);
         const L = Math.hypot(side, 1);

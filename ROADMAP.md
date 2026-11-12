@@ -37,10 +37,10 @@ Timing-based throwing and catching throughout (a meter or a ring for the throw, 
 ## Ideas list (realism and polish, best value first)
 Done: car lights, daily rhythms, parked cars / buses / taxis / delivery trucks, street props (hydrants, trash cans, benches, bus shelters, litter, graffiti), traffic enforcement.
 
-5. City sounds: background hum, distant sirens, music from the Strip.
+5. City sounds: done (engine, tires, sirens, the city bed, footsteps, doors, crashes: soundscape.js). Still to do: music from the Strip and the car radio, voices.
 7. Emergency services: ambulances, fire trucks, tow trucks.
 8. Weather: rain (slick roads, fewer people out), fog.
-9. Settings menu: volume, graphics quality (a Phone/Full switch is in the pause menu now), field of view, controls.
+9. Settings menu: graphics quality (a Phone/Full switch) and volume (Sound: 100/70/40/Off) are in the pause menu now; still to do: field of view, look sensitivity, controls.
 10. One save/load system with an autosave indicator.
 11. Onboarding: short tutorial missions.
 12. Automated tests: turn the headless test scripts into a suite that runs on every change.

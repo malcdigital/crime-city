@@ -313,6 +313,7 @@ export class Hoops {
       this.game.sfx?.swish?.();
     } else {
       // Off the rim, back out into the court.
+      this.game.sound?.near('rim', rim.x, rim.z, 50);
       const side = rand(-1, 1);
       const sp = rand(1.5, 3.2);
       const L = Math.hypot(side, 1);
@@ -331,6 +332,8 @@ export class Hoops {
     b.z += b.vz * dt;
     if (b.y < FLOOR) {
       b.y = FLOOR;
+      // (the bounce: heard from the court, quieter the further you are and the lower it comes down)
+      if (Math.abs(b.vy) > 1) this.game.sound?.near('bounce', b.x, b.z, 45, Math.min(1, Math.abs(b.vy) / 6));
       b.vy = Math.abs(b.vy) > 1 ? -b.vy * 0.65 : 0;
       const f = Math.max(0, 1 - dt * 1.2);
       b.vx *= f;
